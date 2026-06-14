@@ -50,16 +50,35 @@ module built this way?"* and get an evidence-cited answer.
 | `brain backfill --since 90d` | replay git history → seed decisions |
 | `brain sync [sha]` | commit → Decision (run by the hook) |
 | `brain query "<q>"` | FTS + graph search |
-| `brain why <path\|symbol>` | decisions / bugs / constraints explaining a target |
+| `brain why <path\|symbol>` | decisions / bugs / constraints explaining a target (flags `⚠STALE`) |
+| `brain context <path\|symbol>` | **surgical** minimal slice for a task: invariants → decisions → bugs → blast radius |
+| `brain check [--staged\|--commit <sha>] [--strict]` | **guardrail**: flag changes touching do-not-break invariants |
+| `brain stale` | **drift**: records whose files changed after they were last verified |
+| `brain review [--accept <id>\|--reject <id>]` | **curate**: triage low-confidence drafts |
 | `brain fragile` | ranked fragility report with evidence |
 | `brain record-bug --test <id> --message <m>` | capture a Bug from a failing test |
 | `brain mcp` | start the MCP server over stdio |
 | `brain doctor` | environment diagnostics |
 
+`brain init --enforce` additionally installs a **pre-commit constraint guard**.
+
+## What makes the capture good (not just "changed N files")
+Even with no LLM, the write path runs a structured **diff analysis** — added/removed/changed
+symbols, new and dropped dependencies, and which invariants a change touches — so an
+auto-captured decision reads like _"introduced `verifySession`, `revokeSession`; removed `login`;
+new dep: redis; touches con_004"_, with breaking-change consequences. With an Anthropic key or
+the `claude` CLI present, it upgrades to full LLM synthesis; otherwise it stays useful offline.
+
+## VS Code
+A companion **[VS Code extension](vscode-extension/)** visualizes the Brain (tree of
+decisions/invariants/bugs/fragility, "why is this file the way it is?", a status-bar invariant
+counter) by reading the committed `.brain/` JSON directly.
+
 ## MCP tool surface
 
 `brain_query`, `brain_why`, `brain_bug_lineage`, `brain_check_constraints`,
-`brain_get_dependents` (recursive-CTE blast radius), `brain_record_decision` (write-back).
+`brain_get_dependents` (recursive-CTE blast radius), `brain_context` (surgical minimal
+slice for a task), `brain_record_decision` (write-back).
 
 ## Architecture
 

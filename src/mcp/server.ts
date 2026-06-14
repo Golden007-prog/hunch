@@ -13,6 +13,7 @@ import { brainPaths, findRoot } from "../core/paths.js";
 import { BrainStore } from "../store/brainStore.js";
 import { decisionId } from "../core/ids.js";
 import { revParse } from "../extractors/git.js";
+import { formatContext } from "../core/format.js";
 import type { Decision, Symbol } from "../core/types.js";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -140,6 +141,23 @@ export function buildServer(root: string): McpServer {
       if (!deps.length) return ok(`Nothing depends on "${symbol}" (leaf node, or not indexed).`);
       const lines = deps.map((d) => `  • [depth ${d.depth}] ${d.via} (${d.id})`);
       return ok(`Blast radius of "${symbol}" — ${deps.length} dependent(s):\n${lines.join("\n")}`);
+    },
+  );
+
+  // -- brain_context (surgical retrieval) -----------------------------------
+  server.registerTool(
+    "brain_context",
+    {
+      title: "Assemble the minimal relevant Brain slice for a task",
+      description:
+        "Given a file or symbol you're about to work on, return the MINIMAL relevant memory — invariants to preserve, decisions explaining the design, bug history not to reintroduce, and the blast radius — as a compact brief. Call this FIRST when starting work on something.",
+      inputSchema: {
+        target: z.string().describe("A file path or symbol you're about to edit."),
+        budget_tokens: z.number().optional().describe("Rough token budget for the brief (default 1500)."),
+      },
+    },
+    async ({ target, budget_tokens }): Promise<ToolResult> => {
+      return ok(formatContext(store.assembleContext(target, budget_tokens ?? 1500)));
     },
   );
 

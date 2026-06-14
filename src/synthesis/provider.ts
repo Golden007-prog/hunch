@@ -11,6 +11,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { summarizeDiff, type DiffAnalysis } from "../extractors/diff.js";
 
 const pexec = promisify(execFile);
 
@@ -38,6 +39,8 @@ export interface CommitInput {
   body: string;
   files: string[];
   diff: string;
+  /** structured "what changed" — lets even the no-LLM path be informative */
+  analysis?: DiffAnalysis;
 }
 
 export interface FailureInput {
@@ -216,20 +219,33 @@ export class DeterministicProvider implements SynthProvider {
 
   async draftDecision(input: CommitInput): Promise<DecisionDraft> {
     const dirs = topDirs(input.files);
-    const verb = /^(add|introduce|create)/i.test(input.subject) ? "introduced"
+    const a = input.analysis;
+    const summary = a ? summarizeDiff(a) : "";
+    const verb = /^(add|introduce|create|feat)/i.test(input.subject) ? "introduced"
       : /^(remove|delete|drop)/i.test(input.subject) ? "removed"
       : /^(refactor|rework|restructure)/i.test(input.subject) ? "refactored"
       : "changed";
+
+    const consequences: string[] = [];
+    if (a?.addedDeps.length) consequences.push(`Adds dependency: ${a.addedDeps.join(", ")}.`);
+    if (a?.removedDeps.length) consequences.push(`Drops dependency: ${a.removedDeps.join(", ")}.`);
+    if (a?.removedSymbols.length) consequences.push(`Removes ${a.removedSymbols.map((s) => s.name).join(", ")} — potential breaking change for callers.`);
+    if (a?.changedSymbols.length) consequences.push(`Changes ${a.changedSymbols.map((s) => s.name).join(", ")} (signature/behavior).`);
+
+    // We extracted real structure → a bit more trustworthy than a blind heuristic.
+    const informative = !!(a && (a.addedSymbols.length || a.removedSymbols.length || a.changedSymbols.length || a.addedDeps.length || a.removedDeps.length));
+
     return {
       title: input.subject || "Code change",
-      context: input.body
-        ? input.body.slice(0, 400)
-        : `Touched ${input.files.length} file(s) across ${dirs.join(", ") || "the repo"}.`,
-      decision: `${cap(verb)} code in ${dirs.join(", ") || "the repo"} (${input.files.length} file(s)).`,
-      consequences: [],
+      context: [input.body, summary && `What changed: ${summary}.`].filter(Boolean).join(" ").slice(0, 500)
+        || `Touched ${input.files.length} file(s) across ${dirs.join(", ") || "the repo"}.`,
+      decision: summary
+        ? `${cap(verb)} ${dirs.join(", ") || "the repo"}: ${summary}.`
+        : `${cap(verb)} code in ${dirs.join(", ") || "the repo"} (${input.files.length} file(s)).`,
+      consequences,
       alternatives_rejected: [],
-      // low confidence: heuristic only, advisory + cheap to discard / confirm later
-      confidence: 0.3,
+      // advisory either way, but real extraction earns a touch more confidence
+      confidence: informative ? 0.45 : 0.3,
       source: "inferred",
     };
   }
@@ -271,6 +287,7 @@ function commitPrompt(input: CommitInput): string {
   return [
     `COMMIT SUBJECT: ${input.subject}`,
     input.body ? `COMMIT BODY:\n${input.body}` : "",
+    input.analysis ? `STRUCTURED CHANGES: ${summarizeDiff(input.analysis)}` : "",
     `FILES CHANGED (${input.files.length}):\n${input.files.slice(0, 40).join("\n")}`,
     `DIFF:\n${input.diff.slice(0, 20000)}`,
     `\nDistill the single most important design decision this commit represents.`,

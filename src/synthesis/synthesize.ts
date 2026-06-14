@@ -9,6 +9,7 @@
  */
 import type { BrainStore } from "../store/brainStore.js";
 import { commitMeta, commitDiff, headSha } from "../extractors/git.js";
+import { analyzeDiff } from "../extractors/diff.js";
 import { selectProvider, DeterministicProvider, type SynthProvider, type DecisionDraft, type BugDraft, type CommitInput, type FailureInput } from "./provider.js";
 import { decisionId, bugId, constraintId } from "../core/ids.js";
 import { pathMatchesGlob } from "../core/glob.js";
@@ -37,13 +38,23 @@ export async function syncCommit(store: BrainStore, root: string, sha?: string):
 
   const provider = await selectProvider();
   const diff = commitDiff(target, root);
-  const input: CommitInput = { subject: meta.subject, body: meta.body, files: codeFiles, diff };
+  const analysis = analyzeDiff(diff);
+  const input: CommitInput = { subject: meta.subject, body: meta.body, files: codeFiles, diff, analysis };
   const draft = await draftDecisionSafe(provider, input);
 
   const components = store.json.loadAll("components");
   const relatedComponents = components
     .filter((c: Component) => codeFiles.some((f) => c.paths.some((g) => pathMatchesGlob(f, g))))
     .map((c) => c.id);
+
+  // Surface any do-not-break constraints this commit's files touch (DESIGN §4
+  // "constraint touched" flag) right in the decision context, with evidence.
+  const touchedConstraints = store.json
+    .loadAll("constraints")
+    .filter((c) => codeFiles.some((f) => c.scope.some((g) => pathMatchesGlob(f, g))));
+  const constraintNote = touchedConstraints.length
+    ? ` Touches invariant(s): ${touchedConstraints.map((c) => `${c.id} (${c.statement})`).join("; ")}.`
+    : "";
 
   // Seed the id from the COMMIT (stable across runs), not the LLM-generated
   // title (which varies) — so re-syncing a commit updates rather than dupes.
@@ -57,7 +68,7 @@ export async function syncCommit(store: BrainStore, root: string, sha?: string):
     id,
     title: draft.title,
     status: existing?.status === "accepted" ? "accepted" : "proposed",
-    context: draft.context,
+    context: draft.context + constraintNote,
     decision: draft.decision,
     consequences: draft.consequences,
     alternatives_rejected: draft.alternatives_rejected,

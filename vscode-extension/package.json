@@ -1,0 +1,66 @@
+{
+  "name": "brain-vscode",
+  "displayName": "Project Brain",
+  "description": "Visualize and query the Engineering Memory OS (Project Brain) for the current repo — decisions, invariants, bug history, fragility — right in VS Code.",
+  "version": "0.1.0",
+  "publisher": "brain",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Other", "SCM Providers", "Visualization"],
+  "activationEvents": ["workspaceContains:.brain/**"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "brain",
+          "title": "Project Brain",
+          "icon": "media/brain.svg"
+        }
+      ]
+    },
+    "views": {
+      "brain": [
+        { "id": "brain.tree", "name": "Engineering Memory", "icon": "media/brain.svg" }
+      ]
+    },
+    "commands": [
+      { "command": "brain.why", "title": "Brain: Why is this file the way it is?", "icon": "$(question)" },
+      { "command": "brain.context", "title": "Brain: Assemble context for this file", "icon": "$(list-tree)" },
+      { "command": "brain.refresh", "title": "Brain: Refresh", "icon": "$(refresh)" },
+      { "command": "brain.openRecord", "title": "Brain: Open record" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "brain.refresh", "when": "view == brain.tree", "group": "navigation" }
+      ],
+      "editor/title": [
+        { "command": "brain.why", "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact/", "group": "navigation" }
+      ],
+      "commandPalette": [
+        { "command": "brain.openRecord", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "Project Brain",
+      "properties": {
+        "brain.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show constraints-in-scope for the active file in the status bar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "^1.96.0",
+    "typescript": "^5.9.3"
+  }
+}

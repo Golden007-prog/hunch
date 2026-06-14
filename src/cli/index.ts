@@ -18,10 +18,11 @@ import { BrainStore } from "../store/brainStore.js";
 import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure } from "../synthesis/synthesize.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince } from "../extractors/git.js";
-import { installPostCommitHook } from "../integrations/hooks.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles } from "../extractors/git.js";
+import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands } from "../integrations/scaffold.js";
+import { formatContext } from "../core/format.js";
 import { resolveInvocation } from "./invocation.js";
 
 const program = new Command();
@@ -40,7 +41,9 @@ program
   .command("init")
   .description("Scaffold .brain/, index the repo, install the git hook, and wire up Claude Code.")
   .option("--no-index", "skip the initial repo index")
-  .action((opts: { index: boolean }) => {
+  .option("--enforce", "install an advisory pre-commit constraint guard")
+  .option("--enforce-strict", "install a pre-commit guard that FAILS the commit on a blocking invariant")
+  .action((opts: { index: boolean; enforce?: boolean; enforceStrict?: boolean }) => {
     const root = findRoot();
     const store = new BrainStore(brainPaths(root));
     openStore = store; // so the top-level error handler closes it on failure
@@ -59,9 +62,13 @@ program
 
     if (isGitRepo(root)) {
       const h = installPostCommitHook(root, inv.shell);
-      console.log(`  ✓ post-commit hook ${h.action} (${h.path})`);
+      console.log(`  ✓ post-commit hook ${h.action} (learning loop)`);
+      if (opts.enforce || opts.enforceStrict) {
+        const p = installPreCommitHook(root, inv.shell, !!opts.enforceStrict);
+        console.log(`  ✓ pre-commit constraint guard ${p.action} (${opts.enforceStrict ? "strict — blocks on blocking invariants" : "advisory"})`);
+      }
     } else {
-      console.log("  ⚠ not a git repo — skipped hook (run `git init` to enable the learning loop)");
+      console.log("  ⚠ not a git repo — skipped hooks (run `git init` to enable the learning loop)");
     }
 
     const mcp = writeMcpJson(root, inv.mcp);
@@ -149,6 +156,7 @@ program
   .argument("<question...>", "what to search for")
   .action((parts: string[]) => {
     const { store } = storeFor();
+    store.reindex(); // reflect any out-of-band JSON edits before searching
     const q = parts.join(" ");
     const hits = store.search(q, 12);
     if (!hits.length) {
@@ -166,16 +174,18 @@ program
   .description("Explain why a file/symbol is the way it is (decisions, bugs, constraints).")
   .argument("<target>", "file path or symbol name")
   .action((target: string) => {
-    const { store } = storeFor();
+    const { store, root } = storeFor();
     const w = store.why(target);
+    const staleIds = new Set(store.staleness((f) => lastChangeDate(f, root)).map((s) => s.id));
+    const drift = (id: string) => (staleIds.has(id) ? " ⚠STALE" : "");
     console.log(`Why "${target}":\n`);
     if (w.decisions.length) {
       console.log("DECISIONS:");
-      for (const d of w.decisions) console.log(`  • ${d.id} [${d.status}] ${d.title}\n      ${d.decision} ⟨${d.provenance.source}, ${d.provenance.confidence}⟩`);
+      for (const d of w.decisions) console.log(`  • ${d.id} [${d.status}]${drift(d.id)} ${d.title}\n      ${d.decision} ⟨${d.provenance.source}, ${d.provenance.confidence}⟩`);
     }
     if (w.constraints.length) {
       console.log("CONSTRAINTS (must not break):");
-      for (const c of w.constraints) console.log(`  • ${c.id} [${c.severity}] ${c.statement}`);
+      for (const c of w.constraints) console.log(`  • ${c.id} [${c.severity}]${drift(c.id)} ${c.statement}`);
     }
     if (w.bugs.length) {
       console.log("BUG HISTORY:");
@@ -219,6 +229,120 @@ program
     console.log(`✓ recorded bug ${r.bug.id} via ${r.provider}: "${r.bug.title}"`);
     if (r.bug.lineage.recurrence_of) console.log(`  ↳ recurrence of ${r.bug.lineage.recurrence_of}`);
     if (r.constraint) console.log(`  ↳ promoted constraint ${r.constraint.id} [${r.constraint.severity}]: ${r.constraint.statement}`);
+    store.close();
+  });
+
+// ---- stale (drift detection) ----------------------------------------------
+program
+  .command("stale")
+  .description("List decisions/constraints whose files changed after they were last verified (drift).")
+  .action(() => {
+    const { store, root } = storeFor();
+    const stale = store.staleness((f) => lastChangeDate(f, root));
+    if (!stale.length) {
+      console.log("✓ No drift detected — every verified decision/constraint is current.");
+    } else {
+      console.log(`⚠ ${stale.length} record(s) may be stale (a file in scope changed after last verification):\n`);
+      for (const s of stale) {
+        console.log(`  ${s.kind} ${s.id}\n      verified ${s.last_verified.slice(0, 10)} · changed ${s.changed_at.slice(0, 10)} · ${s.files.join(", ")}`);
+      }
+      console.log(`\nRe-validate with: brain review --accept <id>  (or edit the record).`);
+    }
+    store.close();
+  });
+
+// ---- check (constraint enforcement) ---------------------------------------
+program
+  .command("check")
+  .description("Flag changes that touch a do-not-break invariant's scope (guardrail).")
+  .option("--staged", "check git staged files (default)")
+  .option("--commit <sha>", "check a specific commit's files")
+  .option("--strict", "exit non-zero if a blocking constraint is in scope")
+  .action((opts: { staged?: boolean; commit?: string; strict?: boolean }) => {
+    if (opts.commit && opts.staged) return fail("--staged and --commit are mutually exclusive");
+    const { store, root } = storeFor();
+    const files = opts.commit ? commitFiles(opts.commit, root) : stagedFiles(root);
+    if (!files.length) {
+      console.log("No changed files to check.");
+      store.close();
+      return;
+    }
+    const hits = new Map<string, { constraint: ReturnType<BrainStore["checkConstraints"]>[number]; files: string[] }>();
+    for (const f of files) {
+      for (const c of store.checkConstraints(f)) {
+        const e = hits.get(c.id) ?? { constraint: c, files: [] };
+        e.files.push(f);
+        hits.set(c.id, e);
+      }
+    }
+    if (!hits.size) {
+      console.log(`✓ ${files.length} changed file(s) touch no recorded invariants.`);
+      store.close();
+      return;
+    }
+    let blocking = 0;
+    console.log(`Changes touch ${hits.size} invariant(s):\n`);
+    for (const { constraint: c, files: fs } of hits.values()) {
+      if (c.severity === "blocking") blocking++;
+      const mark = c.severity === "blocking" ? "⛔" : c.severity === "warning" ? "⚠" : "·";
+      console.log(`  ${mark} [${c.severity}] ${c.statement}\n      ${c.id} · in: ${fs.join(", ")}\n      rationale: ${c.rationale || "—"}`);
+    }
+    if (opts.strict && blocking) {
+      console.log(`\n✗ ${blocking} blocking invariant(s) in scope — review before committing.`);
+      process.exitCode = 1;
+    } else {
+      console.log(`\nReview that these invariants still hold. (Advisory — run with --strict to fail on blocking.)`);
+    }
+    store.close();
+  });
+
+// ---- context (surgical retrieval) -----------------------------------------
+program
+  .command("context")
+  .description("Assemble the minimal relevant Brain slice for a task on a file/symbol.")
+  .argument("<target>", "file path or symbol")
+  .option("--budget <n>", "rough token budget", "1500")
+  .action((target: string, opts: { budget: string }) => {
+    const { store } = storeFor();
+    store.reindex(); // reflect any out-of-band JSON edits before assembling
+    process.stdout.write(formatContext(store.assembleContext(target, Number(opts.budget))));
+    store.close();
+  });
+
+// ---- review (curate loop) -------------------------------------------------
+program
+  .command("review")
+  .description("Triage low-confidence drafts: list, accept (promote), or reject.")
+  .option("--accept <id>", "promote a decision to accepted/human-confirmed")
+  .option("--reject <id>", "delete a draft decision")
+  .action((opts: { accept?: string; reject?: string }) => {
+    const { store, root } = storeFor();
+    if (opts.accept) {
+      const d = store.json.get("decisions", opts.accept);
+      if (!d) return fail(`decision ${opts.accept} not found`);
+      const source = d.provenance.source.includes("llm_draft") ? "llm_draft+human_confirmed" : "human_confirmed";
+      store.json.put("decisions", { ...d, status: "accepted", provenance: { ...d.provenance, source, confidence: 0.95, last_verified: new Date().toISOString() } });
+      store.reindex();
+      updateClaudeMd(root, store);
+      console.log(`✓ accepted ${opts.accept} (now ${source}, confidence 0.95)`);
+    } else if (opts.reject) {
+      const ok2 = store.json.delete("decisions", opts.reject);
+      store.reindex();
+      console.log(ok2 ? `✓ rejected and removed ${opts.reject}` : `decision ${opts.reject} not found`);
+    } else {
+      const drafts = store.json.loadAll("decisions")
+        .filter((d) => d.status === "proposed" || d.provenance.confidence < 0.6)
+        .sort((a, b) => a.provenance.confidence - b.provenance.confidence);
+      if (!drafts.length) {
+        console.log("✓ No low-confidence drafts to review.");
+      } else {
+        console.log(`${drafts.length} draft(s) awaiting review (lowest confidence first):\n`);
+        for (const d of drafts) {
+          console.log(`  ${d.id} [${d.status}, ${d.provenance.source} ${d.provenance.confidence}]\n      ${d.title}\n      ${d.decision.slice(0, 120)}`);
+        }
+        console.log(`\nAccept:  brain review --accept <id>\nReject:  brain review --reject <id>`);
+      }
+    }
     store.close();
   });
 

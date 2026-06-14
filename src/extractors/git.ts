@@ -86,6 +86,17 @@ export function lastCommitForFile(file: string, cwd: string): string {
   return sha ? `commit:${sha}` : "";
 }
 
+/** ISO author-date of the most recent commit touching a file ("" if none). */
+export function lastChangeDate(file: string, cwd: string): string {
+  return gitSafe(["log", "-1", "--format=%aI", "--", file], cwd);
+}
+
+/** Files staged for commit (for `brain check` pre-commit enforcement). */
+export function stagedFiles(cwd: string): string[] {
+  const out = gitSafe(["diff", "--cached", "--name-only", "--diff-filter=ACMR"], cwd);
+  return out ? out.split("\n").filter(Boolean) : [];
+}
+
 /** Translate a backfill window spec into git-log window args.
  *   "90d" / bare "90" -> last 90 days   |   "40c" -> last 40 commits
  *   anything else      -> passed to --since as an approxidate/date string. */

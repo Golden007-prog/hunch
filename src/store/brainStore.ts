@@ -327,6 +327,72 @@ export class BrainStore {
   allEdges(): Edge[] {
     return this.json.loadAll("edges");
   }
+
+  /** Drift detection (DESIGN §9 "staleness kills trust"): a decision/constraint
+   *  is STALE when a file in its scope changed AFTER it was last verified. The
+   *  caller supplies `lastChange(file) -> ISO date | ""` (git-backed). */
+  staleness(lastChange: (file: string) => string): StaleRecord[] {
+    const out: StaleRecord[] = [];
+    const check = (kind: string, id: string, files: string[], verified: string | undefined) => {
+      if (!verified) return; // never verified → not flagged as drift (it's just new)
+      const vt = Date.parse(verified);
+      if (Number.isNaN(vt)) return;
+      let newest = "";
+      for (const f of files) {
+        const d = lastChange(f);
+        if (d && Date.parse(d) > vt && d > newest) newest = d;
+      }
+      if (newest) out.push({ kind, id, last_verified: verified, changed_at: newest, files: files.slice(0, 8) });
+    };
+    for (const d of this.json.loadAll("decisions")) check("decision", d.id, d.related_files, d.provenance.last_verified);
+    for (const c of this.json.loadAll("constraints")) check("constraint", c.id, c.scope, c.provenance.last_verified);
+    return out.sort((a, b) => b.changed_at.localeCompare(a.changed_at));
+  }
+
+  /** The Context Assembler (DESIGN §2.1/§6): the MINIMAL relevant Brain slice for
+   *  a task on `target`, ordered by what matters most — invariants first, then the
+   *  why, then blast radius and bug history — trimmed to a rough token budget. */
+  assembleContext(target: string, budget = 1500): AssembledContext {
+    const w = this.why(target);
+    const symIds = w.symbols.map((s) => s.id);
+    const blast = new Map<string, { id: string; depth: number; via: string }>();
+    for (const id of symIds) {
+      for (const d of this.getDependents(id)) {
+        const prev = blast.get(d.id);
+        if (!prev || d.depth < prev.depth) blast.set(d.id, d); // keep the MIN depth across start symbols
+      }
+    }
+    const bugs = w.bugs.length ? w.bugs : this.bugLineage(target);
+
+    const ctx: AssembledContext = {
+      target,
+      constraints: w.constraints.sort((a, b) => sev(b.severity) - sev(a.severity)),
+      decisions: w.decisions.sort((a, b) => (b.provenance.confidence ?? 0) - (a.provenance.confidence ?? 0)),
+      bugs,
+      blast_radius: [...blast.values()].sort((a, b) => a.depth - b.depth).slice(0, 12),
+      components: w.components,
+      budget_tokens: budget,
+    };
+    return ctx;
+  }
+}
+
+export interface StaleRecord {
+  kind: string;
+  id: string;
+  last_verified: string;
+  changed_at: string;
+  files: string[];
+}
+
+export interface AssembledContext {
+  target: string;
+  constraints: Constraint[];
+  decisions: Decision[];
+  bugs: Bug[];
+  blast_radius: Array<{ id: string; depth: number; via: string }>;
+  components: Component[];
+  budget_tokens: number;
 }
 
 function sev(s: string): number {

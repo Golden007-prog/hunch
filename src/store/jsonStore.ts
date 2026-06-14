@@ -108,4 +108,30 @@ export class JsonStore {
   get<K extends EntityKind>(kind: K, id: string): EntityFor[K] | undefined {
     return this.loadAll(kind).find((r) => (r as { id: string }).id === id);
   }
+
+  /** Remove a record (used by the curate/reject flow). Returns true if removed.
+   *  For single-file kinds we operate on the RAW JSON array (not the validating
+   *  loader) so deleting one record can't silently drop schema-invalid siblings. */
+  delete<K extends EntityKind>(kind: K, id: string): boolean {
+    const single = SINGLE_FILE[kind];
+    if (single) {
+      const f = this.fileFor(kind, "index");
+      if (!existsSync(f)) return false;
+      let arr: unknown;
+      try {
+        arr = JSON.parse(readFileSync(f, "utf8"));
+      } catch {
+        return false;
+      }
+      if (!Array.isArray(arr)) return false;
+      const next = arr.filter((r) => (r as { id?: string })?.id !== id);
+      if (next.length === arr.length) return false;
+      writeFileSync(f, JSON.stringify(next, null, 2) + "\n");
+      return true;
+    }
+    const f = this.fileFor(kind, id);
+    if (!existsSync(f)) return false;
+    rmSync(f);
+    return true;
+  }
 }

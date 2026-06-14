@@ -390,6 +390,36 @@
     }
   },
   {
+    "id": "edge_77ce9f2997",
+    "from": "sym_547bbf9a26",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "lastChangeDate calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_b8e0eed791",
+    "from": "sym_18c032ca4f",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "stagedFiles calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_7f66b58a7d",
     "from": "sym_f1e8c6fbda",
     "to": "sym_815fdb47eb",
@@ -945,6 +975,36 @@
     }
   },
   {
+    "id": "edge_f1635da4a2",
+    "from": "sym_eb961ae48f",
+    "to": "sym_9c164687cf",
+    "type": "calls",
+    "reason": "installPreCommitHook calls hooksDir",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/integrations/hooks.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_5493cf7213",
+    "from": "sym_eb961ae48f",
+    "to": "sym_9f3f0902e9",
+    "type": "calls",
+    "reason": "installPreCommitHook calls escapeRe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/integrations/hooks.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_2fa535b3c2",
     "from": "sym_5fb91b7bd2",
     "to": "sym_8fc96bbf18",
@@ -1100,6 +1160,21 @@
     "to": "sym_d237ccd18d",
     "type": "calls",
     "reason": "buildServer calls getDependents",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/mcp/server.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_0c7fed77ab",
+    "from": "sym_a708ee9110",
+    "to": "sym_82ab2a3533",
+    "type": "calls",
+    "reason": "buildServer calls assembleContext",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
@@ -1500,6 +1575,96 @@
     }
   },
   {
+    "id": "edge_429a567d58",
+    "from": "sym_09babc521c",
+    "to": "sym_8fc96bbf18",
+    "type": "calls",
+    "reason": "staleness calls loadAll",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/brainStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_5830b966a2",
+    "from": "sym_09babc521c",
+    "to": "sym_5cb368312f",
+    "type": "calls",
+    "reason": "staleness calls check",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/brainStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_2990b7f674",
+    "from": "sym_82ab2a3533",
+    "to": "sym_43d055177b",
+    "type": "calls",
+    "reason": "assembleContext calls why",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/brainStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_219d114f1e",
+    "from": "sym_82ab2a3533",
+    "to": "sym_d237ccd18d",
+    "type": "calls",
+    "reason": "assembleContext calls getDependents",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/brainStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_acae204edf",
+    "from": "sym_82ab2a3533",
+    "to": "sym_ffff1f0c4c",
+    "type": "calls",
+    "reason": "assembleContext calls bugLineage",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/brainStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_2830314cd6",
+    "from": "sym_82ab2a3533",
+    "to": "sym_a881241b47",
+    "type": "calls",
+    "reason": "assembleContext calls sev",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/brainStore.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_ad65add413",
     "from": "sym_383cbb69ef",
     "to": "sym_8fc96bbf18",
@@ -1550,6 +1715,36 @@
     "to": "sym_8fc96bbf18",
     "type": "calls",
     "reason": "get calls loadAll",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_0563d17528",
+    "from": "sym_d71984e562",
+    "to": "sym_8fc96bbf18",
+    "type": "calls",
+    "reason": "delete calls loadAll",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_2342dfa119",
+    "from": "sym_d71984e562",
+    "to": "sym_95e5f5139f",
+    "type": "calls",
+    "reason": "delete calls fileFor",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",

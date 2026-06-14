@@ -59,3 +59,34 @@ export function installPostCommitHook(root: string, invocation: string): HookIns
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+const PRE_MARK = "# >>> brain pre-commit (constraint guard) >>>";
+const PRE_END = "# <<< brain pre-commit <<<";
+
+/** Install a pre-commit constraint guard (DESIGN §4 enforcement). Advisory by
+ *  default (prints invariants in scope, never blocks); pass strict to fail the
+ *  commit on a blocking invariant. Preserves any existing pre-commit hook. */
+export function installPreCommitHook(root: string, invocation: string, strict = false): HookInstall {
+  const dir = hooksDir(root);
+  const abs = dir.startsWith("/") ? dir : join(root, dir);
+  mkdirSync(abs, { recursive: true });
+  const hookPath = join(abs, "pre-commit");
+  const cmd = `${invocation} check --staged${strict ? " --strict" : ""}`;
+  const blk = [PRE_MARK, strict ? cmd : `${cmd} || true`, PRE_END].join("\n");
+
+  if (!existsSync(hookPath)) {
+    writeFileSync(hookPath, `#!/bin/sh\n${blk}\n`);
+    chmodSync(hookPath, 0o755);
+    return { path: hookPath, action: "created" };
+  }
+  const cur = readFileSync(hookPath, "utf8");
+  if (cur.includes(PRE_MARK)) {
+    const updated = cur.replace(new RegExp(`${escapeRe(PRE_MARK)}[\\s\\S]*?${escapeRe(PRE_END)}`), blk);
+    if (updated === cur) return { path: hookPath, action: "unchanged" };
+    writeFileSync(hookPath, updated);
+    return { path: hookPath, action: "updated" };
+  }
+  writeFileSync(hookPath, cur.endsWith("\n") ? `${cur}${blk}\n` : `${cur}\n${blk}\n`);
+  chmodSync(hookPath, 0o755);
+  return { path: hookPath, action: "appended" };
+}
