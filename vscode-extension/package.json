@@ -28,8 +28,7 @@
     "commands": [
       { "command": "brain.why", "title": "Brain: Why is this file the way it is?", "icon": "$(question)" },
       { "command": "brain.context", "title": "Brain: Assemble context for this file", "icon": "$(list-tree)" },
-      { "command": "brain.refresh", "title": "Brain: Refresh", "icon": "$(refresh)" },
-      { "command": "brain.openRecord", "title": "Brain: Open record" }
+      { "command": "brain.refresh", "title": "Brain: Refresh", "icon": "$(refresh)" }
     ],
     "menus": {
       "view/title": [
@@ -37,9 +36,6 @@
       ],
       "editor/title": [
         { "command": "brain.why", "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact/", "group": "navigation" }
-      ],
-      "commandPalette": [
-        { "command": "brain.openRecord", "when": "false" }
       ]
     },
     "configuration": {

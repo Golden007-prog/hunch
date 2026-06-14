@@ -28,8 +28,14 @@ test("analyzeDiff extracts added/removed/changed symbols and deps", () => {
 test("analyzeDiff detects a changed (both-sides) symbol as 'changed', and ignores non-code files", () => {
   const diff = [
     "diff --git a/README.md b/README.md",
+    "--- a/README.md",
+    "+++ b/README.md",
+    "@@ -1 +1 @@",
     "+# new heading",
     "diff --git a/src/x.ts b/src/x.ts",
+    "--- a/src/x.ts",
+    "+++ b/src/x.ts",
+    "@@ -1 +1 @@",
     "-export function f(a){ return a; }",
     "+export function f(a, b){ return a + b; }",
   ].join("\n");
@@ -37,6 +43,51 @@ test("analyzeDiff detects a changed (both-sides) symbol as 'changed', and ignore
   assert.deepEqual(a.changedSymbols.map((s) => s.name), ["f"]);
   assert.equal(a.addedSymbols.length, 0);
   assert.equal(a.filesAdded.length, 0); // README.md not counted
+});
+
+test("content lines starting with ++/-- are NOT mistaken for file headers (regression: header collision)", () => {
+  const diff = [
+    "diff --git a/src/x.ts b/src/x.ts",
+    "--- a/src/x.ts",
+    "+++ b/src/x.ts",
+    "@@ -1,2 +1,2 @@",
+    " const a = 1;",
+    "+++count;", // source "++count;" — added content, not a header
+    "---flag;", // source "--flag;" — removed content, not a header
+  ].join("\n");
+  const a = analyzeDiff(diff);
+  assert.equal(a.addedLines, 1, "the ++count line is counted");
+  assert.equal(a.removedLines, 1, "the --flag line is counted");
+});
+
+test("analyzeDiff records a pure rename (regression: renames were invisible)", () => {
+  const diff = [
+    "diff --git a/src/old.ts b/src/new.ts",
+    "similarity index 100%",
+    "rename from src/old.ts",
+    "rename to src/new.ts",
+  ].join("\n");
+  const a = analyzeDiff(diff);
+  assert.deepEqual(a.filesRenamed, [{ from: "src/old.ts", to: "src/new.ts" }]);
+});
+
+test("moving a symbol between files is added+removed, not 'changed' (regression: per-file classification)", () => {
+  const diff = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1 +0,0 @@",
+    "-export function moved(){}",
+    "diff --git a/src/b.ts b/src/b.ts",
+    "--- a/src/b.ts",
+    "+++ b/src/b.ts",
+    "@@ -0,0 +1 @@",
+    "+export function moved(){}",
+  ].join("\n");
+  const a = analyzeDiff(diff);
+  assert.ok(a.addedSymbols.some((s) => s.name === "moved"), "added in b.ts");
+  assert.ok(a.removedSymbols.some((s) => s.name === "moved"), "removed from a.ts");
+  assert.ok(!a.changedSymbols.some((s) => s.name === "moved"), "NOT a same-file change");
 });
 
 test("staleness flags a record whose file changed after last_verified", () => {
