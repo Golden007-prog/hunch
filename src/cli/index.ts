@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * `brain` CLI (DESIGN.md §6). Subcommands:
+ * `hunch` CLI (DESIGN.md §6). Subcommands:
  *   init      scaffold .brain/, install hook, write .mcp.json + CLAUDE.md + slash cmds
  *   index     parse repo -> symbol/dependency graph + components (no LLM)
  *   backfill  replay git history -> seed decisions (cold-start fix)
  *   sync      commit diff -> Claude/heuristic -> decision write-back (post-commit hook)
- *   query     FTS + graph query over the Brain
+ *   query     FTS + graph query over Hunch
  *   why       decisions/bugs/constraints explaining a file/symbol
  *   fragile   ranked fragility report with evidence
  *   record-bug  capture a Bug from a (failing) test
@@ -33,7 +33,7 @@ import { planCompaction } from "../store/compact.js";
 import { resolveInvocation } from "./invocation.js";
 
 const program = new Command();
-program.name("brain").description("Engineering Memory OS — a git-native reasoning graph for your codebase.").version("0.1.0");
+program.name("hunch").description("Hunch — an Engineering Memory OS: a git-native reasoning graph for your codebase.").version("0.1.0");
 
 let openStore: BrainStore | null = null;
 function storeFor(): { store: BrainStore; root: string } {
@@ -56,7 +56,7 @@ program
     const store = new BrainStore(paths);
     openStore = store; // so the top-level error handler closes it on failure
     const inv = resolveInvocation();
-    console.log(`🧠 Initializing Project Brain at ${root}`);
+    console.log(`🧠 Initializing Hunch at ${root}`);
 
     store.json.ensureDirs(); // stamps the manifest at the current version when fresh
     console.log(`  ✓ .brain/ scaffolded (schema v${readManifest(paths).schema_version})`);
@@ -82,15 +82,15 @@ program
     }
 
     const mcp = writeMcpJson(root, inv.mcp);
-    console.log(`  ✓ wrote ${rel(root, mcp)} (registers the brain MCP server)`);
+    console.log(`  ✓ wrote ${rel(root, mcp)} (registers the Hunch MCP server)`);
     const cmds = writeSlashCommands(root);
     console.log(`  ✓ wrote ${cmds.length} slash commands (/brain-why, /brain-fix, /brain-fragile)`);
     const cmd = updateClaudeMd(root, store);
-    console.log(`  ✓ updated ${rel(root, cmd)} with ambient Brain context`);
+    console.log(`  ✓ updated ${rel(root, cmd)} with ambient Hunch context`);
 
     store.close();
     console.log("\nNext: make a commit (the hook captures a decision), then ask Claude Code \"why is X built this way?\"");
-    console.log("Cold start? Seed from history:  brain backfill --since 90d");
+    console.log("Cold start? Seed from history:  hunch backfill --since 90d");
   });
 
 // ---- index ----------------------------------------------------------------
@@ -154,7 +154,7 @@ program
     if (r.status === "written") {
       store.reindex();
       // Don't rewrite CLAUDE.md from the hook — it would dirty the working tree
-      // on every commit. `brain index`/`init` refresh it intentionally instead.
+      // on every commit. `hunch index`/`init` refresh it intentionally instead.
       if (!opts.fromHook) updateClaudeMd(root, store);
       if (!opts.quiet) console.log(`✓ captured decision ${r.decision?.id} via ${r.provider}: "${r.decision?.title}"`);
     } else if (!opts.quiet) {
@@ -166,7 +166,7 @@ program
 // ---- query ----------------------------------------------------------------
 program
   .command("query")
-  .description("Full-text + graph search over the Brain.")
+  .description("Full-text + graph search over Hunch.")
   .argument("<question...>", "what to search for")
   .action((parts: string[]) => {
     const { store } = storeFor();
@@ -206,7 +206,7 @@ program
       for (const b of w.bugs) console.log(`  • ${b.id} [${b.status}] ${b.title} — ${b.root_cause}`);
     }
     if (!w.decisions.length && !w.constraints.length && !w.bugs.length) {
-      console.log("(No recorded decisions/bugs/constraints yet. Try `brain backfill` or make a commit.)");
+      console.log("(No recorded decisions/bugs/constraints yet. Try `hunch backfill` or make a commit.)");
     }
     if (w.symbols.length) console.log(`\nSYMBOLS: ${w.symbols.map((s) => `${s.name} [fan-in ${s.metrics.fan_in}, churn ${s.metrics.churn_90d}]`).join(", ")}`);
     store.close();
@@ -260,7 +260,7 @@ program
       for (const s of stale) {
         console.log(`  ${s.kind} ${s.id}\n      verified ${s.last_verified.slice(0, 10)} · changed ${s.changed_at.slice(0, 10)} · ${s.files.join(", ")}`);
       }
-      console.log(`\nRe-validate with: brain review --accept <id>  (or edit the record).`);
+      console.log(`\nRe-validate with: hunch review --accept <id>  (or edit the record).`);
     }
     store.close();
   });
@@ -313,7 +313,7 @@ program
 // ---- context (surgical retrieval) -----------------------------------------
 program
   .command("context")
-  .description("Assemble the minimal relevant Brain slice for a task on a file/symbol.")
+  .description("Assemble the minimal relevant Hunch slice for a task on a file/symbol.")
   .argument("<target>", "file path or symbol")
   .option("--budget <n>", "rough token budget", "1500")
   .action((target: string, opts: { budget: string }) => {
@@ -354,7 +354,7 @@ program
         for (const d of drafts) {
           console.log(`  ${d.id} [${d.status}, ${d.provenance.source} ${d.provenance.confidence}]\n      ${d.title}\n      ${d.decision.slice(0, 120)}`);
         }
-        console.log(`\nAccept:  brain review --accept <id>\nReject:  brain review --reject <id>`);
+        console.log(`\nAccept:  hunch review --accept <id>\nReject:  hunch review --reject <id>`);
       }
     }
     store.close();
@@ -381,7 +381,7 @@ program
     const from = readManifest(paths).schema_version;
     if (from > SCHEMA_VERSION) {
       store.close();
-      return fail(`.brain/ is schema v${from}, newer than this brain (v${SCHEMA_VERSION}). Upgrade brain.`);
+      return fail(`.brain/ is schema v${from}, newer than this hunch (v${SCHEMA_VERSION}). Upgrade hunch.`);
     }
     if (from === SCHEMA_VERSION) {
       writeManifest(paths, SCHEMA_VERSION); // record the version even if the manifest was absent
@@ -399,7 +399,7 @@ program
     store.close();
   });
 
-// ---- compact (bound Brain growth) -----------------------------------------
+// ---- compact (bound Hunch growth) -----------------------------------------
 program
   .command("compact")
   .description("Prune low-value auto-captured records (rejected/superseded/stale drafts, resolved low-confidence bugs).")
@@ -468,11 +468,11 @@ program
   .description("Diagnose the environment (git, synthesis provider, index freshness).")
   .action(async () => {
     const { store, root } = storeFor();
-    console.log(`Brain root: ${root}`);
+    console.log(`Hunch root: ${root}`);
     console.log(`git repo:   ${isGitRepo(root) ? "yes" : "no"}  ${isGitRepo(root) ? `(HEAD ${headSha(root).slice(0, 8)})` : ""}`);
     const onDisk = readManifest(brainPaths(root)).schema_version;
-    const schemaNote = onDisk === SCHEMA_VERSION ? "" : onDisk > SCHEMA_VERSION ? `  ⚠ newer than this brain (v${SCHEMA_VERSION}) — upgrade brain` : `  ⚠ run \`brain migrate\``;
-    console.log(`schema:     v${onDisk} (brain v${SCHEMA_VERSION})${schemaNote}`);
+    const schemaNote = onDisk === SCHEMA_VERSION ? "" : onDisk > SCHEMA_VERSION ? `  ⚠ newer than this Hunch (v${SCHEMA_VERSION}) — upgrade hunch` : `  ⚠ run \`hunch migrate\``;
+    console.log(`schema:     v${onDisk} (hunch v${SCHEMA_VERSION})${schemaNote}`);
     const provider = await selectProvider();
     console.log(`synthesis:  ${provider.name}`);
     // Synthesis is billed to the user's Claude SUBSCRIPTION via the `claude` CLI,
@@ -486,7 +486,7 @@ program
       console.log(dim(`              for full synthesis: install Claude Code + \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN (\`claude setup-token\`) for CI`));
     }
     const c = store.reindex().counts;
-    console.log(`brain:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
+    console.log(`hunch:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
     store.close();
   });
 
@@ -507,6 +507,6 @@ program.parseAsync().catch((e) => {
   } catch {
     /* ignore */
   }
-  console.error(`brain: ${e instanceof Error ? e.message : String(e)}`);
+  console.error(`hunch: ${e instanceof Error ? e.message : String(e)}`);
   process.exit(1);
 });

@@ -1,9 +1,8 @@
-# 🧠 brain — Engineering Memory OS
+# 🧠 Hunch — Engineering Memory OS
 
-> Git stores *what* the code is. **brain** stores ***why*** it is that way — a persistent,
-> git-native reasoning graph (the **Project Brain**) over your codebase, surfaced to
-> Claude Code at reasoning time so the AI stops re-deriving understanding and stops
-> undoing intentional design.
+> Git stores *what* the code is. **Hunch** stores ***why*** it is that way — a persistent,
+> git-native reasoning graph over your codebase, surfaced to Claude Code at reasoning time
+> so the AI stops re-deriving understanding and stops undoing intentional design.
 
 ## The problem
 
@@ -11,7 +10,7 @@ Every AI coding session starts from zero. The model re-reads your code, re-guess
 intent, and happily "fixes" the thing you deliberately did last month — because the
 *reasoning* behind the code lives in PRs, Slack, and people's heads, not in the repo.
 
-**brain** captures that reasoning as a **byproduct of normal work** — commits and test
+**Hunch** captures that reasoning as a **byproduct of normal work** — commits and test
 failures — stores it as a git-tracked graph next to your code, and feeds it back to
 Claude Code so every session is grounded in the decisions, bugs, and invariants that
 came before. Local-first, no documentation toil, no SaaS.
@@ -44,39 +43,39 @@ came before. Local-first, no documentation toil, no SaaS.
 ```bash
 npm install
 npm run build          # compiles to dist/
-npm link               # optional: puts a global `brain` on your PATH
+npm link               # optional: puts a global `hunch` on your PATH
 ```
 
-After `npm link` you can type `brain …`. Without it, use `node dist/cli/index.js …`
-(or `npm run brain -- …` to run from source via tsx). The rest of this README uses
-`brain` for brevity.
+After `npm link` you can type `hunch …`. Without it, use `node dist/cli/index.js …`
+(or `npm run hunch -- …` to run from source via tsx). The rest of this README uses
+`hunch` for brevity.
 
 ### 2. (Recommended) make the `claude` CLI available
 
-brain's LLM synthesis is billed to your **Claude Pro/Max subscription** through the
+Hunch's LLM synthesis is billed to your **Claude Pro/Max subscription** through the
 `claude` CLI — **never** the pay-per-token API. If `claude --version` works in your
-terminal, you get full LLM-quality capture for free. If it doesn't, brain still works
-using a deterministic structural heuristic (lower-confidence drafts). `brain doctor`
+terminal, you get full LLM-quality capture for free. If it doesn't, Hunch still works
+using a deterministic structural heuristic (lower-confidence drafts). `hunch doctor`
 tells you which mode you're in.
 
-### 3. Initialize the repo you want a Brain for
+### 3. Initialize the repo you want a memory for
 
 ```bash
-brain init                  # scaffold .brain/, index, install the post-commit hook,
+hunch init                  # scaffold .brain/, index, install the post-commit hook,
                             # write .mcp.json + slash commands + CLAUDE.md, register the merge driver
-brain backfill --since 90d  # cold start: seed decisions from recent git history
+hunch backfill --since 90d  # cold start: seed decisions from recent git history
 ```
 
-`init` writes a `.mcp.json` pointing at *this machine's* node + brain — so **reload
+`init` writes a `.mcp.json` pointing at *this machine's* node + Hunch — so **reload
 Claude Code in the repo** afterward to pick up the `brain_*` tools. (Each teammate runs
-`brain init` once to wire up their own clone; the captured `.brain/` content is shared
+`hunch init` once to wire up their own clone; the captured `.brain/` content is shared
 via git.)
 
 ### 4. Use it
 
 ```bash
-brain why src/auth/session.ts     # the decisions / bugs / invariants behind a file
-brain doctor                      # check git, schema version, and synthesis mode
+hunch why src/auth/session.ts     # the decisions / bugs / invariants behind a file
+hunch doctor                      # check git, schema version, and synthesis mode
 ```
 
 …and in Claude Code, just ask: *"why is the session module built this way?"*
@@ -84,7 +83,7 @@ brain doctor                      # check git, schema version, and synthesis mod
 ## Two ways to use it
 
 **Through Claude Code (the point).** Once the MCP server is registered, ask questions
-normally and Claude consults the Brain, or invoke the slash commands:
+normally and Claude consults Hunch, or invoke the slash commands:
 
 | Slash command | What it does |
 |---|---|
@@ -100,22 +99,22 @@ The MCP tools Claude calls under the hood: `brain_why`, `brain_query`,
 
 | Command | What |
 |---|---|
-| `brain init [--enforce]` | scaffold `.brain/`, index, install hook + merge driver, wire up Claude Code (`--enforce` adds a pre-commit invariant guard) |
-| `brain index` | parse repo → symbols / edges / components (deterministic, no LLM) |
-| `brain backfill --since 90d` | replay git history → seed decisions |
-| `brain sync [sha]` | turn a commit into a Decision (run automatically by the hook) |
-| `brain record-bug --test <id> --message <m>` | capture a Bug from a failing test |
-| `brain why <path\|symbol>` | decisions / bugs / constraints explaining a target (flags `⚠STALE`) |
-| `brain query "<q>"` | full-text + graph search |
-| `brain context <path\|symbol>` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius |
-| `brain fragile` | ranked fragility report with evidence |
-| `brain check [--staged\|--commit <sha>] [--strict]` | guardrail: flag changes touching a do-not-break invariant |
-| `brain stale` | drift: records whose files changed after they were last verified |
-| `brain review [--accept <id>\|--reject <id>]` | curate: triage / promote / drop low-confidence drafts |
-| `brain migrate` | upgrade `.brain/` records to the current schema version |
-| `brain compact [--apply]` | prune low-value drafts to bound growth (dry-run by default) |
-| `brain doctor` | environment diagnostics (git, auth mode, schema version, counts) |
-| `brain mcp` | start the MCP server over stdio (Claude Code connects here) |
+| `hunch init [--enforce]` | scaffold `.brain/`, index, install hook + merge driver, wire up Claude Code (`--enforce` adds a pre-commit invariant guard) |
+| `hunch index` | parse repo → symbols / edges / components (deterministic, no LLM) |
+| `hunch backfill --since 90d` | replay git history → seed decisions |
+| `hunch sync [sha]` | turn a commit into a Decision (run automatically by the hook) |
+| `hunch record-bug --test <id> --message <m>` | capture a Bug from a failing test |
+| `hunch why <path\|symbol>` | decisions / bugs / constraints explaining a target (flags `⚠STALE`) |
+| `hunch query "<q>"` | full-text + graph search |
+| `hunch context <path\|symbol>` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius |
+| `hunch fragile` | ranked fragility report with evidence |
+| `hunch check [--staged\|--commit <sha>] [--strict]` | guardrail: flag changes touching a do-not-break invariant |
+| `hunch stale` | drift: records whose files changed after they were last verified |
+| `hunch review [--accept <id>\|--reject <id>]` | curate: triage / promote / drop low-confidence drafts |
+| `hunch migrate` | upgrade `.brain/` records to the current schema version |
+| `hunch compact [--apply]` | prune low-value drafts to bound growth (dry-run by default) |
+| `hunch doctor` | environment diagnostics (git, auth mode, schema version, counts) |
+| `hunch mcp` | start the MCP server over stdio (Claude Code connects here) |
 
 ## What makes the capture good (not just "changed N files")
 
@@ -125,25 +124,25 @@ touches — so an auto-captured decision reads like *"introduced `verifySession`
 `revokeSession`; removed `login`; new dep: redis; touches con_004"*, with breaking-change
 consequences. With the `claude` CLI present it upgrades to full LLM synthesis; otherwise
 it stays useful offline. Either way every record is **advisory and cheap to discard** —
-`brain review` lets you promote the good ones to human-confirmed.
+`hunch review` lets you promote the good ones to human-confirmed.
 
 ## Working as a team
 
 The `.brain/` JSON is the **source of truth**: diffable, reviewable in PRs, and synced
-for free over `git push` / `pull`. `brain init` also registers a **git merge driver** so
-concurrent edits to the Brain merge **by record id** instead of throwing conflict markers
+for free over `git push` / `pull`. `hunch init` also registers a **git merge driver** so
+concurrent edits to the graph merge **by record id** instead of throwing conflict markers
 (human-confirmed beats auto, then higher confidence, then recency). The routing lives in a
 committed `.gitattributes`; the per-clone driver definition is set up by each teammate's
-`brain init`.
+`hunch init`.
 
 ## Maintenance
 
-- **`brain doctor`** — is git healthy? are you on the subscription path or the offline
+- **`hunch doctor`** — is git healthy? are you on the subscription path or the offline
   heuristic? what schema version is on disk? how many records?
-- **`brain migrate`** — after upgrading brain, bring old `.brain/` records up to the
+- **`hunch migrate`** — after upgrading Hunch, bring old `.brain/` records up to the
   current schema (old records are migrated in memory on every read, so reads never break;
   `migrate` persists the upgrade and never drops a record it can't migrate).
-- **`brain compact --apply`** — auto-captured drafts accumulate; compaction prunes the
+- **`hunch compact --apply`** — auto-captured drafts accumulate; compaction prunes the
   low-value ones (rejected / superseded / stale drafts, resolved low-confidence bugs).
   It **never** removes an accepted/human-confirmed decision, an open bug, a constraint, or
   any record another record still references. Run without `--apply` first to preview.
@@ -159,12 +158,16 @@ committed `.gitattributes`; the per-clone driver definition is set up by each te
 ├─ symbols/index.json   the symbol graph   (high-cardinality, single file)
 ├─ edges/index.json     the dependency graph
 ├─ manifest.json        on-disk schema version
-└─ brain.sqlite         DERIVED FTS5 + graph index, rebuilt by `brain index` (gitignored)
+└─ brain.sqlite         DERIVED FTS5 + graph index, rebuilt by `hunch index` (gitignored)
 ```
 
 Low-volume entities are one file per record so they read cleanly in a PR; the
 high-cardinality symbol/edge graphs are single id-sorted arrays to keep git noise down.
 SQLite is a throwaway index rebuilt from the JSON — only the JSON is committed.
+
+> Note: the on-disk directory is still `.brain/` (and the MCP tools are still `brain_*`)
+> for backward compatibility with existing graphs. A future release may migrate these to
+> `.hunch/` / `hunch_*`.
 
 ## Architecture
 
@@ -181,7 +184,7 @@ src/
 
 ## VS Code
 
-A companion **[VS Code extension](vscode-extension/)** visualizes the Brain (a tree of
+A companion **[VS Code extension](vscode-extension/)** visualizes Hunch (a tree of
 decisions / invariants / bugs / fragility, a "why is this file the way it is?" action, and
 a status-bar invariant counter) by reading the committed `.brain/` JSON directly — no
 server, no native deps.
@@ -206,7 +209,7 @@ server, no native deps.
 ```bash
 npm run typecheck   # tsc --noEmit
 npm test            # node:test suite (store, graph, parse, indexer, synthesis, migrate, merge, compact)
-npm run brain -- why src/store/brainStore.ts   # run the CLI from source via tsx, no build
+npm run hunch -- why src/store/brainStore.ts   # run the CLI from source via tsx, no build
 ```
 
 See [DESIGN.md](DESIGN.md) for the full spec. Deferred by design: embeddings / vector

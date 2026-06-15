@@ -29,7 +29,7 @@ export function writeMcpJson(root: string, inv: Invocation): string {
 }
 
 const WHY_CMD = `---
-description: Explain why a file or symbol is the way it is, from the Project Brain
+description: Explain why a file or symbol is the way it is, from Hunch
 ---
 Use the \`brain_why\` MCP tool on **$ARGUMENTS** (a file path or symbol name).
 
@@ -38,16 +38,16 @@ Then summarize, with citations:
 - the **constraints** that must not break,
 - the **bug history** behind it (root causes).
 
-Cite record ids and their provenance/confidence. If the Brain returns nothing,
-say so plainly and suggest running \`brain index\` or \`brain backfill\`.
+Cite record ids and their provenance/confidence. If Hunch returns nothing,
+say so plainly and suggest running \`hunch index\` or \`hunch backfill\`.
 `;
 
 const FIX_CMD = `---
-description: Fix a bug grounded in the Project Brain (past root causes, constraints, blast radius)
+description: Fix a bug grounded in Hunch (past root causes, constraints, blast radius)
 ---
 We are fixing: **$ARGUMENTS**
 
-Follow the Brain-grounded workflow (DESIGN §5) — do NOT skip the memory lookups:
+Follow the Hunch-grounded workflow (DESIGN §5) — do NOT skip the memory lookups:
 1. \`brain_bug_lineage("$ARGUMENTS")\` — has this class of bug happened before? what was the root cause and the fix?
 2. Identify the suspect symbol/file, then \`brain_get_dependents(<symbol>)\` to learn the blast radius.
 3. \`brain_check_constraints(<scope>)\` — list invariants you must preserve.
@@ -58,10 +58,10 @@ Follow the Brain-grounded workflow (DESIGN §5) — do NOT skip the memory looku
 const FRAGILE_CMD = `---
 description: Report the most fragile parts of this codebase, with evidence
 ---
-Ask the Brain for the fragility ranking (run \`brain fragile\` or query the Brain),
+Ask Hunch for the fragility ranking (run \`hunch fragile\` or query Hunch),
 then produce a **fragility report with evidence**: the specific files/functions,
 the bug history behind them, their churn and fan-in, and any missing guards.
-Avoid generic advice — every claim must cite a Brain record or metric.
+Avoid generic advice — every claim must cite a Hunch record or metric.
 `;
 
 export function writeSlashCommands(root: string): string[] {

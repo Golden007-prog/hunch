@@ -24,20 +24,20 @@ export function renderBrainSection(store: BrainStore): string {
 
   const lines: string[] = [];
   lines.push(START);
-  lines.push("## 🧠 Project Brain (Engineering Memory)");
+  lines.push("## 🧠 Hunch (Engineering Memory)");
   lines.push("");
   lines.push(
-    "This repo has a **Project Brain** — a curated graph of *why* the code is the way it is " +
+    "This repo has **Hunch** — a curated graph of *why* the code is the way it is " +
       "(decisions, bug history, invariants). It currently holds " +
       `**${counts.decisions} decisions, ${counts.bugs} bugs, ${counts.constraints} constraints, ${counts.components} components**.`,
   );
   lines.push("");
-  lines.push("**Before reasoning about or editing this codebase, consult the Brain via the `brain` MCP tools:**");
+  lines.push("**Before reasoning about or editing this codebase, consult Hunch via the `brain_*` MCP tools:**");
   lines.push("- `brain_why(target)` — why a file/symbol is shaped this way (decisions, bugs, constraints).");
   lines.push("- `brain_check_constraints(scope)` — invariants you must not break. **Always run before editing.**");
   lines.push("- `brain_get_dependents(symbol)` — blast radius before a change.");
   lines.push("- `brain_bug_lineage(symptom)` — has this bug happened before? what was the root cause?");
-  lines.push("- `brain_query(question)` — free-text search across the whole Brain.");
+  lines.push("- `brain_query(question)` — free-text search across all of Hunch.");
   lines.push("- `brain_record_decision(...)` — write back a decision after a non-trivial choice.");
   if (constraints.length) {
     lines.push("");
@@ -47,7 +47,7 @@ export function renderBrainSection(store: BrainStore): string {
     }
   }
   lines.push("");
-  lines.push("_The Brain updates itself from commits and test failures. Records carry provenance + confidence; treat low-confidence items as advisory._");
+  lines.push("_Hunch updates itself from commits and test failures. Records carry provenance + confidence; treat low-confidence items as advisory._");
   lines.push(END);
   return lines.join("\n");
 }

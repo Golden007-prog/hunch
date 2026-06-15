@@ -1,9 +1,9 @@
 {
-  "name": "brain-vscode",
-  "displayName": "Project Brain",
-  "description": "Visualize and query the Engineering Memory OS (Project Brain) for the current repo — decisions, invariants, bug history, fragility — right in VS Code.",
+  "name": "hunch-vscode",
+  "displayName": "Hunch",
+  "description": "Visualize and query Hunch (an Engineering Memory OS) for the current repo — decisions, invariants, bug history, fragility — right in VS Code.",
   "version": "0.1.0",
-  "publisher": "brain",
+  "publisher": "hunch",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -15,7 +15,7 @@
       "activitybar": [
         {
           "id": "brain",
-          "title": "Project Brain",
+          "title": "Hunch",
           "icon": "media/brain.svg"
         }
       ]
@@ -26,9 +26,9 @@
       ]
     },
     "commands": [
-      { "command": "brain.why", "title": "Brain: Why is this file the way it is?", "icon": "$(question)" },
-      { "command": "brain.context", "title": "Brain: Assemble context for this file", "icon": "$(list-tree)" },
-      { "command": "brain.refresh", "title": "Brain: Refresh", "icon": "$(refresh)" }
+      { "command": "brain.why", "title": "Hunch:Why is this file the way it is?", "icon": "$(question)" },
+      { "command": "brain.context", "title": "Hunch:Assemble context for this file", "icon": "$(list-tree)" },
+      { "command": "brain.refresh", "title": "Hunch:Refresh", "icon": "$(refresh)" }
     ],
     "menus": {
       "view/title": [
@@ -39,7 +39,7 @@
       ]
     },
     "configuration": {
-      "title": "Project Brain",
+      "title": "Hunch",
       "properties": {
         "brain.statusBar.enabled": {
           "type": "boolean",

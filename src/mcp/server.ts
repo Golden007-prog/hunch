@@ -57,7 +57,7 @@ export function buildServer(root: string): McpServer {
   server.registerTool(
     "brain_query",
     {
-      title: "Query the Brain",
+      title: "Query Hunch",
       description:
         "Full-text + graph search across the engineering memory (decisions, bugs, constraints, components, symbols). Returns ranked records with provenance. Use this to ask 'why' questions about the codebase.",
       inputSchema: { query: z.string().describe("A natural-language question or keywords.") },
@@ -168,7 +168,7 @@ export function buildServer(root: string): McpServer {
   server.registerTool(
     "brain_context",
     {
-      title: "Assemble the minimal relevant Brain slice for a task",
+      title: "Assemble the minimal relevant Hunch slice for a task",
       description:
         "Given a file or symbol you're about to work on, return the MINIMAL relevant memory — invariants to preserve, decisions explaining the design, bug history not to reintroduce, and the blast radius — as a compact brief. Call this FIRST when starting work on something.",
       inputSchema: {
@@ -187,7 +187,7 @@ export function buildServer(root: string): McpServer {
     {
       title: "Record a decision (write-back)",
       description:
-        "Persist a new Decision (ADR) into the Brain with provenance. Use after making a non-trivial design choice so future sessions are grounded in it.",
+        "Persist a new Decision (ADR) into Hunch with provenance. Use after making a non-trivial design choice so future sessions are grounded in it.",
       inputSchema: {
         decision: z.object({
           title: z.string(),
@@ -263,5 +263,5 @@ export async function startServer(cwd: string = process.cwd()): Promise<void> {
   const server = buildServer(root);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`[brain-mcp] serving Brain at ${root} over stdio`);
+  console.error(`[hunch-mcp] serving Hunch at ${root} over stdio`);
 }

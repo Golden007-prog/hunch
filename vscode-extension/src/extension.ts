@@ -1,8 +1,8 @@
 /**
- * Project Brain — VS Code extension. A read-only visualizer over the committed
+ * Hunch — VS Code extension. A read-only visualizer over the committed
  * .brain/ JSON: a tree of decisions/invariants/bugs/fragility, "why is this file
  * the way it is?" + context briefs, and a status-bar invariant counter for the
- * active file. Pairs with the Claude Code chat (which uses the brain MCP tools).
+ * active file. Pairs with the Claude Code chat (which uses the brain_* MCP tools).
  */
 import * as vscode from "vscode";
 import * as cp from "node:child_process";
@@ -69,7 +69,7 @@ class BrainTree implements vscode.TreeDataProvider<Node> {
 
   getChildren(node?: Node): Node[] {
     const b = this.brain;
-    if (!b) return node ? [] : [{ kind: "leaf", label: "No .brain/ found — run `brain init`" }];
+    if (!b) return node ? [] : [{ kind: "leaf", label: "No .brain/ found — run `hunch init`" }];
     if (!node) {
       return [
         { kind: "group", label: `Invariants (${b.constraints.length})`, key: "constraints" },
@@ -152,7 +152,7 @@ function showBrief(title: string, sections: Array<{ h: string; lines: string[] }
     body{font-family:var(--vscode-font-family);padding:0 16px;color:var(--vscode-foreground)}
     h2{border-bottom:1px solid var(--vscode-panel-border)} h3{margin-top:1.2em}
     li{margin:.3em 0;line-height:1.4} code{color:var(--vscode-textPreformat-foreground)}
-  </style></head><body><h2>${esc(title)}</h2>${body || "<p><em>The Brain has nothing recorded for this yet — it is still learning this file.</em></p>"}</body></html>`;
+  </style></head><body><h2>${esc(title)}</h2>${body || "<p><em>Hunch has nothing recorded for this yet — it is still learning this file.</em></p>"}</body></html>`;
 }
 
 function whyBrief(brain: Brain, file: string): void {
@@ -184,7 +184,7 @@ function updateStatusBar(item: vscode.StatusBarItem): void {
   const file = relPath(editor.document.uri.fsPath);
   const cons = constraintsInScope(brain, file);
   if (!cons.length) {
-    item.text = "$(shield) Brain";
+    item.text = "$(shield) Hunch";
     item.tooltip = "No invariants for this file";
   } else {
     const blocking = cons.filter((c) => c.severity === "blocking").length;
@@ -211,7 +211,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const root = workspaceRoot();
     const file = activeFile();
     const brain = root ? loadBrain(root) : null;
-    if (!brain) return void vscode.window.showWarningMessage("No Project Brain (.brain/) found — run `brain init`.");
+    if (!brain) return void vscode.window.showWarningMessage("No Hunch graph (.brain/) found — run `hunch init`.");
     if (!file) return void vscode.window.showWarningMessage("Open a file first.");
     fn(brain, relPath(file));
   };

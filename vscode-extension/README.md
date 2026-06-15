@@ -1,7 +1,7 @@
-# Project Brain — VS Code extension
+# Hunch — VS Code extension
 
-A read-only visualizer over the [Engineering Memory OS](../README.md) (`.brain/`) for the
-open repo. Pairs with the Claude Code chat (which uses the `brain` MCP tools); this gives
+A read-only visualizer over [Hunch](../README.md) (`.brain/`) for the
+open repo. Pairs with the Claude Code chat (which uses the `brain_*` MCP tools); this gives
 you the **human** surface.
 
 ## Features
@@ -14,7 +14,7 @@ you the **human** surface.
 - **Live** — refreshes automatically when `.brain/` changes on disk (e.g. after a commit).
 
 It is a pure reader of the committed JSON source of truth — **no native deps, no server**, and
-it works as soon as the repo has a `.brain/` directory (`brain init`).
+it works as soon as the repo has a `.brain/` directory (`hunch init`).
 
 ## Develop / run
 ```bash

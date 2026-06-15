@@ -10,7 +10,7 @@ function prov(p?: { source?: string; confidence?: number; last_verified?: string
 }
 
 export function formatContext(ctx: AssembledContext): string {
-  const out: string[] = [`# Brain context for "${ctx.target}"`];
+  const out: string[] = [`# Hunch context for "${ctx.target}"`];
 
   if (ctx.constraints.length) {
     out.push(`\n## ⛔ Invariants (must not break)`);
@@ -30,7 +30,7 @@ export function formatContext(ctx: AssembledContext): string {
   }
   if (ctx.components.length) out.push(`\n## 📦 Components: ${ctx.components.map((c) => c.name).join(", ")}`);
 
-  if (out.length === 1) out.push(`\n(No recorded constraints/decisions/bugs for this target yet — the Brain is still learning it.)`);
+  if (out.length === 1) out.push(`\n(No recorded constraints/decisions/bugs for this target yet — Hunch is still learning it.)`);
 
   // crude budget trim: ~4 chars/token. Slice on code points (not UTF-16 units)
   // and back off to the last line boundary so we never split a surrogate pair or
