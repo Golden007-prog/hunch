@@ -116,8 +116,8 @@ The MCP tools Claude calls under the hood: `hunch_why`, `hunch_query`,
 | `hunch embed` | generate local embeddings for semantic recall (opt-in; needs `@huggingface/transformers`) |
 | `hunch context <path\|symbol>` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius |
 | `hunch fragile` | ranked fragility report with evidence |
-| `hunch check [--staged\|--commit <sha>] [--strict]` | guardrail: flag changes touching a do-not-break invariant |
-| `hunch stale` | drift: records whose files changed after they were last verified |
+| `hunch check [--staged\|--commit <sha>] [--strict] [--blast]` | guardrail: flag changes touching a do-not-break invariant **directly or via blast radius** (a guarded file that depends on what you changed); `--blast` prints the dependency fan-out |
+| `hunch stale [--resync]` | drift: records whose files changed after last verification (`--resync` regenerates stale decisions from their commits) |
 | `hunch review [--accept <id>\|--reject <id>]` | curate: triage / promote / drop low-confidence drafts |
 | `hunch migrate` | upgrade `.hunch/` records to the current schema version |
 | `hunch compact [--apply]` | prune low-value drafts to bound growth (dry-run by default) |

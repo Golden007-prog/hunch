@@ -417,6 +417,24 @@ export class HunchStore {
     return id;
   }
 
+  /** Files whose symbols (in)directly DEPEND ON a symbol defined in `file` — the
+   *  blast radius of editing `file`, collapsed to file granularity (nearest depth
+   *  wins per file). Powers `hunch check` near-violation detection and `--blast`. */
+  blastRadiusFiles(file: string, maxDepth = 4): Array<{ file: string; via: string; depth: number }> {
+    const syms = this.db.prepare(`SELECT id FROM symbols WHERE file = ?`).all(file) as Array<{ id: string }>;
+    const out = new Map<string, { file: string; via: string; depth: number }>();
+    for (const s of syms) {
+      for (const dep of this.getDependents(s.id, maxDepth)) {
+        if (!dep.id.startsWith("sym_")) continue;
+        const r = this.db.prepare(`SELECT name, file FROM symbols WHERE id=?`).get(dep.id) as { name: string; file: string } | undefined;
+        if (!r || r.file === file) continue; // ignore self-file dependents
+        const prev = out.get(r.file);
+        if (!prev || dep.depth < prev.depth) out.set(r.file, { file: r.file, via: r.name, depth: dep.depth });
+      }
+    }
+    return [...out.values()].sort((a, b) => a.depth - b.depth || a.file.localeCompare(b.file));
+  }
+
   /** Constraints whose scope glob matches a path/glob (hunch_check_constraints). */
   checkConstraints(scope: string): Constraint[] {
     const all = this.json.loadAll("constraints");

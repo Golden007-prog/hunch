@@ -408,38 +408,77 @@ program
   .description("Flag changes that touch a do-not-break invariant's scope (guardrail).")
   .option("--staged", "check git staged files (default)")
   .option("--commit <sha>", "check a specific commit's files")
-  .option("--strict", "exit non-zero if a blocking constraint is in scope")
-  .action((opts: { staged?: boolean; commit?: string; strict?: boolean }) => {
+  .option("--strict", "exit non-zero if a blocking constraint is in scope (direct OR near)")
+  .option("--blast", "also print the dependency blast radius of the changed files")
+  .action((opts: { staged?: boolean; commit?: string; strict?: boolean; blast?: boolean }) => {
     if (opts.commit && opts.staged) return fail("--staged and --commit are mutually exclusive");
     const { store, root } = storeFor();
+    store.reindex(); // blast radius walks the edge graph — make the index current
     const files = opts.commit ? commitFiles(opts.commit, root) : stagedFiles(root);
     if (!files.length) {
       console.log("No changed files to check.");
       store.close();
       return;
     }
-    const hits = new Map<string, { constraint: ReturnType<HunchStore["checkConstraints"]>[number]; files: string[] }>();
+    type Inv = ReturnType<HunchStore["checkConstraints"]>[number];
+    const mark = (s: string) => (s === "blocking" ? "⛔" : s === "warning" ? "⚠" : "·");
+
+    // 1) DIRECT — a changed file matches a constraint's scope.
+    const direct = new Map<string, { c: Inv; files: string[] }>();
     for (const f of files) {
       for (const c of store.checkConstraints(f)) {
-        const e = hits.get(c.id) ?? { constraint: c, files: [] };
+        const e = direct.get(c.id) ?? { c, files: [] };
         e.files.push(f);
-        hits.set(c.id, e);
+        direct.set(c.id, e);
       }
     }
-    if (!hits.size) {
-      console.log(`✓ ${files.length} changed file(s) touch no recorded invariants.`);
+    // 2) NEAR — a changed file's blast radius reaches a file an invariant guards:
+    //    you didn't touch the invariant, but you touched something it depends on.
+    const near = new Map<string, { c: Inv; via: string[] }>();
+    for (const f of files) {
+      for (const b of store.blastRadiusFiles(f)) {
+        for (const c of store.checkConstraints(b.file)) {
+          if (direct.has(c.id)) continue; // already reported as a direct hit
+          const e = near.get(c.id) ?? { c, via: [] };
+          e.via.push(`${f} → ${b.file} (${b.via}, depth ${b.depth})`);
+          near.set(c.id, e);
+        }
+      }
+    }
+
+    if (opts.blast) {
+      console.log(`Blast radius of ${files.length} changed file(s):`);
+      for (const f of files) {
+        const b = store.blastRadiusFiles(f);
+        const list = b.length ? `: ${b.slice(0, 8).map((x) => x.file).join(", ")}${b.length > 8 ? " …" : ""}` : "";
+        console.log(`  ${f} → ${b.length} dependent file(s)${list}`);
+      }
+      console.log("");
+    }
+
+    if (!direct.size && !near.size) {
+      console.log(`✓ ${files.length} changed file(s) touch no recorded invariants (directly or via blast radius).`);
       store.close();
       return;
     }
+
     let blocking = 0;
-    console.log(`Changes touch ${hits.size} invariant(s):\n`);
-    for (const { constraint: c, files: fs } of hits.values()) {
-      if (c.severity === "blocking") blocking++;
-      const mark = c.severity === "blocking" ? "⛔" : c.severity === "warning" ? "⚠" : "·";
-      console.log(`  ${mark} [${c.severity}] ${c.statement}\n      ${c.id} · in: ${fs.join(", ")}\n      rationale: ${c.rationale || "—"}`);
+    if (direct.size) {
+      console.log(`Directly touches ${direct.size} invariant(s):\n`);
+      for (const { c, files: fs } of direct.values()) {
+        if (c.severity === "blocking") blocking++;
+        console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}\n      ${c.id} · in: ${fs.join(", ")}\n      rationale: ${c.rationale || "—"}`);
+      }
+    }
+    if (near.size) {
+      console.log(`${direct.size ? "\n" : ""}Near ${near.size} invariant(s) via blast radius (a guarded dependency changed — review):\n`);
+      for (const { c, via } of near.values()) {
+        if (c.severity === "blocking") blocking++;
+        console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}\n      ${c.id}\n      ${via.slice(0, 4).join("\n      ")}${via.length > 4 ? `\n      …+${via.length - 4} more path(s)` : ""}`);
+      }
     }
     if (opts.strict && blocking) {
-      console.log(`\n✗ ${blocking} blocking invariant(s) in scope — review before committing.`);
+      console.log(`\n✗ ${blocking} blocking invariant(s) in scope (direct or near) — review before committing.`);
       process.exitCode = 1;
     } else {
       console.log(`\nReview that these invariants still hold. (Advisory — run with --strict to fail on blocking.)`);
