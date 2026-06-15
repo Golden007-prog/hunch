@@ -16,12 +16,93 @@
  * Every provider returns the same shape so the rest of the system never knows
  * (or cares) which one ran.
  */
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { summarizeDiff, type DiffAnalysis } from "../extractors/diff.js";
 
-const pexec = promisify(execFile);
+const IS_WIN = process.platform === "win32";
+
+/**
+ * Run a command, optionally feeding `input` to its stdin, and resolve its
+ * stdout. Uses spawn (not execFile) so we can:
+ *   1. Pass untrusted content (the prompt/diff) via STDIN, never as an argv
+ *      element — so a `shell:true` resolution can't shell-interpret it.
+ *   2. Resolve Windows shims: the npm `claude` is a `.cmd`/`.ps1`, which
+ *      `execFile` (CreateProcess, *.exe only) cannot launch → it threw ENOENT
+ *      and made the CLI provider look unavailable on Windows. `shell:true` on
+ *      win32 routes through cmd.exe so the shim resolves. Safe here because
+ *      every argv we pass is a trusted, space-free flag (the prompt is stdin).
+ */
+export function pexecIn(
+  cmd: string,
+  args: string[],
+  opts: {
+    input?: string;
+    env?: NodeJS.ProcessEnv;
+    cwd?: string;
+    timeout?: number;
+    maxBuffer?: number;
+  } = {},
+): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) => {
+    // Windows: launch through cmd.exe so the `claude` .cmd/.ps1 shim resolves,
+    // and pass the whole line as ONE shell string (args are trusted, space-free
+    // flags) — avoids Node's DEP0190 warning for `args + shell:true`. The prompt
+    // is never here; it goes via stdin below. POSIX: no shell, argv as-is.
+    const child = IS_WIN
+      ? spawn([cmd, ...args].join(" "), {
+          shell: true,
+          env: opts.env,
+          cwd: opts.cwd,
+          windowsHide: true,
+        })
+      : spawn(cmd, args, {
+          env: opts.env,
+          cwd: opts.cwd,
+          windowsHide: true,
+        });
+    const max = opts.maxBuffer ?? 16 * 1024 * 1024;
+    let out = "";
+    let err = "";
+    let outLen = 0;
+    let settled = false;
+    const done = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn();
+    };
+    const timer = opts.timeout
+      ? setTimeout(() => {
+          child.kill();
+          done(() => reject(new Error(`"${cmd}" timed out after ${opts.timeout}ms`)));
+        }, opts.timeout)
+      : null;
+    child.on("error", (e) => done(() => reject(e)));
+    child.stdout.on("data", (d: Buffer) => {
+      outLen += d.length;
+      if (outLen > max) {
+        child.kill();
+        done(() => reject(new Error(`"${cmd}" exceeded maxBuffer (${max} bytes)`)));
+        return;
+      }
+      out += d.toString();
+    });
+    child.stderr.on("data", (d: Buffer) => {
+      err += d.toString();
+    });
+    child.on("close", (code) => {
+      done(() => {
+        if (code === 0) resolve({ stdout: out });
+        else reject(new Error(`"${cmd}" exited ${code}: ${err.slice(0, 300)}`));
+      });
+    });
+    // Feed stdin (the prompt) then close it; commands with no input just get EOF.
+    if (opts.input != null) child.stdin.write(opts.input);
+    child.stdin.on("error", () => {}); // ignore EPIPE if the child exits early
+    child.stdin.end();
+  });
+}
 
 export interface DecisionDraft {
   title: string;
@@ -114,7 +195,7 @@ class ClaudeCliProvider implements SynthProvider {
 
   async available(): Promise<boolean> {
     try {
-      await pexec("claude", ["--version"], { timeout: 8000 });
+      await pexecIn("claude", ["--version"], { timeout: 8000 });
       return true;
     } catch {
       return false;
@@ -136,8 +217,11 @@ class ClaudeCliProvider implements SynthProvider {
     // repo's own hunch MCP server / CLAUDE.md on every commit (cheaper, and no
     // risk of the synthesis call recursing through the Hunch). Auth lives in the
     // user's home config, not cwd, so this doesn't affect subscription billing.
-    const args = ["-p", prompt, "--output-format", "json", "--model", this.model, "--max-turns", "1"];
-    const { stdout } = await pexec("claude", args, {
+    // Prompt goes via STDIN (-p reads piped stdin), never argv — keeps untrusted
+    // diff content out of any shell the spawn helper uses on Windows.
+    const args = ["-p", "--output-format", "json", "--model", this.model, "--max-turns", "1"];
+    const { stdout } = await pexecIn("claude", args, {
+      input: prompt,
       env: childEnv,
       cwd: tmpdir(),
       maxBuffer: 16 * 1024 * 1024,
