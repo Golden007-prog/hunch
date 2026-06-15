@@ -66,8 +66,9 @@ module built this way?"* and get an evidence-cited answer.
 Even with no LLM, the write path runs a structured **diff analysis** — added/removed/changed
 symbols, new and dropped dependencies, and which invariants a change touches — so an
 auto-captured decision reads like _"introduced `verifySession`, `revokeSession`; removed `login`;
-new dep: redis; touches con_004"_, with breaking-change consequences. With an Anthropic key or
-the `claude` CLI present, it upgrades to full LLM synthesis; otherwise it stays useful offline.
+new dep: redis; touches con_004"_, with breaking-change consequences. With the `claude` CLI
+present (driven by your Claude subscription, never the pay-per-token API), it upgrades to full
+LLM synthesis; otherwise it stays useful offline.
 
 ## VS Code
 A companion **[VS Code extension](vscode-extension/)** visualizes the Brain (tree of
@@ -87,7 +88,7 @@ src/
 ├─ core/         types (Zod schema), ids, paths, glob
 ├─ store/        JSON source of truth  ←→  SQLite/FTS5 derived index, graph CTEs
 ├─ extractors/   tree-sitter parse, git introspection, the indexer
-├─ synthesis/    pluggable LLM provider (anthropic-sdk | claude-cli | deterministic), write-path
+├─ synthesis/    LLM provider (claude-cli, subscription-billed | deterministic fallback), write-path
 ├─ mcp/          MCP stdio server (6 brain_* tools)
 ├─ integrations/ post-commit hook, CLAUDE.md writer, .mcp.json + slash commands
 └─ cli/          commander entrypoint
@@ -108,9 +109,11 @@ These deviate from / pin the stack named in DESIGN.md §7 for verified reproduci
   give a simpler synchronous API.
 - **`better-sqlite3` pinned to `12.9.0`.** 12.10.x ships **no Node-20 prebuild** and
   would force a source compile (Xcode CLT); 12.9.0 has the Node-20 (ABI 115) prebuild.
-- **Pluggable synthesis with a deterministic fallback.** The write path works with an
-  Anthropic API key, the `claude` CLI, or neither — the no-LLM fallback emits
-  low-confidence advisory drafts so the loop never hard-requires credentials.
+- **Subscription-billed synthesis with a deterministic fallback.** The write path drives the
+  user's Claude subscription via the `claude` CLI — **never** the pay-per-token API (the API
+  key is stripped from the child env to force subscription auth) — and falls back to a no-LLM
+  heuristic that emits low-confidence advisory drafts, so the loop never hard-requires
+  credentials or network.
 
 ## Develop
 

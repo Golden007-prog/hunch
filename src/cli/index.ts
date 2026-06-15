@@ -363,7 +363,18 @@ program
     const { store, root } = storeFor();
     console.log(`Brain root: ${root}`);
     console.log(`git repo:   ${isGitRepo(root) ? "yes" : "no"}  ${isGitRepo(root) ? `(HEAD ${headSha(root).slice(0, 8)})` : ""}`);
-    console.log(`synthesis:  ${(await selectProvider()).name}`);
+    const provider = await selectProvider();
+    console.log(`synthesis:  ${provider.name}`);
+    // Synthesis is billed to the user's Claude SUBSCRIPTION via the `claude` CLI,
+    // never the pay-per-token API. Surface whatever stands between here and that.
+    if (provider.name === "claude-cli") {
+      const hadKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+      console.log(`            ↳ LLM synthesis billed to your Claude subscription` +
+        (hadKey ? ` (ANTHROPIC_API_KEY in env is stripped — never billed to the API)` : ``));
+    } else if (provider.name === "deterministic") {
+      console.log(dim(`            ↳ no \`claude\` CLI — synthesis uses the offline heuristic (advisory, low-confidence)`));
+      console.log(dim(`              for full synthesis: install Claude Code + \`claude /login\`, or set CLAUDE_CODE_OAUTH_TOKEN (\`claude setup-token\`) for CI`));
+    }
     const c = store.reindex().counts;
     console.log(`brain:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
     store.close();

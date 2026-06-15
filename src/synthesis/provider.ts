@@ -1,16 +1,24 @@
 /**
  * Pluggable synthesis provider for the WRITE path (DESIGN.md §4 / §7).
  *
- * The runtime may have an Anthropic API key, the `claude` CLI, or neither. We
- * try, in order: anthropic-sdk → claude-cli → deterministic-fallback. The
- * fallback always works (no creds) and emits a LOW-confidence draft, honoring
- * the design rule that auto-captured memory is advisory and cheap to discard.
+ * LLM synthesis is driven by the user's Claude **subscription** via the `claude`
+ * CLI — never the pay-per-token Anthropic API. We try, in order:
+ * claude-cli → deterministic-fallback. The fallback always works (no creds, no
+ * network) and emits a LOW-confidence draft, honoring the design rule that
+ * auto-captured memory is advisory and cheap to discard.
+ *
+ * Subscription, not API: Claude Code's auth precedence puts `ANTHROPIC_API_KEY`
+ * (and `ANTHROPIC_AUTH_TOKEN`) ABOVE subscription OAuth, and in headless `-p`
+ * mode the API key is *always* used when present. So we strip those vars from
+ * the child env (see ClaudeCliProvider.run) to force the CLI down to subscription
+ * OAuth / CLAUDE_CODE_OAUTH_TOKEN. There is intentionally NO API-key provider.
  *
  * Every provider returns the same shape so the rest of the system never knows
  * (or cares) which one ran.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { tmpdir } from "node:os";
 import { summarizeDiff, type DiffAnalysis } from "../extractors/diff.js";
 
 const pexec = promisify(execFile);
@@ -96,65 +104,13 @@ const BUG_TOOL = {
 };
 
 // --------------------------------------------------------------------------
-// Provider A: Anthropic SDK (structured output via forced tool use)
-// --------------------------------------------------------------------------
-class AnthropicProvider implements SynthProvider {
-  readonly name = "anthropic-sdk";
-  private model = process.env.BRAIN_SYNTH_MODEL || "claude-haiku-4-5-20251001";
-
-  async available(): Promise<boolean> {
-    return !!process.env.ANTHROPIC_API_KEY;
-  }
-
-  private async call(system: string, prompt: string, tool: typeof DECISION_TOOL): Promise<Record<string, unknown>> {
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic();
-    const res = await client.messages.create({
-      model: this.model,
-      max_tokens: 1024,
-      system,
-      tools: [tool],
-      tool_choice: { type: "tool", name: tool.name },
-      messages: [{ role: "user", content: prompt }],
-    });
-    for (const block of res.content) {
-      if (block.type === "tool_use") return block.input as Record<string, unknown>;
-    }
-    throw new Error("anthropic: no tool_use block in response");
-  }
-
-  async draftDecision(input: CommitInput): Promise<DecisionDraft> {
-    const out = await this.call(SYSTEM, commitPrompt(input), DECISION_TOOL);
-    return {
-      title: String(out.title ?? input.subject),
-      context: String(out.context ?? ""),
-      decision: String(out.decision ?? ""),
-      consequences: asStrArr(out.consequences),
-      alternatives_rejected: asStrArr(out.alternatives_rejected),
-      confidence: out.nontrivial ? 0.7 : 0.45,
-      source: "llm_draft",
-    };
-  }
-
-  async draftBug(input: FailureInput): Promise<BugDraft> {
-    const out = await this.call(SYSTEM, failurePrompt(input), BUG_TOOL as never);
-    return {
-      title: String(out.title ?? input.test),
-      symptom: String(out.symptom ?? input.message),
-      root_cause: String(out.root_cause ?? ""),
-      severity: (["low", "medium", "high", "critical"].includes(String(out.severity)) ? out.severity : "medium") as BugDraft["severity"],
-      confidence: 0.6,
-      source: "test_failure+llm",
-    };
-  }
-}
-
-// --------------------------------------------------------------------------
-// Provider B: headless `claude -p` CLI
+// Provider A: headless `claude -p` CLI — billed to the user's Claude subscription
 // --------------------------------------------------------------------------
 class ClaudeCliProvider implements SynthProvider {
   readonly name = "claude-cli";
-  private model = process.env.BRAIN_SYNTH_MODEL;
+  // Default to the `haiku` alias (cheap/fast, and survives model retirements)
+  // rather than a pinned dated id; override with BRAIN_SYNTH_MODEL if needed.
+  private model = process.env.BRAIN_SYNTH_MODEL || "haiku";
 
   async available(): Promise<boolean> {
     try {
@@ -166,14 +122,32 @@ class ClaudeCliProvider implements SynthProvider {
   }
 
   private async run(prompt: string): Promise<string> {
-    const args = ["-p", prompt, "--output-format", "json"];
-    if (this.model) args.push("--model", this.model);
-    const { stdout } = await pexec("claude", args, { maxBuffer: 16 * 1024 * 1024, timeout: 120_000 });
+    // Force SUBSCRIPTION auth: ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN outrank
+    // subscription OAuth in Claude Code's precedence and are *always* used in
+    // headless `-p` mode when present. Strip them so the CLI falls through to
+    // CLAUDE_CODE_OAUTH_TOKEN / `/login` subscription credentials. (We never
+    // bill the pay-per-token API — that's the whole point of this provider.)
+    const env = { ...process.env };
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+
+    // Single-shot text synthesis: no tools, no agentic loop. The prompt carries
+    // all needed context inline, so run from a neutral cwd to avoid loading this
+    // repo's own brain MCP server / CLAUDE.md on every commit (cheaper, and no
+    // risk of the synthesis call recursing through the Brain). Auth lives in the
+    // user's home config, not cwd, so this doesn't affect subscription billing.
+    const args = ["-p", prompt, "--output-format", "json", "--model", this.model, "--max-turns", "1"];
+    const { stdout } = await pexec("claude", args, {
+      env,
+      cwd: tmpdir(),
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 120_000,
+    });
     // headless JSON envelope: { result: "<assistant text>", ... }
     try {
-      const env = JSON.parse(stdout) as { result?: string; is_error?: boolean };
-      if (env.is_error) throw new Error("claude -p reported an error");
-      return env.result ?? stdout;
+      const out = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+      if (out.is_error) throw new Error("claude -p reported an error");
+      return out.result ?? stdout;
     } catch {
       return stdout;
     }
@@ -262,7 +236,7 @@ export class DeterministicProvider implements SynthProvider {
   }
 }
 
-const PROVIDERS: SynthProvider[] = [new AnthropicProvider(), new ClaudeCliProvider(), new DeterministicProvider()];
+const PROVIDERS: SynthProvider[] = [new ClaudeCliProvider(), new DeterministicProvider()];
 
 /** Choose the first available provider, honoring BRAIN_SYNTH_PROVIDER override. */
 export async function selectProvider(): Promise<SynthProvider> {
