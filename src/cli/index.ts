@@ -12,6 +12,9 @@
  *   mcp       start the MCP server (Claude Code connects here)
  *   doctor    environment diagnostics
  */
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { Command } from "commander";
 import { brainPaths, findRoot } from "../core/paths.js";
 import { BrainStore } from "../store/brainStore.js";
@@ -20,9 +23,13 @@ import { syncCommit, recordFailure } from "../synthesis/synthesize.js";
 import { selectProvider } from "../synthesis/provider.js";
 import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles } from "../extractors/git.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
+import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands } from "../integrations/scaffold.js";
 import { formatContext } from "../core/format.js";
+import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
+import { mergeBrainJson } from "../store/merge.js";
+import { planCompaction } from "../store/compact.js";
 import { resolveInvocation } from "./invocation.js";
 
 const program = new Command();
@@ -45,13 +52,14 @@ program
   .option("--enforce-strict", "install a pre-commit guard that FAILS the commit on a blocking invariant")
   .action((opts: { index: boolean; enforce?: boolean; enforceStrict?: boolean }) => {
     const root = findRoot();
-    const store = new BrainStore(brainPaths(root));
+    const paths = brainPaths(root);
+    const store = new BrainStore(paths);
     openStore = store; // so the top-level error handler closes it on failure
     const inv = resolveInvocation();
     console.log(`🧠 Initializing Project Brain at ${root}`);
 
-    store.json.ensureDirs();
-    console.log("  ✓ .brain/ scaffolded");
+    store.json.ensureDirs(); // stamps the manifest at the current version when fresh
+    console.log(`  ✓ .brain/ scaffolded (schema v${readManifest(paths).schema_version})`);
 
     if (opts.index !== false) {
       const res = indexRepo(store, root);
@@ -63,6 +71,8 @@ program
     if (isGitRepo(root)) {
       const h = installPostCommitHook(root, inv.shell);
       console.log(`  ✓ post-commit hook ${h.action} (learning loop)`);
+      const m = installMergeDriver(root, inv.shell);
+      console.log(`  ✓ team merge driver ${m.action}`);
       if (opts.enforce || opts.enforceStrict) {
         const p = installPreCommitHook(root, inv.shell, !!opts.enforceStrict);
         console.log(`  ✓ pre-commit constraint guard ${p.action} (${opts.enforceStrict ? "strict — blocks on blocking invariants" : "advisory"})`);
@@ -355,6 +365,99 @@ program
     await startServer(process.cwd());
   });
 
+// ---- migrate (schema versioning) ------------------------------------------
+program
+  .command("migrate")
+  .description("Upgrade .brain/ records to the current schema version and stamp the manifest.")
+  .action(() => {
+    const root = findRoot();
+    const paths = brainPaths(root);
+    const store = new BrainStore(paths);
+    openStore = store;
+    const from = readManifest(paths).schema_version;
+    if (from > SCHEMA_VERSION) {
+      store.close();
+      return fail(`.brain/ is schema v${from}, newer than this brain (v${SCHEMA_VERSION}). Upgrade brain.`);
+    }
+    if (from === SCHEMA_VERSION) {
+      writeManifest(paths, SCHEMA_VERSION); // record the version even if the manifest was absent
+      console.log(`✓ Already at schema v${SCHEMA_VERSION} — nothing to migrate.`);
+      store.close();
+      return;
+    }
+    const res = store.json.persistMigration();
+    writeManifest(paths, SCHEMA_VERSION);
+    store.reindex();
+    console.log(`✓ Migrated v${from} → v${SCHEMA_VERSION}: ${res.migrated} record(s) upgraded.`);
+    if (res.skipped) {
+      console.warn(`⚠ ${res.skipped} record(s) could NOT be migrated and will no longer load. They are preserved on disk in their old shape under .brain/ for manual recovery.`);
+    }
+    store.close();
+  });
+
+// ---- compact (bound Brain growth) -----------------------------------------
+program
+  .command("compact")
+  .description("Prune low-value auto-captured records (rejected/superseded/stale drafts, resolved low-confidence bugs).")
+  .option("--apply", "actually delete (default: dry-run preview)")
+  .option("--max-age <days>", "minimum age in days for stale-draft pruning", "180")
+  .option("--min-confidence <n>", "confidence below which a draft is prunable", "0.35")
+  .action((opts: { apply?: boolean; maxAge: string; minConfidence: string }) => {
+    const { store, root } = storeFor();
+    const plan = planCompaction(
+      { decisions: store.json.loadAll("decisions"), bugs: store.json.loadAll("bugs"), constraints: store.json.loadAll("constraints") },
+      { now: Date.now(), maxAgeDays: Number(opts.maxAge), minConfidence: Number(opts.minConfidence) },
+    );
+    if (!plan.remove.length) {
+      console.log(`✓ Nothing to compact (${plan.considered} record(s) considered; accepted/open/referenced records are always kept).`);
+      store.close();
+      return;
+    }
+    console.log(`${plan.remove.length} of ${plan.considered} record(s) ${opts.apply ? "removed" : "would be removed"}:\n`);
+    for (const c of plan.remove) console.log(`  ${opts.apply ? "✗" : "·"} [${c.kind}] ${c.id}  ${c.title}\n      ${c.reason}`);
+    if (opts.apply) {
+      let removed = 0;
+      for (const c of plan.remove) if (store.json.delete(c.kind, c.id)) removed++;
+      store.reindex();
+      updateClaudeMd(root, store);
+      console.log(`\n✓ Removed ${removed} record(s).`);
+    } else {
+      console.log(`\nDry run — re-run with --apply to delete. Accepted/human-confirmed, open bugs, constraints, and referenced records are never removed.`);
+    }
+    store.close();
+  });
+
+// ---- merge-driver (internal; git invokes this) ----------------------------
+program
+  .command("merge-driver")
+  .description("(internal) git merge driver for .brain JSON — resolves concurrent edits by record id.")
+  .argument("<base>", "%O — common ancestor")
+  .argument("<ours>", "%A — current branch (also the OUTPUT file)")
+  .argument("<theirs>", "%B — other branch")
+  .argument("[path]", "%P — pathname being merged")
+  .action((base: string, ours: string, theirs: string) => {
+    const read = (p: string) => (existsSync(p) ? readFileSync(p, "utf8") : "");
+    const res = mergeBrainJson(read(base), read(ours), read(theirs));
+    if (!res.conflict) {
+      writeFileSync(ours, res.text); // %A is the merge output git reads back
+      return;
+    }
+    // Couldn't structurally merge (corrupt JSON / id-less / id divergence). Fall
+    // back to git's own 3-way text merge so %A gets STANDARD conflict markers —
+    // never silently leave `ours` and hide `theirs`. `git merge-file -p` prints the
+    // marked result to stdout and exits non-zero when markers remain.
+    const lf = (s: string) => s.replace(/\r\n/g, "\n"); // match the LF the structured path emits
+    try {
+      const merged = execFileSync("git", ["merge-file", "-p", "--diff3", "-L", "ours", "-L", "base", "-L", "theirs", ours, base, theirs], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+      writeFileSync(ours, lf(merged)); // clean text merge → resolved
+    } catch (e) {
+      const err = e as { stdout?: string | Buffer; status?: number };
+      const out = typeof err.stdout === "string" ? err.stdout : err.stdout?.toString();
+      if (out != null) writeFileSync(ours, lf(out)); // marked result; else leave ours
+      process.exitCode = 1; // conflict markers remain → block the commit for review
+    }
+  });
+
 // ---- doctor ---------------------------------------------------------------
 program
   .command("doctor")
@@ -363,6 +466,9 @@ program
     const { store, root } = storeFor();
     console.log(`Brain root: ${root}`);
     console.log(`git repo:   ${isGitRepo(root) ? "yes" : "no"}  ${isGitRepo(root) ? `(HEAD ${headSha(root).slice(0, 8)})` : ""}`);
+    const onDisk = readManifest(brainPaths(root)).schema_version;
+    const schemaNote = onDisk === SCHEMA_VERSION ? "" : onDisk > SCHEMA_VERSION ? `  ⚠ newer than this brain (v${SCHEMA_VERSION}) — upgrade brain` : `  ⚠ run \`brain migrate\``;
+    console.log(`schema:     v${onDisk} (brain v${SCHEMA_VERSION})${schemaNote}`);
     const provider = await selectProvider();
     console.log(`synthesis:  ${provider.name}`);
     // Synthesis is billed to the user's Claude SUBSCRIPTION via the `claude` CLI,

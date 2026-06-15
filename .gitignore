@@ -10,3 +10,5 @@ dist/
 .brain/*.sqlite-journal
 .brain/*.sqlite-wal
 .brain/*.sqlite-shm
+# Atomic-write temp files (normally consumed by rename; ignored in case one leaks).
+.brain/**/*.tmp*

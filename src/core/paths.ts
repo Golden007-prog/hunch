@@ -10,6 +10,8 @@ export interface BrainPaths {
   root: string;
   brain: string;
   sqlite: string;
+  /** `.brain/manifest.json` — records the on-disk schema version. */
+  manifest: string;
   dir(kind: string): string;
 }
 
@@ -19,6 +21,7 @@ export function brainPaths(root: string): BrainPaths {
     root,
     brain,
     sqlite: join(brain, "brain.sqlite"),
+    manifest: join(brain, "manifest.json"),
     dir: (kind: string) => join(brain, kind),
   };
 }

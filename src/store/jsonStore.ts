@@ -3,10 +3,12 @@
  * in PRs, diffable, mergeable). This layer never touches SQLite — it is the
  * authoritative read/write surface; SQLite is rebuilt from it.
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { BrainPaths } from "../core/paths.js";
 import { ENTITY_KINDS, SCHEMAS, type EntityKind, type EntityFor } from "../core/types.js";
+import { migrateRaw, readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
+import { writeFileAtomic } from "../core/io.js";
 
 /** High-cardinality collections (symbols, edges) are stored as a single
  *  index.json array — there can be thousands, and one file per edge would create
@@ -14,13 +16,44 @@ import { ENTITY_KINDS, SCHEMAS, type EntityKind, type EntityFor } from "../core/
  *  constraints) are one file per record so they're cleanly reviewable in PRs. */
 const SINGLE_FILE: Partial<Record<EntityKind, string>> = { symbols: "index.json", edges: "index.json" };
 
+const encode = (v: unknown): string => JSON.stringify(v, null, 2) + "\n";
+
 export class JsonStore {
+  private _warnedForward = false;
+
   constructor(private readonly paths: BrainPaths) {}
 
-  /** Create .brain/<kind>/ directories. */
+  /** Create .brain/<kind>/ directories. Stamp the manifest at the CURRENT version
+   *  only when scaffolding a FRESH .brain/ (so `brain index`/`sync` on a brand-new
+   *  repo records the version too, not just `init`). A pre-existing .brain/ without
+   *  a manifest is LEGACY — left unstamped so it defaults to the baseline and
+   *  `brain migrate` upgrades it. */
   ensureDirs(): void {
+    const fresh = !existsSync(this.paths.brain);
     mkdirSync(this.paths.brain, { recursive: true });
     for (const kind of ENTITY_KINDS) mkdirSync(this.paths.dir(kind), { recursive: true });
+    if (fresh && !existsSync(this.paths.manifest)) writeManifest(this.paths, SCHEMA_VERSION);
+  }
+
+  /** The on-disk schema version (from the manifest), read FRESH each call so a
+   *  long-lived process (the MCP server) reflects an out-of-band `brain migrate`. */
+  schemaVersion(): number {
+    const v = readManifest(this.paths).schema_version;
+    if (v > SCHEMA_VERSION && !this._warnedForward) {
+      this._warnedForward = true;
+      console.warn(
+        `[brain] .brain/ was written by a newer schema (v${v} > v${SCHEMA_VERSION}); ` +
+          `records may not load correctly — upgrade brain.`,
+      );
+    }
+    return v;
+  }
+
+  /** Migrate one raw record UP to the current schema before validation, so a
+   *  schema bump never makes the loader silently skip (drop) old records. The
+   *  on-disk `version` is read ONCE per load (not per record) by the caller. */
+  private migrate(kind: EntityKind, raw: unknown, version: number): unknown {
+    return migrateRaw(kind, raw, version);
   }
 
   private fileFor(kind: EntityKind, id: string): string {
@@ -36,6 +69,7 @@ export class JsonStore {
     if (!existsSync(dir)) return [];
     const schema = SCHEMAS[kind];
     const out: EntityFor[K][] = [];
+    const version = this.schemaVersion(); // read the manifest ONCE per load, not per record
     const single = SINGLE_FILE[kind];
     if (single) {
       const f = join(dir, single);
@@ -48,7 +82,7 @@ export class JsonStore {
         return out;
       }
       for (const raw of Array.isArray(arr) ? arr : []) {
-        const r = schema.safeParse(raw);
+        const r = schema.safeParse(this.migrate(kind, raw, version));
         if (r.success) out.push(r.data as EntityFor[K]);
         else console.warn(`[brain] skipping invalid ${kind} record: ${r.error.issues[0]?.message}`);
       }
@@ -63,7 +97,7 @@ export class JsonStore {
         console.warn(`[brain] skipping corrupt ${kind}/${name}: ${(e as Error).message}`);
         continue;
       }
-      const r = schema.safeParse(raw);
+      const r = schema.safeParse(this.migrate(kind, raw, version));
       if (r.success) out.push(r.data as EntityFor[K]);
       else console.warn(`[brain] skipping invalid ${kind}/${name}: ${r.error.issues[0]?.message}`);
     }
@@ -77,11 +111,17 @@ export class JsonStore {
     mkdirSync(this.paths.dir(kind), { recursive: true });
     const single = SINGLE_FILE[kind];
     if (single) {
-      const all = this.loadAll(kind).filter((r) => (r as { id: string }).id !== validated.id);
-      all.push(validated);
-      writeFileSync(this.fileFor(kind, validated.id), JSON.stringify(all, null, 2) + "\n");
+      // Operate on the RAW array (NOT the validating loadAll) so updating one
+      // record can't silently drop schema-invalid / future-schema siblings — the
+      // same reason delete() reads raw. Keep the index sorted by id (stable diff,
+      // and agrees with the merge driver so a re-index after a merge is a no-op).
+      const f = this.fileFor(kind, validated.id);
+      const arr = this.readRawArray(f).filter((r) => (r as { id?: string })?.id !== validated.id);
+      arr.push(validated);
+      arr.sort((a, b) => String((a as { id?: string })?.id).localeCompare(String((b as { id?: string })?.id)));
+      writeFileAtomic(f, encode(arr));
     } else {
-      writeFileSync(this.fileFor(kind, validated.id), JSON.stringify(validated, null, 2) + "\n");
+      writeFileAtomic(this.fileFor(kind, validated.id), encode(validated));
     }
     return validated;
   }
@@ -93,7 +133,10 @@ export class JsonStore {
     mkdirSync(this.paths.dir(kind), { recursive: true });
     const single = SINGLE_FILE[kind];
     if (single) {
-      writeFileSync(this.fileFor(kind, "index"), JSON.stringify(validated, null, 2) + "\n");
+      // Sorted by id so the index has ONE canonical order — re-indexing after a
+      // git merge (which the driver also id-sorts) doesn't churn the whole file.
+      validated.sort((a, b) => String((a as { id: string }).id).localeCompare(String((b as { id: string }).id)));
+      writeFileAtomic(this.fileFor(kind, "index"), encode(validated));
       return;
     }
     // one file per record: clear stale files, then write
@@ -101,8 +144,25 @@ export class JsonStore {
       if (name.endsWith(".json")) rmSync(join(this.paths.dir(kind), name));
     }
     for (const r of validated) {
-      writeFileSync(this.fileFor(kind, (r as { id: string }).id), JSON.stringify(r, null, 2) + "\n");
+      writeFileAtomic(this.fileFor(kind, (r as { id: string }).id), encode(r));
     }
+  }
+
+  /** Read a single-file index as a raw array (no validation). Missing/empty → [].
+   *  A non-empty file that fails to parse THROWS — we must never silently treat a
+   *  corrupt index as empty and then rewrite it, which would flatten every existing
+   *  record. (`brain index` rebuilds from scratch via replaceAll to recover.) */
+  private readRawArray(f: string): unknown[] {
+    if (!existsSync(f)) return [];
+    const text = readFileSync(f, "utf8");
+    if (!text.trim()) return [];
+    let v: unknown;
+    try {
+      v = JSON.parse(text);
+    } catch (e) {
+      throw new Error(`refusing to rewrite ${f}: the existing index is not valid JSON (${(e as Error).message}). Fix or remove it, then re-run \`brain index\`.`);
+    }
+    return Array.isArray(v) ? v : [];
   }
 
   get<K extends EntityKind>(kind: K, id: string): EntityFor[K] | undefined {
@@ -117,21 +177,78 @@ export class JsonStore {
     if (single) {
       const f = this.fileFor(kind, "index");
       if (!existsSync(f)) return false;
-      let arr: unknown;
-      try {
-        arr = JSON.parse(readFileSync(f, "utf8"));
-      } catch {
-        return false;
-      }
-      if (!Array.isArray(arr)) return false;
+      const arr = this.readRawArray(f);
       const next = arr.filter((r) => (r as { id?: string })?.id !== id);
       if (next.length === arr.length) return false;
-      writeFileSync(f, JSON.stringify(next, null, 2) + "\n");
+      writeFileAtomic(f, encode(next));
       return true;
     }
     const f = this.fileFor(kind, id);
     if (!existsSync(f)) return false;
     rmSync(f);
     return true;
+  }
+
+  /** Persist a schema migration: rewrite every LOADABLE record in its current shape.
+   *  A record that still fails validation after migration is kept untouched (never
+   *  deleted) and counted as `skipped`, so migration can't lose data. The caller
+   *  bumps the manifest afterward. */
+  persistMigration(): { migrated: number; skipped: number } {
+    let migrated = 0;
+    let skipped = 0;
+    const version = this.schemaVersion(); // read once; we're migrating FROM this
+    for (const kind of ENTITY_KINDS) {
+      const dir = this.paths.dir(kind);
+      if (!existsSync(dir)) continue;
+      const schema = SCHEMAS[kind];
+      const single = SINGLE_FILE[kind];
+      if (single) {
+        const f = join(dir, single);
+        if (!existsSync(f)) continue;
+        let arr: unknown;
+        try {
+          arr = JSON.parse(readFileSync(f, "utf8"));
+        } catch {
+          skipped++;
+          continue;
+        }
+        if (!Array.isArray(arr)) {
+          skipped++;
+          continue;
+        }
+        const kept: unknown[] = [];
+        for (const raw of arr) {
+          const r = schema.safeParse(this.migrate(kind, raw, version));
+          if (r.success) {
+            kept.push(r.data);
+            migrated++;
+          } else {
+            kept.push(raw); // preserve unmigratable records rather than drop them
+            skipped++;
+          }
+        }
+        writeFileAtomic(f, encode(kept));
+      } else {
+        for (const name of readdirSync(dir)) {
+          if (!name.endsWith(".json")) continue;
+          const p = join(dir, name);
+          let raw: unknown;
+          try {
+            raw = JSON.parse(readFileSync(p, "utf8"));
+          } catch {
+            skipped++;
+            continue;
+          }
+          const r = schema.safeParse(this.migrate(kind, raw, version));
+          if (r.success) {
+            writeFileAtomic(p, encode(r.data));
+            migrated++;
+          } else {
+            skipped++; // leave the file as-is
+          }
+        }
+      }
+    }
+    return { migrated, skipped };
   }
 }
