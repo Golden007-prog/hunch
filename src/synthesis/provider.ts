@@ -127,9 +127,9 @@ class ClaudeCliProvider implements SynthProvider {
     // headless `-p` mode when present. Strip them so the CLI falls through to
     // CLAUDE_CODE_OAUTH_TOKEN / `/login` subscription credentials. (We never
     // bill the pay-per-token API — that's the whole point of this provider.)
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
+    const childEnv = { ...process.env };
+    delete childEnv.ANTHROPIC_API_KEY;
+    delete childEnv.ANTHROPIC_AUTH_TOKEN;
 
     // Single-shot text synthesis: no tools, no agentic loop. The prompt carries
     // all needed context inline, so run from a neutral cwd to avoid loading this
@@ -138,46 +138,45 @@ class ClaudeCliProvider implements SynthProvider {
     // user's home config, not cwd, so this doesn't affect subscription billing.
     const args = ["-p", prompt, "--output-format", "json", "--model", this.model, "--max-turns", "1"];
     const { stdout } = await pexec("claude", args, {
-      env,
+      env: childEnv,
       cwd: tmpdir(),
       maxBuffer: 16 * 1024 * 1024,
       timeout: 120_000,
     });
-    // headless JSON envelope: { result: "<assistant text>", ... }
+    // Headless JSON envelope: { result, is_error, subtype, ... }. Keep the
+    // parse-failure fallback (non-JSON stdout → hand it to the mapper) SEPARATE
+    // from the error signal: an error envelope (max-turns/budget/exec error, which
+    // also OMITS `result`) must THROW so the safe wrapper falls back — not be
+    // returned as if it were assistant text. (The old single try/catch swallowed
+    // its own `throw`, making the is_error guard dead code.)
+    let envelope: { result?: string; is_error?: boolean; subtype?: string };
     try {
-      const out = JSON.parse(stdout) as { result?: string; is_error?: boolean };
-      if (out.is_error) throw new Error("claude -p reported an error");
-      return out.result ?? stdout;
+      envelope = JSON.parse(stdout);
     } catch {
-      return stdout;
+      return stdout; // not the JSON envelope — let the mapper attempt extraction
     }
+    if (envelope.is_error || (envelope.subtype && envelope.subtype !== "success")) {
+      throw new Error(`claude -p reported an error${envelope.subtype ? `: ${envelope.subtype}` : ""}`);
+    }
+    return envelope.result ?? stdout;
   }
 
   async draftDecision(input: CommitInput): Promise<DecisionDraft> {
     const text = await this.run(`${SYSTEM}\n\n${commitPrompt(input)}\n\n${jsonInstruction(DECISION_TOOL.input_schema)}`);
-    const obj = extractJson(text);
-    return {
-      title: str(obj.title, input.subject),
-      context: str(obj.context, ""),
-      decision: str(obj.decision, ""),
-      consequences: asStrArr(obj.consequences),
-      alternatives_rejected: asStrArr(obj.alternatives_rejected),
-      confidence: obj.nontrivial ? 0.65 : 0.4,
-      source: "llm_draft",
-    };
+    const draft = decisionDraftFromText(text, input.subject);
+    // No usable LLM JSON (truncation, refusal, prose-only) → THROW so the safe
+    // wrapper falls back to the deterministic provider, whose diff-structured
+    // draft is both more useful AND honestly labeled ("inferred", low confidence)
+    // than a hollow record mislabeled as an LLM draft.
+    if (!draft) throw new Error("claude-cli: no usable decision JSON in output");
+    return draft;
   }
 
   async draftBug(input: FailureInput): Promise<BugDraft> {
     const text = await this.run(`${SYSTEM}\n\n${failurePrompt(input)}\n\n${jsonInstruction(BUG_TOOL.input_schema)}`);
-    const obj = extractJson(text);
-    return {
-      title: str(obj.title, input.test),
-      symptom: str(obj.symptom, input.message),
-      root_cause: str(obj.root_cause, ""),
-      severity: (["low", "medium", "high", "critical"].includes(String(obj.severity)) ? obj.severity : "medium") as BugDraft["severity"],
-      confidence: 0.55,
-      source: "test_failure+llm",
-    };
+    const draft = bugDraftFromText(text, input.test, input.message);
+    if (!draft) throw new Error("claude-cli: no usable bug JSON in output");
+    return draft;
   }
 }
 
@@ -282,26 +281,215 @@ function jsonInstruction(schema: object): string {
   return `Respond with ONLY a single JSON object matching this schema (no prose, no code fence):\n${JSON.stringify(schema)}`;
 }
 
-/** Pull the first balanced JSON object out of arbitrary model text. */
-function extractJson(text: string): Record<string, unknown> {
-  const start = text.indexOf("{");
-  if (start < 0) return {};
+/** Index of the `}` that closes the balanced object opened at `start`, or -1.
+ *  String-aware: braces and quotes INSIDE a JSON string literal don't count, so
+ *  `{"context":"closes the } brace"}` balances whole (a naive depth counter
+ *  closes early on the inner `}`). */
+function balancedEnd(text: string, start: number): number {
   let depth = 0;
+  let inStr = false;
+  let esc = false;
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(text.slice(start, i + 1));
-        } catch {
-          return {};
-        }
-      }
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return i;
+  }
+  return -1; // never balanced (e.g. truncated output)
+}
+
+/** True if the `{` at `start` begins something that looks like a JSON object —
+ *  the next non-space char is a `"` (a quoted key) or `}` (empty object). Lets us
+ *  tell a real, possibly-truncated JSON object from a stray PROSE brace such as
+ *  `interface Foo {`, `() => {`, or `{set}` (whose next char is a letter). */
+function looksLikeJsonObject(text: string, start: number): boolean {
+  let j = start + 1;
+  while (j < text.length && /\s/.test(text[j]!)) j++;
+  return j < text.length && (text[j] === '"' || text[j] === "}");
+}
+
+/** Every balanced top-level `{...}` slice in `text`, in order. A brace that does
+ *  NOT look like a JSON opener (a prose brace) is SKIPPED and the scan continues,
+ *  so junk before the answer never hides the object that follows. But a brace that
+ *  looks like JSON yet never closes is a TRUNCATED object — we stop there rather
+ *  than descend into it, which would surface a nested child as a fake top-level
+ *  answer (`{"decision":"REAL","meta":{...}` must not leak the inner `meta`). */
+function topLevelJsonSlices(text: string): string[] {
+  const slices: string[] = [];
+  let i = 0;
+  for (;;) {
+    const start = text.indexOf("{", i);
+    if (start < 0) break;
+    if (!looksLikeJsonObject(text, start)) {
+      i = start + 1; // prose brace (`interface Foo {`, `{set}`) — skip, keep scanning
+      continue;
+    }
+    const end = balancedEnd(text, start);
+    if (end < 0) break; // a JSON-looking object that never closes → truncated tail
+    slices.push(text.slice(start, end + 1));
+    i = end + 1;
+  }
+  return slices;
+}
+
+/** Strip trailing commas (`,}` / `,]`) WITHOUT touching string contents — the
+ *  single most common reason a model's near-valid JSON fails strict parse. A
+ *  blanket regex would also eat a comma that legitimately lives inside a string
+ *  value (e.g. "see {a, b, }"), silently corrupting the captured text, so this
+ *  reuses the same in-string/escape state machine as the slicer. */
+function stripTrailingCommas(s: string): string {
+  let out = "";
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (inStr) {
+      out += ch;
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = true;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let k = i + 1;
+      while (k < s.length && /\s/.test(s[k]!)) k++;
+      if (k < s.length && (s[k] === "}" || s[k] === "]")) continue; // drop the comma
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function tryParseObject(s: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(s);
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Strict JSON first, then one string-aware lenient pass (trailing commas). */
+function parseObjectLoose(slice: string): Record<string, unknown> | null {
+  return tryParseObject(slice) ?? tryParseObject(stripTrailingCommas(slice));
+}
+
+/** Every parseable top-level JSON object in arbitrary model text, in order. */
+export function extractJsonObjects(text: string): Record<string, unknown>[] {
+  return topLevelJsonSlices(text)
+    .map(parseObjectLoose)
+    .filter((o): o is Record<string, unknown> => o !== null);
+}
+
+/** Convenience: the FIRST parseable top-level object, or null. (The mappers below
+ *  do their own content-based selection; this is just a generic accessor.) */
+export function extractJson(text: string): Record<string, unknown> | null {
+  return extractJsonObjects(text)[0] ?? null;
+}
+
+const SEVERITIES = ["low", "medium", "high", "critical"] as const;
+const SEV_RANK: Record<BugDraft["severity"], number> = { low: 1, medium: 2, high: 3, critical: 4 };
+function asSeverity(v: unknown): BugDraft["severity"] | null {
+  return typeof v === "string" && (SEVERITIES as readonly string[]).includes(v) ? (v as BugDraft["severity"]) : null;
+}
+
+/** Values a model emits as a fill-in TEMPLATE rather than a real answer. We can't
+ *  use position (a template/recap may lead OR trail the answer), so we recognize
+ *  placeholder-shaped values and treat the field as empty. Kept deliberately narrow
+ *  so a terse REAL answer isn't mistaken for a template: an angle-bracket value only
+ *  counts if it's a short metavariable (≤2 words, e.g. `<what>`, `<best hypothesis>`)
+ *  — not a bracketed sentence — and the word list holds only unambiguous markers. */
+function isPlaceholder(s: string): boolean {
+  const t = s.trim();
+  if (!t) return true;
+  if (/^\.{2,}$/.test(t)) return true; // "..", "..."
+  const meta = /^<(.+)>$/.exec(t);
+  if (meta && meta[1]!.trim().split(/\s+/).length <= 2) return true; // <what>, <best hypothesis>
+  return ["see above", "recap", "placeholder"].includes(t.toLowerCase());
+}
+
+/** A string field, blanked when empty OR a template placeholder. */
+function realStr(v: unknown): string {
+  const s = str(v, "");
+  return s && !isPlaceholder(s) ? s : "";
+}
+
+/** Map model text → DecisionDraft, or null when there's nothing usable to keep.
+ *  Null (not a hollow draft) is the signal for the caller to fall back to the
+ *  deterministic provider — we only claim "llm_draft" when the LLM actually
+ *  produced substance. The model is asked for ONE object; if it emits several (a
+ *  template/example plus the answer), take the FIRST with real (non-placeholder)
+ *  substance — robust whether the junk leads or trails the answer. */
+export function decisionDraftFromText(text: string, fallbackTitle: string): DecisionDraft | null {
+  const candidates: Array<{ obj: Record<string, unknown>; decision: string; context: string; nontrivial: boolean }> = [];
+  for (const obj of extractJsonObjects(text)) {
+    const decision = realStr(obj.decision);
+    const context = realStr(obj.context);
+    if (!decision && !context) continue; // template / placeholder / unrelated object
+    // Coerce explicitly: a model may emit the boolean as the string "false",
+    // which is JS-truthy — keying confidence off raw truthiness would invert it.
+    const nontrivial = obj.nontrivial === true || obj.nontrivial === "true";
+    candidates.push({ obj, decision, context, nontrivial });
+  }
+  if (!candidates.length) return null;
+  // Prefer the object the model FLAGGED as a real decision over a generic worked
+  // example that may precede it; else the first substantive object.
+  const pick = candidates.find((c) => c.nontrivial) ?? candidates[0]!;
+  return {
+    title: realStr(pick.obj.title) || fallbackTitle,
+    context: pick.context,
+    decision: pick.decision,
+    consequences: asStrArr(pick.obj.consequences),
+    alternatives_rejected: asStrArr(pick.obj.alternatives_rejected),
+    confidence: pick.nontrivial ? 0.65 : 0.4,
+    source: "llm_draft",
+  };
+}
+
+/** Map model text → BugDraft, or null. A root_cause is the LLM's full value-add;
+ *  a deliberate non-"medium" severity is worth keeping on its own (it carries the
+ *  LLM's classification into the bug record rather than the deterministic "medium").
+ *  Pick the BEST candidate object — most substantiated (root-caused) then most
+ *  severe — NOT the positionally first/last, so a trailing low-severity recap can't
+ *  downgrade a real critical finding. Without a root_cause the draft is labeled
+ *  honestly as partial at lower confidence; constraint promotion is gated on a real
+ *  root_cause downstream (see shouldPromoteConstraint), so a bare severity label
+ *  preserves its signal in the record without auto-minting an invariant. */
+export function bugDraftFromText(text: string, fallbackTitle: string, fallbackSymptom: string): BugDraft | null {
+  let best: { obj: Record<string, unknown>; root_cause: string; severity: BugDraft["severity"] | null } | null = null;
+  let bestScore = -1;
+  for (const obj of extractJsonObjects(text)) {
+    const root_cause = realStr(obj.root_cause);
+    const severity = asSeverity(obj.severity);
+    const deliberate = severity !== null && severity !== "medium";
+    if (!root_cause && !deliberate) continue; // only echoes the input → not a candidate
+    const score = (root_cause ? 100 : 0) + (severity ? SEV_RANK[severity] : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { obj, root_cause, severity };
     }
   }
-  return {};
+  if (!best) return null;
+  const full = !!best.root_cause;
+  return {
+    title: realStr(best.obj.title) || fallbackTitle,
+    symptom: realStr(best.obj.symptom) || fallbackSymptom,
+    root_cause: best.root_cause,
+    severity: best.severity ?? "medium",
+    confidence: full ? 0.55 : 0.4,
+    source: full ? "test_failure+llm" : "test_failure+llm_partial",
+  };
 }
 
 function asStrArr(v: unknown): string[] {

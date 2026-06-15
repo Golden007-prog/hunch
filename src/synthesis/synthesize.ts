@@ -152,10 +152,10 @@ export async function recordFailure(
   };
   store.json.put("bugs", bug);
 
-  // Promotion (DESIGN §4): a recurrence or a high-severity bug raises a regression
-  // Constraint to stop it coming back, and bumps the affected component's fragility.
+  // Promotion (DESIGN §4): a recurrence or a SUBSTANTIATED high-severity bug raises
+  // a regression Constraint to stop it coming back, and bumps fragility.
   let constraint: Constraint | undefined;
-  if (prior || draft.severity === "high" || draft.severity === "critical") {
+  if (shouldPromoteConstraint(draft.severity, bug.root_cause, !!prior)) {
     constraint = promoteConstraint(store, bug);
     bug.lineage.spawned_constraint = constraint.id;
     store.json.put("bugs", bug); // re-persist with the link
@@ -163,6 +163,17 @@ export async function recordFailure(
   raiseFragility(store, affectedFiles);
 
   return { status: "written", bug, constraint, provider: provider.name };
+}
+
+/** Whether a bug should auto-promote a regression Constraint (a do-not-break
+ *  invariant). A recurrence always does. Otherwise it must be high/critical AND
+ *  substantiated by a real root cause — a bare severity label with no analysis
+ *  (e.g. an LLM "test_failure+llm_partial" draft) keeps its severity on the bug
+ *  record for human review but must not silently mint an invariant from thin air. */
+export function shouldPromoteConstraint(severity: Bug["severity"], rootCause: string, isRecurrence: boolean): boolean {
+  if (isRecurrence) return true;
+  const severe = severity === "high" || severity === "critical";
+  return severe && rootCause.trim().length > 0;
 }
 
 /** Turn a bug into an advisory regression constraint scoped to its files. */
@@ -280,17 +291,18 @@ function recentDiffFor(root: string): string {
   return head ? commitDiff(head, root, 12_000) : "";
 }
 
-async function draftDecisionSafe(provider: SynthProvider, input: CommitInput): Promise<DecisionDraft> {
+export async function draftDecisionSafe(provider: SynthProvider, input: CommitInput): Promise<DecisionDraft> {
   try {
     return await provider.draftDecision(input);
   } catch {
-    // A provider failure (network, bad creds, CLI crash) must never abort the
-    // learning loop — fall back to the deterministic heuristic draft.
+    // A provider failure (network, bad creds, CLI crash, unparseable output) must
+    // never abort the learning loop — fall back to the deterministic heuristic
+    // draft, which is honestly labeled ("inferred") rather than a hollow llm_draft.
     return new DeterministicProvider().draftDecision(input);
   }
 }
 
-async function draftBugSafe(provider: SynthProvider, input: FailureInput): Promise<BugDraft> {
+export async function draftBugSafe(provider: SynthProvider, input: FailureInput): Promise<BugDraft> {
   try {
     return await provider.draftBug(input);
   } catch {
