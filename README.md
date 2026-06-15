@@ -38,17 +38,23 @@ came before. Local-first, no documentation toil, no SaaS.
 
 ## Getting started
 
-### 1. Build it
+### 1. Install it
+
+```bash
+npm install -g @hunch/cli      # puts `hunch` on your PATH
+```
+
+Or run from source (for hacking on Hunch itself):
 
 ```bash
 npm install
-npm run build          # compiles to dist/
-npm link               # optional: puts a global `hunch` on your PATH
+npm run build                  # compiles to dist/
+npm link                       # optional: puts a global `hunch` on your PATH
 ```
 
-After `npm link` you can type `hunch …`. Without it, use `node dist/cli/index.js …`
-(or `npm run hunch -- …` to run from source via tsx). The rest of this README uses
-`hunch` for brevity.
+Either way you then type `hunch …`. From a source checkout without `npm link`, use
+`node dist/cli/index.js …` (or `npm run hunch -- …` to run via tsx). The rest of this
+README uses `hunch` for brevity.
 
 ### 2. (Recommended) make the `claude` CLI available
 

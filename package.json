@@ -1,23 +1,39 @@
 {
   "name": "@hunch/cli",
   "version": "0.1.0",
+  "license": "MIT",
+  "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
   "description": "Hunch — an Engineering Memory OS: a persistent, git-native reasoning graph over a codebase, exposed to Claude Code via MCP.",
   "type": "module",
   "bin": {
     "hunch": "dist/cli/index.js"
   },
   "files": [
-    "dist"
+    "dist/**/*.js"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "engineering-memory",
+    "knowledge-graph",
+    "code-intelligence",
+    "ai",
+    "developer-tools"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node --input-type=commonjs -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "dev": "tsx src/cli/index.ts",
     "hunch": "tsx src/cli/index.ts",
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
