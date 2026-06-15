@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { hunchPaths, findRoot } from "../core/paths.js";
 import { HunchStore } from "../store/hunchStore.js";
+import { selectEmbedder } from "../store/embedder.js";
 import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure } from "../synthesis/synthesize.js";
 import { selectProvider } from "../synthesis/provider.js";
@@ -166,19 +167,71 @@ program
 // ---- query ----------------------------------------------------------------
 program
   .command("query")
-  .description("Full-text + graph search over Hunch.")
+  .description("Full-text + graph search over Hunch (add --semantic for embeddings-backed recall).")
   .argument("<question...>", "what to search for")
-  .action((parts: string[]) => {
+  .option("--semantic", "blend in local semantic search (requires `hunch embed`)")
+  .action(async (parts: string[], opts: { semantic?: boolean }) => {
     const { store } = storeFor();
     store.reindex(); // reflect any out-of-band JSON edits before searching
     const q = parts.join(" ");
-    const hits = store.search(q, 12);
+    let hits;
+    let how = "";
+    if (opts.semantic) {
+      // Same gate hybridSearch uses internally (store.semanticReady), so the flag's
+      // messaging can't drift from what actually runs. If unusable, say so and use FTS
+      // rather than silently returning identical keyword results under the flag.
+      const emb = await selectEmbedder();
+      if (!store.semanticReady(emb)) {
+        console.log("· semantic search isn't enabled yet — run `hunch embed` (using keyword search for now).\n");
+        hits = store.search(q, 12);
+      } else {
+        hits = await store.hybridSearch(q, 12, { embedder: emb });
+        how = " (semantic + keyword)";
+      }
+    } else {
+      hits = store.search(q, 12);
+    }
     if (!hits.length) {
       console.log(`No matches for "${q}".`);
     } else {
-      console.log(`Top matches for "${q}":\n`);
+      console.log(`Top matches for "${q}"${how}:\n`);
       for (const h of hits) console.log(`• [${h.kind}] ${h.ref} — ${h.title}\n    ${h.snippet}`);
     }
+    store.close();
+  });
+
+// ---- embed (opt-in semantic search) ---------------------------------------
+program
+  .command("embed")
+  .description("Generate local embeddings for semantic search (opt-in; needs @huggingface/transformers).")
+  .option("--batch <n>", "embedding batch size", "32")
+  .action(async (opts: { batch: string }) => {
+    const { store } = storeFor();
+    const embedder = await selectEmbedder();
+    if (!embedder) {
+      console.log("Semantic search needs a local embedding model, which isn't installed.");
+      console.log("  Enable it:  npm i -g @huggingface/transformers   (then re-run `hunch embed`)");
+      console.log("  Until then, `hunch query` uses fast keyword (FTS) search — no setup needed.");
+      store.close();
+      return; // not an error: the lean install simply doesn't have semantic search
+    }
+    store.json.ensureDirs();
+    store.reindex(); // make `search` + doc hashes current before embedding
+    const stats = store.embeddingStats(embedder.id);
+    const todo = stats.total - stats.embedded;
+    if (todo === 0) {
+      console.log(`✓ All ${stats.total} doc(s) already embedded (model ${embedder.id}). Nothing to do.`);
+      store.close();
+      return;
+    }
+    process.stdout.write(`Embedding ${todo} doc(s) with ${embedder.id} (first run downloads the model ~90MB, one time)…\n`);
+    const res = await store.embedAll(embedder, {
+      batch: Number(opts.batch),
+      onProgress: (done, total) => process.stdout.write(`\r  ${done}/${total} embedded   `),
+    });
+    process.stdout.write("\n");
+    console.log(`✓ embedded ${res.embedded} doc(s) (${res.skipped} already current). Model: ${embedder.id}.`);
+    console.log(`  Try:  hunch query --semantic "<question>"   — the MCP server uses it automatically.`);
     store.close();
   });
 
@@ -487,6 +540,16 @@ program
     }
     const c = store.reindex().counts;
     console.log(`hunch:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
+    // Semantic search is opt-in and local. Report availability + coverage without
+    // loading the model (selectEmbedder only probes; embeddingStats just counts rows).
+    const emb = await selectEmbedder();
+    if (emb) {
+      const cov = store.embeddingStats(emb.id);
+      const hint = cov.embedded === 0 ? "  ⚠ run `hunch embed`" : cov.embedded < cov.total ? "  ⚠ stale — re-run `hunch embed`" : "";
+      console.log(`semantic:   ${emb.id} — ${cov.embedded}/${cov.total} docs embedded${hint}`);
+    } else {
+      console.log(dim(`semantic:   off (keyword search only) — enable: npm i -g @huggingface/transformers && hunch embed`));
+    }
     store.close();
   });
 

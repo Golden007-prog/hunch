@@ -11,6 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { hunchPaths, findRoot } from "../core/paths.js";
 import { HunchStore } from "../store/hunchStore.js";
+import { selectEmbedder } from "../store/embedder.js";
 import { decisionId } from "../core/ids.js";
 import { revParse } from "../extractors/git.js";
 import { formatContext } from "../core/format.js";
@@ -50,6 +51,10 @@ export function buildServer(root: string): McpServer {
   } catch (e) {
     console.error("[hunch-mcp] reindex on startup failed:", (e as Error).message);
   }
+  // Resolve the embedder ONCE for this long-lived process (never throws; null when
+  // the optional model isn't installed). The model then loads lazily on the first
+  // hunch_query and stays warm — and hybridSearch degrades to FTS until then.
+  const embedderReady = selectEmbedder();
 
   const server = new McpServer({ name: "hunch", version: "0.1.0" });
 
@@ -63,7 +68,7 @@ export function buildServer(root: string): McpServer {
       inputSchema: { query: z.string().describe("A natural-language question or keywords.") },
     },
     async ({ query }): Promise<ToolResult> => {
-      const hits = store.search(query, QUERY_HITS);
+      const hits = await store.hybridSearch(query, QUERY_HITS, { embedder: await embedderReady });
       if (!hits.length) return ok(`No matches for "${query}".`);
       const lines = hits.map((h) => {
         const r = store.resolve(h.ref);

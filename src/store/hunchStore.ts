@@ -13,7 +13,8 @@
 import type { HunchPaths } from "../core/paths.js";
 import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge } from "../core/types.js";
 import { openDb, type DB } from "./db.js";
-import { RESET_SQL } from "./schema.js";
+import { RESET_SQL, embedHash } from "./schema.js";
+import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
 import { pathMatchesGlob } from "../core/glob.js";
 
@@ -149,6 +150,10 @@ export class HunchStore {
       void j;
     });
     tx();
+    // Reconcile embeddings AFTER the FTS rebuild (model-free): drop vectors whose
+    // source doc vanished or whose text changed. Embeddings are NOT in RESET_SQL,
+    // so this is what keeps them coherent across the many reindex() call sites.
+    this.pruneStaleEmbeddings();
     return { counts };
   }
 
@@ -185,6 +190,155 @@ export class HunchStore {
        WHERE title LIKE ? OR body LIKE ? LIMIT ?`,
     ).all(like, like, limit) as Array<{ ref: string; kind: string; title: string; snip: string }>;
     return rows.map((r) => ({ ref: r.ref, kind: r.kind, title: r.title, snippet: r.snip, score: 0 }));
+  }
+
+  // ---- semantic search (opt-in embeddings) --------------------------------
+
+  /** The exact (ref, kind, title, body) docs that feed FTS — and thus embeddings.
+   *  A single source so FTS, the doc_hash, and the stored vectors never disagree. */
+  private searchDocs(): Array<{ ref: string; kind: string; title: string; body: string }> {
+    return this.db.prepare(`SELECT ref, kind, title, body FROM search`).all() as Array<{
+      ref: string; kind: string; title: string; body: string;
+    }>;
+  }
+
+  /** Delete embedding rows whose source doc was removed or whose text changed
+   *  (doc_hash mismatch). Model-free and cheap; run at the end of every reindex()
+   *  so vectors track the JSON truth without ever being reset. Returns the count. */
+  pruneStaleEmbeddings(): number {
+    // Lean-install fast path: no vectors → nothing to reconcile. This runs at the
+    // end of EVERY reindex() (a hot path), so skip the full doc scan + per-doc hash
+    // unless embeddings actually exist.
+    if ((this.db.prepare(`SELECT count(*) c FROM embeddings`).get() as { c: number }).c === 0) return 0;
+    const live = new Map<string, string>(); // ref -> current doc_hash
+    for (const d of this.searchDocs()) live.set(d.ref, embedHash(d.title, d.body));
+    const rows = this.db.prepare(`SELECT ref, doc_hash FROM embeddings`).all() as Array<{ ref: string; doc_hash: string }>;
+    const del = this.db.prepare(`DELETE FROM embeddings WHERE ref = ?`);
+    let pruned = 0;
+    const tx = this.db.transaction(() => {
+      for (const r of rows) if (live.get(r.ref) !== r.doc_hash) { del.run(r.ref); pruned++; }
+    });
+    tx();
+    return pruned;
+  }
+
+  /** Embedding coverage for a model: up-to-date vectors vs total docs (doctor). */
+  embeddingStats(model: string): { embedded: number; total: number } {
+    const total = (this.db.prepare(`SELECT count(*) c FROM search`).get() as { c: number }).c;
+    const embedded = (this.db.prepare(`SELECT count(*) c FROM embeddings WHERE model = ?`).get(model) as { c: number }).c;
+    return { embedded, total };
+  }
+
+  /** The SINGLE gate for "can semantic search run right now": an embedder exists and
+   *  it has at least one stored vector. Used by both hybridSearch and the CLI so the
+   *  definition can't drift between them. */
+  semanticReady(embedder: Embedder | null): embedder is Embedder {
+    return !!embedder && (this.db.prepare(`SELECT count(*) c FROM embeddings WHERE model = ?`).get(embedder.id) as { c: number }).c > 0;
+  }
+
+  /** Generate/refresh embeddings for every doc missing an up-to-date vector for
+   *  this embedder's model. Batched + flushed per batch so a Ctrl-C leaves a
+   *  coherent partial index that a re-run resumes. Assumes reindex() ran first. */
+  async embedAll(
+    embedder: Embedder,
+    opts: { batch?: number; onProgress?: (done: number, total: number) => void } = {},
+  ): Promise<{ embedded: number; skipped: number; total: number }> {
+    const model = embedder.id;
+    const current = new Map<string, string>(); // ref -> stored doc_hash for this model
+    for (const r of this.db.prepare(`SELECT ref, doc_hash FROM embeddings WHERE model = ?`).all(model) as Array<{ ref: string; doc_hash: string }>) {
+      current.set(r.ref, r.doc_hash);
+    }
+    const docs = this.searchDocs().map((d) => ({ ...d, hash: embedHash(d.title, d.body) }));
+    const todo = docs.filter((d) => current.get(d.ref) !== d.hash);
+    const ins = this.db.prepare(`INSERT OR REPLACE INTO embeddings (ref, kind, model, dim, doc_hash, vec) VALUES (?,?,?,?,?,?)`);
+    const batchSize = opts.batch ?? 32;
+    let embedded = 0; // ACTUAL rows written (a batch may yield fewer vectors than docs)
+    let attempted = 0;
+    for (let i = 0; i < todo.length; i += batchSize) {
+      const slice = todo.slice(i, i + batchSize);
+      const vecs = await embedder.embed(slice.map((d) => `${d.title}\n${d.body}`));
+      const tx = this.db.transaction(() => {
+        slice.forEach((d, j) => {
+          const v = vecs[j];
+          if (v) { ins.run(d.ref, d.kind, model, embedder.dim, d.hash, vecToBlob(v)); embedded++; }
+        });
+      });
+      tx();
+      attempted += slice.length;
+      opts.onProgress?.(attempted, todo.length);
+    }
+    return { embedded, skipped: docs.length - todo.length, total: docs.length };
+  }
+
+  /** Hybrid search (hunch_query / `hunch query --semantic`): FTS bm25 fused with
+   *  cosine over stored embeddings via Reciprocal Rank Fusion. Degrades to pure
+   *  sync FTS (zero added latency) when there's no embedder or no vectors yet, so
+   *  the lean install and fallback regressions are unaffected. Pass
+   *  `embedder: null` to FORCE FTS-only without auto-selecting. */
+  async hybridSearch(query: string, limit = 12, opts: { embedder?: Embedder | null } = {}): Promise<SearchHit[]> {
+    const embedder = opts.embedder !== undefined ? opts.embedder : await selectEmbedder();
+    if (!this.semanticReady(embedder)) return this.search(query, limit);
+
+    const fts = this.search(query, Math.max(limit, 50));
+    try {
+      // The whole semantic leg (query embedding + decode + cosine + fuse) is guarded:
+      // any failure — model load, a corrupt/dim-mismatched vector — degrades to the
+      // lexical results rather than failing the query.
+      const [qvec] = await embedder.embed([query]);
+      if (!qvec) return fts.slice(0, limit);
+      const sem = this.cosineRank(qvec, embedder.id, 50);
+      return this.rrfFuse(fts, sem, limit);
+    } catch {
+      return fts.slice(0, limit);
+    }
+  }
+
+  /** Brute-force exact cosine top-n over stored vectors for one model. Vectors are
+   *  pre-normalized, so cosine == dot product. Scoped to `dim = qvec.length` so a
+   *  row stored at a different dimension (model id reused at a new dim) can never
+   *  drive an out-of-bounds BLOB read; any with an unexpected byte length are
+   *  skipped defensively rather than crashing the query. */
+  private cosineRank(qvec: Float32Array, model: string, n: number): SearchHit[] {
+    const dim = qvec.length;
+    const rows = this.db.prepare(`SELECT ref, kind, vec FROM embeddings WHERE model = ? AND dim = ?`).all(model, dim) as Array<{ ref: string; kind: string; vec: Buffer }>;
+    const scored: Array<{ ref: string; kind: string; score: number }> = [];
+    for (const r of rows) {
+      if (r.vec.byteLength !== dim * 4) continue; // corrupt/legacy row — skip, don't read past it
+      const v = blobToVec(r.vec, dim);
+      let dot = 0;
+      for (let i = 0; i < dim; i++) dot += qvec[i]! * v[i]!;
+      scored.push({ ref: r.ref, kind: r.kind, score: dot });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, n);
+    // Hydrate title/snippet for the top-n in ONE query (not a per-row SELECT).
+    const meta = new Map<string, { title: string; body: string }>();
+    if (top.length) {
+      const placeholders = top.map(() => "?").join(",");
+      for (const row of this.db.prepare(`SELECT ref, title, body FROM search WHERE ref IN (${placeholders})`).all(...top.map((s) => s.ref)) as Array<{ ref: string; title: string; body: string }>) {
+        meta.set(row.ref, { title: row.title, body: row.body });
+      }
+    }
+    return top.map((s) => {
+      const m = meta.get(s.ref);
+      return { ref: s.ref, kind: s.kind, title: m?.title ?? s.ref, snippet: (m?.body ?? "").slice(0, 120), score: s.score };
+    });
+  }
+
+  /** Rank-based Reciprocal Rank Fusion of the FTS and semantic lists. Ranks (not
+   *  raw scores) erase the bm25-vs-cosine scale mismatch; a small lexical weight
+   *  keeps exact symbol/path matches from being displaced by paraphrase hits. */
+  private rrfFuse(fts: SearchHit[], sem: SearchHit[], limit: number): SearchHit[] {
+    const acc = new Map<string, { hit: SearchHit; score: number }>();
+    const add = (list: SearchHit[], weight: number) =>
+      list.forEach((hit, i) => {
+        const e = acc.get(hit.ref) ?? { hit, score: 0 };
+        e.score += weight / (RRF_K + i + 1);
+        acc.set(hit.ref, e);
+      });
+    add(fts, RRF_W_FTS);
+    add(sem, RRF_W_SEM);
+    return [...acc.values()].sort((a, b) => b.score - a.score).slice(0, limit).map((e) => ({ ...e.hit, score: e.score }));
   }
 
   /** All decisions/bugs/constraints/symbols/components touching a file path or
@@ -400,6 +554,34 @@ function sev(s: string): number {
 }
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// --- semantic-search helpers ---------------------------------------------
+
+/** RRF tuning (env-overridable). Lexical weight ≥ semantic so exact matches win
+ *  ties while semantic adds paraphrase recall. */
+const RRF_K = numEnv("HUNCH_RRF_K", 60);
+const RRF_W_FTS = numEnv("HUNCH_RRF_W_FTS", 1);
+const RRF_W_SEM = numEnv("HUNCH_RRF_W_SEM", 0.7);
+function numEnv(name: string, dflt: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : dflt;
+}
+
+/** Pack a vector's exact bytes for SQLite. Explicit offset+length so a SUBARRAY
+ *  view (byteOffset != 0) writes only its slice, not the whole backing buffer.
+ *  better-sqlite3 copies on bind, so the returned view never aliases the row. */
+function vecToBlob(v: Float32Array): Buffer {
+  return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+}
+
+/** Decode a stored BLOB into an ALIGNED Float32Array — copy bytes into a fresh
+ *  ArrayBuffer rather than viewing the (possibly mis-aligned, pooled) Buffer,
+ *  which would throw RangeError on a non-4-multiple byteOffset. */
+function blobToVec(buf: Buffer, dim: number): Float32Array {
+  const ab = new ArrayBuffer(dim * 4);
+  new Uint8Array(ab).set(new Uint8Array(buf.buffer, buf.byteOffset, dim * 4));
+  return new Float32Array(ab);
 }
 
 /** Turn a free-text question into a tolerant FTS5 MATCH expression: split on

@@ -6,6 +6,17 @@
  * — we only need them indexed where we query them. Search is a single unified
  * FTS5 table; the graph is plain tables walked with recursive CTEs.
  */
+import { shortHash } from "../core/ids.js";
+
+/** Canonical content hash of the exact title+body that fed both FTS and the
+ *  embedding for a doc. Stored in `embeddings.doc_hash` so reindex can tell, with
+ *  NO model loaded, whether a stored vector is stale (its source text changed).
+ *  The NUL separator keeps the title/body boundary unambiguous. Reuses the shared
+ *  sha1-truncate idiom from core/ids so the hashing scheme lives in one place. */
+export function embedHash(title: string, body: string): string {
+  return shortHash(`${title}\x00${body ?? ""}`, 16);
+}
+
 export const SCHEMA_SQL = /* sql */ `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = OFF;
@@ -70,9 +81,21 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
   body,
   tokenize = 'porter unicode61'
 );
+
+-- Local semantic-search vectors (opt-in; written by \`hunch embed\`). One row per
+-- (ref, model); vec is a Float32 BLOB. DELIBERATELY NOT in RESET_SQL: reindex()
+-- runs RESET on nearly every path (MCP startup, every query/context), so resetting
+-- embeddings here would wipe them constantly and make the feature a no-op. Staleness
+-- is tracked by doc_hash and reconciled by pruneStaleEmbeddings() instead. Recall is
+-- exact brute-force cosine in JS (graphs are small); sqlite-vec only past ~100k rows.
+CREATE TABLE IF NOT EXISTS embeddings (
+  ref TEXT, kind TEXT, model TEXT, dim INTEGER, doc_hash TEXT, vec BLOB,
+  PRIMARY KEY (ref, model)
+);
 `;
 
-/** Drop derived data (used before a full reindex). */
+/** Drop derived data (used before a full reindex). NOTE: embeddings is omitted on
+ *  purpose — see the embeddings table comment above. */
 export const RESET_SQL = /* sql */ `
 DELETE FROM components; DELETE FROM edges; DELETE FROM symbols;
 DELETE FROM decisions; DELETE FROM bugs; DELETE FROM constraints;

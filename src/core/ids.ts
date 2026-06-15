@@ -4,7 +4,7 @@
  *  so the learning loop is idempotent for the same commit. */
 import { createHash } from "node:crypto";
 
-function shortHash(input: string, len = 10): string {
+export function shortHash(input: string, len = 10): string {
   return createHash("sha1").update(input).digest("hex").slice(0, len);
 }
 

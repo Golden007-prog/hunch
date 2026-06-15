@@ -111,7 +111,8 @@ The MCP tools Claude calls under the hood: `hunch_why`, `hunch_query`,
 | `hunch sync [sha]` | turn a commit into a Decision (run automatically by the hook) |
 | `hunch record-bug --test <id> --message <m>` | capture a Bug from a failing test |
 | `hunch why <path\|symbol>` | decisions / bugs / constraints explaining a target (flags `⚠STALE`) |
-| `hunch query "<q>"` | full-text + graph search |
+| `hunch query "<q>" [--semantic]` | full-text + graph search (`--semantic` blends in local embeddings) |
+| `hunch embed` | generate local embeddings for semantic recall (opt-in; needs `@huggingface/transformers`) |
 | `hunch context <path\|symbol>` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius |
 | `hunch fragile` | ranked fragility report with evidence |
 | `hunch check [--staged\|--commit <sha>] [--strict]` | guardrail: flag changes touching a do-not-break invariant |
@@ -121,6 +122,24 @@ The MCP tools Claude calls under the hood: `hunch_why`, `hunch_query`,
 | `hunch compact [--apply]` | prune low-value drafts to bound growth (dry-run by default) |
 | `hunch doctor` | environment diagnostics (git, auth mode, schema version, counts) |
 | `hunch mcp` | start the MCP server over stdio (Claude Code connects here) |
+
+## Semantic search (optional)
+
+By default `hunch query` and the `hunch_query` MCP tool use fast keyword (FTS) search —
+zero setup, instant, offline. For recall on *paraphrases* (a question that shares no words
+with the record it should find), opt into **local embeddings**:
+
+```bash
+npm i -g @huggingface/transformers              # one-time; a local model runtime
+hunch embed                                     # embed your records (first run downloads ~90MB)
+hunch query --semantic "auth token expiry"      # hybrid keyword + semantic recall
+```
+
+Embeddings are **local and free** (no API — consistent with the subscription-only synthesis
+rule) and **opt-in** (the base install stays lean). The long-lived MCP server picks them up
+automatically once present. Vectors live in the derived SQLite index and are reconciled by
+content hash on every `hunch index`, so they never drift from the JSON source of truth. `hunch
+doctor` reports coverage; tune the blend with `HUNCH_RRF_W_FTS` / `HUNCH_RRF_W_SEM` / `HUNCH_RRF_K`.
 
 ## What makes the capture good (not just "changed N files")
 
