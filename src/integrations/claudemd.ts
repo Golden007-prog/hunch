@@ -3,8 +3,8 @@
  * context loaded every session for free"). We own ONLY the region between the
  * HUNCH markers — any user-authored content outside it is preserved verbatim.
  */
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 
 const START = "<!-- HUNCH:START — auto-generated, do not edit by hand -->";
@@ -52,29 +52,32 @@ export function renderHunchSection(store: HunchStore): string {
   return lines.join("\n");
 }
 
-/** Insert/replace the HUNCH section in CLAUDE.md, preserving everything else. */
-export function updateClaudeMd(root: string, store: HunchStore): string {
-  const file = join(root, "CLAUDE.md");
-  const section = renderHunchSection(store);
+/** Insert/replace the marker-delimited HUNCH section in a markdown doc, preserving
+ *  all user-authored content outside the markers. Shared by CLAUDE.md, AGENTS.md,
+ *  and .github/copilot-instructions.md so every assistant gets the same grounding. */
+export function upsertSection(file: string, section: string, fallbackTitle: string): string {
   let content = existsSync(file) ? readFileSync(file, "utf8") : "";
-
   const iStart = content.indexOf(START);
   const iEnd = content.indexOf(END);
   if (iStart >= 0 && iEnd > iStart) {
-    // clean both-marker case: replace in place, preserving surrounding content
     content = content.slice(0, iStart) + section + content.slice(iEnd + END.length);
   } else if (iStart >= 0 || iEnd >= 0) {
-    // partial/corrupt markers (only one survived, or out of order): strip every
-    // stray marker line, then append ONE clean section — never duplicate.
+    // partial/corrupt markers: strip stray marker lines, then append ONE clean section.
     const body = content.split("\n").filter((l) => !l.includes(START) && !l.includes(END)).join("\n").trimEnd();
     content = body ? `${body}\n\n${section}\n` : `${section}\n`;
   } else if (content.trim()) {
     content = `${content.trimEnd()}\n\n${section}\n`;
   } else {
-    content = `# ${root.split("/").pop()}\n\n${section}\n`;
+    content = `${fallbackTitle}\n\n${section}\n`;
   }
+  mkdirSync(dirname(file), { recursive: true }); // e.g. .github/ for copilot-instructions
   writeFileSync(file, content);
   return file;
+}
+
+/** Insert/replace the HUNCH section in CLAUDE.md, preserving everything else. */
+export function updateClaudeMd(root: string, store: HunchStore): string {
+  return upsertSection(join(root, "CLAUDE.md"), renderHunchSection(store), `# ${root.split("/").pop()}`);
 }
 
 function sev(s: string): number {

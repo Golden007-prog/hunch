@@ -102,11 +102,28 @@ The MCP tools Claude calls under the hood: `hunch_why`, `hunch_query`,
 (dependent files + near-violations a change could break indirectly), `hunch_bug_lineage`,
 `hunch_context` (surgical minimal slice for a task), `hunch_record_decision` (write-back).
 
+### Works with any MCP assistant
+
+The Hunch MCP server is **client-agnostic** — one `.hunch/` graph powers every
+assistant. `hunch init` scaffolds each tool's MCP config + ambient grounding so
+they all consult the same memory:
+
+| Assistant | MCP config | Grounding file |
+|---|---|---|
+| Claude Code | `.mcp.json` | `CLAUDE.md` + `/hunch-*` slash commands |
+| Cursor | `.cursor/mcp.json` | `.cursor/rules/hunch.mdc` (always-applied) |
+| VS Code (Copilot) | `.vscode/mcp.json` | `.github/copilot-instructions.md` |
+| Codex CLI | `.codex/config.toml` | `AGENTS.md` |
+| Anything else | — | `AGENTS.md` (cross-tool standard) |
+
+Each writer **merges** into existing files (other MCP servers and your own prose are
+preserved) and is idempotent. Opt out with `hunch init --no-providers`.
+
 **Through the CLI** — the same graph, from your terminal:
 
 | Command | What |
 |---|---|
-| `hunch init [--enforce]` | scaffold `.hunch/`, index, install hook + merge driver, wire up Claude Code (`--enforce` adds a pre-commit invariant guard) |
+| `hunch init` | scaffold `.hunch/`, index, install hook + merge driver, auto-install the advisory pre-commit guard, and wire up **every assistant** (Claude Code, Cursor, VS Code/Copilot, Codex, AGENTS.md). Flags: `--no-enforce`, `--enforce-strict`, `--no-providers` |
 | `hunch index` | parse repo → symbols / edges / components (deterministic, no LLM) |
 | `hunch backfill --since 90d` | replay git history → seed decisions |
 | `hunch sync [sha]` | turn a commit into a Decision (run automatically by the hook) |

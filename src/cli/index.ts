@@ -29,6 +29,7 @@ import { installPostCommitHook, installPreCommitHook } from "../integrations/hoo
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands } from "../integrations/scaffold.js";
+import { scaffoldProviders } from "../integrations/providers.js";
 import { formatContext } from "../core/format.js";
 import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
 import { mergeHunchJson } from "../store/merge.js";
@@ -53,7 +54,8 @@ program
   .option("--no-index", "skip the initial repo index")
   .option("--no-enforce", "do not install the advisory pre-commit constraint guard")
   .option("--enforce-strict", "make the pre-commit guard FAIL the commit on a blocking invariant (direct or near)")
-  .action((opts: { index: boolean; enforce: boolean; enforceStrict?: boolean }) => {
+  .option("--no-providers", "skip scaffolding non-Claude assistant configs (Cursor / VS Code / Codex / AGENTS.md)")
+  .action((opts: { index: boolean; enforce: boolean; enforceStrict?: boolean; providers: boolean }) => {
     const root = findRoot();
     const paths = hunchPaths(root);
     const store = new HunchStore(paths);
@@ -94,6 +96,14 @@ program
     console.log(`  ✓ wrote ${cmds.length} slash commands (/hunch-why, /hunch-fix, /hunch-fragile)`);
     const cmd = updateClaudeMd(root, store);
     console.log(`  ✓ updated ${rel(root, cmd)} with ambient Hunch context`);
+
+    // Multi-assistant compatibility: the MCP server is client-agnostic, so wire up
+    // Cursor / VS Code (Copilot) / Codex / AGENTS.md to the same .hunch/ graph.
+    if (opts.providers !== false) {
+      const ps = scaffoldProviders(root, inv.mcp, store);
+      const total = ps.reduce((a, p) => a + p.files.length, 0);
+      console.log(`  ✓ wrote ${total} multi-assistant config file(s) → ${ps.map((p) => p.assistant).join(", ")}`);
+    }
 
     store.close();
     console.log("\nNext: make a commit (the hook captures a decision), then ask Claude Code \"why is X built this way?\"");
