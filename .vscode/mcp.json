@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "hunch": {
+      "type": "stdio",
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\davids\\github\\hunch\\dist\\cli\\index.js",
+        "mcp"
+      ]
+    }
+  }
+}

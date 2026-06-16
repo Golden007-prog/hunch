@@ -3,7 +3,7 @@
     "hunch": {
       "command": "C:\\Program Files\\nodejs\\node.exe",
       "args": [
-        "C:\\Users\\davids\\github\\brain\\dist\\cli\\index.js",
+        "C:\\Users\\davids\\github\\hunch\\dist\\cli\\index.js",
         "mcp"
       ]
     }
