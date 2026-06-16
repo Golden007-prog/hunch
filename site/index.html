@@ -265,6 +265,37 @@
   .feat h4{font-family:var(--serif);font-weight:440;font-size:19px;margin:14px 0 8px;letter-spacing:-.01em}
   .feat p{margin:0;color:var(--ink-soft);font-size:14px;line-height:1.55;font-weight:380}
 
+  /* latest release */
+  .release{margin-top:52px;background:var(--surface);border:1px solid var(--line);border-radius:26px;box-shadow:var(--shadow-lg);overflow:hidden}
+  .rel-head{display:flex;align-items:center;gap:15px;padding:19px 30px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surface),#fffefb)}
+  .rel-tag{font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.01em;color:var(--paper);background:var(--ink);padding:6px 13px;border-radius:100px}
+  .rel-meta{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2)}
+  .rel-live{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--ok)}
+  .rel-live .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(31,157,104,.5);animation:pulse 2.4s infinite}
+  .rel-body{display:grid;grid-template-columns:1.22fr .92fr}
+  @media(max-width:880px){.rel-body{grid-template-columns:1fr}}
+  .rel-copy{padding:36px 32px;border-right:1px solid var(--line)}
+  @media(max-width:880px){.rel-copy{border-right:none;border-bottom:1px solid var(--line)}}
+  .rel-copy h3{font-family:var(--serif);font-weight:430;font-size:24px;letter-spacing:-.01em;margin:0 0 12px}
+  .rel-copy p{margin:0;color:var(--ink-soft);font-size:15px;line-height:1.62;font-weight:380}
+  .rel-note{margin-top:20px!important;font-size:13.5px!important}
+  .rel-note b{color:var(--ink);font-weight:560}
+  .ladder{display:flex;gap:5px;margin:26px 0 6px;padding:5px;background:var(--paper-2);border:1px solid var(--line);border-radius:14px}
+  .rung{flex:1;text-align:center;font-family:var(--mono);font-size:12.5px;color:var(--muted-2);padding:10px 6px;border-radius:10px;position:relative;transition:background .35s var(--ease),color .35s,box-shadow .35s}
+  .rung.is-default{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+  .rung.is-default i{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-style:normal;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);background:var(--surface);padding:0 6px;border-radius:6px}
+  .rung.is-strict{color:var(--warn)}
+  .rel-aside{padding:36px 32px;display:flex;flex-direction:column;justify-content:space-between;gap:26px;background:var(--paper-2)}
+  .rel-list{list-style:none;margin:0;padding:0}
+  .rel-list li{position:relative;padding-left:25px;margin-bottom:17px;font-size:14px;line-height:1.55;color:var(--ink-soft);font-weight:380}
+  .rel-list li:last-child{margin-bottom:0}
+  .rel-list li::before{content:"";position:absolute;left:0;top:6px;width:13px;height:13px;border-radius:4px;background:var(--accent);box-shadow:0 0 0 4px rgba(39,66,255,.1)}
+  .rel-list li b{color:var(--ink);font-weight:560;font-family:var(--mono);font-size:13px;letter-spacing:-.01em}
+  .rel-cmd{display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+  .rel-cmd .dollar{color:var(--ok);user-select:none}
+  .rel-cmd .copy{margin-left:auto;cursor:pointer;border:none;background:var(--ink);color:var(--paper);border-radius:7px;padding:6px 12px;font-family:var(--mono);font-size:11.5px;transition:transform .2s var(--ease),background .3s}
+  .rel-cmd .copy:hover{transform:translateY(-1px)}
+
   /* compare */
   .compare{background:var(--paper-2);border-radius:36px}
   .ctable{margin-top:48px;border:1px solid var(--line);border-radius:20px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
@@ -341,6 +372,7 @@
         <a href="#how">How it works</a>
         <a href="#chain">The graph</a>
         <a href="#features">Features</a>
+        <a href="#changelog">What's new</a>
         <a href="#compare">Why it's different</a>
         <a href="#start">Get started</a>
       </nav>
@@ -378,7 +410,7 @@
           <a class="btn ghost" href="#how" data-magnetic>See how it works</a>
         </div>
         <div class="hero-stats" data-rise style="--d:.35s">
-          <div class="stat"><div class="n"><span data-count="6">0</span></div><div class="l">Decisions captured</div></div>
+          <div class="stat"><div class="n"><span data-count="22">0</span></div><div class="l">Decisions captured</div></div>
           <div class="stat"><div class="n"><span data-count="9">0</span></div><div class="l">Components mapped</div></div>
           <div class="stat"><div class="n"><span data-count="0">0</span><span style="color:var(--accent)">↯</span></div><div class="l">SaaS required</div></div>
         </div>
@@ -569,6 +601,44 @@
     </div>
   </section>
 
+  <!-- ───────────────  LATEST RELEASE  ─────────────── -->
+  <section id="changelog" style="padding-top:40px">
+    <div class="wrap">
+      <span class="sec-label" data-rise>Latest release</span>
+      <h2 class="title" data-rise style="--d:.08s">New in <em>v0.8.0</em> — the agent stays grounded, on its own.</h2>
+      <p class="lead" data-rise style="--d:.14s">Telling an assistant “check the memory first” is advisory — it drifts. Now Hunch enforces it through Claude Code’s hooks: the right slice of memory is injected before every edit, at a firmness you choose.</p>
+
+      <div class="release" data-rise style="--d:.18s">
+        <div class="rel-head">
+          <span class="rel-tag">v0.8.0</span>
+          <span class="rel-meta">Agent hooks · firmness</span>
+          <span class="rel-live"><span class="dot"></span>live on npm</span>
+        </div>
+        <div class="rel-body">
+          <div class="rel-copy">
+            <h3>Firmness — one knob, four levels.</h3>
+            <p>Every edit fires a <span class="mono">PreToolUse</span> hook that injects the file’s decisions, invariants and blast radius straight into context. How hard it pushes is yours to set — and it’s committed, so the whole team shares one level.</p>
+            <div class="ladder" role="img" aria-label="Firmness levels: off, advisory (default), firm, strict">
+              <span class="rung">off</span>
+              <span class="rung is-default">advisory<i>default</i></span>
+              <span class="rung">firm</span>
+              <span class="rung is-strict">strict</span>
+            </div>
+            <p class="rel-note"><b>strict</b> denies an edit that would touch a <em>blocking</em> invariant — handing the invariant back as the reason. It never breaks your flow: any failure emits nothing and exits clean.</p>
+          </div>
+          <div class="rel-aside">
+            <ul class="rel-list">
+              <li><b>record-constraint</b> — a first-class write path for the invariants your code must not break.</li>
+              <li><b>Rename-proof</b> — hooks re-bind by command tail, so moving the repo never strands them.</li>
+              <li><b>Zero-noise</b> — silent on any file the graph hasn’t learned yet.</li>
+            </ul>
+            <div class="rel-cmd"><span><span class="dollar">$ </span>npm i -g @davesheffer/hunch</span><button class="copy" id="relCopy">Copy</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ───────────────  COMPARE  ─────────────── -->
   <div class="wrap"><div class="compare"><div class="wrap">
     <section id="compare" style="padding:96px 0">
@@ -644,7 +714,7 @@
           <a class="brand" href="#top" style="margin-bottom:14px"><span class="mark">🧠</span><span>Hunch</span></a>
           <p style="color:var(--ink-soft);font-size:14.5px;line-height:1.6;margin:0;font-weight:380">Git stores what the code is. Hunch stores why — a persistent, git-native reasoning graph for the age of AI engineering.</p>
         </div>
-        <div class="col"><h5>Product</h5><a href="#how">How it works</a><a href="#chain">The graph</a><a href="#features">Features</a><a href="#compare">Why it's different</a></div>
+        <div class="col"><h5>Product</h5><a href="#how">How it works</a><a href="#chain">The graph</a><a href="#features">Features</a><a href="#changelog">What's new</a><a href="#compare">Why it's different</a></div>
         <div class="col"><h5>Develop</h5><a href="#start">Get started</a><a href="#demo">In Claude Code</a><a href="https://github.com/davesheffer/hunch#two-ways-to-use-it" target="_blank" rel="noopener">CLI reference</a><a href="https://github.com/davesheffer/hunch/tree/main/vscode-extension" target="_blank" rel="noopener">VS Code extension</a></div>
         <div class="col"><h5>Resources</h5><a href="https://github.com/davesheffer/hunch#readme" target="_blank" rel="noopener">README</a><a href="https://github.com/davesheffer/hunch/blob/main/DESIGN.md" target="_blank" rel="noopener">DESIGN.md</a><a href="https://github.com/davesheffer/hunch" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/davesheffer/hunch/blob/main/DESIGN.md#appendix-a--mcp-tool-surface-v1" target="_blank" rel="noopener">MCP tools</a></div>
       </div>
@@ -750,13 +820,18 @@
   }, {threshold:.4});
   if(typed) tio.observe(typed);
 
-  /* ── copy button ── */
-  var copyBtn=document.getElementById('copyBtn');
-  if(copyBtn) copyBtn.addEventListener('click', function(){
-    navigator.clipboard && navigator.clipboard.writeText('hunch init');
-    var o=copyBtn.textContent; copyBtn.textContent='Copied ✓';
-    setTimeout(function(){ copyBtn.textContent=o; }, 1600);
-  });
+  /* ── copy buttons ── */
+  function wireCopy(id, text){
+    var b=document.getElementById(id);
+    if(!b) return;
+    b.addEventListener('click', function(){
+      navigator.clipboard && navigator.clipboard.writeText(text);
+      var o=b.textContent; b.textContent='Copied ✓';
+      setTimeout(function(){ b.textContent=o; }, 1600);
+    });
+  }
+  wireCopy('copyBtn','hunch init');
+  wireCopy('relCopy','npm i -g @davesheffer/hunch');
 
   /* ── current year ── */
   var yr=document.getElementById('yr'); if(yr){ try{ yr.textContent=new Date().getFullYear(); }catch(e){} }
