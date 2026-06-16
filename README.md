@@ -131,11 +131,13 @@ preserved) and is idempotent. Opt out with `hunch init --no-providers`.
 
 | Command | What |
 |---|---|
-| `hunch init` | scaffold `.hunch/`, index, install hook + merge driver, auto-install the advisory pre-commit guard, and wire up **every assistant** (Claude Code, Cursor, VS Code/Copilot, Codex, AGENTS.md). Flags: `--no-enforce`, `--enforce-strict`, `--no-providers` |
+| `hunch init` | scaffold `.hunch/`, index, install hook + merge driver, auto-install the advisory pre-commit guard, install the **Claude Code agent hooks**, and wire up **every assistant** (Claude Code, Cursor, VS Code/Copilot, Codex, AGENTS.md). Flags: `--no-enforce`, `--enforce-strict`, `--no-providers`, `--no-agent-hooks`, `--firmness <level>` |
 | `hunch index` | parse repo → symbols / edges / components (deterministic, no LLM) |
 | `hunch backfill --since 90d` | replay git history → seed decisions |
 | `hunch sync [sha]` | turn a commit into a Decision (run automatically by the hook) |
 | `hunch record-bug --test <id> --message <m>` | capture a Bug from a failing test |
+| `hunch record-constraint "<statement>" [--scope <globs>] [--severity advisory\|warning\|blocking] [--type …] [--rationale <t>] [--source-decision <id>]` | record an invariant the code must not break (what `hunch check` + the strict agent hook enforce) |
+| `hunch firmness [off\|advisory\|firm\|strict]` | get/set how firmly the agent hook enforces Hunch before edits (no arg prints the current level) |
 | `hunch test [cmd…]` | run the suite (default `npm test`); auto-capture failures as Bugs (suspects + recurrence→Constraints), mark passing tests' bugs fixed |
 | `hunch why <path\|symbol>` | decisions / bugs / constraints explaining a target (flags `⚠STALE`) |
 | `hunch query "<q>" [--semantic]` | full-text + graph search (`--semantic` blends in local embeddings) |
@@ -149,6 +151,37 @@ preserved) and is idempotent. Opt out with `hunch init --no-providers`.
 | `hunch compact [--apply]` | prune low-value drafts to bound growth (dry-run by default) |
 | `hunch doctor` | environment diagnostics (git, auth mode, schema version, counts) |
 | `hunch mcp` | start the MCP server over stdio (Claude Code connects here) |
+
+## Grounding the agent automatically (firmness)
+
+Telling an assistant "consult Hunch first" in a prompt is advisory — it drifts. `hunch
+init` instead installs two **Claude Code agent hooks** (in `.claude/settings.json`) so the
+grounding is enforced by the harness, not by the model's memory:
+
+- **Before every edit** (`PreToolUse` on `Edit`/`Write`/`MultiEdit`) Hunch injects the
+  relevant slice for the file being touched — its decisions, invariants, bug history, and
+  blast radius — straight into the model's context.
+- **On every prompt** (`UserPromptSubmit`) it reminds the agent to query Hunch.
+
+How hard it pushes is one committed knob — set it once, it applies to the whole team:
+
+```bash
+hunch firmness            # print the current level
+hunch firmness strict     # change it (takes effect on the next edit; no restart)
+```
+
+| Level | Before an edit |
+|---|---|
+| `off` | nothing (hook is a no-op) |
+| `advisory` *(default)* | inject the relevant Hunch slice as context |
+| `firm` | advisory **+** explicitly flag invariants in the file's scope |
+| `strict` | firm **+** **deny** an edit that hits a *blocking* invariant (directly or via blast radius), feeding the invariant back as the refusal reason |
+
+The hook never breaks your flow: any error or unrecognized input emits nothing and exits
+0, and it stays silent on files Hunch hasn't learned yet. `strict` only bites once you have
+**blocking** constraints recorded (`hunch record-constraint … --severity blocking`) — with
+none, every level degrades to context-only. Opt out of the hooks entirely with `hunch init
+--no-agent-hooks`.
 
 ## Semantic search (optional)
 

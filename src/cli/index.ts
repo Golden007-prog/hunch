@@ -33,6 +33,8 @@ import { scaffoldProviders } from "../integrations/providers.js";
 import { formatContext } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope } from "../core/hookpolicy.js";
+import { constraintId } from "../core/ids.js";
+import type { Constraint } from "../core/types.js";
 import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
 import { mergeHunchJson } from "../store/merge.js";
 import { planCompaction } from "../store/compact.js";
@@ -345,6 +347,41 @@ program
     console.log(`✓ recorded bug ${r.bug.id} via ${r.provider}: "${r.bug.title}"`);
     if (r.bug.lineage.recurrence_of) console.log(`  ↳ recurrence of ${r.bug.lineage.recurrence_of}`);
     if (r.constraint) console.log(`  ↳ promoted constraint ${r.constraint.id} [${r.constraint.severity}]: ${r.constraint.statement}`);
+    store.close();
+  });
+
+// ---- record-constraint (human-authored invariant) -------------------------
+program
+  .command("record-constraint")
+  .description("Record an invariant the codebase must not break — what `hunch check` and the strict agent hook enforce.")
+  .argument("<statement>", 'the invariant, e.g. "vectors are derived, never the source of truth"')
+  .option("--scope <globs>", "comma-separated path/glob(s) it applies to (e.g. src/store/**)", "")
+  .option("--severity <s>", "advisory | warning | blocking", "warning")
+  .option("--type <t>", "security | performance | correctness | architecture | compliance", "correctness")
+  .option("--rationale <text>", "why it must hold", "")
+  .option("--source-decision <id>", "decision id this derives from")
+  .option("--enforcement <e>", "advisory_v1 | ci | manual", "advisory_v1")
+  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string }) => {
+    const SEV = ["advisory", "warning", "blocking"];
+    if (!SEV.includes(opts.severity)) return fail(`--severity must be one of: ${SEV.join(", ")}`);
+    const { store, root } = storeFor();
+    store.json.ensureDirs();
+    const scope = opts.scope.split(",").map((s) => s.trim()).filter(Boolean);
+    const c = store.json.put("constraints", {
+      id: constraintId(statement),
+      type: opts.type,
+      statement,
+      scope,
+      severity: opts.severity,
+      enforcement: opts.enforcement,
+      rationale: opts.rationale,
+      source_decision: opts.sourceDecision ?? null,
+      violations: [],
+      provenance: { source: "human_confirmed", confidence: 1, evidence: [], last_verified: new Date().toISOString() },
+    } as Constraint);
+    store.reindex();
+    updateClaudeMd(root, store);
+    console.log(`✓ recorded ${c.severity} constraint ${c.id}: "${c.statement}" (scope: ${scope.join(", ") || "repo"})`);
     store.close();
   });
 
