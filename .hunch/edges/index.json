@@ -165,6 +165,21 @@
     }
   },
   {
+    "id": "edge_0944bbdea1",
+    "from": "sym_ec20c29b41",
+    "to": "sym_035dc8ba69",
+    "type": "calls",
+    "reason": "keep calls isHunchHook",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/integrations/scaffold.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_09881293c7",
     "from": "sym_9a375345fc",
     "to": "sym_aa8f652189",
@@ -2055,6 +2070,21 @@
     }
   },
   {
+    "id": "edge_580e11e2a3",
+    "from": "sym_3ac77fc4f6",
+    "to": "sym_ec20c29b41",
+    "type": "calls",
+    "reason": "installClaudeHooks calls keep",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/integrations/scaffold.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_582719ded5",
     "from": "sym_24693481f2",
     "to": "sym_87d8ce374f",
@@ -2366,6 +2396,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_64f8ad9627",
+    "from": "sym_48285e6210",
+    "to": "sym_2107f96eaf",
+    "type": "calls",
+    "reason": "readStdin calls resolve",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/cli/index.ts"
       ]
     }
   },
@@ -4676,6 +4721,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/provider.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_e0d6459d79",
+    "from": "sym_6b4df600cc",
+    "to": "sym_b002278a20",
+    "type": "calls",
+    "reason": "blockingInScope calls checkConstraints",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/cli/index.ts"
       ]
     }
   },

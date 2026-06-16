@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { Command } from "commander";
 import { hunchPaths, findRoot } from "../core/paths.js";
 import { HunchStore } from "../store/hunchStore.js";
@@ -28,9 +28,11 @@ import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles 
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
-import { writeMcpJson, writeSlashCommands } from "../integrations/scaffold.js";
+import { writeMcpJson, writeSlashCommands, installClaudeHooks } from "../integrations/scaffold.js";
 import { scaffoldProviders } from "../integrations/providers.js";
 import { formatContext } from "../core/format.js";
+import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
+import { blockingInScope } from "../core/hookpolicy.js";
 import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
 import { mergeHunchJson } from "../store/merge.js";
 import { planCompaction } from "../store/compact.js";
@@ -55,7 +57,14 @@ program
   .option("--no-enforce", "do not install the advisory pre-commit constraint guard")
   .option("--enforce-strict", "make the pre-commit guard FAIL the commit on a blocking invariant (direct or near)")
   .option("--no-providers", "skip scaffolding non-Claude assistant configs (Cursor / VS Code / Codex / AGENTS.md)")
-  .action((opts: { index: boolean; enforce: boolean; enforceStrict?: boolean; providers: boolean }) => {
+  .option("--no-agent-hooks", "skip installing the Claude Code agent hooks (.claude/settings.json)")
+  .option("--firmness <level>", "agent-hook firmness: off | advisory | firm | strict")
+  .action((opts: { index: boolean; enforce: boolean; enforceStrict?: boolean; providers: boolean; agentHooks: boolean; firmness?: string }) => {
+    // Validate --firmness up front, before any side effects (indexing, git hooks,
+    // .mcp.json) or opening the store — a bad value must not leave a half-init.
+    if (opts.firmness !== undefined && !isFirmness(opts.firmness)) {
+      return fail(`--firmness must be one of: ${FIRMNESS_LEVELS.join(", ")}`);
+    }
     const root = findRoot();
     const paths = hunchPaths(root);
     const store = new HunchStore(paths);
@@ -96,6 +105,17 @@ program
     console.log(`  ✓ wrote ${cmds.length} slash commands (/hunch-why, /hunch-fix, /hunch-fragile)`);
     const cmd = updateClaudeMd(root, store);
     console.log(`  ✓ updated ${rel(root, cmd)} with ambient Hunch context`);
+
+    // Firmness: stamp .hunch/config.json (default advisory) so `hunch hook` reads a
+    // level even before the user runs `hunch firmness` (--firmness validated above).
+    const firmness = writeConfig(paths, opts.firmness ? { firmness: opts.firmness as Firmness } : {}).firmness;
+
+    // Agent hooks: ground the assistant in Hunch automatically (PreToolUse injects
+    // context before edits; UserPromptSubmit reminds). Reads firmness at run time.
+    if (opts.agentHooks !== false) {
+      const a = installClaudeHooks(root, `${inv.shell} hook`);
+      console.log(`  ✓ Claude Code agent hooks ${a.action} (firmness: ${firmness} — change with \`hunch firmness <level>\`)`);
+    }
 
     // Multi-assistant compatibility: the MCP server is client-agnostic, so wire up
     // Cursor / VS Code (Copilot) / Codex / AGENTS.md to the same .hunch/ graph.
@@ -515,6 +535,91 @@ program
     store.close();
   });
 
+// ---- firmness (agent-hook enforcement level) ------------------------------
+program
+  .command("firmness")
+  .description("Get or set how firmly the Claude Code agent hook enforces Hunch before edits.")
+  .argument("[level]", "off | advisory | firm | strict (omit to print the current level)")
+  .action((level: string | undefined) => {
+    const paths = hunchPaths(findRoot());
+    if (!level) {
+      console.log(`firmness: ${readConfig(paths).firmness}`);
+      console.log(`levels:   ${FIRMNESS_LEVELS.join(" | ")}  (set with: hunch firmness <level>)`);
+      return;
+    }
+    if (!isFirmness(level)) {
+      return fail(`firmness must be one of: ${FIRMNESS_LEVELS.join(", ")}`);
+    }
+    const next = writeConfig(paths, { firmness: level }).firmness;
+    console.log(`✓ firmness set to ${next} (takes effect on the next edit — no Claude Code restart needed).`);
+  });
+
+// ---- hook (Claude Code agent-hook handler) --------------------------------
+program
+  .command("hook")
+  .description("Claude Code hook handler: inject relevant Hunch context before edits (and, at strict firmness, deny edits that hit a blocking invariant). Reads the hook event JSON on stdin.")
+  .action(async () => {
+    // A hook MUST NEVER break the agent: on ANY error or unrecognized input we
+    // emit nothing and exit 0 (the action defers to Claude Code's normal flow).
+    let store: HunchStore | null = null;
+    try {
+      const evt = JSON.parse(await readStdin()) as {
+        hook_event_name?: string;
+        tool_input?: { file_path?: string };
+      };
+      const root = findRoot();
+      const paths = hunchPaths(root);
+      const firmness = readConfig(paths).firmness;
+      if (firmness === "off") return;
+
+      if (evt.hook_event_name === "UserPromptSubmit") {
+        emitContext("UserPromptSubmit", HOOK_REMINDER);
+        return;
+      }
+      if (evt.hook_event_name !== "PreToolUse") return;
+
+      const abs = evt.tool_input?.file_path;
+      if (!abs) return;
+      const target = toRepoRel(root, abs);
+      // Outside the repo (".." prefix) or on another drive (absolute, e.g. "D:/…")
+      // → nothing for Hunch to say.
+      if (!target || target.startsWith("..") || /^[a-zA-Z]:/.test(target)) return;
+
+      store = new HunchStore(paths);
+
+      // strict: refuse an edit that hits a BLOCKING invariant (direct OR via blast
+      // radius), feeding the invariant statement back as the refusal reason. Reindex
+      // first so the blast radius reflects uncommitted edges — strict opts into the
+      // cost for correctness. Advisory/firm skip it: the hook fires on every edit,
+      // and decisions/constraints don't change between commits, so the committed
+      // index is good enough for grounding.
+      if (firmness === "strict") {
+        store.reindex();
+        const deny = blockingInScope(store, target);
+        if (deny) {
+          emitDeny(deny.reason);
+          return;
+        }
+      }
+
+      // advisory / firm / strict(non-blocking): inject the relevant Hunch slice.
+      const ctx = store.assembleContext(target);
+      const hasContent =
+        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length;
+      if (!hasContent) return; // no noise on files Hunch hasn't learned yet
+      let text = formatContext(ctx).trim();
+      if (firmness !== "advisory" && ctx.constraints.length) {
+        const names = ctx.constraints.map((c) => `[${c.severity}] ${c.statement}`).join("; ");
+        text += `\n\n⚠ This file is in scope of ${ctx.constraints.length} invariant(s): ${names}. Preserve them.`;
+      }
+      emitContext("PreToolUse", text);
+    } catch {
+      // swallow — never block an edit on a hook failure
+    } finally {
+      store?.close();
+    }
+  });
+
 // ---- review (curate loop) -------------------------------------------------
 program
   .command("review")
@@ -707,6 +812,44 @@ function dim(s: string): string {
 function fail(msg: string): void {
   console.error(`error: ${msg}`);
   process.exitCode = 1;
+}
+
+// --- agent-hook helpers (used by `hunch hook`) -----------------------------
+
+const HOOK_REMINDER =
+  "Hunch (engineering memory) is available for this repo. Before editing, call " +
+  "hunch_check_constraints(scope) for do-not-break invariants and hunch_why(target) " +
+  "for the rationale; use hunch_get_dependents for blast radius and hunch_bug_lineage " +
+  "for prior root causes. After a non-trivial choice, record it with hunch_record_decision.";
+
+/** Read all of stdin (the hook event JSON). A TTY (no piped input) resolves to ""
+ *  so an accidental interactive `hunch hook` exits cleanly instead of hanging. */
+function readStdin(): Promise<string> {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) return resolve("");
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (c) => (data += c));
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", () => resolve(data));
+  });
+}
+
+/** Absolute edit path → repo-relative, forward-slash (constraint scopes are
+ *  forward-slash globs even on Windows). */
+function toRepoRel(root: string, abs: string): string {
+  return relative(root, abs).split("\\").join("/");
+}
+
+function emitContext(event: "PreToolUse" | "UserPromptSubmit", text: string): void {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } }));
+}
+function emitDeny(reason: string): void {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
+    }),
+  );
 }
 
 program.parseAsync().catch((e) => {

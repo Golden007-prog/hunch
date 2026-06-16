@@ -12,6 +12,8 @@ export interface HunchPaths {
   sqlite: string;
   /** `.hunch/manifest.json` — records the on-disk schema version. */
   manifest: string;
+  /** `.hunch/config.json` — user runtime config (firmness, etc.). */
+  config: string;
   dir(kind: string): string;
 }
 
@@ -22,6 +24,7 @@ export function hunchPaths(root: string): HunchPaths {
     hunch,
     sqlite: join(hunch, "hunch.sqlite"),
     manifest: join(hunch, "manifest.json"),
+    config: join(hunch, "config.json"),
     dir: (kind: string) => join(hunch, kind),
   };
 }

@@ -78,6 +78,25 @@
     "last_changed": "commit:eba4256"
   },
   {
+    "id": "sym_035dc8ba69",
+    "file": "src/integrations/scaffold.ts",
+    "name": "isHunchHook",
+    "kind": "function",
+    "signature_hash": "sha1:f11d869da3d",
+    "calls": [],
+    "called_by": [
+      "sym_ec20c29b41"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8b1bcfe"
+  },
+  {
     "id": "sym_0374d9ced2",
     "file": "src/store/embedder.ts",
     "name": "Embedder",
@@ -806,6 +825,7 @@
     "signature_hash": "sha1:082c92d071b",
     "calls": [],
     "called_by": [
+      "sym_48285e6210",
       "sym_9e8caabda8",
       "sym_b0cd752eeb"
     ],
@@ -813,7 +833,7 @@
       "loc": 7,
       "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 2,
+      "fan_in": 3,
       "fan_out": 0
     },
     "last_changed": "commit:eba4256"
@@ -1139,7 +1159,7 @@
     "file": "src/core/paths.ts",
     "name": "hunchPaths",
     "kind": "function",
-    "signature_hash": "sha1:0385e79f02c",
+    "signature_hash": "sha1:797e2ca9943",
     "calls": [],
     "called_by": [
       "sym_3188212032",
@@ -1148,7 +1168,7 @@
       "sym_610aad3fa6"
     ],
     "metrics": {
-      "loc": 10,
+      "loc": 11,
       "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 4,
@@ -1549,6 +1569,25 @@
       "fan_out": 0
     },
     "last_changed": "commit:dd51fde"
+  },
+  {
+    "id": "sym_3ac77fc4f6",
+    "file": "src/integrations/scaffold.ts",
+    "name": "installClaudeHooks",
+    "kind": "function",
+    "signature_hash": "sha1:4b25e6f5319",
+    "calls": [
+      "sym_ec20c29b41"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 35,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8b1bcfe"
   },
   {
     "id": "sym_3b35effcff",
@@ -1996,6 +2035,25 @@
       "fan_out": 0
     },
     "last_changed": "commit:4d7ade7"
+  },
+  {
+    "id": "sym_48285e6210",
+    "file": "src/cli/index.ts",
+    "name": "readStdin",
+    "kind": "function",
+    "signature_hash": "sha1:4478f42dd24",
+    "calls": [
+      "sym_2107f96eaf"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 16,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:f72a46b"
   },
   {
     "id": "sym_48db7d72bc",
@@ -2948,6 +3006,25 @@
       "fan_out": 0
     },
     "last_changed": "commit:dd51fde"
+  },
+  {
+    "id": "sym_6b4df600cc",
+    "file": "src/cli/index.ts",
+    "name": "blockingInScope",
+    "kind": "function",
+    "signature_hash": "sha1:31d16ad1666",
+    "calls": [
+      "sym_b002278a20"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 15,
+      "churn_90d": 16,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:f72a46b"
   },
   {
     "id": "sym_6b9073394a",
@@ -4173,6 +4250,23 @@
     "last_changed": "commit:8ec6d7d"
   },
   {
+    "id": "sym_8fab903858",
+    "file": "src/cli/index.ts",
+    "name": "emitDeny",
+    "kind": "function",
+    "signature_hash": "sha1:6475e9117e2",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 7,
+      "churn_90d": 16,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:f72a46b"
+  },
+  {
     "id": "sym_8fc96bbf18",
     "file": "src/store/jsonStore.ts",
     "name": "loadAll",
@@ -4310,6 +4404,23 @@
       "fan_out": 0
     },
     "last_changed": "commit:b9cb365"
+  },
+  {
+    "id": "sym_955c301024",
+    "file": "src/cli/index.ts",
+    "name": "toRepoRel",
+    "kind": "function",
+    "signature_hash": "sha1:7213489d68d",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 16,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:f72a46b"
   },
   {
     "id": "sym_957c2a54f2",
@@ -5103,13 +5214,14 @@
       "sym_f5f04a2f17"
     ],
     "called_by": [
+      "sym_6b4df600cc",
       "sym_a708ee9110"
     ],
     "metrics": {
       "loc": 6,
       "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 2,
       "fan_out": 2
     },
     "last_changed": "commit:eba4256"
@@ -6287,6 +6399,23 @@
     "last_changed": "commit:3337c78"
   },
   {
+    "id": "sym_dcff303e8e",
+    "file": "src/integrations/scaffold.ts",
+    "name": "HookEntry",
+    "kind": "interface",
+    "signature_hash": "sha1:71a5795b310",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8b1bcfe"
+  },
+  {
     "id": "sym_de04d84ffc",
     "file": "vscode-extension/src/hunchData.ts",
     "name": "fragileSymbols",
@@ -6774,6 +6903,27 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
+    "id": "sym_ec20c29b41",
+    "file": "src/integrations/scaffold.ts",
+    "name": "keep",
+    "kind": "function",
+    "signature_hash": "sha1:09020818f16",
+    "calls": [
+      "sym_035dc8ba69"
+    ],
+    "called_by": [
+      "sym_3ac77fc4f6"
+    ],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8b1bcfe"
+  },
+  {
     "id": "sym_ec30e7bbea",
     "file": "src/synthesis/provider.ts",
     "name": "available",
@@ -6967,11 +7117,11 @@
     "file": "src/core/paths.ts",
     "name": "HunchPaths",
     "kind": "interface",
-    "signature_hash": "sha1:231da19cc96",
+    "signature_hash": "sha1:5388e9f9aa2",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 9,
+      "loc": 11,
       "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
@@ -7185,6 +7335,23 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_f5bee9bc5a",
+    "file": "src/cli/index.ts",
+    "name": "emitContext",
+    "kind": "function",
+    "signature_hash": "sha1:2a9a353013d",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 16,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:f72a46b"
+  },
+  {
     "id": "sym_f5f04a2f17",
     "file": "src/store/hunchStore.ts",
     "name": "sev",
@@ -7326,6 +7493,23 @@
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
+    },
+    "last_changed": "commit:8b1bcfe"
+  },
+  {
+    "id": "sym_fac6cf59a8",
+    "file": "src/integrations/scaffold.ts",
+    "name": "ClaudeHookInstall",
+    "kind": "interface",
+    "signature_hash": "sha1:95843c5cd42",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
     },
     "last_changed": "commit:8b1bcfe"
   },
