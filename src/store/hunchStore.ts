@@ -489,6 +489,55 @@ export class HunchStore {
     return closed;
   }
 
+  /** Regression Guard: detect a change RE-INTRODUCING something an in-force
+   *  decision deliberately removed. Matches the added symbols/deps of a diff
+   *  against the `retired` signal of decisions concerning the touched files. A hit
+   *  is `blocking` when the retiring decision is tied to an ACTIVE blocking
+   *  constraint (via source_decision) — that's the only case the strict guard
+   *  fails the commit on; everything else is an advisory warning. */
+  regressionHits(added: { symbols: string[]; deps: string[] }, files: string[]): RegressionHit[] {
+    const addedSyms = new Set(added.symbols);
+    const addedDeps = new Set(added.deps);
+    if (!addedSyms.size && !addedDeps.size) return [];
+    const fileSet = new Set(files);
+    const fileRelevant = (related: string[]) =>
+      related.some((f) => fileSet.has(f) || files.some((x) => x.endsWith(f) || f.endsWith(x)));
+    const decisions = this.json.loadAll("decisions");
+    // decisions tied to an active blocking constraint via source_decision
+    const blockingDec = new Set(
+      this.json.loadAll("constraints")
+        .filter((c) => c.severity === "blocking" && c.status !== "retired" && c.source_decision)
+        .map((c) => c.source_decision as string),
+    );
+    const out: RegressionHit[] = [];
+    for (const d of decisions) {
+      // Only IN-FORCE decisions: re-adding what an OUTDATED (superseded) decision
+      // removed is not a regression against the current design.
+      if (d.superseded_by || d.status === "superseded") continue;
+      if (!d.retired.symbols.length && !d.retired.deps.length) continue;
+      if (!fileRelevant(d.related_files)) continue;
+      const blocking = blockingDec.has(d.id);
+      const reason = d.decision || d.title;
+      for (const s of d.retired.symbols) if (addedSyms.has(s)) out.push({ decision: d.id, title: d.title, kind: "symbol", name: s, blocking, reason });
+      for (const dep of d.retired.deps) if (addedDeps.has(dep)) out.push({ decision: d.id, title: d.title, kind: "dep", name: dep, blocking, reason });
+    }
+    return out;
+  }
+
+  /** The symbols/deps an in-force decision deliberately RETIRED from a file — the
+   *  agent-hook grounding ("don't re-add X here; dec_Y removed it"). No diff is
+   *  available at edit time, so this surfaces the risk as context, not a block. */
+  retiredForFile(file: string): RetiredNote[] {
+    const out: RetiredNote[] = [];
+    for (const d of this.json.loadAll("decisions")) {
+      if (d.superseded_by || d.status === "superseded") continue;
+      if (!d.retired.symbols.length && !d.retired.deps.length) continue;
+      if (!d.related_files.some((f) => f === file || f.endsWith(file) || file.endsWith(f))) continue;
+      out.push({ decision: d.id, title: d.title, symbols: d.retired.symbols, deps: d.retired.deps });
+    }
+    return out;
+  }
+
   /** Bugs matching a symptom (FTS over bugs) or a symbol, with lineage (hunch_bug_lineage). */
   bugLineage(symptomOrSymbol: string): Bug[] {
     const bugs = this.json.loadAll("bugs");
@@ -601,6 +650,25 @@ export interface StaleRecord {
   last_verified: string;
   changed_at: string;
   files: string[];
+}
+
+/** A diff re-introducing something a decision deliberately removed. */
+export interface RegressionHit {
+  decision: string;
+  title: string;
+  kind: "symbol" | "dep";
+  name: string;
+  /** True only when the retiring decision is tied to an active blocking invariant. */
+  blocking: boolean;
+  reason: string;
+}
+
+/** What an in-force decision retired from a file (agent-hook grounding). */
+export interface RetiredNote {
+  decision: string;
+  title: string;
+  symbols: string[];
+  deps: string[];
 }
 
 export interface AssembledContext {

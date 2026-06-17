@@ -129,6 +129,14 @@ export function stagedFiles(cwd: string): string[] {
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
+/** Unified diff of the staged changes (for the Regression Guard's structural
+ *  analysis). Excludes machine-generated noise like commitDiff, and is truncated
+ *  to keep the parse bounded. */
+export function stagedDiff(cwd: string, maxBytes = 200_000): string {
+  const out = gitSafe(["diff", "--cached", "--no-color", "--unified=2", "--", ...DIFF_NOISE], cwd);
+  return out.length > maxBytes ? out.slice(0, maxBytes) + "\n…(diff truncated)…" : out;
+}
+
 /** Translate a backfill window spec into git-log window args.
  *   "90d" / bare "90" -> last 90 days   |   "40c" -> last 40 commits
  *   anything else      -> passed to --since as an approxidate/date string. */

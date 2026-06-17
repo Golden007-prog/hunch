@@ -24,7 +24,8 @@ import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, revParse, commitMeta } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, revParse, commitMeta, stagedDiff, commitDiff } from "../extractors/git.js";
+import { analyzeDiff } from "../extractors/diff.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
@@ -534,6 +535,17 @@ program
       }
     }
 
+    // 3) REGRESSION — does the diff RE-ADD something an in-force decision removed?
+    //    (e.g. re-introducing a symbol/dep that was deliberately deleted). Warn
+    //    always; only a blocking-linked resurrection fails the commit under strict.
+    const diff = opts.commit ? commitDiff(opts.commit, root) : stagedDiff(root);
+    const an = analyzeDiff(diff);
+    const regHits = store.regressionHits(
+      { symbols: an.addedSymbols.map((s) => s.name), deps: an.addedDeps },
+      files,
+    );
+    const regBlocking = regHits.filter((h) => h.blocking).length;
+
     if (opts.blast) {
       console.log(`Blast radius of ${files.length} changed file(s):`);
       for (const f of files) {
@@ -544,8 +556,8 @@ program
       console.log("");
     }
 
-    if (!direct.size && !near.size) {
-      console.log(`✓ ${files.length} changed file(s) touch no recorded invariants (directly or via blast radius).`);
+    if (!direct.size && !near.size && !regHits.length) {
+      console.log(`✓ ${files.length} changed file(s) touch no recorded invariants (directly or via blast radius) and re-introduce nothing deliberately retired.`);
       store.close();
       return;
     }
@@ -565,8 +577,19 @@ program
         console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}\n      ${c.id}\n      ${via.slice(0, 4).join("\n      ")}${via.length > 4 ? `\n      …+${via.length - 4} more path(s)` : ""}`);
       }
     }
-    if (opts.strict && blocking) {
-      console.log(`\n✗ ${blocking} blocking invariant(s) in scope (direct or near) — review before committing.`);
+    if (regHits.length) {
+      console.log(`${direct.size || near.size ? "\n" : ""}Re-introduces ${regHits.length} deliberately-retired item(s):\n`);
+      for (const h of regHits) {
+        console.log(`  ${h.blocking ? "⛔" : "⚠"} re-adds ${h.kind} \`${h.name}\` — ${h.decision} removed it${h.blocking ? " (blocking-linked)" : ""}\n      “${h.title}”\n      ${h.reason}`);
+      }
+    }
+
+    if (opts.strict && (blocking || regBlocking)) {
+      const reasons = [
+        blocking ? `${blocking} blocking invariant(s) in scope` : "",
+        regBlocking ? `${regBlocking} blocking-linked regression(s)` : "",
+      ].filter(Boolean).join(" + ");
+      console.log(`\n✗ ${reasons} — review before committing.`);
       process.exitCode = 1;
     } else {
       console.log(`\nReview that these invariants still hold. (Advisory — run with --strict to fail on blocking.)`);
@@ -698,13 +721,21 @@ program
 
       // advisory / firm / strict(non-blocking): inject the relevant Hunch slice.
       const ctx = store.assembleContext(target);
+      // Regression Guard (edit-time grounding): what an in-force decision retired
+      // from this file. No diff exists yet, so this is context — "don't re-add X" —
+      // not a block; the commit-time `hunch check` does the actual gating.
+      const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
       const hasContent =
-        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length;
+        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length || retired.length;
       if (!hasContent) return; // no noise on files Hunch hasn't learned yet
       let text = formatContext(ctx).trim();
       if (firmness !== "advisory" && ctx.constraints.length) {
         const names = ctx.constraints.map((c) => `[${c.severity}] ${c.statement}`).join("; ");
         text += `\n\n⚠ This file is in scope of ${ctx.constraints.length} invariant(s): ${names}. Preserve them.`;
+      }
+      if (retired.length) {
+        const items = retired.map((r) => `${[...r.symbols, ...r.deps].join(", ")} (${r.decision})`).join("; ");
+        text += `\n\n⚠ Deliberately RETIRED from this file — do not re-introduce without cause: ${items}.`;
       }
       emitContext("PreToolUse", text);
     } catch {

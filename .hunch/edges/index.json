@@ -2490,6 +2490,21 @@
     }
   },
   {
+    "id": "edge_610f098480",
+    "from": "sym_474fa27ae4",
+    "to": "sym_8fc96bbf18",
+    "type": "calls",
+    "reason": "retiredForFile calls loadAll",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/hunchStore.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_6126741432",
     "from": "sym_9301e7f0e9",
     "to": "sym_587ba62cce",
@@ -2561,6 +2576,21 @@
       "confidence": 0.8,
       "evidence": [
         "vscode-extension/src/hunchData.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_6426b32ae0",
+    "from": "sym_68b975f9d6",
+    "to": "sym_8fc96bbf18",
+    "type": "calls",
+    "reason": "regressionHits calls loadAll",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/hunchStore.ts"
       ]
     }
   },
@@ -3341,6 +3371,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_8d4e1468ec",
+    "from": "sym_e26c522c4a",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "stagedDiff calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
       ]
     }
   },
@@ -5741,6 +5786,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_f9333f3f8c",
+    "from": "sym_68b975f9d6",
+    "to": "sym_2c470ebb79",
+    "type": "calls",
+    "reason": "regressionHits calls fileRelevant",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/hunchStore.ts"
       ]
     }
   },

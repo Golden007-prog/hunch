@@ -73,12 +73,12 @@
     "called_by": [],
     "metrics": {
       "loc": 15,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_0328d7861c",
@@ -92,12 +92,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_035dc8ba69",
@@ -145,12 +145,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_03b91a7812",
@@ -165,12 +165,12 @@
     "called_by": [],
     "metrics": {
       "loc": 17,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_03c985dd4c",
@@ -377,12 +377,12 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_11010ac9dc",
@@ -397,12 +397,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_1141cec963",
@@ -460,12 +460,12 @@
     ],
     "metrics": {
       "loc": 9,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_1285f1c28f",
@@ -480,12 +480,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_13e20235c4",
@@ -626,12 +626,12 @@
     ],
     "metrics": {
       "loc": 2,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_17e9c3e23d",
@@ -643,12 +643,12 @@
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_18a4279b0b",
@@ -679,12 +679,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_18c032ca4f",
@@ -816,12 +816,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_1fb57fd0dd",
@@ -869,12 +869,12 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_2107f96eaf",
@@ -890,12 +890,12 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_217f377ab1",
@@ -949,12 +949,12 @@
     ],
     "metrics": {
       "loc": 16,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 2
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_2372383431",
@@ -971,12 +971,12 @@
     "called_by": [],
     "metrics": {
       "loc": 36,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 4
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_24693481f2",
@@ -1054,12 +1054,12 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 3
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_27284a3c8e",
@@ -1075,12 +1075,12 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_2945a8c6b8",
@@ -1094,12 +1094,12 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_29c38dd437",
@@ -1140,12 +1140,12 @@
     ],
     "metrics": {
       "loc": 17,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 5
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_2a6c52c310",
@@ -1229,12 +1229,12 @@
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_2c058517d8",
@@ -1260,6 +1260,25 @@
     "last_changed": "commit:8b33755"
   },
   {
+    "id": "sym_2c470ebb79",
+    "file": "src/store/hunchStore.ts",
+    "name": "fileRelevant",
+    "kind": "function",
+    "signature_hash": "sha1:2fc489378ec",
+    "calls": [],
+    "called_by": [
+      "sym_68b975f9d6"
+    ],
+    "metrics": {
+      "loc": 2,
+      "churn_90d": 4,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:17b2de2"
+  },
+  {
     "id": "sym_2cb8c75de0",
     "file": "src/cli/index.ts",
     "name": "resolveAsOf",
@@ -1273,12 +1292,12 @@
     "called_by": [],
     "metrics": {
       "loc": 5,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 3
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_2ce5da13ed",
@@ -1381,12 +1400,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_3188212032",
@@ -1401,12 +1420,12 @@
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_3188a7bcc7",
@@ -1501,12 +1520,12 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_343edf66d4",
@@ -1545,12 +1564,12 @@
     ],
     "metrics": {
       "loc": 23,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 4
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_378ded6e8c",
@@ -1670,12 +1689,12 @@
     ],
     "metrics": {
       "loc": 9,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_3ac77fc4f6",
@@ -1781,12 +1800,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_3ede8a26b9",
@@ -1897,12 +1916,12 @@
     "called_by": [],
     "metrics": {
       "loc": 5,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_412280cb7c",
@@ -1994,12 +2013,12 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_4399ce5337",
@@ -2081,12 +2100,12 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_469347c1e8",
@@ -2123,6 +2142,25 @@
     "last_changed": "commit:70c235f"
   },
   {
+    "id": "sym_474fa27ae4",
+    "file": "src/store/hunchStore.ts",
+    "name": "retiredForFile",
+    "kind": "method",
+    "signature_hash": "sha1:694815af1e1",
+    "calls": [
+      "sym_8fc96bbf18"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 4,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:17b2de2"
+  },
+  {
     "id": "sym_47649456f3",
     "file": "src/integrations/claudemd.ts",
     "name": "upsertSection",
@@ -2155,12 +2193,12 @@
     "called_by": [],
     "metrics": {
       "loc": 10,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_48db7d72bc",
@@ -2237,12 +2275,12 @@
     ],
     "metrics": {
       "loc": 26,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_4c67596cb4",
@@ -2273,12 +2311,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_4d4e186ab0",
@@ -2312,12 +2350,12 @@
     ],
     "metrics": {
       "loc": 20,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_4fae276ed8",
@@ -2411,12 +2449,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_51cab1b0c2",
@@ -2445,12 +2483,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_528fc3d080",
@@ -2462,12 +2500,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_52d993915a",
@@ -2483,12 +2521,12 @@
     ],
     "metrics": {
       "loc": 26,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_547bbf9a26",
@@ -2562,12 +2600,12 @@
     ],
     "metrics": {
       "loc": 12,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_5857234c69",
@@ -2579,12 +2617,12 @@
     "called_by": [],
     "metrics": {
       "loc": 10,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_587ba62cce",
@@ -2599,12 +2637,12 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_58c34afd10",
@@ -2696,12 +2734,12 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_5ae5a5a486",
@@ -2732,12 +2770,12 @@
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_5c38b4911d",
@@ -2794,12 +2832,12 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_5e11546a25",
@@ -2811,12 +2849,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_5fb91b7bd2",
@@ -2833,12 +2871,12 @@
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_603a109a1f",
@@ -2880,12 +2918,12 @@
     "called_by": [],
     "metrics": {
       "loc": 94,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 10
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_610aad3fa6",
@@ -2957,12 +2995,12 @@
     "called_by": [],
     "metrics": {
       "loc": 8,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_63a12614e4",
@@ -3112,6 +3150,26 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_68b975f9d6",
+    "file": "src/store/hunchStore.ts",
+    "name": "regressionHits",
+    "kind": "method",
+    "signature_hash": "sha1:99147725ce0",
+    "calls": [
+      "sym_8fc96bbf18",
+      "sym_2c470ebb79"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 28,
+      "churn_90d": 4,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 2
+    },
+    "last_changed": "commit:17b2de2"
+  },
+  {
     "id": "sym_697a66fc08",
     "file": "test/compact.test.ts",
     "name": "bug",
@@ -3162,12 +3220,12 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_6b9073394a",
@@ -3229,13 +3287,13 @@
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 547,
-      "churn_90d": 3,
+      "loc": 596,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_6ca243362e",
@@ -3269,12 +3327,12 @@
     ],
     "metrics": {
       "loc": 22,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_6d8e5db01f",
@@ -3376,12 +3434,12 @@
     ],
     "metrics": {
       "loc": 89,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 6,
       "fan_out": 3
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_7183436879",
@@ -3407,12 +3465,12 @@
     ],
     "metrics": {
       "loc": 67,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 11
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_741c3104ab",
@@ -3557,12 +3615,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_76d15e31c9",
@@ -3623,12 +3681,29 @@
     ],
     "metrics": {
       "loc": 16,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
+  },
+  {
+    "id": "sym_786f74a17a",
+    "file": "test/regression.test.ts",
+    "name": "mkConstraint",
+    "kind": "function",
+    "signature_hash": "sha1:6358eaac103",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 9,
+      "churn_90d": 0,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": ""
   },
   {
     "id": "sym_787484f844",
@@ -3642,12 +3717,12 @@
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_790b4f8899",
@@ -3676,12 +3751,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_796dc5735b",
@@ -3732,12 +3807,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_7a2923507e",
@@ -3751,12 +3826,12 @@
     "called_by": [],
     "metrics": {
       "loc": 14,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_7b5e2ca6bc",
@@ -3770,12 +3845,12 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_7b66baae63",
@@ -3789,12 +3864,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_7d2c513fff",
@@ -3865,12 +3940,12 @@
     "called_by": [],
     "metrics": {
       "loc": 30,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 3
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_7f76d55097",
@@ -3903,12 +3978,12 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_807c726ac5",
@@ -3926,6 +4001,23 @@
       "fan_out": 0
     },
     "last_changed": "commit:b9cb365"
+  },
+  {
+    "id": "sym_80a6a8ac12",
+    "file": "test/timetravel.test.ts",
+    "name": "at",
+    "kind": "function",
+    "signature_hash": "sha1:de0f7035913",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_80eb1c4aa3",
@@ -3969,6 +4061,7 @@
       "sym_9853d94477",
       "sym_547bbf9a26",
       "sym_18c032ca4f",
+      "sym_e26c522c4a",
       "sym_f1e8c6fbda",
       "sym_be1263261e",
       "sym_a2df62d136"
@@ -3977,7 +4070,7 @@
       "loc": 7,
       "churn_90d": 4,
       "bug_count": 0,
-      "fan_in": 15,
+      "fan_in": 16,
       "fan_out": 1
     },
     "last_changed": "commit:8b1bcfe"
@@ -3992,12 +4085,12 @@
     "called_by": [],
     "metrics": {
       "loc": 9,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_81fc88e59c",
@@ -4070,12 +4163,12 @@
     ],
     "metrics": {
       "loc": 9,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_837ee1b990",
@@ -4298,12 +4391,12 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_89d5502a58",
@@ -4340,12 +4433,12 @@
     ],
     "metrics": {
       "loc": 2,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_8af42d54b6",
@@ -4376,12 +4469,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_8d8ca38f4d",
@@ -4429,12 +4522,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_8f174cd09f",
@@ -4484,12 +4577,12 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_8fc96bbf18",
@@ -4507,6 +4600,8 @@
       "sym_71788d2ebe",
       "sym_9301e7f0e9",
       "sym_b002278a20",
+      "sym_68b975f9d6",
+      "sym_474fa27ae4",
       "sym_fb8ddb41c2",
       "sym_d0a790bbad",
       "sym_7b66baae63",
@@ -4523,7 +4618,7 @@
       "loc": 39,
       "churn_90d": 4,
       "bug_count": 0,
-      "fan_in": 16,
+      "fan_in": 18,
       "fan_out": 2
     },
     "last_changed": "commit:8b1bcfe"
@@ -4566,12 +4661,12 @@
     ],
     "metrics": {
       "loc": 28,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 3
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_938d882d9f",
@@ -4643,12 +4738,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_957c2a54f2",
@@ -4698,12 +4793,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_97208a8294",
@@ -4758,12 +4853,12 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_9a375345fc",
@@ -4818,12 +4913,12 @@
     ],
     "metrics": {
       "loc": 14,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_9b57aa0b4c",
@@ -4899,12 +4994,12 @@
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_9d843622b7",
@@ -5074,12 +5169,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_a6d93d75c6",
@@ -5136,12 +5231,12 @@
     ],
     "metrics": {
       "loc": 286,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 21
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_aa5f50456c",
@@ -5362,12 +5457,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_ae0f7d8b5a",
@@ -5470,12 +5565,12 @@
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 3
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_b0a72a1182",
@@ -5602,6 +5697,23 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_b39f4f71e5",
+    "file": "test/timetravel.test.ts",
+    "name": "mkConstraint",
+    "kind": "function",
+    "signature_hash": "sha1:6358eaac103",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 9,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:17b2de2"
+  },
+  {
     "id": "sym_b4727995fa",
     "file": "src/core/types.ts",
     "name": "RetiredSignal",
@@ -5611,12 +5723,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_b4fb749dbe",
@@ -5628,12 +5740,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_b55f36f4a8",
@@ -5666,12 +5778,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_b8c374a5e3",
@@ -5722,12 +5834,12 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 7,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_b9ad124ad8",
@@ -5782,12 +5894,12 @@
     "called_by": [],
     "metrics": {
       "loc": 8,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_bb5808fc22",
@@ -5881,12 +5993,12 @@
     ],
     "metrics": {
       "loc": 15,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_bf3eb2cd32",
@@ -5998,12 +6110,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_c1d49e9920",
@@ -6059,12 +6171,12 @@
     ],
     "metrics": {
       "loc": 10,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_c46ede4737",
@@ -6304,12 +6416,12 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_cd29325160",
@@ -6344,12 +6456,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_cdff71a1f9",
@@ -6366,12 +6478,12 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_cf6099323a",
@@ -6406,12 +6518,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_d0a07420b5",
@@ -6447,12 +6559,12 @@
     "called_by": [],
     "metrics": {
       "loc": 25,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_d12f6e978e",
@@ -6608,6 +6720,23 @@
       "fan_out": 0
     },
     "last_changed": "commit:8b33755"
+  },
+  {
+    "id": "sym_d62f2f74e9",
+    "file": "test/timetravel.test.ts",
+    "name": "mkDecision",
+    "kind": "function",
+    "signature_hash": "sha1:65ae78df1a3",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_d71984e562",
@@ -6787,6 +6916,23 @@
     "last_changed": "commit:70c235f"
   },
   {
+    "id": "sym_de29ba6521",
+    "file": "src/store/hunchStore.ts",
+    "name": "RegressionHit",
+    "kind": "interface",
+    "signature_hash": "sha1:9c56efb8665",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 9,
+      "churn_90d": 4,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:17b2de2"
+  },
+  {
     "id": "sym_df31ea2089",
     "file": "src/store/merge.ts",
     "name": "mergeRecordsById",
@@ -6821,12 +6967,12 @@
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_dfb2a0090e",
@@ -6985,6 +7131,25 @@
     "last_changed": "commit:70c235f"
   },
   {
+    "id": "sym_e26c522c4a",
+    "file": "src/extractors/git.ts",
+    "name": "stagedDiff",
+    "kind": "function",
+    "signature_hash": "sha1:872456025d6",
+    "calls": [
+      "sym_815fdb47eb"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 4,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8b1bcfe"
+  },
+  {
     "id": "sym_e26de656df",
     "file": "vscode-extension/src/hunchData.ts",
     "name": "readDir",
@@ -7002,6 +7167,23 @@
       "fan_out": 0
     },
     "last_changed": "commit:70c235f"
+  },
+  {
+    "id": "sym_e2a2bbb504",
+    "file": "src/store/hunchStore.ts",
+    "name": "RetiredNote",
+    "kind": "interface",
+    "signature_hash": "sha1:2f4e5ea49c7",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 6,
+      "churn_90d": 4,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_e551d96773",
@@ -7040,12 +7222,12 @@
     ],
     "metrics": {
       "loc": 10,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_e6dc4ad2cd",
@@ -7067,6 +7249,23 @@
       "fan_out": 1
     },
     "last_changed": "commit:fb0b277"
+  },
+  {
+    "id": "sym_e729bcc883",
+    "file": "test/regression.test.ts",
+    "name": "mkDecision",
+    "kind": "function",
+    "signature_hash": "sha1:cc98b1c0c82",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 0,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": ""
   },
   {
     "id": "sym_e76f698078",
@@ -7098,12 +7297,12 @@
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_e8a4767dd6",
@@ -7268,12 +7467,12 @@
     ],
     "metrics": {
       "loc": 14,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_ec20c29b41",
@@ -7421,12 +7620,12 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_ee9980dcd2",
@@ -7440,12 +7639,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_efcb4ed61f",
@@ -7626,12 +7825,12 @@
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_f48c80382c",
@@ -7717,12 +7916,12 @@
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 18,
+      "churn_90d": 19,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:fdba145"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_f5f04a2f17",
@@ -7737,12 +7936,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_f66a553cec",
@@ -7796,12 +7995,12 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_f7439daa82",
@@ -7902,12 +8101,12 @@
     ],
     "metrics": {
       "loc": 14,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 2
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_fbc5451f63",
@@ -7968,12 +8167,12 @@
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:eba4256"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_fc4df1d598",
@@ -7985,12 +8184,12 @@
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_fe06de9a36",
@@ -8002,12 +8201,12 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:dd51fde"
+    "last_changed": "commit:17b2de2"
   },
   {
     "id": "sym_fe66ed61a7",
@@ -8019,11 +8218,11 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:17b2de2"
   }
 ]

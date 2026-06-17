@@ -148,7 +148,7 @@ preserved) and is idempotent. Opt out with `hunch init --no-providers`.
 | `hunch embed` | generate local embeddings for semantic recall (opt-in; needs `@huggingface/transformers`) |
 | `hunch context <path\|symbol> [--as-of <ref>]` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius (`--as-of` time-travels) |
 | `hunch fragile` | ranked fragility report with evidence |
-| `hunch check [--staged\|--commit <sha>] [--strict] [--blast]` | guardrail: flag changes touching a do-not-break invariant **directly or via blast radius** (a guarded file that depends on what you changed); `--blast` prints the dependency fan-out |
+| `hunch check [--staged\|--commit <sha>] [--strict] [--blast]` | guardrail: flag changes touching a do-not-break invariant **directly or via blast radius** (a guarded file that depends on what you changed), **and changes that re-introduce something a decision deliberately retired** (the Regression Guard); `--blast` prints the dependency fan-out |
 | `hunch stale [--resync]` | drift: records whose files changed after last verification (`--resync` regenerates stale decisions from their commits) |
 | `hunch review [--accept <id>\|--reject <id>]` | curate: triage / promote / drop low-confidence drafts |
 | `hunch migrate` | upgrade `.hunch/` records to the current schema version |
@@ -180,6 +180,12 @@ hunch firmness strict     # change it (takes effect on the next edit; no restart
 | `advisory` *(default)* | inject the relevant Hunch slice as context |
 | `firm` | advisory **+** explicitly flag invariants in the file's scope |
 | `strict` | firm **+** **deny** an edit that hits a *blocking* invariant (directly or via blast radius), feeding the invariant back as the refusal reason |
+
+Before an edit, the hook also grounds the agent in anything an in-force decision
+**deliberately retired** from that file ("don't re-introduce `login` here — dec_017 removed
+it"). The actual gate is at commit time: `hunch check` runs the **Regression Guard** over
+the staged diff and, under `--strict`, fails the commit when a change re-adds a retired
+symbol/dependency tied to a blocking invariant (otherwise it warns).
 
 The hook never breaks your flow: any error or unrecognized input emits nothing and exits
 0, and it stays silent on files Hunch hasn't learned yet. `strict` only bites once you have
