@@ -603,151 +603,6 @@
     </div>
   </section>
 
-  <!-- ───────────────  LATEST RELEASE  ─────────────── -->
-  <section id="changelog" style="padding-top:40px">
-    <div class="wrap">
-      <span class="sec-label" data-rise>Latest release</span>
-      <h2 class="title" data-rise style="--d:.08s">New in <em>v0.9.0</em> — the codebase remembers <em>when</em>, not just why.</h2>
-      <p class="lead" data-rise style="--d:.14s">Decisions and invariants now carry a git-anchored valid-time window. Travel the graph to any commit, and stop the AI from quietly re-introducing what you deliberately retired.</p>
-
-      <div class="release" data-rise style="--d:.18s">
-        <div class="rel-head">
-          <span class="rel-tag">v0.9.0</span>
-          <span class="rel-meta">Time-travel · Regression Guard</span>
-          <span class="rel-live"><span class="dot"></span>live on npm</span>
-        </div>
-        <div class="rel-body">
-          <div class="rel-copy">
-            <h3>Time-travel — ask what was true <em>then</em>.</h3>
-            <p>Every decision and constraint has a valid-time window pinned to commit dates. Supersession <b>closes</b> a window instead of deleting it, so the why-it-changed trail stays auditable. Add <span class="mono">--as-of &lt;ref&gt;</span> to any query, or read the full history with <span class="mono">hunch timeline</span>.</p>
-            <div class="rel-cmd"><span><span class="dollar">$ </span>hunch why src/auth/session.ts --as-of v0.7.0</span></div>
-            <p class="rel-note">The <b>Regression Guard</b> flags a diff that re-adds a symbol or dependency an in-force decision removed — <em>“re-adds <span class="mono">login()</span>, dec_017 dropped it for instant revocation.”</em> It warns always; it fails a <b>strict</b> commit only when the retirement is tied to a blocking invariant.</p>
-          </div>
-          <div class="rel-aside">
-            <ul class="rel-list">
-              <li><b>Bi-temporal, git-native</b> — validity is anchored to commits; only Hunch can do this for free.</li>
-              <li><b>Invalidate, don't delete</b> — superseded decisions stay queryable, never lost.</li>
-              <li><b>MCP-first</b> — <span class="mono">as_of</span> on why/context, plus a new <span class="mono">hunch_timeline</span> tool.</li>
-            </ul>
-            <div class="rel-cmd"><span><span class="dollar">$ </span>npm i -g @davesheffer/hunch</span><button class="copy" id="relCopy">Copy</button></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- release log / what's new -->
-      <div class="rlog" data-rise style="--d:.24s;margin-top:56px">
-        <h3 style="font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 22px">Release log</h3>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.9.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 17, 2026</div></div>
-          <div>
-            <b>Time-Travel Memory + Regression Guard.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li>Git-anchored valid-time windows on decisions &amp; constraints — query the graph <span class="mono">--as-of</span> any commit or tag.</li>
-              <li><span class="mono">hunch timeline</span> + the <span class="mono">hunch_timeline</span> MCP tool show what was believed and when it changed.</li>
-              <li>Supersede instead of delete — history stays auditable; nothing is lost.</li>
-              <li>The Regression Guard flags a diff that re-introduces deliberately-retired code; fails a strict commit when tied to a blocking invariant.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.8.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 16, 2026</div></div>
-          <div>
-            <b>Agent hooks + firmness.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li>A <span class="mono">PreToolUse</span> hook injects the right memory slice before every edit — grounding enforced by the harness, not the model's recall.</li>
-              <li>Four firmness levels (off → advisory → firm → strict); strict denies an edit that touches a blocking invariant.</li>
-              <li>First-class <span class="mono">record-constraint</span> write path; rename-proof hooks; silent on unlearned files.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.7.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 16, 2026</div></div>
-          <div>
-            <b>Multi-CLI subscription synthesis.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li>Codex and Cursor join Claude as synthesis providers — the write path bills to whichever coding subscription you already have, never a pay-per-token API.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.6.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 16, 2026</div></div>
-          <div>
-            <b>Multi-assistant compatibility.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li><span class="mono">hunch init</span> scaffolds Cursor, VS Code (Copilot), Codex and <span class="mono">AGENTS.md</span> — all pointed at one <span class="mono">.hunch/</span> graph, merged idempotently into existing files.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.5.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 16, 2026</div></div>
-          <div>
-            <b>Guardrails, surfaced everywhere.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li>Auto-installed pre-commit constraint guard; a new <span class="mono">hunch_blast_radius</span> MCP tool; VS Code surfaces near-violations inline.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.4.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 15, 2026</div></div>
-          <div>
-            <b>Blast-radius near-violations.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li><span class="mono">hunch check</span> flags invariants reached transitively through the dependency graph — not just files directly in scope.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.3.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 15, 2026</div></div>
-          <div>
-            <b>Drift repair + hardened test loop.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li><span class="mono">hunch stale --resync</span> re-synthesizes decisions whose files moved on; the test-learning loop gets sturdier suspect ranking and recurrence detection.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.2.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 15, 2026</div></div>
-          <div>
-            <b>Failure-learning loop.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li><span class="mono">hunch test</span> wraps your suite: each failing test becomes a Bug with ranked suspects; recurrences and severe failures promote a do-not-break Constraint.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.1.2</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 15, 2026</div></div>
-          <div>
-            <b>Semantic search polish.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li>Optional local embeddings degrade gracefully to keyword FTS on model-load failure; quieter startup.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rlog-item" style="display:grid;grid-template-columns:120px 1fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)">
-          <div><span class="rel-tag">v0.1.0</span><div style="font-size:.8rem;color:var(--muted);margin-top:8px">Jun 14, 2026</div></div>
-          <div>
-            <b>Initial release — Engineering Memory OS.</b>
-            <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-soft);line-height:1.6">
-              <li>Git-native decision / bug / constraint graph; tree-sitter symbol + dependency index; SQLite/FTS search.</li>
-              <li>MCP server, post-commit learning loop, auto-maintained <span class="mono">CLAUDE.md</span>, subscription-billed synthesis with a deterministic offline fallback.</li>
-              <li>Companion VS Code extension; opt-in local semantic search.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- ───────────────  COMPARE  ─────────────── -->
   <div class="wrap"><div class="compare"><div class="wrap">
     <section id="compare" style="padding:96px 0">
@@ -814,6 +669,33 @@
       </div>
     </div>
   </section>
+
+  <!-- ───────────────  CHANGELOG  ─────────────── -->
+  <section id="changelog" style="padding:40px 0 96px">
+    <div class="wrap">
+      <span class="sec-label" data-rise>Changelog</span>
+      <h2 class="title" data-rise style="--d:.08s">Every release, since <em>v0.1</em>.</h2>
+      <div class="clog" data-rise style="--d:.14s;margin-top:36px;border-top:1px solid var(--line)">
+        <div class="clog-row"><span class="rel-tag">v0.9.0</span><span class="clog-d">Jun 17, 2026</span><span class="clog-t"><b>Time-Travel Memory + Regression Guard</b> — git-anchored <span class="mono">--as-of</span> queries, <span class="mono">timeline</span>, supersede-don't-delete; guard blocks re-introducing retired code.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.8.0</span><span class="clog-d">Jun 16, 2026</span><span class="clog-t"><b>Agent hooks + firmness</b> — memory injected before every edit; four enforcement levels; first-class <span class="mono">record-constraint</span>.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.7.0</span><span class="clog-d">Jun 16, 2026</span><span class="clog-t"><b>Multi-CLI synthesis</b> — Codex &amp; Cursor join Claude; write path bills to your coding subscription.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.6.0</span><span class="clog-d">Jun 16, 2026</span><span class="clog-t"><b>Multi-assistant</b> — Cursor, VS Code (Copilot), Codex &amp; AGENTS.md wired to one graph.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.5.0</span><span class="clog-d">Jun 16, 2026</span><span class="clog-t"><b>Guardrails everywhere</b> — auto pre-commit guard, <span class="mono">hunch_blast_radius</span> MCP tool, VS Code near-violations.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.4.0</span><span class="clog-d">Jun 15, 2026</span><span class="clog-t"><b>Blast-radius near-violations</b> — <span class="mono">hunch check</span> flags invariants reached transitively.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.3.0</span><span class="clog-d">Jun 15, 2026</span><span class="clog-t"><b>Drift repair</b> — <span class="mono">hunch stale --resync</span> + hardened test-learning loop.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.2.0</span><span class="clog-d">Jun 15, 2026</span><span class="clog-t"><b>Failure-learning loop</b> — <span class="mono">hunch test</span> captures bugs from failing tests; recurrences promote constraints.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.1.2</span><span class="clog-d">Jun 15, 2026</span><span class="clog-t"><b>Semantic search polish</b> — graceful fallback to keyword FTS.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.1.0</span><span class="clog-d">Jun 14, 2026</span><span class="clog-t"><b>Initial release</b> — git-native decision/bug/constraint graph, MCP server, post-commit learning, auto CLAUDE.md, VS Code extension.</span></div>
+      </div>
+    </div>
+  </section>
+  <style>
+    .clog-row{display:grid;grid-template-columns:88px 124px 1fr;gap:20px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--line)}
+    .clog-d{font-family:var(--mono);font-size:12.5px;color:var(--muted-2)}
+    .clog-t{color:var(--ink-soft);font-size:15.5px;line-height:1.55}
+    .clog-t b{color:var(--ink);font-weight:550}
+    @media(max-width:680px){.clog-row{grid-template-columns:72px 1fr}.clog-d{grid-column:2;order:3;margin-top:-6px}}
+  </style>
 
   <!-- ───────────────  FOOTER  ─────────────── -->
   <footer>
