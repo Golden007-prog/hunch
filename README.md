@@ -108,7 +108,9 @@ normally and Claude consults Hunch, or invoke the slash commands:
 The MCP tools Claude calls under the hood: `hunch_why`, `hunch_query`,
 `hunch_check_constraints`, `hunch_get_dependents` (blast radius), `hunch_blast_radius`
 (dependent files + near-violations a change could break indirectly), `hunch_bug_lineage`,
-`hunch_context` (surgical minimal slice for a task), `hunch_record_decision` (write-back).
+`hunch_context` (surgical minimal slice for a task), `hunch_timeline` (a target's decision
+history over time), `hunch_record_decision` (write-back). `hunch_why` and `hunch_context`
+take an optional `as_of` (commit/tag/branch) to **time-travel** the graph to a past state.
 
 ### Works with any MCP assistant
 
@@ -139,10 +141,12 @@ preserved) and is idempotent. Opt out with `hunch init --no-providers`.
 | `hunch record-constraint "<statement>" [--scope <globs>] [--severity advisory\|warning\|blocking] [--type …] [--rationale <t>] [--source-decision <id>]` | record an invariant the code must not break (what `hunch check` + the strict agent hook enforce) |
 | `hunch firmness [off\|advisory\|firm\|strict]` | get/set how firmly the agent hook enforces Hunch before edits (no arg prints the current level) |
 | `hunch test [cmd…]` | run the suite (default `npm test`); auto-capture failures as Bugs (suspects + recurrence→Constraints), mark passing tests' bugs fixed |
-| `hunch why <path\|symbol>` | decisions / bugs / constraints explaining a target (flags `⚠STALE`) |
+| `hunch why <path\|symbol> [--as-of <ref>]` | decisions / bugs / constraints explaining a target (flags `⚠STALE`); `--as-of` time-travels to what was believed at a commit/tag/branch |
+| `hunch timeline <path\|symbol>` | the decision history for a target — what was believed, its valid-time window, and what superseded it |
+| `hunch supersede <old> --by <new>` | mark one decision as replaced by another: closes the old one's valid-time window (invalidate, don't delete) |
 | `hunch query "<q>" [--semantic]` | full-text + graph search (`--semantic` blends in local embeddings) |
 | `hunch embed` | generate local embeddings for semantic recall (opt-in; needs `@huggingface/transformers`) |
-| `hunch context <path\|symbol>` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius |
+| `hunch context <path\|symbol> [--as-of <ref>]` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius (`--as-of` time-travels) |
 | `hunch fragile` | ranked fragility report with evidence |
 | `hunch check [--staged\|--commit <sha>] [--strict] [--blast]` | guardrail: flag changes touching a do-not-break invariant **directly or via blast radius** (a guarded file that depends on what you changed); `--blast` prints the dependency fan-out |
 | `hunch stale [--resync]` | drift: records whose files changed after last verification (`--resync` regenerates stale decisions from their commits) |

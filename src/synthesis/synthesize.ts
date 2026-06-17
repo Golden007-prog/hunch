@@ -120,8 +120,17 @@ export async function syncCommit(
     related_components: relatedComponents,
     related_files: codeFiles,
     supersedes: existing?.supersedes ?? null,
+    superseded_by: existing?.superseded_by ?? null,
     caused_by_bug: existing?.caused_by_bug ?? null,
     commit: meta.shortSha,
+    // Valid-time window is git-anchored: the decision takes effect at its commit
+    // date and stays in force until a later decision supersedes it (preserve any
+    // window an earlier sync/supersession already set on this same commit's record).
+    valid_from: existing?.valid_from ?? meta.date,
+    valid_to: existing?.valid_to ?? null,
+    // What this commit DELETED — the Regression Guard later matches a re-adding
+    // diff against this (recompute from the fresh analysis, even on --force).
+    retired: { symbols: analysis.removedSymbols.map((s) => s.name), deps: analysis.removedDeps },
     provenance: {
       source: draft.source,
       confidence: draft.confidence,
@@ -289,6 +298,9 @@ function promoteConstraint(store: HunchStore, bug: Bug): Constraint {
     rationale: `Derived from ${bug.id}: ${bug.root_cause || bug.symptom}`,
     source_decision: null,
     violations: [],
+    status: "active",
+    valid_from: new Date().toISOString(),
+    valid_to: null,
     provenance: { source: "derived", confidence: Math.min(0.9, bug.provenance.confidence + 0.2), evidence: [`bug:${bug.id}`] },
   };
   return store.json.put("constraints", con);

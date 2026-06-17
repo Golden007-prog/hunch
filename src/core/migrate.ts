@@ -21,7 +21,7 @@ import type { EntityKind } from "./types.js";
 import type { HunchPaths } from "./paths.js";
 
 /** The schema generation this build writes and reads. Bump on any breaking change. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** A repo whose `.hunch/` predates manifests is treated as v1. Migrations are
  *  numbered from 2 (each `version` is the number it PRODUCES), so a baseline repo
@@ -37,7 +37,30 @@ export interface Migration {
 }
 
 /** Ordered, ascending by `version`. Empty at v1 (baseline); future versions append. */
-export const MIGRATIONS: Migration[] = [];
+export const MIGRATIONS: Migration[] = [
+  {
+    // v2: bi-temporal valid-time on decisions + constraints (Time-Travel Memory).
+    // Backfill new fields from each record's existing date so a v1 graph migrates
+    // losslessly — no record is dropped, and `valid_from` (required on Decision)
+    // is always populated BEFORE the Zod pass. Defensive: input is untrusted JSON.
+    version: 2,
+    description: "Add valid_from/valid_to/superseded_by/retired (decisions) and status/valid_from/valid_to (constraints)",
+    up(kind, raw) {
+      if (kind === "decisions") {
+        const date = typeof raw.date === "string" ? raw.date : "";
+        if (raw.valid_from === undefined) raw.valid_from = date;
+        if (raw.valid_to === undefined) raw.valid_to = raw.status === "superseded" ? date : null;
+        if (raw.superseded_by === undefined) raw.superseded_by = null;
+        if (raw.retired === undefined) raw.retired = { symbols: [], deps: [] };
+      } else if (kind === "constraints") {
+        if (raw.status === undefined) raw.status = "active";
+        if (raw.valid_to === undefined) raw.valid_to = null;
+        // valid_from is optional on constraints; leave unset for legacy records.
+      }
+      return raw;
+    },
+  },
+];
 
 export interface Manifest {
   schema_version: number;

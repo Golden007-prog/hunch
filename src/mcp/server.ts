@@ -13,7 +13,7 @@ import { hunchPaths, findRoot } from "../core/paths.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { selectEmbedder } from "../store/embedder.js";
 import { decisionId } from "../core/ids.js";
-import { revParse } from "../extractors/git.js";
+import { revParse, commitMeta, isGitRepo } from "../extractors/git.js";
 import { formatContext } from "../core/format.js";
 import type { Decision, Symbol } from "../core/types.js";
 
@@ -48,6 +48,14 @@ function resolveSymbols(store: HunchStore, target: string): Symbol[] {
 function resolveFiles(store: HunchStore, target: string): string[] {
   const files = new Set(resolveSymbols(store, target).map((s) => s.file));
   return files.size ? [...files] : [target];
+}
+
+/** Resolve a time-travel ref (commit/tag/branch) to the ISO instant we filter
+ *  valid-time windows against — the referenced commit's author-date. Undefined if
+ *  it can't be resolved (not a git repo, or an unknown ref). */
+function asOfInstant(ref: string, root: string): string | undefined {
+  if (!isGitRepo(root)) return undefined;
+  return commitMeta(revParse(ref, root), root)?.date || undefined;
 }
 
 export function buildServer(root: string): McpServer {
@@ -91,11 +99,16 @@ export function buildServer(root: string): McpServer {
     {
       title: "Explain why a file/symbol is the way it is",
       description:
-        "Return the decisions, bugs, and constraints that explain a file path or symbol — the 'why' and the 'what must not break', with evidence.",
-      inputSchema: { target: z.string().describe("A file path (e.g. src/auth/session.ts) or symbol name.") },
+        "Return the decisions, bugs, and constraints that explain a file path or symbol — the 'why' and the 'what must not break', with evidence. Pass `as_of` (a commit/tag/branch) to time-travel: see what was believed at that point in history.",
+      inputSchema: {
+        target: z.string().describe("A file path (e.g. src/auth/session.ts) or symbol name."),
+        as_of: z.string().optional().describe("Time-travel ref: a commit sha, tag, or branch (e.g. v0.7.0). Omit for the current view."),
+      },
     },
-    async ({ target }): Promise<ToolResult> => {
-      const w = store.why(target);
+    async ({ target, as_of }): Promise<ToolResult> => {
+      const asOf = as_of ? asOfInstant(as_of, root) : undefined;
+      if (as_of && !asOf) return err(`Could not resolve as_of "${as_of}" to a commit.`);
+      const w = store.why(target, { asOf });
       // Highest-signal first, then cap: invariants by severity, decisions by
       // confidence, bugs by severity — so a hot file's trim drops the tail, not
       // the records that matter most.
@@ -221,10 +234,35 @@ export function buildServer(root: string): McpServer {
       inputSchema: {
         target: z.string().describe("A file path or symbol you're about to edit."),
         budget_tokens: z.number().optional().describe("Rough token budget for the brief (default 1500)."),
+        as_of: z.string().optional().describe("Time-travel ref (commit/tag/branch): assemble the slice as it stood then."),
       },
     },
-    async ({ target, budget_tokens }): Promise<ToolResult> => {
-      return ok(formatContext(store.assembleContext(target, budget_tokens ?? 1500)));
+    async ({ target, budget_tokens, as_of }): Promise<ToolResult> => {
+      const asOf = as_of ? asOfInstant(as_of, root) : undefined;
+      if (as_of && !asOf) return err(`Could not resolve as_of "${as_of}" to a commit.`);
+      return ok(formatContext(store.assembleContext(target, budget_tokens ?? 1500, { asOf })));
+    },
+  );
+
+  // -- hunch_timeline (decision history) ------------------------------------
+  server.registerTool(
+    "hunch_timeline",
+    {
+      title: "The decision history for a file/symbol",
+      description:
+        "Time-travel: the decisions touching a file/symbol over time — what was believed, its valid-time window, and what superseded it. Use to understand how (and why) the design changed, and to avoid re-introducing a deliberately-retired approach.",
+      inputSchema: { target: z.string().describe("A file path or symbol name.") },
+    },
+    async ({ target }): Promise<ToolResult> => {
+      const tl = store.timeline(target);
+      if (!tl.length) return ok(`No decision history for "${target}" yet.`);
+      const lines = tl.map((d) => {
+        const from = (d.valid_from ?? d.date).slice(0, 10);
+        const window = d.valid_to ? `${from} → ${d.valid_to.slice(0, 10)}` : `${from} → now`;
+        const sup = d.superseded_by ? ` (superseded by ${d.superseded_by})` : "";
+        return `  • ${d.id} [${d.status}] (${window})${sup}\n      ${d.title}`;
+      });
+      return ok(`Decision timeline for "${target}" (newest first):\n${lines.join("\n")}`);
     },
   );
 
@@ -246,6 +284,7 @@ export function buildServer(root: string): McpServer {
           related_components: z.array(z.string()).optional(),
           status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(),
           commit: z.string().optional(),
+          supersedes: z.string().optional().describe("id of a decision this one replaces — closes its valid-time window (invalidate, don't delete)"),
         }),
       },
     },
@@ -267,6 +306,7 @@ export function buildServer(root: string): McpServer {
         const source = existing && existing.provenance.source.includes("llm_draft")
           ? "llm_draft+human_confirmed"
           : "human_confirmed";
+        const now = new Date().toISOString();
 
         const rec: Decision = {
           id,
@@ -278,16 +318,24 @@ export function buildServer(root: string): McpServer {
           alternatives_rejected: decision.alternatives_rejected ?? [],
           related_components: decision.related_components ?? existing?.related_components ?? [],
           related_files: decision.related_files ?? existing?.related_files ?? [],
-          supersedes: existing?.supersedes ?? null,
+          supersedes: decision.supersedes ?? existing?.supersedes ?? null,
+          superseded_by: existing?.superseded_by ?? null,
           caused_by_bug: existing?.caused_by_bug ?? null,
           commit: decision.commit ?? existing?.commit ?? null,
+          valid_from: existing?.valid_from ?? now,
+          valid_to: existing?.valid_to ?? null,
+          retired: existing?.retired ?? { symbols: [], deps: [] },
           provenance: { source, confidence: 0.95, evidence: decision.related_files ?? existing?.provenance.evidence ?? [] },
-          date: new Date().toISOString(),
+          date: now,
         };
         store.json.put("decisions", rec);
+        // Invalidate, don't delete: closing the superseded decision's valid-time
+        // window (+ a supersedes edge) preserves the why-it-changed trail.
+        const superseded = decision.supersedes ? store.supersede(decision.supersedes, rec) : null;
         store.reindex();
+        const supNote = superseded ? ` Superseded ${superseded.id} (window closed at ${rec.valid_from}).` : "";
         const note = decision.commit && !fullSha ? ` (note: commit "${decision.commit}" could not be resolved — recorded as a standalone decision, not linked to a commit)` : "";
-        return ok(`Recorded decision ${id}: "${rec.title}" (status ${rec.status}, ${source}).${note}`);
+        return ok(`Recorded decision ${id}: "${rec.title}" (status ${rec.status}, ${source}).${supNote}${note}`);
       } catch (e) {
         return err(`Failed to record decision: ${(e as Error).message}`);
       }

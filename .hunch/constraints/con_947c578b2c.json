@@ -11,6 +11,8 @@
   "rationale": "Prevents silent record loss on schema change",
   "source_decision": "dec_093de2b0bd",
   "violations": [],
+  "status": "active",
+  "valid_to": null,
   "provenance": {
     "source": "human_confirmed",
     "confidence": 1,

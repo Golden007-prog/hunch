@@ -82,6 +82,14 @@ export const SymbolSchema = z.object({
 });
 export type Symbol = z.infer<typeof SymbolSchema>;
 
+/** The structural delta a decision's commit DELETED — the evidence the Regression
+ *  Guard matches a later diff against ("you're re-adding what dec_X removed"). */
+export const RetiredSignalSchema = z.object({
+  symbols: z.array(z.string()).default([]).describe("symbol names this decision removed"),
+  deps: z.array(z.string()).default([]).describe("external deps this decision dropped"),
+});
+export type RetiredSignal = z.infer<typeof RetiredSignalSchema>;
+
 /** ADR-style decision record, auto-drafted and human-confirmable. */
 export const DecisionSchema = z.object({
   id: z.string().describe("dec_*"),
@@ -94,8 +102,17 @@ export const DecisionSchema = z.object({
   related_components: z.array(z.string()).default([]),
   related_files: z.array(z.string()).default([]),
   supersedes: z.string().nullable().default(null),
+  superseded_by: z.string().nullable().default(null).describe("the decision that closed this one's window"),
   caused_by_bug: z.string().nullable().default(null),
   commit: z.string().nullable().default(null),
+  // Bi-temporal VALID-TIME window, git-anchored. `valid_from` is when the decision
+  // took effect (its commit date); `valid_to` is when a superseding decision closed
+  // it (null = still in force). Enables "what did we believe as of commit X?".
+  // Optional so legacy/hand-built records still validate (the migration backfills
+  // from `date`, and the capture paths always set it); undefined = always-started.
+  valid_from: z.string().optional().describe("ISO instant the decision took effect (commit date)"),
+  valid_to: z.string().nullable().default(null).describe("ISO instant it was superseded (null = in force)"),
+  retired: RetiredSignalSchema.default({ symbols: [], deps: [] }),
   provenance: ProvenanceSchema,
   date: z.string(),
 });
@@ -140,6 +157,12 @@ export const ConstraintSchema = z.object({
   rationale: z.string().default(""),
   source_decision: z.string().nullable().default(null),
   violations: z.array(z.string()).default([]),
+  // Bi-temporal VALID-TIME: a constraint can be RETIRED without deletion, so
+  // "what invariants were in force as of commit X?" stays answerable. `valid_to`
+  // null = still active. A retired constraint is excluded from enforcement at HEAD.
+  status: z.enum(["active", "retired"]).default("active"),
+  valid_from: z.string().optional().describe("ISO instant the invariant took effect"),
+  valid_to: z.string().nullable().default(null).describe("ISO instant it was retired (null = active)"),
   provenance: ProvenanceSchema,
 });
 export type Constraint = z.infer<typeof ConstraintSchema>;

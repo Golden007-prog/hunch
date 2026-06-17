@@ -10,6 +10,8 @@
   "rationale": "Cursor/VS Code/Codex share one memory",
   "source_decision": "dec_261e42920c",
   "violations": [],
+  "status": "active",
+  "valid_to": null,
   "provenance": {
     "source": "human_confirmed",
     "confidence": 1,

@@ -11,6 +11,8 @@
   "rationale": "A partial write would corrupt the source of truth",
   "source_decision": null,
   "violations": [],
+  "status": "active",
+  "valid_to": null,
   "provenance": {
     "source": "human_confirmed",
     "confidence": 1,

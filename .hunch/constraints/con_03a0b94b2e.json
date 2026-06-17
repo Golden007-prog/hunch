@@ -10,6 +10,8 @@
   "rationale": "A hook crash must not break the user's edit flow",
   "source_decision": null,
   "violations": [],
+  "status": "active",
+  "valid_to": null,
   "provenance": {
     "source": "human_confirmed",
     "confidence": 1,

@@ -17,6 +17,7 @@ import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
 import { pathMatchesGlob } from "../core/glob.js";
+import { edgeId } from "../core/ids.js";
 
 export interface SearchHit {
   ref: string;
@@ -342,13 +343,17 @@ export class HunchStore {
   }
 
   /** All decisions/bugs/constraints/symbols/components touching a file path or
-   *  symbol name (hunch_why). */
-  why(target: string): WhyResult {
+   *  symbol name (hunch_why). Pass `{ asOf }` (an ISO instant) to TIME-TRAVEL:
+   *  return only decisions/constraints whose valid-time window contained that
+   *  instant — "what did we believe as of commit X?". Omit `asOf` for the full,
+   *  history-inclusive view (backward-compatible default). */
+  why(target: string, opts: { asOf?: string } = {}): WhyResult {
     const decisions = this.json.loadAll("decisions");
     const bugs = this.json.loadAll("bugs");
     const constraints = this.json.loadAll("constraints");
     const symbols = this.json.loadAll("symbols");
     const components = this.json.loadAll("components");
+    const asOf = opts.asOf;
 
     const matchedSymbols = symbols.filter((s) => s.file === target || s.name === target || s.id === target || s.file.endsWith(target));
     const symIds = new Set(matchedSymbols.map((s) => s.id));
@@ -361,9 +366,11 @@ export class HunchStore {
     return {
       target,
       decisions: decisions.filter(
-        (d) => fileMatch(d.related_files) || d.related_components.some((c) => components.find((x) => x.id === c && fileMatch(x.paths)))),
+        (d) => (fileMatch(d.related_files) || d.related_components.some((c) => components.find((x) => x.id === c && fileMatch(x.paths))))
+          && inWindow(d.valid_from, d.valid_to, asOf)),
       bugs: bugs.filter((b) => fileMatch(b.affected_files) || b.affected_symbols.some((s) => symIds.has(s))),
-      constraints: constraints.filter((c) => c.scope.some((g) => pathMatchesGlob(target, g) || [...fileSet].some((f) => pathMatchesGlob(f, g)))),
+      constraints: constraints.filter((c) => c.scope.some((g) => pathMatchesGlob(target, g) || [...fileSet].some((f) => pathMatchesGlob(f, g)))
+        && inWindow(c.valid_from, c.valid_to, asOf)),
       symbols: matchedSymbols,
       components: components.filter((c) => c.paths.some((g) => pathMatchesGlob(target, g) || [...fileSet].some((f) => pathMatchesGlob(f, g)))),
     };
@@ -435,12 +442,51 @@ export class HunchStore {
     return [...out.values()].sort((a, b) => a.depth - b.depth || a.file.localeCompare(b.file));
   }
 
-  /** Constraints whose scope glob matches a path/glob (hunch_check_constraints). */
-  checkConstraints(scope: string): Constraint[] {
+  /** Constraints whose scope glob matches a path/glob (hunch_check_constraints).
+   *  By default only ACTIVE invariants are returned — a retired constraint is no
+   *  longer enforced. Pass `{ asOf }` to instead return the invariants in force at
+   *  that instant (time-travel: "what must I not have broken as of commit X?"). */
+  checkConstraints(scope: string, opts: { asOf?: string } = {}): Constraint[] {
     const all = this.json.loadAll("constraints");
+    const asOf = opts.asOf;
     return all
       .filter((c) => c.scope.some((g) => pathMatchesGlob(scope, g) || pathMatchesGlob(g, scope) || g === scope))
+      .filter((c) => (asOf ? inWindow(c.valid_from, c.valid_to, asOf) : c.status !== "retired"))
       .sort((a, b) => sev(b.severity) - sev(a.severity));
+  }
+
+  /** Time-travel: the decision history for a target — every decision touching it,
+   *  newest-first, with its valid-time window and supersession links. Answers
+   *  "what did we believe, and when/why did it change?" (hunch_timeline). */
+  timeline(target: string): Decision[] {
+    return this.why(target).decisions.sort((a, b) => (b.valid_from ?? b.date).localeCompare(a.valid_from ?? a.date));
+  }
+
+  /** Invalidate, don't delete (Zep edge-invalidation): close `oldId`'s valid-time
+   *  window at the superseding decision's `valid_from`, mark it superseded + linked,
+   *  and write a `supersedes` edge. Returns the updated old decision, or null if it
+   *  doesn't exist. All writes are atomic via json.put (con_902759b3dc). */
+  supersede(oldId: string, by: Decision): Decision | null {
+    const old = this.json.get("decisions", oldId);
+    if (!old || old.id === by.id) return null;
+    const closed: Decision = {
+      ...old,
+      status: "superseded",
+      superseded_by: by.id,
+      valid_to: old.valid_to ?? by.valid_from ?? null,
+    };
+    this.json.put("decisions", closed);
+    const edge: Edge = {
+      id: edgeId(by.id, oldId, "supersedes"),
+      from: by.id,
+      to: oldId,
+      type: "supersedes",
+      reason: `${by.id} supersedes ${oldId}`,
+      strength: 1,
+      provenance: { source: "derived", confidence: 1, evidence: [by.id, oldId] },
+    };
+    this.json.put("edges", edge);
+    return closed;
   }
 
   /** Bugs matching a symptom (FTS over bugs) or a symbol, with lineage (hunch_bug_lineage). */
@@ -524,8 +570,8 @@ export class HunchStore {
   /** The Context Assembler (DESIGN §2.1/§6): the MINIMAL relevant Hunch slice for
    *  a task on `target`, ordered by what matters most — invariants first, then the
    *  why, then blast radius and bug history — trimmed to a rough token budget. */
-  assembleContext(target: string, budget = 1500): AssembledContext {
-    const w = this.why(target);
+  assembleContext(target: string, budget = 1500, opts: { asOf?: string } = {}): AssembledContext {
+    const w = this.why(target, opts);
     const symIds = w.symbols.map((s) => s.id);
     const blast = new Map<string, { id: string; depth: number; via: string }>();
     for (const id of symIds) {
@@ -569,6 +615,17 @@ export interface AssembledContext {
 
 function sev(s: string): number {
   return ({ blocking: 3, warning: 2, advisory: 1 } as Record<string, number>)[s] ?? 0;
+}
+
+/** Is a valid-time window open at `asOf`? `valid_from` undefined = always-started
+ *  (legacy records). `valid_to` null = still in force. `asOf` undefined disables
+ *  filtering (the history-inclusive default). Half-open [from, to) so a record and
+ *  the one that supersedes it never both match at the supersession instant. */
+function inWindow(valid_from: string | undefined, valid_to: string | null | undefined, asOf: string | undefined): boolean {
+  if (!asOf) return true;
+  if (valid_from && valid_from > asOf) return false;
+  if (valid_to != null && asOf >= valid_to) return false;
+  return true;
 }
 function round(n: number): number {
   return Math.round(n * 100) / 100;

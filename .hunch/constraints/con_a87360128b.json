@@ -10,6 +10,8 @@
   "rationale": "JSON under .hunch/ is the source of truth; vectors are rebuildable",
   "source_decision": "dec_08a685fca2",
   "violations": [],
+  "status": "active",
+  "valid_to": null,
   "provenance": {
     "source": "human_confirmed",
     "confidence": 1,

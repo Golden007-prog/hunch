@@ -10,6 +10,8 @@
   "rationale": "Avoid silent API billing; force subscription/OAuth auth",
   "source_decision": "dec_5a7c0733f7",
   "violations": [],
+  "status": "active",
+  "valid_to": null,
   "provenance": {
     "source": "human_confirmed",
     "confidence": 1,

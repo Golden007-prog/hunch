@@ -715,13 +715,14 @@
       "sym_5a74d29b94"
     ],
     "called_by": [
-      "sym_2f00ac7819"
+      "sym_2f00ac7819",
+      "sym_6cb324f0d8"
     ],
     "metrics": {
       "loc": 3,
       "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 2,
       "fan_out": 1
     },
     "last_changed": "commit:a71934b"
@@ -1038,6 +1039,29 @@
     "last_changed": "commit:3337c78"
   },
   {
+    "id": "sym_264be73511",
+    "file": "src/mcp/server.ts",
+    "name": "asOfInstant",
+    "kind": "function",
+    "signature_hash": "sha1:9c7cb37367e",
+    "calls": [
+      "sym_fbc5451f63",
+      "sym_cb863afde2",
+      "sym_c1e85563e2"
+    ],
+    "called_by": [
+      "sym_a708ee9110"
+    ],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 7,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 3
+    },
+    "last_changed": "commit:70c235f"
+  },
+  {
     "id": "sym_27284a3c8e",
     "file": "src/mcp/server.ts",
     "name": "resolveFiles",
@@ -1234,6 +1258,27 @@
       "fan_out": 0
     },
     "last_changed": "commit:8b33755"
+  },
+  {
+    "id": "sym_2cb8c75de0",
+    "file": "src/cli/index.ts",
+    "name": "resolveAsOf",
+    "kind": "function",
+    "signature_hash": "sha1:fc5498ef53f",
+    "calls": [
+      "sym_fbc5451f63",
+      "sym_c1e85563e2",
+      "sym_cb863afde2"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 5,
+      "churn_90d": 18,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 3
+    },
+    "last_changed": "commit:fdba145"
   },
   {
     "id": "sym_2ce5da13ed",
@@ -1488,7 +1533,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "assembleContext",
     "kind": "method",
-    "signature_hash": "sha1:b97d000b0c1",
+    "signature_hash": "sha1:4123ff14a7d",
     "calls": [
       "sym_9301e7f0e9",
       "sym_beea0020b4",
@@ -1557,6 +1602,7 @@
     ],
     "called_by": [
       "sym_a708ee9110",
+      "sym_6cb324f0d8",
       "sym_6103f9eaf1",
       "sym_7183436879",
       "sym_2372383431",
@@ -1570,7 +1616,7 @@
       "loc": 20,
       "churn_90d": 4,
       "bug_count": 0,
-      "fan_in": 9,
+      "fan_in": 10,
       "fan_out": 4
     },
     "last_changed": "commit:8b1bcfe"
@@ -2256,7 +2302,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "promoteConstraint",
     "kind": "function",
-    "signature_hash": "sha1:a635bd3393d",
+    "signature_hash": "sha1:838a7189c8d",
     "calls": [
       "sym_16b88590c8",
       "sym_383cbb69ef"
@@ -2265,7 +2311,7 @@
       "sym_7183436879"
     ],
     "metrics": {
-      "loc": 17,
+      "loc": 20,
       "churn_90d": 6,
       "bug_count": 0,
       "fan_in": 1,
@@ -2541,6 +2587,26 @@
     "last_changed": "commit:eba4256"
   },
   {
+    "id": "sym_587ba62cce",
+    "file": "src/store/hunchStore.ts",
+    "name": "inWindow",
+    "kind": "function",
+    "signature_hash": "sha1:ed86ef74445",
+    "calls": [],
+    "called_by": [
+      "sym_9301e7f0e9",
+      "sym_b002278a20"
+    ],
+    "metrics": {
+      "loc": 6,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 0
+    },
+    "last_changed": "commit:eba4256"
+  },
+  {
     "id": "sym_58c34afd10",
     "file": "src/extractors/parse.ts",
     "name": "ParsedSymbol",
@@ -2798,7 +2864,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "syncCommit",
     "kind": "function",
-    "signature_hash": "sha1:5043a22f2b2",
+    "signature_hash": "sha1:aed10c26541",
     "calls": [
       "sym_64db6cba68",
       "sym_cb863afde2",
@@ -2813,7 +2879,7 @@
     ],
     "called_by": [],
     "metrics": {
-      "loc": 85,
+      "loc": 94,
       "churn_90d": 6,
       "bug_count": 0,
       "fan_in": 0,
@@ -3163,7 +3229,7 @@
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 502,
+      "loc": 547,
       "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
@@ -3187,6 +3253,28 @@
       "fan_out": 0
     },
     "last_changed": "commit:dd51fde"
+  },
+  {
+    "id": "sym_6cb324f0d8",
+    "file": "src/store/hunchStore.ts",
+    "name": "supersede",
+    "kind": "method",
+    "signature_hash": "sha1:0cc30c1cabf",
+    "calls": [
+      "sym_383cbb69ef",
+      "sym_1ada613a64"
+    ],
+    "called_by": [
+      "sym_a708ee9110"
+    ],
+    "metrics": {
+      "loc": 22,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 2
+    },
+    "last_changed": "commit:eba4256"
   },
   {
     "id": "sym_6d8e5db01f",
@@ -4466,20 +4554,22 @@
     "file": "src/store/hunchStore.ts",
     "name": "why",
     "kind": "method",
-    "signature_hash": "sha1:4075b5322c6",
+    "signature_hash": "sha1:e7f1a6ac9d0",
     "calls": [
       "sym_8fc96bbf18",
-      "sym_170ec80106"
+      "sym_170ec80106",
+      "sym_587ba62cce"
     ],
     "called_by": [
+      "sym_cfe228d023",
       "sym_37773766b1"
     ],
     "metrics": {
-      "loc": 25,
+      "loc": 28,
       "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 1,
-      "fan_out": 2
+      "fan_in": 2,
+      "fan_out": 3
     },
     "last_changed": "commit:eba4256"
   },
@@ -4712,6 +4802,25 @@
       "churn_90d": 2,
       "bug_count": 0,
       "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8b1bcfe"
+  },
+  {
+    "id": "sym_9b40137fc8",
+    "file": "src/core/migrate.ts",
+    "name": "up",
+    "kind": "method",
+    "signature_hash": "sha1:5d748942c90",
+    "calls": [],
+    "called_by": [
+      "sym_eba9589407"
+    ],
+    "metrics": {
+      "loc": 14,
+      "churn_90d": 2,
+      "bug_count": 0,
+      "fan_in": 1,
       "fan_out": 0
     },
     "last_changed": "commit:8b1bcfe"
@@ -4998,7 +5107,7 @@
     "file": "src/mcp/server.ts",
     "name": "buildServer",
     "kind": "function",
-    "signature_hash": "sha1:e3b2cf1267b",
+    "signature_hash": "sha1:979730e17d5",
     "calls": [
       "sym_2c058517d8",
       "sym_71788d2ebe",
@@ -5006,6 +5115,8 @@
       "sym_2a33513ef4",
       "sym_2945a8c6b8",
       "sym_7b5e2ca6bc",
+      "sym_264be73511",
+      "sym_45e6041167",
       "sym_8a2ab47851",
       "sym_fb8ddb41c2",
       "sym_b002278a20",
@@ -5014,20 +5125,21 @@
       "sym_27284a3c8e",
       "sym_8f174cd09f",
       "sym_37773766b1",
+      "sym_cfe228d023",
       "sym_c1e85563e2",
       "sym_871abb4df2",
       "sym_383cbb69ef",
-      "sym_45e6041167"
+      "sym_6cb324f0d8"
     ],
     "called_by": [
       "sym_b91e9afbb5"
     ],
     "metrics": {
-      "loc": 246,
+      "loc": 286,
       "churn_90d": 7,
       "bug_count": 0,
       "fan_in": 1,
-      "fan_out": 18
+      "fan_out": 21
     },
     "last_changed": "commit:70c235f"
   },
@@ -5346,9 +5458,10 @@
     "file": "src/store/hunchStore.ts",
     "name": "checkConstraints",
     "kind": "method",
-    "signature_hash": "sha1:d7230a15630",
+    "signature_hash": "sha1:e6d4fb7dc38",
     "calls": [
       "sym_8fc96bbf18",
+      "sym_587ba62cce",
       "sym_f5f04a2f17"
     ],
     "called_by": [
@@ -5356,11 +5469,11 @@
       "sym_a708ee9110"
     ],
     "metrics": {
-      "loc": 6,
+      "loc": 8,
       "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 2,
-      "fan_out": 2
+      "fan_out": 3
     },
     "last_changed": "commit:eba4256"
   },
@@ -5487,6 +5600,23 @@
       "fan_out": 1
     },
     "last_changed": "commit:a2d3f81"
+  },
+  {
+    "id": "sym_b4727995fa",
+    "file": "src/core/types.ts",
+    "name": "RetiredSignal",
+    "kind": "type",
+    "signature_hash": "sha1:3915b4291e4",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 2,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8b1bcfe"
   },
   {
     "id": "sym_b4fb749dbe",
@@ -5904,13 +6034,15 @@
       "sym_815fdb47eb"
     ],
     "called_by": [
+      "sym_2cb8c75de0",
+      "sym_264be73511",
       "sym_a708ee9110"
     ],
     "metrics": {
       "loc": 4,
       "churn_90d": 4,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 3,
       "fan_out": 1
     },
     "last_changed": "commit:8b1bcfe"
@@ -6149,13 +6281,15 @@
       "sym_91e8631ffc"
     ],
     "called_by": [
+      "sym_2cb8c75de0",
+      "sym_264be73511",
       "sym_6103f9eaf1"
     ],
     "metrics": {
       "loc": 6,
       "churn_90d": 4,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 3,
       "fan_out": 2
     },
     "last_changed": "commit:8b1bcfe"
@@ -6257,6 +6391,27 @@
       "fan_out": 0
     },
     "last_changed": "commit:b9cb365"
+  },
+  {
+    "id": "sym_cfe228d023",
+    "file": "src/store/hunchStore.ts",
+    "name": "timeline",
+    "kind": "method",
+    "signature_hash": "sha1:4ba43d9a80e",
+    "calls": [
+      "sym_9301e7f0e9"
+    ],
+    "called_by": [
+      "sym_a708ee9110"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:eba4256"
   },
   {
     "id": "sym_d0a07420b5",
@@ -7105,7 +7260,9 @@
     "name": "migrateRaw",
     "kind": "function",
     "signature_hash": "sha1:d6f7fe7e2a7",
-    "calls": [],
+    "calls": [
+      "sym_9b40137fc8"
+    ],
     "called_by": [
       "sym_48db7d72bc"
     ],
@@ -7114,7 +7271,7 @@
       "churn_90d": 2,
       "bug_count": 0,
       "fan_in": 1,
-      "fan_out": 0
+      "fan_out": 1
     },
     "last_changed": "commit:8b1bcfe"
   },
@@ -7762,14 +7919,16 @@
       "sym_815fdb47eb"
     ],
     "called_by": [
+      "sym_2cb8c75de0",
       "sym_2f00ac7819",
-      "sym_15d8a2509a"
+      "sym_15d8a2509a",
+      "sym_264be73511"
     ],
     "metrics": {
       "loc": 3,
       "churn_90d": 4,
       "bug_count": 0,
-      "fan_in": 2,
+      "fan_in": 4,
       "fan_out": 1
     },
     "last_changed": "commit:8b1bcfe"

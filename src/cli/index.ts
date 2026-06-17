@@ -24,7 +24,7 @@ import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, revParse, commitMeta } from "../extractors/git.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
@@ -287,16 +287,28 @@ program
   });
 
 // ---- why ------------------------------------------------------------------
+/** Resolve a user-supplied --as-of ref (tag / branch / sha / HEAD~n) to the ISO
+ *  author-date of that commit — the instant we filter valid-time windows against.
+ *  Returns undefined if it can't be resolved to a real commit. */
+function resolveAsOf(ref: string, root: string): string | undefined {
+  if (!isGitRepo(root)) return undefined;
+  const sha = revParse(ref, root);
+  return commitMeta(sha, root)?.date || undefined;
+}
+
 program
   .command("why")
   .description("Explain why a file/symbol is the way it is (decisions, bugs, constraints).")
   .argument("<target>", "file path or symbol name")
-  .action((target: string) => {
+  .option("--as-of <ref>", "time-travel: what was believed as of a commit/tag/branch (e.g. v0.7.0, HEAD~5)")
+  .action((target: string, opts: { asOf?: string }) => {
     const { store, root } = storeFor();
-    const w = store.why(target);
+    const asOf = opts.asOf ? resolveAsOf(opts.asOf, root) : undefined;
+    if (opts.asOf && !asOf) return fail(`could not resolve --as-of "${opts.asOf}" to a commit (need a git repo and a valid ref)`);
+    const w = store.why(target, { asOf });
     const staleIds = new Set(store.staleness((f) => lastChangeDate(f, root)).map((s) => s.id));
     const drift = (id: string) => (staleIds.has(id) ? " ⚠STALE" : "");
-    console.log(`Why "${target}":\n`);
+    console.log(asOf ? `Why "${target}" (as of ${opts.asOf} — ${asOf.slice(0, 10)}):\n` : `Why "${target}":\n`);
     if (w.decisions.length) {
       console.log("DECISIONS:");
       for (const d of w.decisions) console.log(`  • ${d.id} [${d.status}]${drift(d.id)} ${d.title}\n      ${d.decision} ⟨${d.provenance.source}, ${d.provenance.confidence}⟩`);
@@ -377,6 +389,9 @@ program
       rationale: opts.rationale,
       source_decision: opts.sourceDecision ?? null,
       violations: [],
+      status: "active",
+      valid_from: new Date().toISOString(),
+      valid_to: null,
       provenance: { source: "human_confirmed", confidence: 1, evidence: [], last_verified: new Date().toISOString() },
     } as Constraint);
     store.reindex();
@@ -565,10 +580,52 @@ program
   .description("Assemble the minimal relevant Hunch slice for a task on a file/symbol.")
   .argument("<target>", "file path or symbol")
   .option("--budget <n>", "rough token budget", "1500")
-  .action((target: string, opts: { budget: string }) => {
-    const { store } = storeFor();
+  .option("--as-of <ref>", "time-travel: assemble the slice as it stood at a commit/tag/branch")
+  .action((target: string, opts: { budget: string; asOf?: string }) => {
+    const { store, root } = storeFor();
+    const asOf = opts.asOf ? resolveAsOf(opts.asOf, root) : undefined;
+    if (opts.asOf && !asOf) return fail(`could not resolve --as-of "${opts.asOf}" to a commit`);
     store.reindex(); // reflect any out-of-band JSON edits before assembling
-    process.stdout.write(formatContext(store.assembleContext(target, Number(opts.budget))));
+    process.stdout.write(formatContext(store.assembleContext(target, Number(opts.budget), { asOf })));
+    store.close();
+  });
+
+// ---- timeline -------------------------------------------------------------
+program
+  .command("timeline")
+  .description("Time-travel: the decision history for a file/symbol — what was believed, and when/why it changed.")
+  .argument("<target>", "file path or symbol name")
+  .action((target: string) => {
+    const { store } = storeFor();
+    const tl = store.timeline(target);
+    if (!tl.length) {
+      console.log(`No decision history for "${target}" yet.`);
+    } else {
+      console.log(`Decision timeline for "${target}" (newest first):\n`);
+      for (const d of tl) {
+        const from = (d.valid_from ?? d.date).slice(0, 10);
+        const window = d.valid_to ? `${from} → ${d.valid_to.slice(0, 10)}` : `${from} → now`;
+        const sup = d.superseded_by ? ` ↦ superseded by ${d.superseded_by}` : "";
+        console.log(`  • ${d.id} [${d.status}] (${window})${sup}\n      ${d.title}`);
+      }
+    }
+    store.close();
+  });
+
+// ---- supersede ------------------------------------------------------------
+program
+  .command("supersede")
+  .description("Mark one decision as replaced by another: closes the old one's valid-time window (invalidate, don't delete).")
+  .argument("<old>", "decision id being replaced")
+  .requiredOption("--by <new>", "decision id that supersedes it")
+  .action((oldId: string, opts: { by: string }) => {
+    const { store } = storeFor();
+    const by = store.json.get("decisions", opts.by);
+    if (!by) { store.close(); return fail(`--by decision "${opts.by}" not found`); }
+    const closed = store.supersede(oldId, by);
+    if (!closed) { store.close(); return fail(`decision "${oldId}" not found (or same as --by)`); }
+    store.reindex();
+    console.log(`✓ ${oldId} superseded by ${opts.by} — window closed at ${closed.valid_to?.slice(0, 10)}.`);
     store.close();
   });
 
