@@ -2,8 +2,33 @@
   "name": "hunch-vscode",
   "displayName": "Hunch",
   "description": "Visualize and query Hunch (an Engineering Memory OS) for the current repo — decisions, invariants, bug history, fragility — right in VS Code.",
-  "version": "0.1.0",
-  "publisher": "hunch",
+  "version": "0.2.0",
+  "publisher": "davesheffer",
+  "license": "MIT",
+  "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
+  "icon": "media/icon.png",
+  "homepage": "https://hunch.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davesheffer/hunch.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/davesheffer/hunch/issues"
+  },
+  "galleryBanner": {
+    "color": "#16150f",
+    "theme": "dark"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "engineering-memory",
+    "knowledge-graph",
+    "code-intelligence",
+    "decisions",
+    "invariants"
+  ],
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -26,16 +51,31 @@
       ]
     },
     "commands": [
-      { "command": "hunch.why", "title": "Hunch:Why is this file the way it is?", "icon": "$(question)" },
-      { "command": "hunch.context", "title": "Hunch:Assemble context for this file", "icon": "$(list-tree)" },
-      { "command": "hunch.refresh", "title": "Hunch:Refresh", "icon": "$(refresh)" }
+      { "command": "hunch.why", "title": "Why is this file the way it is?", "category": "Hunch", "icon": "$(question)" },
+      { "command": "hunch.whySymbol", "title": "Why is this symbol the way it is?", "category": "Hunch" },
+      { "command": "hunch.context", "title": "Assemble context for this file", "category": "Hunch", "icon": "$(list-tree)" },
+      { "command": "hunch.search", "title": "Search memory", "category": "Hunch", "icon": "$(search)" },
+      { "command": "hunch.graph", "title": "Component Graph", "category": "Hunch", "icon": "$(type-hierarchy)" },
+      { "command": "hunch.recordConstraint", "title": "Record Invariant…", "category": "Hunch" },
+      { "command": "hunch.recordBug", "title": "Record Bug…", "category": "Hunch" },
+      { "command": "hunch.revealScope", "title": "Reveal Invariant Scope", "category": "Hunch" },
+      { "command": "hunch.refresh", "title": "Refresh", "category": "Hunch", "icon": "$(refresh)" }
     ],
     "menus": {
+      "commandPalette": [
+        { "command": "hunch.revealScope", "when": "false" },
+        { "command": "hunch.whySymbol", "when": "editorIsOpen" }
+      ],
       "view/title": [
-        { "command": "hunch.refresh", "when": "view == hunch.tree", "group": "navigation" }
+        { "command": "hunch.search", "when": "view == hunch.tree", "group": "navigation@1" },
+        { "command": "hunch.graph", "when": "view == hunch.tree", "group": "navigation@2" },
+        { "command": "hunch.refresh", "when": "view == hunch.tree", "group": "navigation@3" }
       ],
       "editor/title": [
-        { "command": "hunch.why", "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact/", "group": "navigation" }
+        { "command": "hunch.why", "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact|python|go|rust/", "group": "navigation" }
+      ],
+      "editor/context": [
+        { "command": "hunch.whySymbol", "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact|python|go|rust/", "group": "navigation" }
       ]
     },
     "configuration": {
@@ -45,12 +85,71 @@
           "type": "boolean",
           "default": true,
           "description": "Show constraints-in-scope for the active file in the status bar."
+        },
+        "hunch.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a CodeLens summary (invariants / decisions / bugs) and per-symbol bug/fragility marks."
+        },
+        "hunch.hover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Hunch bug history and fragility when hovering a symbol."
+        },
+        "hunch.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Surface invariants in scope (and near-invariants) for the active file in the Problems panel."
+        },
+        "hunch.decorations.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark bug-bearing and fragile symbols on the editor overview ruler."
+        },
+        "hunch.cliPath": {
+          "type": "string",
+          "default": "hunch",
+          "description": "Command used to invoke the Hunch CLI for the record commands (set an absolute path if `hunch` is not on PATH)."
         }
       }
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "hunch.gettingStarted",
+        "title": "Get started with Hunch",
+        "description": "Browse, query, and write back your repo's engineering memory.",
+        "steps": [
+          {
+            "id": "explore",
+            "title": "Open the Hunch view",
+            "description": "Browse invariants, decisions, bugs, fragility, and stale records.",
+            "media": { "markdown": "media/walkthrough/explore.md" }
+          },
+          {
+            "id": "why",
+            "title": "Why is this file the way it is?",
+            "description": "CodeLens, hover, diagnostics, and the full brief in the editor.",
+            "media": { "markdown": "media/walkthrough/why.md" }
+          },
+          {
+            "id": "graph",
+            "title": "See the shape of the system",
+            "description": "The component dependency graph and fuzzy search.",
+            "media": { "markdown": "media/walkthrough/graph.md" }
+          },
+          {
+            "id": "record",
+            "title": "Write memory back",
+            "description": "Record invariants and bugs via the Hunch CLI.",
+            "media": { "markdown": "media/walkthrough/record.md" }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node --input-type=commonjs -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
     "vscode:prepublish": "npm run build"
   },

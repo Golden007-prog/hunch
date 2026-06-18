@@ -2,6 +2,9 @@ node_modules/
 dist/
 *.log
 
+# VS Code extension build artifact — distribute via GitHub Releases / registries, not git.
+*.vsix
+
 # Editor-local settings (the committed .vscode/mcp.json is the shared Hunch config).
 .vscode/settings.json
 

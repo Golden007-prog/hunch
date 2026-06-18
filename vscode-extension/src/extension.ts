@@ -1,16 +1,30 @@
 /**
- * Hunch — VS Code extension. A read-only visualizer over the committed
- * .hunch/ JSON: a tree of decisions/invariants/bugs/fragility, "why is this file
- * the way it is?" + context briefs, and a status-bar invariant counter for the
- * active file. Pairs with the Claude Code chat (which uses the hunch_* MCP tools).
+ * Hunch — VS Code extension. A reader over the committed .hunch/ JSON that
+ * brings the Engineering Memory into the editor:
+ *   • Activity-bar tree (invariants / decisions / bugs / fragility / components,
+ *     plus stale records and bug-lineage chains).
+ *   • In-editor signal: CodeLens, hover, Problems-panel diagnostics, and
+ *     overview-ruler marks for the active file.
+ *   • "Why is this file the way it is?" + context briefs, a component graph, and
+ *     a fuzzy search across every record.
+ *   • A status-bar invariant counter.
+ *   • A write-path that delegates to the `hunch` CLI (record-constraint /
+ *     record-bug) — the extension never writes .hunch/ JSON itself.
+ * Pairs with Claude Code chat (which uses the hunch_* MCP tools).
  */
 import * as vscode from "vscode";
 import * as cp from "node:child_process";
 import * as nodePath from "node:path";
 import {
-  loadHunch, why, fragileSymbols, constraintsInScope, nearConstraints, isStale, sevRank,
-  type Hunch, type Provenance,
+  loadHunch, why, constraintsInScope, nearConstraints, isStale, sevRank,
+  staleRecords, lineageChains, symbolSignals, bugsForSymbol, fragileSymbols,
+  type Hunch, type Provenance, type LineageNode, type Bug,
 } from "./hunchData.js";
+import { HunchCodeLensProvider, HunchHoverProvider } from "./providers.js";
+import { HunchDiagnostics } from "./diagnostics.js";
+import { HunchDecorations } from "./decorations.js";
+import { showGraph, refreshGraph } from "./graph.js";
+import { runSearch } from "./search.js";
 
 function workspaceRoot(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -33,23 +47,38 @@ function lastChangeMs(root: string, file: string): number {
   }
 }
 
+/** A reload-on-demand cache so the many providers share one parse of .hunch/
+ *  instead of each re-reading from disk on every keystroke. */
+class HunchCache {
+  private cached: Hunch | null = null;
+  private loaded = false;
+  constructor(private root: string | undefined) {}
+  reload(): Hunch | null {
+    this.cached = this.root ? loadHunch(this.root) : null;
+    this.loaded = true;
+    return this.cached;
+  }
+  get(): Hunch | null {
+    if (!this.loaded) this.reload();
+    return this.cached;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tree view
 // ---------------------------------------------------------------------------
+type Cmd = { command: string; args: unknown[] };
 type Node =
   | { kind: "group"; label: string; key: string }
-  | { kind: "leaf"; label: string; description?: string; tooltip?: string; file?: string };
+  | { kind: "leaf"; label: string; description?: string; tooltip?: string; file?: string; cmd?: Cmd }
+  | { kind: "tree"; label: string; description?: string; tooltip?: string; file?: string; children: Node[] };
 
 class HunchTree implements vscode.TreeDataProvider<Node> {
   private _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChange.event;
-  private hunch: Hunch | null = null;
+  constructor(private cache: HunchCache) {}
 
-  refresh(): void {
-    const root = workspaceRoot();
-    this.hunch = root ? loadHunch(root) : null;
-    this._onDidChange.fire();
-  }
+  refresh(): void { this._onDidChange.fire(); }
 
   getTreeItem(n: Node): vscode.TreeItem {
     if (n.kind === "group") {
@@ -57,26 +86,36 @@ class HunchTree implements vscode.TreeDataProvider<Node> {
       item.iconPath = new vscode.ThemeIcon(GROUP_ICONS[n.key] ?? "circle-outline");
       return item;
     }
-    const item = new vscode.TreeItem(n.label, vscode.TreeItemCollapsibleState.None);
+    const collapsible = n.kind === "tree" && n.children.length
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.None;
+    const item = new vscode.TreeItem(n.label, collapsible);
     item.description = n.description;
     item.tooltip = n.tooltip ?? n.label;
     if (n.file) {
       item.command = { command: "vscode.open", title: "Open", arguments: [vscode.Uri.file(n.file)] };
       item.resourceUri = vscode.Uri.file(n.file);
+    } else if (n.kind === "leaf" && n.cmd) {
+      item.command = { command: n.cmd.command, title: "", arguments: n.cmd.args };
     }
     return item;
   }
 
   getChildren(node?: Node): Node[] {
-    const b = this.hunch;
+    const b = this.cache.get();
     if (!b) return node ? [] : [{ kind: "leaf", label: "No .hunch/ found — run `hunch init`" }];
+    if (node?.kind === "tree") return node.children;
     if (!node) {
+      const stale = staleRecords(b, (f) => lastChangeMs(b.root, f));
+      const chains = lineageChains(b);
       return [
         { kind: "group", label: `Invariants (${b.constraints.length})`, key: "constraints" },
         { kind: "group", label: `Decisions (${b.decisions.length})`, key: "decisions" },
         { kind: "group", label: `Bugs (${b.bugs.length})`, key: "bugs" },
+        ...(chains.length ? [{ kind: "group" as const, label: `Bug lineage (${chains.length})`, key: "lineage" }] : []),
         { kind: "group", label: `Fragile symbols`, key: "fragile" },
         { kind: "group", label: `Components (${b.components.length})`, key: "components" },
+        ...(stale.length ? [{ kind: "group" as const, label: `Stale records (${stale.length})`, key: "stale" }] : []),
       ];
     }
     if (node.kind !== "group") return [];
@@ -87,6 +126,7 @@ class HunchTree implements vscode.TreeDataProvider<Node> {
           kind: "leaf", label: `[${c.severity}] ${c.statement}`,
           description: prov(c.provenance) + (isStale(c, (f) => lastChangeMs(root, f)) ? " ⚠stale" : ""),
           tooltip: `${c.id}\nscope: ${(c.scope ?? []).join(", ")}\n${c.rationale ?? ""}`,
+          cmd: { command: "hunch.revealScope", args: [c.scope ?? []] },
         }));
       case "decisions":
         return b.decisions.map((d) => ({
@@ -96,34 +136,22 @@ class HunchTree implements vscode.TreeDataProvider<Node> {
           file: firstFile(root, d.related_files),
         }));
       case "bugs":
-        return b.bugs.map((bug) => {
-          const l = bug.lineage;
-          const marks = [
-            bug.status === "fixed" ? "✓fixed" : "",
-            l?.recurrence_of ? "↻recurrence" : "",
-            l?.spawned_constraint ? "⛔→constraint" : "",
-          ].filter(Boolean).join(" ");
-          const lineage = l
-            ? `\nlineage: introduced=${l.introduced_commit ?? "?"} fixed=${l.fixed_commit ?? "—"} recurrence_of=${l.recurrence_of ?? "—"} → constraint=${l.spawned_constraint ?? "—"}`
-            : "";
-          return {
-            kind: "leaf", label: `[${bug.severity}/${bug.status}] ${bug.title}`,
-            description: `${prov(bug.provenance)}${marks ? "  " + marks : ""}`,
-            tooltip: `${bug.id}\nsymptom: ${bug.symptom ?? ""}\nroot cause: ${bug.root_cause ?? ""}${lineage}`,
-            file: firstFile(root, bug.affected_files),
-          };
-        });
+        return b.bugs.map((bug) => bugLeaf(root, bug));
+      case "lineage":
+        return lineageChains(b).map((n) => lineageNode(root, n));
       case "fragile":
-        return fragileSymbols(b).map((s) => ({
-          kind: "leaf", label: `${s.score.toFixed(2)}  ${s.name}`,
-          description: s.evidence, tooltip: `${s.name} @ ${s.file}\n${s.evidence}`,
-          file: absFile(root, s.file),
-        }));
+        return fragileLeaves(b, root);
       case "components":
         return b.components.map((c) => ({
           kind: "leaf", label: c.name,
           description: (c.fragility ? `fragility ${c.fragility}` : "") + ` ${(c.paths ?? []).join(", ")}`,
           tooltip: `${c.id}\n${c.responsibility ?? ""}`,
+        }));
+      case "stale":
+        return staleRecords(b, (f) => lastChangeMs(root, f)).map((s) => ({
+          kind: "leaf", label: `${STALE_ICON[s.kind]} ${s.label}`, description: s.kind,
+          tooltip: `${s.id}\nguarded file changed since last verification`,
+          file: s.file ? absFile(root, s.file) : undefined,
         }));
       default:
         return [];
@@ -132,8 +160,49 @@ class HunchTree implements vscode.TreeDataProvider<Node> {
 }
 
 const GROUP_ICONS: Record<string, string> = {
-  constraints: "shield", decisions: "lightbulb", bugs: "bug", fragile: "flame", components: "package",
+  constraints: "shield", decisions: "lightbulb", bugs: "bug", lineage: "history",
+  fragile: "flame", components: "package", stale: "warning",
 };
+const STALE_ICON: Record<string, string> = { constraint: "⛔", decision: "🧭", bug: "🐞", component: "📦" };
+
+function bugLeaf(root: string, bug: Bug): Node {
+  const l = bug.lineage;
+  const marks = [
+    bug.status === "fixed" ? "✓fixed" : "",
+    l?.recurrence_of ? "↻recurrence" : "",
+    l?.spawned_constraint ? "⛔→constraint" : "",
+  ].filter(Boolean).join(" ");
+  const lineage = l
+    ? `\nlineage: introduced=${l.introduced_commit ?? "?"} fixed=${l.fixed_commit ?? "—"} recurrence_of=${l.recurrence_of ?? "—"} → constraint=${l.spawned_constraint ?? "—"}`
+    : "";
+  return {
+    kind: "leaf", label: `[${bug.severity}/${bug.status}] ${bug.title}`,
+    description: `${prov(bug.provenance)}${marks ? "  " + marks : ""}`,
+    tooltip: `${bug.id}\nsymptom: ${bug.symptom ?? ""}\nroot cause: ${bug.root_cause ?? ""}${lineage}`,
+    file: firstFile(root, bug.affected_files),
+  };
+}
+
+function lineageNode(root: string, n: LineageNode): Node {
+  const b = n.bug;
+  const children = n.recurrences.map((r) => lineageNode(root, r));
+  return {
+    kind: "tree",
+    label: `${b.title}`,
+    description: `[${b.severity}/${b.status}]${n.recurrences.length ? `  ↻${n.recurrences.length}` : ""}`,
+    tooltip: `${b.id}\nroot cause: ${b.root_cause ?? ""}`,
+    file: firstFile(root, b.affected_files),
+    children,
+  };
+}
+
+function fragileLeaves(b: Hunch, root: string): Node[] {
+  return fragileSymbols(b).map((s) => ({
+    kind: "leaf", label: `${s.score.toFixed(2)}  ${s.name}`,
+    description: s.evidence, tooltip: `${s.name} @ ${s.file}\n${s.evidence}`,
+    file: absFile(root, s.file),
+  }));
+}
 
 function prov(p?: Provenance): string {
   if (!p) return "";
@@ -178,18 +247,27 @@ function whyBrief(hunch: Hunch, file: string): void {
   ]);
 }
 
+function symbolBrief(hunch: Hunch, file: string, name: string): void {
+  const bugs = bugsForSymbol(hunch, file, name);
+  const sig = symbolSignals(hunch, file).get(name);
+  showBrief(`🧠 Why: ${name}  ·  ${relPath(file)}`, [
+    { h: "🔎 Signal", lines: sig ? [sig.evidence] : [] },
+    { h: "🐞 Bug history", lines: bugs.map((b) => `[${b.severity}/${b.status}] ${b.title} — root cause: ${b.root_cause ?? ""}`) },
+    { h: "⛔ Invariants in scope (file)", lines: constraintsInScope(hunch, file).map((c) => `[${c.severity}] ${c.statement}`) },
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 // Status bar
 // ---------------------------------------------------------------------------
-function updateStatusBar(item: vscode.StatusBarItem): void {
+function updateStatusBar(item: vscode.StatusBarItem, cache: HunchCache): void {
   const cfg = vscode.workspace.getConfiguration("hunch");
   const editor = vscode.window.activeTextEditor;
-  const root = workspaceRoot();
-  if (!cfg.get("statusBar.enabled", true) || !editor || !root) {
+  if (!cfg.get("statusBar.enabled", true) || !editor) {
     item.hide();
     return;
   }
-  const hunch = loadHunch(root);
+  const hunch = cache.get();
   if (!hunch) {
     item.hide();
     return;
@@ -217,31 +295,137 @@ function updateStatusBar(item: vscode.StatusBarItem): void {
 }
 
 // ---------------------------------------------------------------------------
+// Write-path: delegate to the `hunch` CLI (never write .hunch/ JSON directly).
+// ---------------------------------------------------------------------------
+function cliCommand(): string {
+  return vscode.workspace.getConfiguration("hunch").get("cliPath", "hunch");
+}
+
+async function recordConstraint(root: string, cache: HunchCache, onDone: () => void): Promise<void> {
+  const activeFile = vscode.window.activeTextEditor ? relPath(vscode.window.activeTextEditor.document.uri.fsPath) : "";
+  const statement = await vscode.window.showInputBox({ title: "Record invariant", prompt: "The invariant the codebase must not break", placeHolder: "vectors are derived, never the source of truth" });
+  if (!statement) return;
+  const scope = await vscode.window.showInputBox({ title: "Record invariant — scope", prompt: "Comma-separated path/glob(s)", value: activeFile });
+  if (scope === undefined) return;
+  const severity = await vscode.window.showQuickPick(["warning", "blocking", "advisory"], { title: "Record invariant — severity" });
+  if (!severity) return;
+  const rationale = await vscode.window.showInputBox({ title: "Record invariant — rationale (optional)", prompt: "Why it must hold" }) ?? "";
+
+  const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`;
+  const args = [`record-constraint`, q(statement), `--severity`, severity];
+  if (scope.trim()) args.push(`--scope`, q(scope.trim()));
+  if (rationale.trim()) args.push(`--rationale`, q(rationale.trim()));
+  const cmd = `${cliCommand()} ${args.join(" ")}`;
+
+  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Hunch: recording invariant…" }, () =>
+    new Promise<void>((resolve) => {
+      cp.exec(cmd, { cwd: root }, (err, stdout, stderr) => {
+        if (err) {
+          vscode.window.showErrorMessage(`Hunch CLI failed (${cliCommand()}). ${stderr || err.message}. Set "hunch.cliPath" if the CLI is elsewhere.`);
+        } else {
+          vscode.window.showInformationMessage((stdout.trim().split("\n").pop()) || "Hunch: invariant recorded.");
+          cache.reload();
+          onDone();
+        }
+        resolve();
+      });
+    }),
+  );
+}
+
+async function recordBug(root: string, cache: HunchCache, onDone: () => void): Promise<void> {
+  const test = await vscode.window.showInputBox({ title: "Record bug", prompt: "Failing test id / name", placeHolder: "auth.test.ts > rejects expired token" });
+  if (!test) return;
+  const message = await vscode.window.showInputBox({ title: "Record bug — failure", prompt: "Failure message / stack" });
+  if (!message) return;
+  const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`;
+  const cmd = `${cliCommand()} record-bug --test ${q(test)} --message ${q(message)}`;
+  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Hunch: recording bug…" }, () =>
+    new Promise<void>((resolve) => {
+      cp.exec(cmd, { cwd: root }, (err, stdout, stderr) => {
+        if (err) vscode.window.showErrorMessage(`Hunch CLI failed (${cliCommand()}). ${stderr || err.message}.`);
+        else { vscode.window.showInformationMessage(stdout.trim().split("\n").pop() || "Hunch: bug recorded."); cache.reload(); onDone(); }
+        resolve();
+      });
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// reveal a constraint's scope on disk
+// ---------------------------------------------------------------------------
+async function revealScope(root: string, scopes: string[]): Promise<void> {
+  for (const g of scopes) {
+    const concrete = g.replace(/[\\/]?\*\*.*$/, "").replace(/\*.*$/, "").replace(/\/$/, "");
+    if (!concrete) continue;
+    const uri = vscode.Uri.file(nodePath.join(root, concrete));
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (stat.type & vscode.FileType.Directory) await vscode.commands.executeCommand("revealInExplorer", uri);
+      else await vscode.commands.executeCommand("vscode.open", uri);
+      return;
+    } catch {
+      /* try next scope */
+    }
+  }
+  vscode.window.showInformationMessage(`Hunch: no on-disk path for scope ${scopes.join(", ") || "(repo)"}.`);
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 export function activate(context: vscode.ExtensionContext): void {
-  const tree = new HunchTree();
-  tree.refresh();
+  const root = workspaceRoot();
+  const cache = new HunchCache(root);
+  cache.reload();
+
+  const tree = new HunchTree(cache);
   context.subscriptions.push(vscode.window.registerTreeDataProvider("hunch.tree", tree));
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   context.subscriptions.push(status);
 
+  const codeLens = new HunchCodeLensProvider(() => cache.get(), relPath);
+  const hover = new HunchHoverProvider(() => cache.get(), relPath);
+  const diagnostics = new HunchDiagnostics(() => cache.get(), relPath);
+  const decorations = new HunchDecorations(() => cache.get(), relPath);
+  context.subscriptions.push(diagnostics, decorations);
+
+  const SELECTOR: vscode.DocumentSelector = [
+    { language: "typescript" }, { language: "javascript" }, { language: "typescriptreact" },
+    { language: "javascriptreact" }, { language: "python" }, { language: "go" }, { language: "rust" },
+  ];
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(SELECTOR, codeLens),
+    vscode.languages.registerHoverProvider(SELECTOR, hover),
+  );
+
+  const refreshActive = () => {
+    const ed = vscode.window.activeTextEditor;
+    updateStatusBar(status, cache);
+    diagnostics.update(ed);
+    void decorations.update(ed);
+  };
+  const refreshAll = () => {
+    cache.reload();
+    tree.refresh();
+    codeLens.refresh();
+    refreshActive();
+    const h = cache.get();
+    if (h) refreshGraph(h);
+  };
+
   const activeFile = (): string | undefined => vscode.window.activeTextEditor?.document.uri.fsPath;
   const withHunch = (fn: (b: Hunch, file: string) => void) => {
-    const root = workspaceRoot();
     const file = activeFile();
-    const hunch = root ? loadHunch(root) : null;
+    const hunch = cache.get();
     if (!hunch) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found — run `hunch init`.");
     if (!file) return void vscode.window.showWarningMessage("Open a file first.");
     fn(hunch, relPath(file));
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("hunch.refresh", () => {
-      tree.refresh();
-      updateStatusBar(status);
-    }),
+    vscode.commands.registerCommand("hunch.refresh", refreshAll),
     vscode.commands.registerCommand("hunch.why", () => withHunch((b, f) => whyBrief(b, f))),
     vscode.commands.registerCommand("hunch.context", () =>
       withHunch((b, f) => {
@@ -254,26 +438,64 @@ export function activate(context: vscode.ExtensionContext): void {
         ]);
       }),
     ),
+    vscode.commands.registerCommand("hunch.whySymbol", (name?: string) =>
+      withHunch((b, f) => {
+        let sym = name;
+        if (!sym) {
+          const ed = vscode.window.activeTextEditor;
+          const wr = ed?.document.getWordRangeAtPosition(ed.selection.active);
+          sym = wr ? ed!.document.getText(wr) : undefined;
+        }
+        if (!sym) return void vscode.window.showInformationMessage("Place the cursor on a symbol first.");
+        symbolBrief(b, f, sym);
+      }),
+    ),
+    vscode.commands.registerCommand("hunch.search", () => {
+      const h = cache.get();
+      if (!h || !root) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found.");
+      runSearch(h, root);
+    }),
+    vscode.commands.registerCommand("hunch.graph", () => {
+      const h = cache.get();
+      if (!h || !root) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found.");
+      showGraph(h, root);
+    }),
+    vscode.commands.registerCommand("hunch.revealScope", (scopes: string[]) => {
+      if (root) void revealScope(root, scopes ?? []);
+    }),
+    vscode.commands.registerCommand("hunch.recordConstraint", () => {
+      if (root) void recordConstraint(root, cache, refreshAll);
+    }),
+    vscode.commands.registerCommand("hunch.recordBug", () => {
+      if (root) void recordBug(root, cache, refreshAll);
+    }),
   );
 
   // live refresh when the Hunch changes on disk
-  const root = workspaceRoot();
   if (root) {
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, ".hunch/**/*.json"));
-    const onChange = () => {
-      tree.refresh();
-      updateStatusBar(status);
-    };
-    watcher.onDidChange(onChange);
-    watcher.onDidCreate(onChange);
-    watcher.onDidDelete(onChange);
+    watcher.onDidChange(refreshAll);
+    watcher.onDidCreate(refreshAll);
+    watcher.onDidDelete(refreshAll);
     context.subscriptions.push(watcher);
   }
 
-  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => updateStatusBar(status)));
-  updateStatusBar(status);
+  // keep in-editor signal in sync with the active editor / edits
+  let editTimer: ReturnType<typeof setTimeout> | undefined;
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => refreshActive()),
+    vscode.workspace.onDidSaveTextDocument(() => refreshActive()),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document !== vscode.window.activeTextEditor?.document) return;
+      if (editTimer) clearTimeout(editTimer);
+      editTimer = setTimeout(() => void decorations.update(vscode.window.activeTextEditor), 400);
+    }),
+    vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clearClosed(doc.uri)),
+  );
+
+  refreshActive();
 }
 
 export function deactivate(): void {
-  /* nothing to clean up */
+  /* subscriptions disposed by VS Code */
 }

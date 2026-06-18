@@ -2,6 +2,8 @@
 src/**
 node_modules/**
 tsconfig.json
+package-lock.json
+media/icon-src.svg
+**/*.vsix
 **/*.map
 **/*.ts
-!dist/**
