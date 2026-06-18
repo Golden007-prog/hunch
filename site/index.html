@@ -327,6 +327,19 @@
   .gs-step h4{margin:4px 0 5px;font-size:16px;font-weight:560}
   .gs-step p{margin:0;color:var(--ink-soft);font-size:14.5px;line-height:1.55;font-weight:380}
   .gs-step code{font-family:var(--mono);font-size:13px;background:rgba(39,66,255,.08);color:var(--accent-deep);padding:2px 7px;border-radius:6px}
+  /* editors wired up by `hunch init` */
+  .eds{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:26px}
+  @media(max-width:760px){.eds{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:420px){.eds{grid-template-columns:1fr}}
+  .ed{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;transition:transform .4s var(--ease),box-shadow .4s,border-color .4s}
+  .ed:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+  .ed .en{font-weight:560;font-size:15px;display:flex;align-items:center;gap:9px;letter-spacing:-.01em}
+  .ed .en .ic{font-size:17px;line-height:1}
+  .ed .ef{font-family:var(--mono);font-size:11.5px;color:var(--muted-2);margin-top:11px;line-height:1.65;display:block}
+  .ed .ef b{display:block;color:var(--accent-deep);font-weight:500;margin-bottom:2px}
+  .eds-note{font-family:var(--mono);font-size:12px;color:var(--muted-2);margin-top:16px}
+  .eds-note a{color:var(--accent);border-bottom:1px solid transparent;transition:border-color .25s}
+  .eds-note a:hover{border-color:var(--accent)}
 
   /* final CTA */
   .cta{position:relative;text-align:center;padding:120px 0 130px}
@@ -624,16 +637,16 @@
   <section id="start">
     <div class="wrap">
       <span class="sec-label" data-rise>Get started</span>
-      <h2 class="title" data-rise style="--d:.08s">Up and remembering in four commands.</h2>
+      <h2 class="title" data-rise style="--d:.08s">One <em>npm install</em> — wired into every assistant.</h2>
       <div class="gs-grid">
         <div class="code" data-rise style="--d:.12s">
           <div class="term-bar"><i></i><i></i><i></i><span class="ttl">~/your-repo</span></div>
           <div class="term-body">
-            <div><span class="cmt"># build &amp; put `hunch` on your PATH</span></div>
-            <div><span class="dollar">$ </span><span class="cmd">npm install &amp;&amp; npm run build &amp;&amp; npm link</span></div>
+            <div><span class="cmt"># install from npm — Node 20+ (puts `hunch` on PATH)</span></div>
+            <div><span class="dollar">$ </span><span class="cmd">npm install <span class="fl">-g</span> @davesheffer/hunch</span></div>
             <div style="height:10px"></div>
-            <div><span class="cmt"># scaffold Hunch, index, hooks, MCP + CLAUDE.md</span></div>
-            <div><span class="dollar">$ </span><span class="cmd">hunch init</span></div>
+            <div><span class="cmt"># index + hooks + wire up EVERY assistant</span></div>
+            <div><span class="dollar">$ </span><span class="cmd">cd your-repo &amp;&amp; hunch init</span></div>
             <div style="height:10px"></div>
             <div><span class="cmt"># cold start: seed decisions from git history</span></div>
             <div><span class="dollar">$ </span><span class="cmd">hunch backfill <span class="fl">--since</span> 90d</span></div>
@@ -643,12 +656,22 @@
           </div>
         </div>
         <div class="gs-steps" data-rise style="--d:.18s">
-          <div class="gs-step"><div class="num"></div><div><h4>Build it</h4><p>Node 20+. <code>npm link</code> gives you a global <code>hunch</code>; or run it from source with <code>npm run hunch</code>.</p></div></div>
-          <div class="gs-step"><div class="num"></div><div><h4>Initialize the repo</h4><p><code>hunch init</code> writes <code>.mcp.json</code>, slash commands and <code>CLAUDE.md</code>, installs the post-commit hook and registers the merge driver. Reload Claude Code to pick up the Hunch tools.</p></div></div>
+          <div class="gs-step"><div class="num"></div><div><h4>Install it</h4><p>Node 20+. <code>npm install -g @davesheffer/hunch</code> puts a global <code>hunch</code> on your PATH. That's the whole install — no build, no SaaS.</p></div></div>
+          <div class="gs-step"><div class="num"></div><div><h4>Initialize — wires every assistant</h4><p>One <code>hunch init</code> indexes the repo, installs the hooks + merge driver, and writes MCP config + rules for <b>Claude Code, Cursor, VS Code &amp; Windsurf</b> — all pointing at the same <code>.hunch/</code> graph. Reload your editor to pick up the tools.</p></div></div>
           <div class="gs-step"><div class="num"></div><div><h4>Seed the memory</h4><p><code>hunch backfill --since 90d</code> replays recent history so an empty graph isn't your day-1 experience.</p></div></div>
-          <div class="gs-step"><div class="num"></div><div><h4>Just ask</h4><p>In Claude Code: <em>“why is the session module built this way?”</em> — and it answers from memory, with the commit as evidence.</p></div></div>
+          <div class="gs-step"><div class="num"></div><div><h4>Just ask</h4><p>In any of those editors: <em>“why is the session module built this way?”</em> — and it answers from memory, with the commit as evidence.</p></div></div>
         </div>
       </div>
+
+      <!-- one init → every assistant -->
+      <p class="lead" data-rise style="--d:.06s;margin-top:42px;max-width:40em">One <code style="font-family:var(--mono);font-size:.85em;background:rgba(39,66,255,.08);color:var(--accent-deep);padding:2px 7px;border-radius:6px">hunch init</code> wires the same graph into every door your AI knocks on — the MCP server is client-agnostic, so each assistant reads the same <span class="mono">.hunch/</span>.</p>
+      <div class="eds" data-rise style="--d:.1s">
+        <div class="ed"><div class="en"><span class="ic">🧠</span>Claude Code</div><span class="ef"><b>.mcp.json</b>CLAUDE.md · slash commands · agent hooks</span></div>
+        <div class="ed"><div class="en"><span class="ic">▟</span>Cursor</div><span class="ef"><b>.cursor/mcp.json</b>.cursor/rules/hunch.mdc</span></div>
+        <div class="ed"><div class="en"><span class="ic">⧉</span>VS Code</div><span class="ef"><b>.vscode/mcp.json</b>.github/copilot-instructions.md</span></div>
+        <div class="ed"><div class="en"><span class="ic">🌊</span>Windsurf</div><span class="ef"><b>.windsurf/mcp_config.json</b>.windsurf/rules/hunch.md</span></div>
+      </div>
+      <p class="eds-note" data-rise style="--d:.14s">Plus AGENTS.md / Codex, and a VS Code visualizer extension on <a href="https://open-vsx.org/extension/davesheffer/hunch-vscode" target="_blank" rel="noopener">Open VSX</a>. Skip any with <span class="mono">hunch init --no-providers</span>.</p>
     </div>
   </section>
 
@@ -676,6 +699,9 @@
       <span class="sec-label" data-rise>Changelog</span>
       <h2 class="title" data-rise style="--d:.08s">Every release, since <em>v0.1</em>.</h2>
       <div class="clog" data-rise style="--d:.14s;margin-top:36px;border-top:1px solid var(--line)">
+        <div class="clog-row"><span class="rel-tag">v0.11.0</span><span class="clog-d">Jun 18, 2026</span><span class="clog-t"><b>On npm + safe strict mode</b> — install with <span class="mono">npm i -g @davesheffer/hunch</span>. <span class="mono">--strict</span> now fails a commit only on a direct, high-confidence, non-stale invariant — safe to enable on a shared repo.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.10.2</span><span class="clog-d">Jun 18, 2026</span><span class="clog-t"><b>24× faster indexing</b> — per-file <span class="mono">git log</span> spawns collapsed into two batched passes; <span class="mono">hunch index</span> drops from ~24s to ~1s on a 400-file repo.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.10.1</span><span class="clog-d">Jun 18, 2026</span><span class="clog-t"><b>Faster read path</b> — memoized record loads + collapsed graph queries across the CLI &amp; MCP server.</span></div>
         <div class="clog-row"><span class="rel-tag">v0.10.0</span><span class="clog-d">Jun 17, 2026</span><span class="clog-t"><b>Windsurf support</b> — <span class="mono">hunch init</span> scaffolds <span class="mono">.windsurf/</span> (MCP config + always-on rule). Five assistants now wired to one graph.</span></div>
         <div class="clog-row"><span class="rel-tag">v0.9.0</span><span class="clog-d">Jun 17, 2026</span><span class="clog-t"><b>Time-Travel Memory + Regression Guard</b> — git-anchored <span class="mono">--as-of</span> queries, <span class="mono">timeline</span>, supersede-don't-delete; guard blocks re-introducing retired code.</span></div>
         <div class="clog-row"><span class="rel-tag">v0.8.0</span><span class="clog-d">Jun 16, 2026</span><span class="clog-t"><b>Agent hooks + firmness</b> — memory injected before every edit; four enforcement levels; first-class <span class="mono">record-constraint</span>.</span></div>

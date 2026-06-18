@@ -59,7 +59,7 @@ program
   .description("Scaffold .hunch/, index the repo, install the git hook, and wire up Claude Code.")
   .option("--no-index", "skip the initial repo index")
   .option("--no-enforce", "do not install the advisory pre-commit constraint guard")
-  .option("--enforce-strict", "make the pre-commit guard FAIL the commit on a blocking invariant (direct or near)")
+  .option("--enforce-strict", "make the pre-commit guard FAIL the commit on a direct, high-confidence, non-stale blocking invariant")
   .option("--no-providers", "skip scaffolding non-Claude assistant configs (Cursor / VS Code / Codex / AGENTS.md)")
   .option("--no-agent-hooks", "skip installing the Claude Code agent hooks (.claude/settings.json)")
   .option("--firmness <level>", "agent-hook firmness: off | advisory | firm | strict")
@@ -97,7 +97,7 @@ program
       if (opts.enforce !== false || opts.enforceStrict) {
         const strict = !!opts.enforceStrict;
         const p = installPreCommitHook(root, inv.shell, strict);
-        console.log(`  ✓ pre-commit constraint guard ${p.action} (${strict ? "strict — blocks on blocking invariants, direct or near" : "advisory — flags invariants in scope or blast radius"})`);
+        console.log(`  ✓ pre-commit constraint guard ${p.action} (${strict ? "strict — fails only on direct, high-confidence, non-stale blocking invariants" : "advisory — flags invariants in scope or blast radius"})`);
       }
     } else {
       console.log("  ⚠ not a git repo — skipped hooks (run `git init` to enable the learning loop)");
