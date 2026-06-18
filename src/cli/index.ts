@@ -24,7 +24,7 @@ import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, revExists } from "../extractors/git.js";
 import { analyzeDiff } from "../extractors/diff.js";
 import { isStrictBlocker } from "../core/strictgate.js";
 import { renderText, renderMarkdown, reportFailsStrict, type CheckReport, type CheckDirect } from "../core/checkreport.js";
@@ -530,6 +530,12 @@ program
     const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], strictBlockers: 0, regBlocking: 0 };
 
     const { store, root } = storeFor();
+    // Fail loudly on an unresolvable --base (e.g. CI forgot to fetch the base
+    // branch) — otherwise the diff is empty and the guard passes vacuously.
+    if (opts.base && !revExists(opts.base, root)) {
+      store.close();
+      return fail(`--base ref "${opts.base}" does not resolve. In CI, fetch the base branch first (git fetch origin <branch>).`);
+    }
     store.reindex(); // blast radius walks the edge graph — make the index current
     const files = opts.commit ? commitFiles(opts.commit, root)
       : opts.base ? rangeFiles(opts.base, root)
@@ -572,7 +578,7 @@ program
       return {
         id: c.id, severity: c.severity ?? "advisory", statement: c.statement, rationale: c.rationale ?? "",
         files: fs, strictBlocks,
-        downgrade: (c.severity === "blocking" && !strictBlocks ? (stale ? "stale" : "low-confidence") : undefined) as CheckDirect["downgrade"],
+        downgrade: c.severity === "blocking" && !strictBlocks ? (stale ? "stale" : "low-confidence") : undefined,
       };
     });
     const report: CheckReport = {

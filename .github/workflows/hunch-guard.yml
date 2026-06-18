@@ -25,6 +25,12 @@ jobs:
       - name: Install Hunch
         run: npm install -g @davesheffer/hunch
 
+      - name: Fetch the PR base branch
+        # checkout sets up no origin/<base> tracking ref; create it explicitly so
+        # the guard's base...head diff resolves (otherwise it sees zero changes and
+        # passes vacuously).
+        run: git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
       - name: Run Constraint Guard
         id: guard
         run: |
@@ -39,16 +45,23 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('hunch-report.md', 'utf8').trim();
+            const body = (fs.existsSync('hunch-report.md') ? fs.readFileSync('hunch-report.md', 'utf8') : '').trim();
+            if (!body) { core.info('Hunch: empty report — skipping comment.'); return; }
             const marker = '<!-- hunch-guard -->';
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
-            const all = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
-            const existing = all.find(c => c.body && c.body.includes(marker));
             const out = marker + '\n' + body;
-            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: out });
-            else await github.rest.issues.createComment({ owner, repo, issue_number, body: out });
+            try {
+              const all = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+              const existing = all.find(c => c.body && c.body.includes(marker));
+              if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: out });
+              else await github.rest.issues.createComment({ owner, repo, issue_number, body: out });
+            } catch (e) {
+              core.warning('Hunch: could not post PR comment (fork PR has a read-only token?): ' + e.message);
+            }
 
       - name: Enforce (fail on a blocking invariant)
+        # Default to 1 if the guard step died before recording its exit — never a
+        # vacuous pass.
         if: always()
-        run: exit ${{ steps.guard.outputs.exit }}
+        run: exit ${{ steps.guard.outputs.exit || '1' }}

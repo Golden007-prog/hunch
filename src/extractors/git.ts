@@ -176,6 +176,13 @@ export function stagedFiles(cwd: string): string[] {
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
+/** Does a ref resolve to a commit in this repo? Lets `--base` fail LOUDLY on an
+ *  unfetched/typo'd ref instead of silently diffing against nothing (a vacuous
+ *  CI pass), since the diff helpers below swallow git errors to "". */
+export function revExists(ref: string, cwd: string): boolean {
+  return gitSafe(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], cwd) !== "";
+}
+
 /** Files a PR/branch changes vs `base` (3-dot: changes on HEAD since the merge-base,
  *  i.e. exactly the PR's own commits — the CI Constraint Guard's surface). */
 export function rangeFiles(base: string, cwd: string, head = "HEAD"): string[] {
