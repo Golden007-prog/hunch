@@ -149,7 +149,8 @@ preserved) and is idempotent. Opt out with `hunch init --no-providers`.
 | `hunch embed` | generate local embeddings for semantic recall (opt-in; needs `@huggingface/transformers`) |
 | `hunch context <path\|symbol> [--as-of <ref>]` | minimal relevant slice for a task: invariants → decisions → bugs → blast radius (`--as-of` time-travels) |
 | `hunch fragile` | ranked fragility report with evidence |
-| `hunch check [--staged\|--commit <sha>] [--strict] [--blast]` | guardrail: flag changes touching a do-not-break invariant **directly or via blast radius** (a guarded file that depends on what you changed), **and changes that re-introduce something a decision deliberately retired** (the Regression Guard); `--blast` prints the dependency fan-out |
+| `hunch check [--staged\|--commit <sha>\|--base <ref>] [--strict] [--format text\|markdown] [--blast]` | guardrail: flag changes touching a do-not-break invariant **directly or via blast radius** (a guarded file that depends on what you changed), **and changes that re-introduce something a decision deliberately retired** (the Regression Guard). `--base <ref>` checks a PR's diff (for CI); `--format markdown` emits a PR comment; `--strict` fails only on a direct, high-confidence, non-stale **blocking** invariant; `--blast` prints the dependency fan-out |
+| `hunch ci` | scaffold the **CI Constraint Guard** — a GitHub Action that runs `hunch check` on every PR, comments the affected invariants/decisions, and fails on a blocking one |
 | `hunch stale [--resync]` | drift: records whose files changed after last verification (`--resync` regenerates stale decisions from their commits) |
 | `hunch review [--accept <id>\|--reject <id>]` | curate: triage / promote / drop low-confidence drafts |
 | `hunch migrate` | upgrade `.hunch/` records to the current schema version |
@@ -264,6 +265,26 @@ again. It preserves the runner's exit code, so it's a drop-in CI step:
 Repair drift after refactors with **`hunch stale --resync`** (re-synthesizes stale decisions
 from their commits via the LLM).
 
+### Block a PR that breaks memory (CI Constraint Guard)
+
+Memory that only *advises* gets ignored. `hunch ci` scaffolds a GitHub Action that turns
+Hunch into a **merge gate**: on every pull request it runs `hunch check` over the diff,
+posts a sticky comment citing the affected `con_`/`dec_` ids, and **fails the check** when
+the PR breaks a *direct, high-confidence, non-stale* blocking invariant, re-adds
+deliberately-retired code, or contradicts an in-force decision.
+
+```bash
+hunch ci          # writes .github/workflows/hunch-guard.yml — commit it
+```
+
+It reasons over **the diff plus the constraints committed in the same git history**, so the
+comment says exactly which decision a change violates ("breaks `con_004` — server-side
+revocation, from `dec_017`"). Make *Hunch Guard* a required status check in branch protection
+to enforce on merge. The hardened strict gate only blocks on high-confidence, non-stale
+invariants — stale / low-confidence / blast-radius hits stay advisory in the comment — so
+it's safe to require on a shared repo. Under the hood it's just
+`hunch check --base origin/<target> --strict --format markdown`.
+
 ## Maintenance
 
 - **`hunch doctor`** — is git healthy? are you on the subscription path or the offline
@@ -313,10 +334,15 @@ src/
 
 ## VS Code
 
-A companion **[VS Code extension](vscode-extension/)** visualizes Hunch (a tree of
-decisions / invariants / bugs / fragility, a "why is this file the way it is?" action, and
-a status-bar invariant counter) by reading the committed `.hunch/` JSON directly — no
-server, no native deps.
+A companion **[VS Code extension](vscode-extension/)** (on
+[Open VSX](https://open-vsx.org/extension/davesheffer/hunch-vscode) — works in
+VS Code / Cursor / Windsurf / VSCodium) brings the graph into the editor: a tree of
+decisions / invariants / bugs / **bug-lineage** / fragility / **stale records**, a
+**CodeLens** summary + per-symbol bug/fragility marks, **hover** with bug history,
+invariants surfaced in the **Problems panel**, overview-ruler hotspot marks, an
+interactive **component graph**, fuzzy **search**, and a status-bar invariant counter.
+It reads the committed `.hunch/` JSON directly (no server, no native deps); writes
+delegate to the `hunch` CLI.
 
 ## Notable engineering decisions
 
@@ -341,5 +367,6 @@ npm test            # node:test suite (store, graph, parse, indexer, synthesis, 
 npm run hunch -- why src/store/hunchStore.ts   # run the CLI from source via tsx, no build
 ```
 
-See [DESIGN.md](DESIGN.md) for the full spec. Deferred by design: PR/CI webhooks, a
-web dashboard, and multi-repo support.
+See [DESIGN.md](DESIGN.md) for the full spec. PR/CI enforcement now ships as the
+**CI Constraint Guard** (`hunch ci`). Still deferred by design: a hosted web dashboard
+and multi-repo support.
