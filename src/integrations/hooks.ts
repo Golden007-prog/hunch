@@ -65,7 +65,9 @@ const PRE_END = "# <<< hunch pre-commit <<<";
 
 /** Install a pre-commit constraint guard (DESIGN §4 enforcement). Advisory by
  *  default (prints invariants in scope, never blocks); pass strict to fail the
- *  commit on a blocking invariant. Preserves any existing pre-commit hook. */
+ *  commit — but even strict only fails on a DIRECT, high-confidence, non-stale
+ *  blocking invariant (see strictgate.ts), so it's safe on a shared repo.
+ *  Preserves any existing pre-commit hook. */
 export function installPreCommitHook(root: string, invocation: string, strict = false): HookInstall {
   const dir = hooksDir(root);
   const abs = dir.startsWith("/") ? dir : join(root, dir);

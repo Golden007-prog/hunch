@@ -26,6 +26,7 @@ import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
 import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff } from "../extractors/git.js";
 import { analyzeDiff } from "../extractors/diff.js";
+import { isStrictBlocker } from "../core/strictgate.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
@@ -488,7 +489,7 @@ program
   .description("Flag changes that touch a do-not-break invariant's scope (guardrail).")
   .option("--staged", "check git staged files (default)")
   .option("--commit <sha>", "check a specific commit's files")
-  .option("--strict", "exit non-zero if a blocking constraint is in scope (direct OR near)")
+  .option("--strict", "exit non-zero ONLY on a direct, high-confidence, non-stale blocking invariant (near/stale/low-confidence stay advisory)")
   .option("--blast", "also print the dependency blast radius of the changed files")
   .action((opts: { staged?: boolean; commit?: string; strict?: boolean; blast?: boolean }) => {
     if (opts.commit && opts.staged) return fail("--staged and --commit are mutually exclusive");
@@ -553,18 +554,29 @@ program
       return;
     }
 
-    let blocking = 0;
+    // --strict may FAIL a commit ONLY on a DIRECT, high-confidence, non-stale
+    // blocking invariant (see strictgate.ts) — never on a blast-radius ("near")
+    // guess or a stale/low-confidence record. Those weaker hits still print, as
+    // advisory, so strict mode is safe to enable on a shared repo.
+    const staleConstraintIds = opts.strict
+      ? new Set(store.staleness((f) => lastChangeDate(f, root)).filter((s) => s.kind === "constraint").map((s) => s.id))
+      : new Set<string>();
+    let strictBlockers = 0;
+
     if (direct.size) {
       console.log(`Directly touches ${direct.size} invariant(s):\n`);
       for (const { c, files: fs } of direct.values()) {
-        if (c.severity === "blocking") blocking++;
-        console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}\n      ${c.id} · in: ${fs.join(", ")}\n      rationale: ${c.rationale || "—"}`);
+        const blocks = isStrictBlocker(c, staleConstraintIds.has(c.id));
+        if (blocks) strictBlockers++;
+        const note = opts.strict && c.severity === "blocking" && !blocks
+          ? staleConstraintIds.has(c.id) ? "  (advisory: stale)" : "  (advisory: low confidence)"
+          : "";
+        console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}${note}\n      ${c.id} · in: ${fs.join(", ")}\n      rationale: ${c.rationale || "—"}`);
       }
     }
     if (near.size) {
-      console.log(`${direct.size ? "\n" : ""}Near ${near.size} invariant(s) via blast radius (a guarded dependency changed — review):\n`);
+      console.log(`${direct.size ? "\n" : ""}Near ${near.size} invariant(s) via blast radius (a guarded dependency changed — review; never blocks):\n`);
       for (const { c, via } of near.values()) {
-        if (c.severity === "blocking") blocking++;
         console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}\n      ${c.id}\n      ${via.slice(0, 4).join("\n      ")}${via.length > 4 ? `\n      …+${via.length - 4} more path(s)` : ""}`);
       }
     }
@@ -575,15 +587,17 @@ program
       }
     }
 
-    if (opts.strict && (blocking || regBlocking)) {
+    if (opts.strict && (strictBlockers || regBlocking)) {
       const reasons = [
-        blocking ? `${blocking} blocking invariant(s) in scope` : "",
+        strictBlockers ? `${strictBlockers} high-confidence blocking invariant(s) directly in scope` : "",
         regBlocking ? `${regBlocking} blocking-linked regression(s)` : "",
       ].filter(Boolean).join(" + ");
       console.log(`\n✗ ${reasons} — review before committing.`);
       process.exitCode = 1;
+    } else if (opts.strict) {
+      console.log(`\nReview these — none are a direct, high-confidence, non-stale blocking invariant, so the commit is NOT blocked.`);
     } else {
-      console.log(`\nReview that these invariants still hold. (Advisory — run with --strict to fail on blocking.)`);
+      console.log(`\nReview that these invariants still hold. (Advisory — run with --strict to fail on direct, high-confidence, non-stale blocking invariants.)`);
     }
     store.close();
   });
