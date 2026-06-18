@@ -176,6 +176,20 @@ export function stagedFiles(cwd: string): string[] {
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
+/** Files a PR/branch changes vs `base` (3-dot: changes on HEAD since the merge-base,
+ *  i.e. exactly the PR's own commits — the CI Constraint Guard's surface). */
+export function rangeFiles(base: string, cwd: string, head = "HEAD"): string[] {
+  const out = gitSafe(["diff", "--name-only", "--diff-filter=ACMR", `${base}...${head}`], cwd);
+  return out ? out.split("\n").filter(Boolean) : [];
+}
+
+/** The PR's unified diff vs `base` (3-dot), for the Regression Guard's structural
+ *  analysis. Same noise-exclusion + truncation budget as commit/staged diffs. */
+export function rangeDiff(base: string, cwd: string, head = "HEAD", maxBytes = 60_000): string {
+  const out = gitSafe(["diff", "--no-color", "--unified=2", `${base}...${head}`, "--", ...DIFF_NOISE], cwd);
+  return out.length > maxBytes ? out.slice(0, maxBytes) + "\n…(diff truncated)…" : out;
+}
+
 /** Unified diff of the staged changes (for the Regression Guard's structural
  *  analysis). Excludes machine-generated noise and truncates at the SAME budget as
  *  commitDiff, so the staged and `--commit` guard paths can't diverge on big diffs. */

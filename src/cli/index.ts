@@ -24,12 +24,14 @@ import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff } from "../extractors/git.js";
 import { analyzeDiff } from "../extractors/diff.js";
 import { isStrictBlocker } from "../core/strictgate.js";
+import { renderText, renderMarkdown, reportFailsStrict, type CheckReport, type CheckDirect } from "../core/checkreport.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { ensureGitignore } from "../integrations/gitignore.js";
+import { writeCiWorkflow } from "../integrations/ciAction.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands, installClaudeHooks } from "../integrations/scaffold.js";
 import { scaffoldProviders } from "../integrations/providers.js";
@@ -514,59 +516,76 @@ program
 // ---- check (constraint enforcement) ---------------------------------------
 program
   .command("check")
-  .description("Flag changes that touch a do-not-break invariant's scope (guardrail).")
+  .description("Flag changes that touch a do-not-break invariant — the local guardrail AND the CI/PR Constraint Guard.")
   .option("--staged", "check git staged files (default)")
   .option("--commit <sha>", "check a specific commit's files")
+  .option("--base <ref>", "check a PR/branch: files changed vs <ref> (e.g. origin/main) — for CI")
   .option("--strict", "exit non-zero ONLY on a direct, high-confidence, non-stale blocking invariant (near/stale/low-confidence stay advisory)")
+  .option("--format <fmt>", "output: text (default) | markdown (a PR comment)", "text")
   .option("--blast", "also print the dependency blast radius of the changed files")
-  .action((opts: { staged?: boolean; commit?: string; strict?: boolean; blast?: boolean }) => {
-    if (opts.commit && opts.staged) return fail("--staged and --commit are mutually exclusive");
+  .action((opts: { staged?: boolean; commit?: string; base?: string; strict?: boolean; format?: string; blast?: boolean }) => {
+    const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged"].filter(Boolean);
+    if (sources.length > 1) return fail(`pick one of --staged / --commit / --base (got ${sources.join(", ")})`);
+    const markdown = opts.format === "markdown";
+    const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], strictBlockers: 0, regBlocking: 0 };
+
     const { store, root } = storeFor();
     store.reindex(); // blast radius walks the edge graph — make the index current
-    const files = opts.commit ? commitFiles(opts.commit, root) : stagedFiles(root);
+    const files = opts.commit ? commitFiles(opts.commit, root)
+      : opts.base ? rangeFiles(opts.base, root)
+      : stagedFiles(root);
     if (!files.length) {
-      console.log("No changed files to check.");
+      console.log(markdown ? renderMarkdown(emptyReport) : "No changed files to check.");
       store.close();
       return;
     }
     type Inv = ReturnType<HunchStore["checkConstraints"]>[number];
-    const mark = (s: string) => (s === "blocking" ? "⛔" : s === "warning" ? "⚠" : "·");
 
     // 1) DIRECT — a changed file matches a constraint's scope.
     const direct = new Map<string, { c: Inv; files: string[] }>();
-    for (const f of files) {
-      for (const c of store.checkConstraints(f)) {
-        const e = direct.get(c.id) ?? { c, files: [] };
-        e.files.push(f);
-        direct.set(c.id, e);
-      }
+    for (const f of files) for (const c of store.checkConstraints(f)) {
+      const e = direct.get(c.id) ?? { c, files: [] };
+      e.files.push(f);
+      direct.set(c.id, e);
     }
-    // 2) NEAR — a changed file's blast radius reaches a file an invariant guards:
-    //    you didn't touch the invariant, but you touched something it depends on.
+    // 2) NEAR — reached only through the blast radius (a guarded dependency changed).
     const near = new Map<string, { c: Inv; via: string[] }>();
-    for (const f of files) {
-      for (const b of store.blastRadiusFiles(f)) {
-        for (const c of store.checkConstraints(b.file)) {
-          if (direct.has(c.id)) continue; // already reported as a direct hit
-          const e = near.get(c.id) ?? { c, via: [] };
-          e.via.push(`${f} → ${b.file} (${b.via}, depth ${b.depth})`);
-          near.set(c.id, e);
-        }
-      }
+    for (const f of files) for (const b of store.blastRadiusFiles(f)) for (const c of store.checkConstraints(b.file)) {
+      if (direct.has(c.id)) continue; // already a direct hit
+      const e = near.get(c.id) ?? { c, via: [] };
+      e.via.push(`${f} → ${b.file} (${b.via}, depth ${b.depth})`);
+      near.set(c.id, e);
     }
-
-    // 3) REGRESSION — does the diff RE-ADD something an in-force decision removed?
-    //    (e.g. re-introducing a symbol/dep that was deliberately deleted). Warn
-    //    always; only a blocking-linked resurrection fails the commit under strict.
-    const diff = opts.commit ? commitDiff(opts.commit, root) : stagedDiff(root);
+    // 3) REGRESSION — does the diff RE-ADD something an in-force decision retired?
+    const diff = opts.commit ? commitDiff(opts.commit, root) : opts.base ? rangeDiff(opts.base, root) : stagedDiff(root);
     const an = analyzeDiff(diff);
-    const regHits = store.regressionHits(
-      { symbols: an.addedSymbols.map((s) => s.name), deps: an.addedDeps },
-      files,
-    );
-    const regBlocking = regHits.filter((h) => h.blocking).length;
+    const regHits = store.regressionHits({ symbols: an.addedSymbols.map((s) => s.name), deps: an.addedDeps }, files);
 
-    if (opts.blast) {
+    // Hardened strict gate (strictgate.ts): only DIRECT + high-confidence + non-stale
+    // can fail. near/stale/low-confidence stay advisory — safe on a shared repo / PR.
+    const staleConstraintIds = opts.strict
+      ? new Set(store.staleness((f) => lastChangeDate(f, root)).filter((s) => s.kind === "constraint").map((s) => s.id))
+      : new Set<string>();
+    const directReport: CheckDirect[] = [...direct.values()].map(({ c, files: fs }) => {
+      const stale = staleConstraintIds.has(c.id);
+      const strictBlocks = isStrictBlocker(c, stale);
+      return {
+        id: c.id, severity: c.severity ?? "advisory", statement: c.statement, rationale: c.rationale ?? "",
+        files: fs, strictBlocks,
+        downgrade: (c.severity === "blocking" && !strictBlocks ? (stale ? "stale" : "low-confidence") : undefined) as CheckDirect["downgrade"],
+      };
+    });
+    const report: CheckReport = {
+      fileCount: files.length,
+      strict: !!opts.strict,
+      direct: directReport,
+      near: [...near.values()].map(({ c, via }) => ({ id: c.id, severity: c.severity ?? "advisory", statement: c.statement, via })),
+      regressions: regHits.map((h) => ({ kind: h.kind, name: h.name, decision: h.decision, title: h.title, reason: h.reason, blocking: h.blocking })),
+      strictBlockers: directReport.filter((d) => d.strictBlocks).length,
+      regBlocking: regHits.filter((h) => h.blocking).length,
+    };
+
+    if (opts.blast && !markdown) {
       console.log(`Blast radius of ${files.length} changed file(s):`);
       for (const f of files) {
         const b = store.blastRadiusFiles(f);
@@ -576,58 +595,26 @@ program
       console.log("");
     }
 
-    if (!direct.size && !near.size && !regHits.length) {
-      console.log(`✓ ${files.length} changed file(s) touch no recorded invariants (directly or via blast radius) and re-introduce nothing deliberately retired.`);
-      store.close();
-      return;
-    }
-
-    // --strict may FAIL a commit ONLY on a DIRECT, high-confidence, non-stale
-    // blocking invariant (see strictgate.ts) — never on a blast-radius ("near")
-    // guess or a stale/low-confidence record. Those weaker hits still print, as
-    // advisory, so strict mode is safe to enable on a shared repo.
-    const staleConstraintIds = opts.strict
-      ? new Set(store.staleness((f) => lastChangeDate(f, root)).filter((s) => s.kind === "constraint").map((s) => s.id))
-      : new Set<string>();
-    let strictBlockers = 0;
-
-    if (direct.size) {
-      console.log(`Directly touches ${direct.size} invariant(s):\n`);
-      for (const { c, files: fs } of direct.values()) {
-        const blocks = isStrictBlocker(c, staleConstraintIds.has(c.id));
-        if (blocks) strictBlockers++;
-        const note = opts.strict && c.severity === "blocking" && !blocks
-          ? staleConstraintIds.has(c.id) ? "  (advisory: stale)" : "  (advisory: low confidence)"
-          : "";
-        console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}${note}\n      ${c.id} · in: ${fs.join(", ")}\n      rationale: ${c.rationale || "—"}`);
-      }
-    }
-    if (near.size) {
-      console.log(`${direct.size ? "\n" : ""}Near ${near.size} invariant(s) via blast radius (a guarded dependency changed — review; never blocks):\n`);
-      for (const { c, via } of near.values()) {
-        console.log(`  ${mark(c.severity)} [${c.severity}] ${c.statement}\n      ${c.id}\n      ${via.slice(0, 4).join("\n      ")}${via.length > 4 ? `\n      …+${via.length - 4} more path(s)` : ""}`);
-      }
-    }
-    if (regHits.length) {
-      console.log(`${direct.size || near.size ? "\n" : ""}Re-introduces ${regHits.length} deliberately-retired item(s):\n`);
-      for (const h of regHits) {
-        console.log(`  ${h.blocking ? "⛔" : "⚠"} re-adds ${h.kind} \`${h.name}\` — ${h.decision} removed it${h.blocking ? " (blocking-linked)" : ""}\n      “${h.title}”\n      ${h.reason}`);
-      }
-    }
-
-    if (opts.strict && (strictBlockers || regBlocking)) {
-      const reasons = [
-        strictBlockers ? `${strictBlockers} high-confidence blocking invariant(s) directly in scope` : "",
-        regBlocking ? `${regBlocking} blocking-linked regression(s)` : "",
-      ].filter(Boolean).join(" + ");
-      console.log(`\n✗ ${reasons} — review before committing.`);
-      process.exitCode = 1;
-    } else if (opts.strict) {
-      console.log(`\nReview these — none are a direct, high-confidence, non-stale blocking invariant, so the commit is NOT blocked.`);
-    } else {
-      console.log(`\nReview that these invariants still hold. (Advisory — run with --strict to fail on direct, high-confidence, non-stale blocking invariants.)`);
-    }
+    console.log(markdown ? renderMarkdown(report) : renderText(report));
+    if (reportFailsStrict(report)) process.exitCode = 1;
     store.close();
+  });
+
+// ---- ci (scaffold the CI Constraint Guard) --------------------------------
+program
+  .command("ci")
+  .description("Scaffold the CI Constraint Guard: a GitHub Action that runs `hunch check` on PRs, comments the result, and fails on a blocking invariant.")
+  .action(() => {
+    const root = findRoot();
+    const r = writeCiWorkflow(root);
+    if (r.action === "created") {
+      console.log(`✓ wrote ${rel(root, r.path)}`);
+      console.log("  Runs on every PR: comments the affected invariants/decisions and fails on a direct,");
+      console.log("  high-confidence, non-stale blocking invariant. Commit it, then (optionally) make");
+      console.log('  "Hunch Guard" a required status check in branch protection to enforce on merge.');
+    } else {
+      console.log(`· ${rel(root, r.path)} already exists — left untouched. Delete it to regenerate.`);
+    }
   });
 
 // ---- context (surgical retrieval) -----------------------------------------
