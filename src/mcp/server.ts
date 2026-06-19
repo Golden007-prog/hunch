@@ -13,6 +13,7 @@ import { hunchPaths, findRoot, toPosixTarget } from "../core/paths.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { selectEmbedder } from "../store/embedder.js";
 import { decisionId } from "../core/ids.js";
+import { buildCorrectionConstraint } from "../core/correction.js";
 import { revParse, asOfDate } from "../extractors/git.js";
 import { formatContext } from "../core/format.js";
 import type { Decision, Symbol } from "../core/types.js";
@@ -331,6 +332,40 @@ export function buildServer(root: string): McpServer {
         return ok(`Recorded decision ${id}: "${rec.title}" (status ${rec.status}, ${source}).${supNote}${note}`);
       } catch (e) {
         return err(`Failed to record decision: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  // -- hunch_record_correction (write-back: "Never Twice") ------------------
+  server.registerTool(
+    "hunch_record_correction",
+    {
+      title: "Capture a correction as an enforced constraint (Never Twice)",
+      description:
+        "When a human corrects the agent ('no, do it this way' / 'never call X here'), persist that correction as a first-class, SCOPED Constraint with provenance — so the pre-edit hook and the CI Constraint Guard hold EVERY assistant to it from now on, instead of it being forgotten next session. Writes to the shared .hunch/ graph (client-agnostic). Set severity:'blocking' only when the human said never/must; set applies_to_all:true only when the rule is genuinely repo-wide (otherwise it is scoped to scope_hint_file).",
+      inputSchema: {
+        rule: z.string().describe("The invariant in the human's words, e.g. \"never call the pay-per-token API here\"."),
+        scope_hint_file: z.string().optional().describe("A file the correction was about; scopes the constraint to it (the conservative default)."),
+        severity: z.enum(["advisory", "warning", "blocking"]).optional().describe("Default 'warning'. Use 'blocking' only for a hard never/must rule."),
+        applies_to_all: z.boolean().optional().describe("True ONLY if the rule is genuinely repo-wide (scopes to **); required to make a repo-wide rule blocking."),
+        type: z.enum(["security", "performance", "correctness", "architecture", "compliance"]).optional(),
+        rationale: z.string().optional().describe("Why it must hold."),
+        source_decision: z.string().optional().describe("id of a decision this correction derives from."),
+      },
+    },
+    async (input): Promise<ToolResult> => {
+      try {
+        if (!input.rule || !input.rule.trim()) return err("rule is required — state the invariant in plain words.");
+        const rec = buildCorrectionConstraint(input, new Date().toISOString());
+        const existing = store.json.get("constraints", rec.id);
+        store.json.put("constraints", rec);
+        store.reindex();
+        const enforce = rec.severity === "blocking"
+          ? "blocks a DIRECT edit to its scope at strict firmness, and fails a PR whose diff touches that scope (CI guard); blast-radius hits and lower firmness stay advisory"
+          : "flags violating edits and PRs (advisory)";
+        return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}). It now ${enforce}.`);
+      } catch (e) {
+        return err(`Failed to record correction: ${(e as Error).message}`);
       }
     },
   );

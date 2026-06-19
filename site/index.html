@@ -701,6 +701,10 @@
       <h2 class="title" data-rise style="--d:.08s">Every release, since <em>v0.1</em>.</h2>
       <div class="clog" data-rise style="--d:.14s;margin-top:36px;border-top:1px solid var(--line)">
         <div class="clog-group">
+          <div class="clog-date">Jun 20, 2026</div>
+          <div class="clog-row"><span class="rel-tag">v0.13.0</span><span class="clog-t"><b>Never Twice — corrections become enforced invariants</b> — new <span class="mono">hunch_record_correction</span> MCP tool: when you correct the agent ("no — never call X here"), Hunch mints a scoped, human-confirmed Constraint that the pre-edit hook and CI guard then hold <em>every</em> assistant to. The <span class="mono">UserPromptSubmit</span> hook nudges the agent to persist a rule whenever a prompt reads like a correction, so the same mistake can't recur next session.</span></div>
+        </div>
+        <div class="clog-group">
           <div class="clog-date">Jun 19, 2026</div>
           <div class="clog-row"><span class="rel-tag">v0.12.2</span><span class="clog-t"><b>OS-agnostic, end to end</b> — an installed Hunch now writes a path-free <span class="mono">npx&nbsp;-y&nbsp;@davesheffer/hunch</span> MCP entry, so a committed config works on any teammate's OS; and every <span class="mono">why</span>&nbsp;/&nbsp;<span class="mono">context</span>&nbsp;/ blast-radius lookup normalizes path separators, so a Windows target like <span class="mono">src\auth\x.ts</span> resolves identically to <span class="mono">src/auth/x.ts</span>.</span></div>
         </div>

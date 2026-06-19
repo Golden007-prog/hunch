@@ -75,6 +75,36 @@
     }
   },
   {
+    "id": "edge_031b27f1ab",
+    "from": "sym_393e7562e1",
+    "to": "sym_532e5d09cb",
+    "type": "calls",
+    "reason": "recordConstraint calls reload",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_04cdda8805",
+    "from": "sym_1585ecfb0b",
+    "to": "sym_7453ff75b2",
+    "type": "calls",
+    "reason": "getChildren calls lineageNode",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_05186028f1",
     "from": "sym_24693481f2",
     "to": "sym_c649780494",
@@ -150,6 +180,21 @@
     }
   },
   {
+    "id": "edge_07712b5600",
+    "from": "sym_48e64385a7",
+    "to": "sym_d0a07420b5",
+    "type": "calls",
+    "reason": "bugLeaf calls firstFile",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_07fe4b55a3",
     "from": "sym_6103f9eaf1",
     "to": "sym_cb863afde2",
@@ -176,6 +221,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/integrations/scaffold.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_096767c049",
+    "from": "sym_e551d96773",
+    "to": "sym_532e5d09cb",
+    "type": "calls",
+    "reason": "activate calls reload",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -251,6 +311,36 @@
       "confidence": 0.8,
       "evidence": [
         "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_0c899bc5b8",
+    "from": "sym_d71984e562",
+    "to": "sym_468960ffdc",
+    "type": "calls",
+    "reason": "delete calls invalidate",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_0cc3424fbc",
+    "from": "sym_37773766b1",
+    "to": "sym_98c15e9c0a",
+    "type": "calls",
+    "reason": "assembleContext calls toPosixTarget",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/hunchStore.ts"
       ]
     }
   },
@@ -341,21 +431,6 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/provider.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_12822435e5",
-    "from": "sym_32c00c06bc",
-    "to": "sym_0b13a0b6ff",
-    "type": "calls",
-    "reason": "refresh calls loadHunch",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -540,6 +615,21 @@
     }
   },
   {
+    "id": "edge_18d8c44c72",
+    "from": "sym_c685855784",
+    "to": "sym_b05d886ed1",
+    "type": "calls",
+    "reason": "provideHover calls bugsForSymbol",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_18db9ba18f",
     "from": "sym_c649780494",
     "to": "sym_f7439daa82",
@@ -645,6 +735,36 @@
     }
   },
   {
+    "id": "edge_1aaf82072b",
+    "from": "sym_1585ecfb0b",
+    "to": "sym_eab51776c0",
+    "type": "calls",
+    "reason": "getChildren calls staleRecords",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_1af0338826",
+    "from": "sym_41400a6b0a",
+    "to": "sym_3f3af7117b",
+    "type": "calls",
+    "reason": "symbolBrief calls constraintsInScope",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_1e2581b267",
     "from": "sym_76837948cb",
     "to": "sym_0e53febe6d",
@@ -690,6 +810,21 @@
     }
   },
   {
+    "id": "edge_1f5c0508b8",
+    "from": "sym_6eb407df5b",
+    "to": "sym_de04d84ffc",
+    "type": "calls",
+    "reason": "symbolSignals calls fragileSymbols",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/hunchData.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_20872704cf",
     "from": "sym_ae0f7d8b5a",
     "to": "sym_47649456f3",
@@ -701,6 +836,36 @@
       "confidence": 0.8,
       "evidence": [
         "src/integrations/providers.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_214c6afc79",
+    "from": "sym_30ea1bb96d",
+    "to": "sym_174cd5e9a8",
+    "type": "calls",
+    "reason": "runSearch calls toItems",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/search.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_219fdf1fc2",
+    "from": "sym_0297ebb8f0",
+    "to": "sym_ac2297b171",
+    "type": "calls",
+    "reason": "update calls nearConstraints",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/diagnostics.ts"
       ]
     }
   },
@@ -915,6 +1080,21 @@
     }
   },
   {
+    "id": "edge_24e1e0db31",
+    "from": "sym_011f6866e6",
+    "to": "sym_056000a4c3",
+    "type": "calls",
+    "reason": "readAllFromDisk calls schemaVersion",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_25229d73a8",
     "from": "sym_d73e258d4a",
     "to": "sym_803f912202",
@@ -926,21 +1106,6 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/jsonStore.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_252d22da14",
-    "from": "sym_e551d96773",
-    "to": "sym_32c00c06bc",
-    "type": "calls",
-    "reason": "activate calls refresh",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -960,21 +1125,6 @@
     }
   },
   {
-    "id": "edge_258306baa2",
-    "from": "sym_beea0020b4",
-    "to": "sym_e7fcc521a7",
-    "type": "calls",
-    "reason": "getDependents calls labelFor",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/store/hunchStore.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_258923ba8e",
     "from": "sym_a20d4cc8fa",
     "to": "sym_a6d93d75c6",
@@ -990,6 +1140,21 @@
     }
   },
   {
+    "id": "edge_26c2ca9c82",
+    "from": "sym_48e64385a7",
+    "to": "sym_e165b395df",
+    "type": "calls",
+    "reason": "bugLeaf calls prov",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_26c3b082c2",
     "from": "sym_2f00ac7819",
     "to": "sym_aa5f50456c",
@@ -1001,6 +1166,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/extractors/indexer.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_272248e3e8",
+    "from": "sym_993c48c2a3",
+    "to": "sym_532e5d09cb",
+    "type": "calls",
+    "reason": "refreshAll calls reload",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -1125,21 +1305,6 @@
     }
   },
   {
-    "id": "edge_29414cfb5f",
-    "from": "sym_0194d263c7",
-    "to": "sym_e7fcc521a7",
-    "type": "calls",
-    "reason": "getDependencies calls labelFor",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/store/hunchStore.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_29977c5ade",
     "from": "sym_ec30e7bbea_2",
     "to": "sym_b0cd752eeb",
@@ -1151,21 +1316,6 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/provider.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_29f1013f1d",
-    "from": "sym_2f00ac7819",
-    "to": "sym_9853d94477",
-    "type": "calls",
-    "reason": "indexRepo calls lastCommitForFile",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/extractors/indexer.ts"
       ]
     }
   },
@@ -1211,6 +1361,36 @@
       "confidence": 0.9,
       "evidence": [
         "src/cli/index.ts:imports:../store/hunchStore.js"
+      ]
+    }
+  },
+  {
+    "id": "edge_2ba0f3db71",
+    "from": "sym_66553fe4d1",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "rangeDiff calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_2be129d5a9",
+    "from": "sym_9bae37e3e4",
+    "to": "sym_6eb407df5b",
+    "type": "calls",
+    "reason": "update calls symbolSignals",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/decorations.ts"
       ]
     }
   },
@@ -1320,6 +1500,51 @@
     }
   },
   {
+    "id": "edge_2f5c871db2",
+    "from": "sym_993c48c2a3",
+    "to": "sym_32c00c06bc",
+    "type": "calls",
+    "reason": "refreshAll calls refresh",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_2f8b414c67",
+    "from": "sym_ee5da30dbe",
+    "to": "sym_62111a4caa",
+    "type": "calls",
+    "reason": "showGraph calls html",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/graph.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_2f9c9cff2d",
+    "from": "sym_ababa126ef",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "revExists calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_2fa535b3c2",
     "from": "sym_5fb91b7bd2",
     "to": "sym_8fc96bbf18",
@@ -1331,6 +1556,36 @@
       "confidence": 0.8,
       "evidence": [
         "src/mcp/server.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_300567ef58",
+    "from": "sym_6f3774bcfa",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "fileGitMetrics calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_3049a6fbdf",
+    "from": "sym_c685855784",
+    "to": "sym_6eb407df5b",
+    "type": "calls",
+    "reason": "provideHover calls symbolSignals",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
       ]
     }
   },
@@ -1500,6 +1755,21 @@
     }
   },
   {
+    "id": "edge_36fbfc5b98",
+    "from": "sym_41400a6b0a",
+    "to": "sym_6eb407df5b",
+    "type": "calls",
+    "reason": "symbolBrief calls symbolSignals",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_370a0bf5b0",
     "from": "sym_bfe63b3289",
     "to": "sym_d73e258d4a",
@@ -1530,6 +1800,21 @@
     }
   },
   {
+    "id": "edge_383b1dec62",
+    "from": "sym_aa84f090d3",
+    "to": "sym_2107f96eaf",
+    "type": "calls",
+    "reason": "recordBug calls resolve",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_38ebad7712",
     "from": "sym_6cb324f0d8",
     "to": "sym_383cbb69ef",
@@ -1545,6 +1830,21 @@
     }
   },
   {
+    "id": "edge_39124b05d7",
+    "from": "sym_011f6866e6",
+    "to": "sym_48db7d72bc",
+    "type": "calls",
+    "reason": "readAllFromDisk calls migrate",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_39c5e2ddf7",
     "from": "sym_2372383431",
     "to": "sym_383cbb69ef",
@@ -1556,6 +1856,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_39dbf01fff",
+    "from": "sym_0297ebb8f0",
+    "to": "sym_3f3af7117b",
+    "type": "calls",
+    "reason": "update calls constraintsInScope",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/diagnostics.ts"
       ]
     }
   },
@@ -1605,11 +1920,41 @@
     }
   },
   {
+    "id": "edge_3be0e6b9bc",
+    "from": "sym_30ba3fa365",
+    "to": "sym_eb5c83c0b6",
+    "type": "calls",
+    "reason": "fragileLeaves calls absFile",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_3c2ef4acc6",
     "from": "sym_e25e20455f",
     "to": "sym_1d6e8f7ffa",
     "type": "calls",
     "reason": "why calls relMatch",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/hunchData.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_3d7087f14a",
+    "from": "sym_f80ce17080",
+    "to": "sym_712bc8ed6f",
+    "type": "calls",
+    "reason": "componentGraph calls pathMatchesGlob",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
@@ -1691,21 +2036,6 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_40a841a3aa",
-    "from": "sym_c75e922555",
-    "to": "sym_9cd3f7fe96",
-    "type": "calls",
-    "reason": "updateStatusBar calls workspaceRoot",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -1875,6 +2205,21 @@
     }
   },
   {
+    "id": "edge_46cb466c61",
+    "from": "sym_a6d1b80f7d",
+    "to": "sym_815fdb47eb",
+    "type": "calls",
+    "reason": "rangeFiles calls gitSafe",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/git.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_47906e82af",
     "from": "sym_412280cb7c",
     "to": "sym_0d4f34271e",
@@ -1886,6 +2231,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/provider.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_47c28b8605",
+    "from": "sym_e551d96773",
+    "to": "sym_dd44d72859",
+    "type": "calls",
+    "reason": "activate calls clearClosed",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -2025,6 +2385,21 @@
     }
   },
   {
+    "id": "edge_4c12de19dd",
+    "from": "sym_e551d96773",
+    "to": "sym_393e7562e1",
+    "type": "calls",
+    "reason": "activate calls recordConstraint",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_4c82ff36d4",
     "from": "cmp_dfa5b5acde",
     "to": "cmp_cdfb395bb7",
@@ -2085,11 +2460,56 @@
     }
   },
   {
-    "id": "edge_529a57cfb0",
-    "from": "sym_9a375345fc",
-    "to": "sym_9cd3f7fe96",
+    "id": "edge_4de091cf2e",
+    "from": "sym_f80ce17080",
+    "to": "sym_832d2ed106",
     "type": "calls",
-    "reason": "withHunch calls workspaceRoot",
+    "reason": "componentGraph calls inComp",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/hunchData.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_4eb177bc87",
+    "from": "sym_1585ecfb0b",
+    "to": "sym_48e64385a7",
+    "type": "calls",
+    "reason": "getChildren calls bugLeaf",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_51c308886a",
+    "from": "sym_18949f0e15",
+    "to": "sym_328c39499a",
+    "type": "calls",
+    "reason": "renderMarkdown calls reportIsClean",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/core/checkreport.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_537e9ce49b",
+    "from": "sym_41400a6b0a",
+    "to": "sym_aed7c11714",
+    "type": "calls",
+    "reason": "symbolBrief calls relPath",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
@@ -2130,11 +2550,11 @@
     }
   },
   {
-    "id": "edge_54e321e76e",
-    "from": "sym_343edf66d4",
-    "to": "sym_c75e922555",
+    "id": "edge_54c7c23e0d",
+    "from": "sym_34103ad4ad",
+    "to": "sym_532e5d09cb",
     "type": "calls",
-    "reason": "onChange calls updateStatusBar",
+    "reason": "get calls reload",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
@@ -2265,6 +2685,21 @@
     }
   },
   {
+    "id": "edge_586b26b626",
+    "from": "sym_9bae37e3e4",
+    "to": "sym_51c007bc15",
+    "type": "calls",
+    "reason": "update calls symbolRanges",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/decorations.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_587963bb87",
     "from": "sym_e0ac1bf3e6",
     "to": "sym_4399ce5337",
@@ -2280,6 +2715,36 @@
     }
   },
   {
+    "id": "edge_58c6d96e79",
+    "from": "sym_aa84f090d3",
+    "to": "sym_532e5d09cb",
+    "type": "calls",
+    "reason": "recordBug calls reload",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_59e0ad66c1",
+    "from": "sym_41400a6b0a",
+    "to": "sym_b05d886ed1",
+    "type": "calls",
+    "reason": "symbolBrief calls bugsForSymbol",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_5b35e6ea0a",
     "from": "sym_f7439daa82",
     "to": "sym_7973c0cb31",
@@ -2291,6 +2756,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/merge.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_5ba7165f5e",
+    "from": "sym_9301e7f0e9",
+    "to": "sym_98c15e9c0a",
+    "type": "calls",
+    "reason": "why calls toPosixTarget",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/hunchStore.ts"
       ]
     }
   },
@@ -2321,6 +2801,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/compact.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_5ca67d735f",
+    "from": "sym_df5a40b2e7",
+    "to": "sym_ac2297b171",
+    "type": "calls",
+    "reason": "provideCodeLenses calls nearConstraints",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
       ]
     }
   },
@@ -2535,6 +3030,21 @@
     }
   },
   {
+    "id": "edge_61d849a374",
+    "from": "sym_174cd5e9a8",
+    "to": "sym_e1d5de5d42",
+    "type": "calls",
+    "reason": "toItems calls searchAll",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/search.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_6208595892",
     "from": "sym_d42b719307",
     "to": "sym_39f0639bf0",
@@ -2621,6 +3131,21 @@
       "confidence": 0.8,
       "evidence": [
         "test/merge.test.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_67a1c89282",
+    "from": "sym_e551d96773",
+    "to": "sym_aa84f090d3",
+    "type": "calls",
+    "reason": "activate calls recordBug",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -2730,21 +3255,6 @@
     }
   },
   {
-    "id": "edge_6ab79236c9",
-    "from": "sym_32c00c06bc",
-    "to": "sym_9cd3f7fe96",
-    "type": "calls",
-    "reason": "refresh calls workspaceRoot",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_6b29c53d75",
     "from": "cmp_50037f41a9",
     "to": "cmp_b256a6aed0",
@@ -2820,6 +3330,36 @@
     }
   },
   {
+    "id": "edge_6e4be4c129",
+    "from": "sym_383cbb69ef",
+    "to": "sym_468960ffdc",
+    "type": "calls",
+    "reason": "put calls invalidate",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_6edd34c691",
+    "from": "sym_393e7562e1",
+    "to": "sym_2107f96eaf",
+    "type": "calls",
+    "reason": "recordConstraint calls resolve",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_6fdb5c1e38",
     "from": "sym_15d8a2509a",
     "to": "sym_a2df62d136",
@@ -2861,6 +3401,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_73d82436dc",
+    "from": "sym_e551d96773",
+    "to": "sym_30ea1bb96d",
+    "type": "calls",
+    "reason": "activate calls runSearch",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -3150,6 +3705,21 @@
     }
   },
   {
+    "id": "edge_7fa2df8d69",
+    "from": "sym_62111a4caa",
+    "to": "sym_3d0f9f7b88",
+    "type": "calls",
+    "reason": "html calls nonce",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/graph.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_801edec0cd",
     "from": "sym_784aeb8abe",
     "to": "sym_8fc96bbf18",
@@ -3161,6 +3731,21 @@
       "confidence": 0.8,
       "evidence": [
         "test/hookpolicy.test.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_80741a3c88",
+    "from": "sym_393e7562e1",
+    "to": "sym_aed7c11714",
+    "type": "calls",
+    "reason": "recordConstraint calls relPath",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -3330,6 +3915,21 @@
     }
   },
   {
+    "id": "edge_8bb9099e69",
+    "from": "sym_2f00ac7819",
+    "to": "sym_6f3774bcfa",
+    "type": "calls",
+    "reason": "indexRepo calls fileGitMetrics",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/extractors/indexer.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_8bf46c25be",
     "from": "sym_89d5502a58",
     "to": "sym_ac2297b171",
@@ -3356,6 +3956,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/hunchStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_8c4a05daab",
+    "from": "sym_e551d96773",
+    "to": "sym_823f45c8fc",
+    "type": "calls",
+    "reason": "activate calls revealScope",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -3435,21 +4050,6 @@
     }
   },
   {
-    "id": "edge_8ed2481117",
-    "from": "sym_c75e922555",
-    "to": "sym_0b13a0b6ff",
-    "type": "calls",
-    "reason": "updateStatusBar calls loadHunch",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_8eec3a62d2",
     "from": "sym_a708ee9110",
     "to": "sym_2945a8c6b8",
@@ -3521,6 +4121,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/integrations/providers.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_8f88e448f5",
+    "from": "sym_f80ce17080",
+    "to": "sym_8033077ffd",
+    "type": "calls",
+    "reason": "componentGraph calls ownerComponent",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/hunchData.ts"
       ]
     }
   },
@@ -3630,6 +4245,21 @@
     }
   },
   {
+    "id": "edge_9743114c27",
+    "from": "sym_df5a40b2e7",
+    "to": "sym_eb66bfc170",
+    "type": "calls",
+    "reason": "provideCodeLenses calls symbolLensTitle",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_97af4a0fd0",
     "from": "sym_2372383431",
     "to": "sym_5c38b4911d",
@@ -3656,6 +4286,36 @@
       "confidence": 0.8,
       "evidence": [
         "test/store.test.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_98842fbba4",
+    "from": "sym_aa84f090d3",
+    "to": "sym_8ad0b6e254",
+    "type": "calls",
+    "reason": "recordBug calls cliCommand",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_996aa710b4",
+    "from": "sym_532e5d09cb",
+    "to": "sym_0b13a0b6ff",
+    "type": "calls",
+    "reason": "reload calls loadHunch",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -3761,6 +4421,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/mcp/server.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_9cb0d8b202",
+    "from": "sym_e551d96773",
+    "to": "sym_ee5da30dbe",
+    "type": "calls",
+    "reason": "activate calls showGraph",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -4050,6 +4725,21 @@
     }
   },
   {
+    "id": "edge_a7a2a72b75",
+    "from": "sym_ee5da30dbe",
+    "to": "sym_f80ce17080",
+    "type": "calls",
+    "reason": "showGraph calls componentGraph",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/graph.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_a8d0bcfb00",
     "from": "sym_71788d2ebe",
     "to": "sym_8fc96bbf18",
@@ -4076,6 +4766,51 @@
       "confidence": 0.9,
       "evidence": [
         "src/mcp/server.ts:imports:../extractors/git.js"
+      ]
+    }
+  },
+  {
+    "id": "edge_a9038d3121",
+    "from": "sym_1585ecfb0b",
+    "to": "sym_30ba3fa365",
+    "type": "calls",
+    "reason": "getChildren calls fragileLeaves",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_ab4a55323e",
+    "from": "sym_e551d96773",
+    "to": "sym_1be7c8e393",
+    "type": "calls",
+    "reason": "activate calls refreshActive",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_ab6c24fca2",
+    "from": "sym_993c48c2a3",
+    "to": "sym_9e450479d5",
+    "type": "calls",
+    "reason": "refreshAll calls refreshGraph",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -4121,6 +4856,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/mcp/server.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_ad4ae7716b",
+    "from": "sym_7453ff75b2",
+    "to": "sym_d0a07420b5",
+    "type": "calls",
+    "reason": "lineageNode calls firstFile",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -4200,6 +4950,21 @@
     }
   },
   {
+    "id": "edge_b11ef1c93d",
+    "from": "sym_1585ecfb0b",
+    "to": "sym_3d9ea8a4f8",
+    "type": "calls",
+    "reason": "getChildren calls lineageChains",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_b14e1f7e37",
     "from": "sym_7183436879",
     "to": "sym_4ac3ad6690",
@@ -4211,6 +4976,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_b16a629707",
+    "from": "sym_30ba3fa365",
+    "to": "sym_de04d84ffc",
+    "type": "calls",
+    "reason": "fragileLeaves calls fragileSymbols",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -4350,17 +5130,17 @@
     }
   },
   {
-    "id": "edge_b5b15244a6",
-    "from": "sym_e551d96773",
-    "to": "sym_c75e922555",
+    "id": "edge_b683796115",
+    "from": "sym_e1d5de5d42",
+    "to": "sym_f73c9232bf",
     "type": "calls",
-    "reason": "activate calls updateStatusBar",
+    "reason": "searchAll calls score",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
       "confidence": 0.8,
       "evidence": [
-        "vscode-extension/src/extension.ts"
+        "vscode-extension/src/hunchData.ts"
       ]
     }
   },
@@ -4406,21 +5186,6 @@
       "confidence": 0.8,
       "evidence": [
         "src/extractors/git.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_b8f1d475f8",
-    "from": "sym_343edf66d4",
-    "to": "sym_32c00c06bc",
-    "type": "calls",
-    "reason": "onChange calls refresh",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -4511,6 +5276,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/provider.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_bb698b7734",
+    "from": "sym_df5a40b2e7",
+    "to": "sym_51c007bc15",
+    "type": "calls",
+    "reason": "provideCodeLenses calls symbolRanges",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
       ]
     }
   },
@@ -4620,17 +5400,32 @@
     }
   },
   {
-    "id": "edge_c2801b4fe5",
-    "from": "sym_71788d2ebe",
-    "to": "sym_ee9980dcd2",
+    "id": "edge_c235f8bfbc",
+    "from": "sym_8033077ffd",
+    "to": "sym_712bc8ed6f",
     "type": "calls",
-    "reason": "reindex calls fts",
+    "reason": "ownerComponent calls pathMatchesGlob",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
       "confidence": 0.8,
       "evidence": [
-        "src/store/hunchStore.ts"
+        "vscode-extension/src/hunchData.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_c2b6109587",
+    "from": "sym_989104f7ed",
+    "to": "sym_f1192d2c2e",
+    "type": "calls",
+    "reason": "writeCiWorkflow calls ciWorkflowYaml",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/integrations/ciAction.ts"
       ]
     }
   },
@@ -4665,6 +5460,21 @@
     }
   },
   {
+    "id": "edge_c3648a36ab",
+    "from": "sym_5fb91b7bd2",
+    "to": "sym_98c15e9c0a",
+    "type": "calls",
+    "reason": "resolveSymbols calls toPosixTarget",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/mcp/server.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_c3e45d4636",
     "from": "sym_ec30e7bbea_1",
     "to": "sym_b0cd752eeb",
@@ -4685,6 +5495,21 @@
     "to": "sym_eb5c83c0b6",
     "type": "calls",
     "reason": "getChildren calls absFile",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_c4b6203550",
+    "from": "sym_41400a6b0a",
+    "to": "sym_04547bba25",
+    "type": "calls",
+    "reason": "symbolBrief calls showBrief",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
@@ -4721,6 +5546,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/extractors/diff.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_c5d4f4a402",
+    "from": "sym_9e450479d5",
+    "to": "sym_62111a4caa",
+    "type": "calls",
+    "reason": "refreshGraph calls html",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/graph.ts"
       ]
     }
   },
@@ -4845,6 +5685,36 @@
     }
   },
   {
+    "id": "edge_cc3c67f497",
+    "from": "sym_7ee351138b",
+    "to": "sym_d9bbf79210",
+    "type": "calls",
+    "reason": "mapPool calls worker",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/cli/index.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_cc9f2a23c6",
+    "from": "sym_9e17df05dc",
+    "to": "sym_328c39499a",
+    "type": "calls",
+    "reason": "renderText calls reportIsClean",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/core/checkreport.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_d011d83689",
     "from": "sym_010a360b82",
     "to": "sym_b24c20a0d9",
@@ -4890,21 +5760,6 @@
     }
   },
   {
-    "id": "edge_d0fbfd252b",
-    "from": "sym_8fc96bbf18",
-    "to": "sym_48db7d72bc",
-    "type": "calls",
-    "reason": "loadAll calls migrate",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/store/jsonStore.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_d114d211a3",
     "from": "sym_43f8b248dd",
     "to": "sym_8fc96bbf18",
@@ -4916,6 +5771,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/integrations/claudemd.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_d30420863a",
+    "from": "sym_832d2ed106",
+    "to": "sym_712bc8ed6f",
+    "type": "calls",
+    "reason": "inComp calls pathMatchesGlob",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/hunchData.ts"
       ]
     }
   },
@@ -5070,6 +5940,21 @@
     }
   },
   {
+    "id": "edge_dca4ef6f17",
+    "from": "sym_8fc96bbf18",
+    "to": "sym_011f6866e6",
+    "type": "calls",
+    "reason": "loadAll calls readAllFromDisk",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_dcad400dfb",
     "from": "sym_125cbbaf35",
     "to": "sym_8fc96bbf18",
@@ -5081,6 +5966,36 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_dd9429eb43",
+    "from": "sym_eab51776c0",
+    "to": "sym_abe707c6f0",
+    "type": "calls",
+    "reason": "staleRecords calls isStale",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/hunchData.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_de7dbfc90b",
+    "from": "sym_e551d96773",
+    "to": "sym_41400a6b0a",
+    "type": "calls",
+    "reason": "activate calls symbolBrief",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -5220,21 +6135,6 @@
     }
   },
   {
-    "id": "edge_e40b069023",
-    "from": "sym_2f00ac7819",
-    "to": "sym_41326cde36",
-    "type": "calls",
-    "reason": "indexRepo calls fileChurn",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/extractors/indexer.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_e422e70020",
     "from": "sym_3188212032",
     "to": "sym_9e8caabda8",
@@ -5265,6 +6165,36 @@
     }
   },
   {
+    "id": "edge_e4b07fd7e3",
+    "from": "sym_393e7562e1",
+    "to": "sym_8ad0b6e254",
+    "type": "calls",
+    "reason": "recordConstraint calls cliCommand",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_e51bd96e4d",
+    "from": "sym_71788d2ebe",
+    "to": "sym_bbc1da5ec5",
+    "type": "calls",
+    "reason": "reindex calls fts",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/hunchStore.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_e5612793a8",
     "from": "sym_13e20235c4",
     "to": "sym_056000a4c3",
@@ -5276,6 +6206,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/jsonStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_e5c72740a2",
+    "from": "sym_9e450479d5",
+    "to": "sym_f80ce17080",
+    "type": "calls",
+    "reason": "refreshGraph calls componentGraph",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/graph.ts"
       ]
     }
   },
@@ -5415,41 +6360,26 @@
     }
   },
   {
+    "id": "edge_eae01597f4",
+    "from": "sym_df5a40b2e7",
+    "to": "sym_6eb407df5b",
+    "type": "calls",
+    "reason": "provideCodeLenses calls symbolSignals",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_eae4b9f2b1",
     "from": "sym_d0a790bbad",
     "to": "sym_0328d7861c",
     "type": "calls",
     "reason": "fragility calls round",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/store/hunchStore.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_eaed7ef53e",
-    "from": "sym_9a375345fc",
-    "to": "sym_0b13a0b6ff",
-    "type": "calls",
-    "reason": "withHunch calls loadHunch",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_eb30458945",
-    "from": "sym_7a2923507e",
-    "to": "sym_beea0020b4",
-    "type": "calls",
-    "reason": "blastRadiusFiles calls getDependents",
     "strength": 0.8,
     "provenance": {
       "source": "extracted",
@@ -5471,6 +6401,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/extractors/indexer.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_ec7f03f60b",
+    "from": "sym_18949f0e15",
+    "to": "sym_ffd72a6f96",
+    "type": "calls",
+    "reason": "renderMarkdown calls reportFailsStrict",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/core/checkreport.ts"
       ]
     }
   },
@@ -5520,6 +6465,36 @@
     }
   },
   {
+    "id": "edge_ed0683ee88",
+    "from": "sym_51c007bc15",
+    "to": "sym_25ae337a88",
+    "type": "calls",
+    "reason": "symbolRanges calls walk",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/providers.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_edb64e0e4c",
+    "from": "sym_9e17df05dc",
+    "to": "sym_da554fc009",
+    "type": "calls",
+    "reason": "renderText calls mark",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/core/checkreport.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_ee295ab367",
     "from": "sym_949445a607",
     "to": "sym_8211cca258",
@@ -5535,6 +6510,21 @@
     }
   },
   {
+    "id": "edge_eeed25c180",
+    "from": "sym_27284a3c8e",
+    "to": "sym_98c15e9c0a",
+    "type": "calls",
+    "reason": "resolveFiles calls toPosixTarget",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/mcp/server.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_eef43bfdf0",
     "from": "sym_0bef124f1f",
     "to": "sym_6510b40667",
@@ -5546,21 +6536,6 @@
       "confidence": 0.8,
       "evidence": [
         "src/integrations/mergeDriver.ts"
-      ]
-    }
-  },
-  {
-    "id": "edge_ef3a0a18d0",
-    "from": "sym_1585ecfb0b",
-    "to": "sym_de04d84ffc",
-    "type": "calls",
-    "reason": "getChildren calls fragileSymbols",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -5760,21 +6735,6 @@
     }
   },
   {
-    "id": "edge_f72ff6507b",
-    "from": "sym_8fc96bbf18",
-    "to": "sym_056000a4c3",
-    "type": "calls",
-    "reason": "loadAll calls schemaVersion",
-    "strength": 0.8,
-    "provenance": {
-      "source": "extracted",
-      "confidence": 0.8,
-      "evidence": [
-        "src/store/jsonStore.ts"
-      ]
-    }
-  },
-  {
     "id": "edge_f7807c2321",
     "from": "cmp_a94a8fe5cc",
     "to": "cmp_863ac67d4a",
@@ -5801,6 +6761,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/synthesis/synthesize.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_f9036b3d89",
+    "from": "sym_f66a553cec",
+    "to": "sym_468960ffdc",
+    "type": "calls",
+    "reason": "replaceAll calls invalidate",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/store/jsonStore.ts"
       ]
     }
   },
@@ -5835,6 +6810,21 @@
     }
   },
   {
+    "id": "edge_fa35239f49",
+    "from": "sym_993c48c2a3",
+    "to": "sym_1be7c8e393",
+    "type": "calls",
+    "reason": "refreshAll calls refreshActive",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
+      ]
+    }
+  },
+  {
     "id": "edge_fa53e6f2e2",
     "from": "sym_daac570c01",
     "to": "sym_43f8b248dd",
@@ -5846,6 +6836,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/integrations/providers.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_fabfd36849",
+    "from": "sym_1be7c8e393",
+    "to": "sym_c75e922555",
+    "type": "calls",
+    "reason": "refreshActive calls updateStatusBar",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "vscode-extension/src/extension.ts"
       ]
     }
   },
@@ -5966,6 +6971,21 @@
       "confidence": 0.8,
       "evidence": [
         "src/store/hunchStore.ts"
+      ]
+    }
+  },
+  {
+    "id": "edge_ff798316a3",
+    "from": "sym_9e17df05dc",
+    "to": "sym_ffd72a6f96",
+    "type": "calls",
+    "reason": "renderText calls reportFailsStrict",
+    "strength": 0.8,
+    "provenance": {
+      "source": "extracted",
+      "confidence": 0.8,
+      "evidence": [
+        "src/core/checkreport.ts"
       ]
     }
   },

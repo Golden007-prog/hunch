@@ -4,7 +4,7 @@
     "file": "src/extractors/parse.ts",
     "name": "pickLanguage",
     "kind": "function",
-    "signature_hash": "sha1:8c2a6a0cfed",
+    "signature_hash": "sha1:bcb21eaa073",
     "calls": [],
     "called_by": [
       "sym_6800d03191"
@@ -23,7 +23,7 @@
     "file": "test/embed.test.ts",
     "name": "seed",
     "kind": "function",
-    "signature_hash": "sha1:68b47cdacfa",
+    "signature_hash": "sha1:99f13011a85",
     "calls": [
       "sym_610aad3fa6",
       "sym_383cbb69ef",
@@ -44,7 +44,7 @@
     "file": "src/core/config.ts",
     "name": "readConfig",
     "kind": "function",
-    "signature_hash": "sha1:90ebffda5f5",
+    "signature_hash": "sha1:7028136c33b",
     "calls": [
       "sym_e96a3d5499",
       "sym_b24c20a0d9"
@@ -62,49 +62,123 @@
     "last_changed": "commit:8b33755"
   },
   {
+    "id": "sym_011f6866e6",
+    "file": "src/store/jsonStore.ts",
+    "name": "readAllFromDisk",
+    "kind": "method",
+    "signature_hash": "sha1:f3b5580e79d",
+    "calls": [
+      "sym_056000a4c3",
+      "sym_48db7d72bc"
+    ],
+    "called_by": [
+      "sym_8fc96bbf18"
+    ],
+    "metrics": {
+      "loc": 39,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 2
+    },
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_013f3b0a8d",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "constructor",
+    "kind": "method",
+    "signature_hash": "sha1:fb696034d08",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_013f3b0a8d_1",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "constructor",
+    "kind": "method",
+    "signature_hash": "sha1:d2567163249",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_0194d263c7",
     "file": "src/store/hunchStore.ts",
     "name": "getDependencies",
     "kind": "method",
-    "signature_hash": "sha1:7fa2436fa9b",
+    "signature_hash": "sha1:e7d615c4b9e",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 18,
+      "churn_90d": 8,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_0297ebb8f0",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "update",
+    "kind": "method",
+    "signature_hash": "sha1:1a946f6e8ff",
     "calls": [
-      "sym_e7fcc521a7"
+      "sym_3f3af7117b",
+      "sym_ac2297b171"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 15,
-      "churn_90d": 6,
+      "loc": 26,
+      "churn_90d": 1,
       "bug_count": 0,
       "fan_in": 0,
-      "fan_out": 1
+      "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_0328d7861c",
     "file": "src/store/hunchStore.ts",
     "name": "round",
     "kind": "function",
-    "signature_hash": "sha1:b5f5b65897b",
+    "signature_hash": "sha1:ae93e2a12a5",
     "calls": [],
     "called_by": [
       "sym_d0a790bbad"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_035dc8ba69",
     "file": "src/integrations/scaffold.ts",
     "name": "isHunchHook",
     "kind": "function",
-    "signature_hash": "sha1:15c384bd0c6",
+    "signature_hash": "sha1:5b56c5e5524",
     "calls": [],
     "called_by": [
       "sym_ec20c29b41"
@@ -123,7 +197,7 @@
     "file": "src/store/embedder.ts",
     "name": "Embedder",
     "kind": "interface",
-    "signature_hash": "sha1:e8b78c958d2",
+    "signature_hash": "sha1:b934be97405",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -157,7 +231,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "staleness",
     "kind": "method",
-    "signature_hash": "sha1:ce186fc5027",
+    "signature_hash": "sha1:83d223b66ed",
     "calls": [
       "sym_8fc96bbf18",
       "sym_fc2dfb9451"
@@ -165,19 +239,19 @@
     "called_by": [],
     "metrics": {
       "loc": 17,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_03c985dd4c",
     "file": "src/store/merge.ts",
     "name": "Side",
     "kind": "interface",
-    "signature_hash": "sha1:c4a521047bc",
+    "signature_hash": "sha1:451f8647e01",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -194,44 +268,62 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "showBrief",
     "kind": "function",
-    "signature_hash": "sha1:9aa38b71a07",
+    "signature_hash": "sha1:6b32f00e032",
     "calls": [
       "sym_14915f0ee4"
     ],
     "called_by": [
       "sym_89d5502a58",
+      "sym_41400a6b0a",
       "sym_e551d96773"
     ],
     "metrics": {
       "loc": 12,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 2,
+      "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_056000a4c3",
     "file": "src/store/jsonStore.ts",
     "name": "schemaVersion",
     "kind": "method",
-    "signature_hash": "sha1:7fae3079caa",
+    "signature_hash": "sha1:f20f2081544",
     "calls": [
       "sym_e5ea0616b0"
     ],
     "called_by": [
-      "sym_8fc96bbf18",
+      "sym_011f6866e6",
       "sym_13e20235c4"
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_05d3e13d10",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "RecordKind",
+    "kind": "type",
+    "signature_hash": "sha1:87527a20052",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_0b13a0b6ff",
@@ -244,25 +336,23 @@
       "sym_efcb4ed61f"
     ],
     "called_by": [
-      "sym_32c00c06bc",
-      "sym_c75e922555",
-      "sym_9a375345fc"
+      "sym_532e5d09cb"
     ],
     "metrics": {
       "loc": 13,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 3,
+      "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_0be522994e",
     "file": "src/extractors/parse.ts",
     "name": "LangBundle",
     "kind": "interface",
-    "signature_hash": "sha1:d9aa502c391",
+    "signature_hash": "sha1:f4d9127afb2",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -279,7 +369,7 @@
     "file": "src/integrations/mergeDriver.ts",
     "name": "installMergeDriver",
     "kind": "function",
-    "signature_hash": "sha1:18bead02ec7",
+    "signature_hash": "sha1:824bc760a7c",
     "calls": [
       "sym_6510b40667"
     ],
@@ -298,7 +388,7 @@
     "file": "src/core/glob.ts",
     "name": "segToRe",
     "kind": "function",
-    "signature_hash": "sha1:3c0398ed662",
+    "signature_hash": "sha1:48f0e8e143a",
     "calls": [],
     "called_by": [
       "sym_b26ad02a58"
@@ -317,7 +407,7 @@
     "file": "src/store/compact.ts",
     "name": "CompactionInput",
     "kind": "interface",
-    "signature_hash": "sha1:842077e1723",
+    "signature_hash": "sha1:c7f969628d3",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -334,7 +424,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "stripTrailingCommas",
     "kind": "function",
-    "signature_hash": "sha1:cd122f18dac",
+    "signature_hash": "sha1:17b029e7e6b",
     "calls": [],
     "called_by": [
       "sym_412280cb7c"
@@ -353,43 +443,43 @@
     "file": "src/integrations/hooks.ts",
     "name": "block",
     "kind": "function",
-    "signature_hash": "sha1:8774c9ef674",
+    "signature_hash": "sha1:cb0e94fc966",
     "calls": [],
     "called_by": [
       "sym_76837948cb"
     ],
     "metrics": {
       "loc": 10,
-      "churn_90d": 3,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:c850095"
   },
   {
     "id": "sym_0e9141bed1",
     "file": "src/store/hunchStore.ts",
     "name": "StaleRecord",
     "kind": "interface",
-    "signature_hash": "sha1:495685c82d8",
+    "signature_hash": "sha1:d1ce27875e1",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_11010ac9dc",
     "file": "src/core/types.ts",
     "name": "inferred",
     "kind": "function",
-    "signature_hash": "sha1:ccbba9585be",
+    "signature_hash": "sha1:55bce26d953",
     "calls": [],
     "called_by": [
       "sym_949445a607",
@@ -409,7 +499,7 @@
     "file": "src/integrations/providers.ts",
     "name": "readJsonObj",
     "kind": "function",
-    "signature_hash": "sha1:0524dbd0a3c",
+    "signature_hash": "sha1:9afd8246585",
     "calls": [
       "sym_af4879b9dd"
     ],
@@ -420,19 +510,19 @@
     ],
     "metrics": {
       "loc": 12,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_1181a72fcf",
     "file": "src/core/config.ts",
     "name": "writeConfig",
     "kind": "function",
-    "signature_hash": "sha1:42a79a4d5ff",
+    "signature_hash": "sha1:595dc8e1070",
     "calls": [
       "sym_010a360b82"
     ],
@@ -451,7 +541,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "raiseFragility",
     "kind": "function",
-    "signature_hash": "sha1:22e66a7d3f3",
+    "signature_hash": "sha1:6937dc957b8",
     "calls": [
       "sym_8fc96bbf18",
       "sym_383cbb69ef"
@@ -473,7 +563,7 @@
     "file": "src/core/types.ts",
     "name": "extracted",
     "kind": "function",
-    "signature_hash": "sha1:f4bcb0eae95",
+    "signature_hash": "sha1:7fb92ec96b9",
     "calls": [],
     "called_by": [
       "sym_2f00ac7819",
@@ -493,7 +583,7 @@
     "file": "src/store/jsonStore.ts",
     "name": "persistMigration",
     "kind": "method",
-    "signature_hash": "sha1:b89f07be043",
+    "signature_hash": "sha1:11ce1402d3b",
     "calls": [
       "sym_056000a4c3",
       "sym_48db7d72bc",
@@ -502,39 +592,73 @@
     ],
     "called_by": [],
     "metrics": {
-      "loc": 58,
-      "churn_90d": 4,
+      "loc": 59,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 4
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_142503702b",
+    "file": "test/strictgate.test.ts",
+    "name": "c",
+    "kind": "function",
+    "signature_hash": "sha1:2586af154bb",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:e2c2fc4"
   },
   {
     "id": "sym_14915f0ee4",
     "file": "vscode-extension/src/extension.ts",
     "name": "esc",
     "kind": "function",
-    "signature_hash": "sha1:1557031713e",
+    "signature_hash": "sha1:6ff9270c0fa",
     "calls": [],
     "called_by": [
       "sym_04547bba25"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_1508e7906a",
+    "file": "src/integrations/gitignore.ts",
+    "name": "ensureGitignore",
+    "kind": "function",
+    "signature_hash": "sha1:a9118485ca4",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 13,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:e118f79"
   },
   {
     "id": "sym_1533b900ac",
     "file": "test/firmness.test.ts",
     "name": "tmpRoot",
     "kind": "function",
-    "signature_hash": "sha1:03b6333cc39",
+    "signature_hash": "sha1:4464c7b4ab0",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -551,32 +675,36 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "getChildren",
     "kind": "method",
-    "signature_hash": "sha1:5a5bdfafb6e",
+    "signature_hash": "sha1:48814ae27f3",
     "calls": [
+      "sym_eab51776c0",
+      "sym_246f51b561",
+      "sym_3d9ea8a4f8",
       "sym_bb5808fc22",
       "sym_e165b395df",
       "sym_abe707c6f0",
-      "sym_246f51b561",
       "sym_d0a07420b5",
-      "sym_de04d84ffc",
+      "sym_48e64385a7",
+      "sym_7453ff75b2",
+      "sym_30ba3fa365",
       "sym_eb5c83c0b6"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 62,
-      "churn_90d": 4,
+      "loc": 56,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
-      "fan_out": 7
+      "fan_out": 11
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_15d8a2509a",
     "file": "src/extractors/indexer.ts",
     "name": "listCodeFiles",
     "kind": "function",
-    "signature_hash": "sha1:5d453957eb9",
+    "signature_hash": "sha1:17011c79dd3",
     "calls": [
       "sym_fbc5451f63",
       "sym_a2df62d136",
@@ -587,19 +715,19 @@
     ],
     "metrics": {
       "loc": 18,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 3
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_16b88590c8",
     "file": "src/core/ids.ts",
     "name": "constraintId",
     "kind": "function",
-    "signature_hash": "sha1:a14c6a72d19",
+    "signature_hash": "sha1:c4e05d99fc9",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -620,43 +748,84 @@
     "file": "src/store/hunchStore.ts",
     "name": "fileMatch",
     "kind": "function",
-    "signature_hash": "sha1:0c93bd28053",
+    "signature_hash": "sha1:4fdaf62e333",
     "calls": [],
     "called_by": [
       "sym_9301e7f0e9"
     ],
     "metrics": {
       "loc": 2,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_174cd5e9a8",
+    "file": "vscode-extension/src/search.ts",
+    "name": "toItems",
+    "kind": "function",
+    "signature_hash": "sha1:1fba2e65156",
+    "calls": [
+      "sym_e1d5de5d42"
+    ],
+    "called_by": [
+      "sym_30ea1bb96d"
+    ],
+    "metrics": {
+      "loc": 7,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_17e9c3e23d",
     "file": "src/store/hunchStore.ts",
     "name": "numEnv",
     "kind": "function",
-    "signature_hash": "sha1:8813cc9d101",
+    "signature_hash": "sha1:2210357e6b3",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_18949f0e15",
+    "file": "src/core/checkreport.ts",
+    "name": "renderMarkdown",
+    "kind": "function",
+    "signature_hash": "sha1:c87cf94563b",
+    "calls": [
+      "sym_328c39499a",
+      "sym_ffd72a6f96"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 49,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 2
+    },
+    "last_changed": "commit:05caf72"
   },
   {
     "id": "sym_18a4279b0b",
     "file": "src/store/compact.ts",
     "name": "bugReason",
     "kind": "function",
-    "signature_hash": "sha1:db7e5e6206b",
+    "signature_hash": "sha1:28a97c60fc4",
     "calls": [],
     "called_by": [
       "sym_a20d4cc8fa"
@@ -680,38 +849,38 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_18c032ca4f",
     "file": "src/extractors/git.ts",
     "name": "stagedFiles",
     "kind": "function",
-    "signature_hash": "sha1:4070c122ad7",
+    "signature_hash": "sha1:5b93422a91e",
     "calls": [
       "sym_815fdb47eb"
     ],
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_1ada613a64",
     "file": "src/core/ids.ts",
     "name": "edgeId",
     "kind": "function",
-    "signature_hash": "sha1:db40ea9c743",
+    "signature_hash": "sha1:aac979bc83e",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -729,11 +898,67 @@
     "last_changed": "commit:a71934b"
   },
   {
+    "id": "sym_1bb0a75a51",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "constructor",
+    "kind": "method",
+    "signature_hash": "sha1:562c02bbbf6",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_1bb0a75a51_1",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "constructor",
+    "kind": "method",
+    "signature_hash": "sha1:562c02bbbf6",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_1be7c8e393",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "refreshActive",
+    "kind": "function",
+    "signature_hash": "sha1:4257b918aa0",
+    "calls": [
+      "sym_c75e922555"
+    ],
+    "called_by": [
+      "sym_e551d96773",
+      "sym_993c48c2a3"
+    ],
+    "metrics": {
+      "loc": 6,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_1c5c6e0d21",
     "file": "src/extractors/diff.ts",
     "name": "summarizeDiff",
     "kind": "function",
-    "signature_hash": "sha1:5d852f92a09",
+    "signature_hash": "sha1:6f37342cef7",
     "calls": [
       "sym_e234379403"
     ],
@@ -755,19 +980,19 @@
     "file": "src/extractors/indexer.ts",
     "name": "resolveName",
     "kind": "function",
-    "signature_hash": "sha1:2e3ec780768",
+    "signature_hash": "sha1:4bea632da4c",
     "calls": [],
     "called_by": [
       "sym_2f00ac7819"
     ],
     "metrics": {
       "loc": 15,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_1d6e8f7ffa",
@@ -781,19 +1006,19 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_1e169341c9",
     "file": "src/store/merge.ts",
     "name": "hasIds",
     "kind": "function",
-    "signature_hash": "sha1:8caf73edbfe",
+    "signature_hash": "sha1:cb33c2e6e80",
     "calls": [],
     "called_by": [
       "sym_653f3cdbc9"
@@ -812,7 +1037,7 @@
     "file": "src/core/migrate.ts",
     "name": "Manifest",
     "kind": "interface",
-    "signature_hash": "sha1:fba5ca38c73",
+    "signature_hash": "sha1:40986ed1586",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -863,62 +1088,64 @@
     "file": "src/store/hunchStore.ts",
     "name": "add",
     "kind": "function",
-    "signature_hash": "sha1:1247ace8c45",
+    "signature_hash": "sha1:61a980ed478",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_20023a0013_1",
     "file": "src/store/hunchStore.ts",
     "name": "add",
     "kind": "function",
-    "signature_hash": "sha1:0a6dde82419",
+    "signature_hash": "sha1:ce8c04e359d",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_2107f96eaf",
     "file": "src/store/hunchStore.ts",
     "name": "resolve",
     "kind": "method",
-    "signature_hash": "sha1:082c92d071b",
+    "signature_hash": "sha1:a6fae107e42",
     "calls": [],
     "called_by": [
       "sym_48285e6210",
       "sym_9e8caabda8",
-      "sym_b0cd752eeb"
+      "sym_b0cd752eeb",
+      "sym_393e7562e1",
+      "sym_aa84f090d3"
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
-      "fan_in": 3,
+      "fan_in": 5,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_217f377ab1",
     "file": "src/synthesis/provider.ts",
     "name": "BugDraft",
     "kind": "interface",
-    "signature_hash": "sha1:15e76b2ff2d",
+    "signature_hash": "sha1:3e308d5a068",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -935,7 +1162,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "renderDiff",
     "kind": "function",
-    "signature_hash": "sha1:47bbb12a4f7",
+    "signature_hash": "sha1:4fe352fbd8f",
     "calls": [],
     "called_by": [
       "sym_87824224e8"
@@ -954,7 +1181,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "search",
     "kind": "method",
-    "signature_hash": "sha1:fff4a87b36b",
+    "signature_hash": "sha1:11bd3967b3a",
     "calls": [
       "sym_98a8c4f84f",
       "sym_787484f844"
@@ -965,19 +1192,19 @@
     ],
     "metrics": {
       "loc": 16,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_2372383431",
     "file": "src/synthesis/synthesize.ts",
     "name": "captureTestRun",
     "kind": "function",
-    "signature_hash": "sha1:8a42e160859",
+    "signature_hash": "sha1:6ab467939e4",
     "calls": [
       "sym_7183436879",
       "sym_64db6cba68",
@@ -999,7 +1226,7 @@
     "file": "src/store/merge.ts",
     "name": "pickWinner",
     "kind": "function",
-    "signature_hash": "sha1:d9e0b6ed8e1",
+    "signature_hash": "sha1:fd16d9588b9",
     "calls": [
       "sym_c649780494",
       "sym_87d8ce374f",
@@ -1023,57 +1250,94 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "lastChangeMs",
     "kind": "function",
-    "signature_hash": "sha1:7fb959a222b",
+    "signature_hash": "sha1:660ed70c0d1",
     "calls": [],
     "called_by": [
       "sym_1585ecfb0b"
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_2564df4c3a",
     "file": "src/integrations/providers.ts",
     "name": "ProviderScaffold",
     "kind": "interface",
-    "signature_hash": "sha1:972e95a9d89",
+    "signature_hash": "sha1:e4df07c4375",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
+  },
+  {
+    "id": "sym_25ae337a88",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "walk",
+    "kind": "function",
+    "signature_hash": "sha1:e7e2cca3558",
+    "calls": [],
+    "called_by": [
+      "sym_51c007bc15"
+    ],
+    "metrics": {
+      "loc": 5,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_27284a3c8e",
     "file": "src/mcp/server.ts",
     "name": "resolveFiles",
     "kind": "function",
-    "signature_hash": "sha1:a7f552cb157",
+    "signature_hash": "sha1:57e2aa9f571",
     "calls": [
-      "sym_5fb91b7bd2"
+      "sym_5fb91b7bd2",
+      "sym_98c15e9c0a"
     ],
     "called_by": [
       "sym_a708ee9110"
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 1,
-      "fan_out": 1
+      "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
+  },
+  {
+    "id": "sym_2943c3532f",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "HunchDiagnostics",
+    "kind": "class",
+    "signature_hash": "sha1:a902ee77d18",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 34,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_2945a8c6b8",
@@ -1087,19 +1351,19 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_29c38dd437",
     "file": "src/extractors/indexer.ts",
     "name": "resolveImport",
     "kind": "function",
-    "signature_hash": "sha1:fdd65280b2f",
+    "signature_hash": "sha1:e7bb0a043b0",
     "calls": [
       "sym_aa5f50456c"
     ],
@@ -1108,19 +1372,19 @@
     ],
     "metrics": {
       "loc": 20,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_2a33513ef4",
     "file": "src/store/hunchStore.ts",
     "name": "hybridSearch",
     "kind": "method",
-    "signature_hash": "sha1:c371dad5efe",
+    "signature_hash": "sha1:f3a8378bf0a",
     "calls": [
       "sym_b12243e3b1",
       "sym_f6f04d7bb9",
@@ -1133,12 +1397,12 @@
     ],
     "metrics": {
       "loc": 17,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 5
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_2a6c52c310",
@@ -1150,36 +1414,36 @@
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_2a8d9a8dc7",
     "file": "src/extractors/git.ts",
     "name": "CommitMeta",
     "kind": "interface",
-    "signature_hash": "sha1:554637ea4c7",
+    "signature_hash": "sha1:d2aed9adb28",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 9,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_2b00d47f6e",
     "file": "src/store/compact.ts",
     "name": "ageDays",
     "kind": "function",
-    "signature_hash": "sha1:870f6b86ccb",
+    "signature_hash": "sha1:d424687935f",
     "calls": [],
     "called_by": [
       "sym_a6d93d75c6"
@@ -1198,7 +1462,7 @@
     "file": "src/extractors/diff.ts",
     "name": "stripAB",
     "kind": "function",
-    "signature_hash": "sha1:97f0cde8365",
+    "signature_hash": "sha1:95baff6d685",
     "calls": [],
     "called_by": [
       "sym_d3cd481b00"
@@ -1217,7 +1481,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "FailureResult",
     "kind": "interface",
-    "signature_hash": "sha1:b1603735ed9",
+    "signature_hash": "sha1:58ccbc0b390",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -1234,7 +1498,7 @@
     "file": "src/core/paths.ts",
     "name": "hunchPaths",
     "kind": "function",
-    "signature_hash": "sha1:797e2ca9943",
+    "signature_hash": "sha1:cbd7e84ca07",
     "calls": [],
     "called_by": [
       "sym_3188212032",
@@ -1245,19 +1509,19 @@
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 5,
       "fan_out": 0
     },
-    "last_changed": "commit:8b33755"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_2c470ebb79",
     "file": "src/store/hunchStore.ts",
     "name": "fileRelevant",
     "kind": "function",
-    "signature_hash": "sha1:1e8eac85252",
+    "signature_hash": "sha1:938da677227",
     "calls": [
       "sym_f9be9d4add"
     ],
@@ -1266,19 +1530,19 @@
     ],
     "metrics": {
       "loc": 2,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_2ce5da13ed",
     "file": "src/extractors/parse.ts",
     "name": "attributeCalls",
     "kind": "function",
-    "signature_hash": "sha1:8acc1a1b1f5",
+    "signature_hash": "sha1:421d97ccdbe",
     "calls": [],
     "called_by": [
       "sym_2f00ac7819"
@@ -1293,37 +1557,53 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_2ddbf25d87",
+    "file": "vscode-extension/src/decorations.ts",
+    "name": "RelPath",
+    "kind": "type",
+    "signature_hash": "sha1:8559208482b",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_2e868206d6",
     "file": "src/extractors/git.ts",
     "name": "git",
     "kind": "function",
-    "signature_hash": "sha1:9d031861a46",
+    "signature_hash": "sha1:6dd18f35ecb",
     "calls": [],
     "called_by": [
       "sym_815fdb47eb"
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_2f00ac7819",
     "file": "src/extractors/indexer.ts",
     "name": "indexRepo",
     "kind": "function",
-    "signature_hash": "sha1:204a1e3551a",
+    "signature_hash": "sha1:ed6863dfee4",
     "calls": [
       "sym_15d8a2509a",
       "sym_fbc5451f63",
       "sym_aa5f50456c",
+      "sym_6f3774bcfa",
       "sym_6800d03191",
-      "sym_41326cde36",
-      "sym_9853d94477",
       "sym_f54a45b5ef",
       "sym_6d8e5db01f",
       "sym_2ce5da13ed",
@@ -1339,30 +1619,90 @@
       "sym_784aeb8abe"
     ],
     "metrics": {
-      "loc": 148,
-      "churn_90d": 2,
+      "loc": 151,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 2,
-      "fan_out": 15
+      "fan_out": 14
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
+  },
+  {
+    "id": "sym_2f037bf392",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "HunchHoverProvider",
+    "kind": "class",
+    "signature_hash": "sha1:2692b018211",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 31,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_30ba3fa365",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "fragileLeaves",
+    "kind": "function",
+    "signature_hash": "sha1:db9454f6ffa",
+    "calls": [
+      "sym_de04d84ffc",
+      "sym_eb5c83c0b6"
+    ],
+    "called_by": [
+      "sym_1585ecfb0b"
+    ],
+    "metrics": {
+      "loc": 7,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 2
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_30ea1bb96d",
+    "file": "vscode-extension/src/search.ts",
+    "name": "runSearch",
+    "kind": "function",
+    "signature_hash": "sha1:c016b468c33",
+    "calls": [
+      "sym_174cd5e9a8"
+    ],
+    "called_by": [
+      "sym_e551d96773"
+    ],
+    "metrics": {
+      "loc": 31,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_31388ab002",
     "file": "src/cli/invocation.ts",
     "name": "ResolvedInvocation",
     "kind": "interface",
-    "signature_hash": "sha1:2e7cceba821",
+    "signature_hash": "sha1:7f253275b76",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 1,
+      "churn_90d": 2,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:a2d3f81"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_318143e0da",
@@ -1386,7 +1726,7 @@
     "file": "src/cli/index.ts",
     "name": "storeFor",
     "kind": "function",
-    "signature_hash": "sha1:7f4551fbec6",
+    "signature_hash": "sha1:66738c9644f",
     "calls": [
       "sym_9e8caabda8",
       "sym_2c058517d8"
@@ -1394,19 +1734,19 @@
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_3188a7bcc7",
     "file": "src/synthesis/provider.ts",
     "name": "CommitInput",
     "kind": "interface",
-    "signature_hash": "sha1:faeae481e53",
+    "signature_hash": "sha1:6920529513d",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -1442,7 +1782,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "runCli",
     "kind": "method",
-    "signature_hash": "sha1:47cb9c921e1",
+    "signature_hash": "sha1:20f79eb7598",
     "calls": [
       "sym_b0cd752eeb"
     ],
@@ -1460,74 +1800,90 @@
     "last_changed": "commit:b9cb365"
   },
   {
+    "id": "sym_328c39499a",
+    "file": "src/core/checkreport.ts",
+    "name": "reportIsClean",
+    "kind": "function",
+    "signature_hash": "sha1:6746c950897",
+    "calls": [],
+    "called_by": [
+      "sym_9e17df05dc",
+      "sym_18949f0e15"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
+  },
+  {
     "id": "sym_32c00c06bc",
     "file": "vscode-extension/src/extension.ts",
     "name": "refresh",
     "kind": "method",
-    "signature_hash": "sha1:c365192cc6a",
-    "calls": [
-      "sym_9cd3f7fe96",
-      "sym_0b13a0b6ff"
-    ],
+    "signature_hash": "sha1:01f1bd32b15",
+    "calls": [],
     "called_by": [
-      "sym_e551d96773",
-      "sym_343edf66d4"
+      "sym_993c48c2a3"
     ],
     "metrics": {
-      "loc": 5,
-      "churn_90d": 4,
+      "loc": 1,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 2,
-      "fan_out": 2
+      "fan_in": 1,
+      "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_34103ad4ad",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "get",
+    "kind": "method",
+    "signature_hash": "sha1:90bc124418c",
+    "calls": [
+      "sym_532e5d09cb"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_343a8c720c",
     "file": "src/store/hunchStore.ts",
     "name": "blobToVec",
     "kind": "function",
-    "signature_hash": "sha1:a08e65ab7a1",
+    "signature_hash": "sha1:c754e495365",
     "calls": [],
     "called_by": [
       "sym_52d993915a"
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
-  },
-  {
-    "id": "sym_343edf66d4",
-    "file": "vscode-extension/src/extension.ts",
-    "name": "onChange",
-    "kind": "function",
-    "signature_hash": "sha1:342aa2d4c6a",
-    "calls": [
-      "sym_32c00c06bc",
-      "sym_c75e922555"
-    ],
-    "called_by": [],
-    "metrics": {
-      "loc": 4,
-      "churn_90d": 4,
-      "bug_count": 0,
-      "fan_in": 0,
-      "fan_out": 2
-    },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_37773766b1",
     "file": "src/store/hunchStore.ts",
     "name": "assembleContext",
     "kind": "method",
-    "signature_hash": "sha1:4123ff14a7d",
+    "signature_hash": "sha1:e4759da5384",
     "calls": [
+      "sym_98c15e9c0a",
       "sym_9301e7f0e9",
       "sym_beea0020b4",
       "sym_fb8ddb41c2",
@@ -1537,20 +1893,20 @@
       "sym_a708ee9110"
     ],
     "metrics": {
-      "loc": 23,
-      "churn_90d": 6,
+      "loc": 24,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
-      "fan_out": 4
+      "fan_out": 5
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_378ded6e8c",
     "file": "src/store/merge.ts",
     "name": "MergeResult",
     "kind": "interface",
-    "signature_hash": "sha1:714f3eb0626",
+    "signature_hash": "sha1:1a2dc520622",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -1567,31 +1923,32 @@
     "file": "src/cli/invocation.ts",
     "name": "resolveInvocation",
     "kind": "function",
-    "signature_hash": "sha1:a1e7f3afcdd",
+    "signature_hash": "sha1:7d2fddd0e13",
     "calls": [
       "sym_bda955394e"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 19,
-      "churn_90d": 1,
+      "loc": 36,
+      "churn_90d": 2,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:a2d3f81"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_383cbb69ef",
     "file": "src/store/jsonStore.ts",
     "name": "put",
     "kind": "method",
-    "signature_hash": "sha1:89fa0ca497e",
+    "signature_hash": "sha1:6f3f7eb30ff",
     "calls": [
       "sym_95e5f5139f",
       "sym_80eb1c4aa3",
       "sym_6510b40667",
-      "sym_c01eb1b0a1"
+      "sym_c01eb1b0a1",
+      "sym_468960ffdc"
     ],
     "called_by": [
       "sym_a708ee9110",
@@ -1606,20 +1963,44 @@
       "sym_744b192507"
     ],
     "metrics": {
-      "loc": 20,
-      "churn_90d": 4,
+      "loc": 21,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 10,
+      "fan_out": 5
+    },
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_393e7562e1",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "recordConstraint",
+    "kind": "function",
+    "signature_hash": "sha1:6370940c3cc",
+    "calls": [
+      "sym_aed7c11714",
+      "sym_8ad0b6e254",
+      "sym_532e5d09cb",
+      "sym_2107f96eaf"
+    ],
+    "called_by": [
+      "sym_e551d96773"
+    ],
+    "metrics": {
+      "loc": 31,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
       "fan_out": 4
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_39f0639bf0",
     "file": "src/integrations/providers.ts",
     "name": "writeJson",
     "kind": "function",
-    "signature_hash": "sha1:62bb948af65",
+    "signature_hash": "sha1:901f5a05c8c",
     "calls": [],
     "called_by": [
       "sym_d42b719307",
@@ -1628,12 +2009,29 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 0
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
+  },
+  {
+    "id": "sym_3a1f9bae0d",
+    "file": "src/core/checkreport.ts",
+    "name": "CheckRegression",
+    "kind": "interface",
+    "signature_hash": "sha1:6d80fc38fba",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
   },
   {
     "id": "sym_3a51d42dbf",
@@ -1657,7 +2055,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "stripPaths",
     "kind": "function",
-    "signature_hash": "sha1:3bda802518b",
+    "signature_hash": "sha1:9cdf0606e7b",
     "calls": [],
     "called_by": [
       "sym_edf2a5e3c6"
@@ -1676,7 +2074,7 @@
     "file": "src/integrations/scaffold.ts",
     "name": "installClaudeHooks",
     "kind": "function",
-    "signature_hash": "sha1:4b25e6f5319",
+    "signature_hash": "sha1:2c8361e010e",
     "calls": [
       "sym_ec20c29b41"
     ],
@@ -1695,7 +2093,7 @@
     "file": "src/integrations/scaffold.ts",
     "name": "writeSlashCommands",
     "kind": "function",
-    "signature_hash": "sha1:68dc5335bc1",
+    "signature_hash": "sha1:e7959aad12a",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -1712,7 +2110,7 @@
     "file": "test/indexer.test.ts",
     "name": "fixtureRepo",
     "kind": "function",
-    "signature_hash": "sha1:22d0166a69a",
+    "signature_hash": "sha1:a4b5fb21558",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -1725,11 +2123,30 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
+    "id": "sym_3d0f9f7b88",
+    "file": "vscode-extension/src/graph.ts",
+    "name": "nonce",
+    "kind": "function",
+    "signature_hash": "sha1:9a54d68dcc4",
+    "calls": [],
+    "called_by": [
+      "sym_62111a4caa"
+    ],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_3d4a43a092",
     "file": "src/extractors/parse.ts",
     "name": "bundleFor",
     "kind": "function",
-    "signature_hash": "sha1:bbf9aea4fab",
+    "signature_hash": "sha1:e22c3a0fcdf",
     "calls": [],
     "called_by": [
       "sym_6800d03191"
@@ -1748,7 +2165,7 @@
     "file": "src/integrations/providers.ts",
     "name": "writeVscodeMcp",
     "kind": "function",
-    "signature_hash": "sha1:c17291dca5f",
+    "signature_hash": "sha1:74bf5f7f3ee",
     "calls": [
       "sym_1141cec963",
       "sym_39f0639bf0"
@@ -1758,12 +2175,31 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
+  },
+  {
+    "id": "sym_3d9ea8a4f8",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "lineageChains",
+    "kind": "function",
+    "signature_hash": "sha1:434d74f6456",
+    "calls": [],
+    "called_by": [
+      "sym_1585ecfb0b"
+    ],
+    "metrics": {
+      "loc": 14,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_3e9b5e7b99",
@@ -1787,7 +2223,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "run",
     "kind": "method",
-    "signature_hash": "sha1:f0da64044d9",
+    "signature_hash": "sha1:6758e64cb73",
     "calls": [
       "sym_b0cd752eeb"
     ],
@@ -1806,7 +2242,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "run",
     "kind": "method",
-    "signature_hash": "sha1:645ebb2da28",
+    "signature_hash": "sha1:d8d682f6f3a",
     "calls": [
       "sym_328452928d",
       "sym_a626b99958"
@@ -1826,7 +2262,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "run",
     "kind": "method",
-    "signature_hash": "sha1:83f8cd5dcf3",
+    "signature_hash": "sha1:d8d4e2faf2c",
     "calls": [
       "sym_328452928d"
     ],
@@ -1851,18 +2287,37 @@
       "sym_bb5808fc22"
     ],
     "called_by": [
+      "sym_0297ebb8f0",
+      "sym_41400a6b0a",
       "sym_c75e922555",
       "sym_e25e20455f",
       "sym_ac2297b171"
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 3,
+      "fan_in": 5,
       "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_3f7ed2b8df",
+    "file": "vscode-extension/src/decorations.ts",
+    "name": "dispose",
+    "kind": "method",
+    "signature_hash": "sha1:6ed24ca7eef",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_3fedced97d",
@@ -1886,24 +2341,24 @@
     "file": "src/store/hunchStore.ts",
     "name": "embeddingStats",
     "kind": "method",
-    "signature_hash": "sha1:5ee5b2154c5",
+    "signature_hash": "sha1:fb6f9698d06",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 5,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_412280cb7c",
     "file": "src/synthesis/provider.ts",
     "name": "parseObjectLoose",
     "kind": "function",
-    "signature_hash": "sha1:065816f2cad",
+    "signature_hash": "sha1:eea5442037e",
     "calls": [
       "sym_8611667015",
       "sym_0d4f34271e"
@@ -1923,21 +2378,44 @@
     "file": "src/extractors/git.ts",
     "name": "fileChurn",
     "kind": "function",
-    "signature_hash": "sha1:8c8a403e9fe",
+    "signature_hash": "sha1:6ea2a34ec4c",
     "calls": [
       "sym_815fdb47eb"
     ],
-    "called_by": [
-      "sym_2f00ac7819"
-    ],
+    "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
+  },
+  {
+    "id": "sym_41400a6b0a",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "symbolBrief",
+    "kind": "function",
+    "signature_hash": "sha1:49e0a636845",
+    "calls": [
+      "sym_b05d886ed1",
+      "sym_6eb407df5b",
+      "sym_04547bba25",
+      "sym_aed7c11714",
+      "sym_3f3af7117b"
+    ],
+    "called_by": [
+      "sym_e551d96773"
+    ],
+    "metrics": {
+      "loc": 9,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 5
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_4142038d99",
@@ -1961,7 +2439,7 @@
     "file": "src/store/merge.ts",
     "name": "serialize",
     "kind": "function",
-    "signature_hash": "sha1:620c2fae128",
+    "signature_hash": "sha1:013197d84b2",
     "calls": [],
     "called_by": [
       "sym_653f3cdbc9"
@@ -1976,11 +2454,28 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
+    "id": "sym_428d5639a9",
+    "file": "src/integrations/ciAction.ts",
+    "name": "CiResult",
+    "kind": "interface",
+    "signature_hash": "sha1:6283b646331",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 2,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:d5528c5"
+  },
+  {
     "id": "sym_430a6ea6d8",
     "file": "src/store/hunchStore.ts",
     "name": "searchDocs",
     "kind": "method",
-    "signature_hash": "sha1:7a324a72582",
+    "signature_hash": "sha1:8a49b9f5c8f",
     "calls": [],
     "called_by": [
       "sym_785a2cb66a",
@@ -1988,19 +2483,19 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_4399ce5337",
     "file": "src/extractors/testreport.ts",
     "name": "leadingSpaces",
     "kind": "function",
-    "signature_hash": "sha1:e8d41f0dc5d",
+    "signature_hash": "sha1:66c371b8f59",
     "calls": [],
     "called_by": [
       "sym_e0ac1bf3e6"
@@ -2019,7 +2514,7 @@
     "file": "src/integrations/claudemd.ts",
     "name": "renderHunchSection",
     "kind": "function",
-    "signature_hash": "sha1:d1915f16fed",
+    "signature_hash": "sha1:93cb596067c",
     "calls": [
       "sym_8fc96bbf18",
       "sym_837ee1b990"
@@ -2041,11 +2536,28 @@
     "last_changed": "commit:4d7ade7"
   },
   {
+    "id": "sym_454e05db65",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "HunchCodeLensProvider",
+    "kind": "class",
+    "signature_hash": "sha1:2b006b9b23f",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 49,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_45b5a9f25a",
     "file": "src/integrations/providers.ts",
     "name": "scaffoldProviders",
     "kind": "function",
-    "signature_hash": "sha1:491e59182c4",
+    "signature_hash": "sha1:9683fe9ef23",
     "calls": [
       "sym_d42b719307",
       "sym_b55f36f4a8",
@@ -2059,12 +2571,12 @@
     "called_by": [],
     "metrics": {
       "loc": 16,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 8
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_45e6041167",
@@ -2078,53 +2590,74 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
+  },
+  {
+    "id": "sym_468960ffdc",
+    "file": "src/store/jsonStore.ts",
+    "name": "invalidate",
+    "kind": "method",
+    "signature_hash": "sha1:d27b6d025ea",
+    "calls": [],
+    "called_by": [
+      "sym_383cbb69ef",
+      "sym_f66a553cec",
+      "sym_d71984e562"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 3,
+      "fan_out": 0
+    },
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_469347c1e8",
     "file": "src/store/jsonStore.ts",
     "name": "JsonStore",
     "kind": "class",
-    "signature_hash": "sha1:622bf62d5aa",
+    "signature_hash": "sha1:837f7dee673",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 234,
-      "churn_90d": 4,
+      "loc": 272,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_4717b890ff",
     "file": "vscode-extension/src/extension.ts",
     "name": "Node",
     "kind": "type",
-    "signature_hash": "sha1:298f91e0fd2",
+    "signature_hash": "sha1:4acf2a4b12b",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 3,
-      "churn_90d": 4,
+      "loc": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_474fa27ae4",
     "file": "src/store/hunchStore.ts",
     "name": "retiredForFile",
     "kind": "method",
-    "signature_hash": "sha1:4e5c796f583",
+    "signature_hash": "sha1:7e39d536aca",
     "calls": [
       "sym_8fc96bbf18",
       "sym_f9be9d4add"
@@ -2132,19 +2665,19 @@
     "called_by": [],
     "metrics": {
       "loc": 10,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_47649456f3",
     "file": "src/integrations/claudemd.ts",
     "name": "upsertSection",
     "kind": "function",
-    "signature_hash": "sha1:f6379d71bc3",
+    "signature_hash": "sha1:3c287ca8a77",
     "calls": [],
     "called_by": [
       "sym_f0a8fcb4e1",
@@ -2165,48 +2698,70 @@
     "file": "src/cli/index.ts",
     "name": "readStdin",
     "kind": "function",
-    "signature_hash": "sha1:4478f42dd24",
+    "signature_hash": "sha1:a7c54d2827c",
     "calls": [
       "sym_2107f96eaf"
     ],
     "called_by": [],
     "metrics": {
       "loc": 10,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_48db7d72bc",
     "file": "src/store/jsonStore.ts",
     "name": "migrate",
     "kind": "method",
-    "signature_hash": "sha1:44d52a86fb3",
+    "signature_hash": "sha1:5afcf2af893",
     "calls": [
       "sym_eba9589407"
     ],
     "called_by": [
-      "sym_8fc96bbf18",
+      "sym_011f6866e6",
       "sym_13e20235c4"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_48e64385a7",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "bugLeaf",
+    "kind": "function",
+    "signature_hash": "sha1:02e92d0f96b",
+    "calls": [
+      "sym_e165b395df",
+      "sym_d0a07420b5"
+    ],
+    "called_by": [
+      "sym_1585ecfb0b"
+    ],
+    "metrics": {
+      "loc": 17,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 2
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_493471ab49",
     "file": "src/extractors/parse.ts",
     "name": "ParsedCall",
     "kind": "interface",
-    "signature_hash": "sha1:d44d678c28c",
+    "signature_hash": "sha1:a41212f3435",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -2223,7 +2778,7 @@
     "file": "src/store/merge.ts",
     "name": "parseSide",
     "kind": "function",
-    "signature_hash": "sha1:dfe2daab872",
+    "signature_hash": "sha1:f7e8207e095",
     "calls": [
       "sym_7973c0cb31"
     ],
@@ -2244,7 +2799,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "findRecurrence",
     "kind": "function",
-    "signature_hash": "sha1:e0da9fbdbfd",
+    "signature_hash": "sha1:264f94a9cb5",
     "calls": [
       "sym_edf2a5e3c6",
       "sym_8fc96bbf18"
@@ -2262,11 +2817,28 @@
     "last_changed": "commit:17b2de2"
   },
   {
+    "id": "sym_4af83dfeaa",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "RelPath",
+    "kind": "type",
+    "signature_hash": "sha1:8559208482b",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_4c67596cb4",
     "file": "src/synthesis/provider.ts",
     "name": "done",
     "kind": "function",
-    "signature_hash": "sha1:48da5db4d26",
+    "signature_hash": "sha1:d5443a33ac7",
     "calls": [],
     "called_by": [
       "sym_b0cd752eeb"
@@ -2307,19 +2879,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_4dbb42587d",
     "file": "src/synthesis/synthesize.ts",
     "name": "promoteConstraint",
     "kind": "function",
-    "signature_hash": "sha1:838a7189c8d",
+    "signature_hash": "sha1:f74395e4755",
     "calls": [
       "sym_16b88590c8",
       "sym_383cbb69ef"
@@ -2337,11 +2909,28 @@
     "last_changed": "commit:17b2de2"
   },
   {
+    "id": "sym_4e315bba7c",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "RelPath",
+    "kind": "type",
+    "signature_hash": "sha1:8559208482b",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_4fae276ed8",
     "file": "src/synthesis/provider.ts",
     "name": "extractJsonObjects",
     "kind": "function",
-    "signature_hash": "sha1:d344269b90c",
+    "signature_hash": "sha1:8c43cb2f553",
     "calls": [
       "sym_6994da53cc"
     ],
@@ -2364,26 +2953,26 @@
     "file": "src/integrations/providers.ts",
     "name": "dropTrailingCommas",
     "kind": "function",
-    "signature_hash": "sha1:2dd24d83268",
+    "signature_hash": "sha1:c749fb8c7a2",
     "calls": [],
     "called_by": [
       "sym_af4879b9dd"
     ],
     "metrics": {
       "loc": 23,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_51499a878a",
     "file": "src/synthesis/provider.ts",
     "name": "bugDraftFromText",
     "kind": "function",
-    "signature_hash": "sha1:55f7a577191",
+    "signature_hash": "sha1:ca0a84f210e",
     "calls": [
       "sym_4fae276ed8",
       "sym_f75ed167b7",
@@ -2419,21 +3008,43 @@
     "last_changed": "commit:8b33755"
   },
   {
+    "id": "sym_51c007bc15",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "symbolRanges",
+    "kind": "function",
+    "signature_hash": "sha1:62add7da586",
+    "calls": [
+      "sym_25ae337a88"
+    ],
+    "called_by": [
+      "sym_9bae37e3e4",
+      "sym_df5a40b2e7"
+    ],
+    "metrics": {
+      "loc": 20,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_51ca7ea4e4",
     "file": "src/store/hunchStore.ts",
     "name": "constructor",
     "kind": "method",
-    "signature_hash": "sha1:a2addab3766",
+    "signature_hash": "sha1:275097923c4",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_51cab1b0c2",
@@ -2491,7 +3102,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "cosineRank",
     "kind": "method",
-    "signature_hash": "sha1:c731f80bbf7",
+    "signature_hash": "sha1:0181f63cc6a",
     "calls": [
       "sym_343a8c720c"
     ],
@@ -2500,38 +3111,97 @@
     ],
     "metrics": {
       "loc": 26,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_532e5d09cb",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "reload",
+    "kind": "method",
+    "signature_hash": "sha1:6fa43e5b9b7",
+    "calls": [
+      "sym_0b13a0b6ff"
+    ],
+    "called_by": [
+      "sym_34103ad4ad",
+      "sym_393e7562e1",
+      "sym_aa84f090d3",
+      "sym_e551d96773",
+      "sym_993c48c2a3"
+    ],
+    "metrics": {
+      "loc": 5,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 5,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_538cde69c1",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "GraphNode",
+    "kind": "interface",
+    "signature_hash": "sha1:dd02c954857",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_547bbf9a26",
     "file": "src/extractors/git.ts",
     "name": "lastChangeDate",
     "kind": "function",
-    "signature_hash": "sha1:cffca2f90b7",
+    "signature_hash": "sha1:018ca179fea",
     "calls": [
       "sym_815fdb47eb"
     ],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
+  },
+  {
+    "id": "sym_55ef116350",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "Cmd",
+    "kind": "type",
+    "signature_hash": "sha1:5baf0a25f08",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_56b7347cc6",
     "file": "src/store/merge.ts",
     "name": "canon",
     "kind": "function",
-    "signature_hash": "sha1:beef54de93a",
+    "signature_hash": "sha1:fd8192e2186",
     "calls": [
       "sym_884fbadbb0"
     ],
@@ -2553,7 +3223,7 @@
     "file": "src/extractors/testreport.ts",
     "name": "TestReport",
     "kind": "interface",
-    "signature_hash": "sha1:4ba13f89318",
+    "signature_hash": "sha1:15b40b1a0ba",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -2570,43 +3240,43 @@
     "file": "src/store/hunchStore.ts",
     "name": "rrfFuse",
     "kind": "method",
-    "signature_hash": "sha1:3fff47622ce",
+    "signature_hash": "sha1:976a03d0b79",
     "calls": [],
     "called_by": [
       "sym_2a33513ef4"
     ],
     "metrics": {
       "loc": 12,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_5857234c69",
     "file": "src/store/hunchStore.ts",
     "name": "FragileNode",
     "kind": "interface",
-    "signature_hash": "sha1:67ceec574f3",
+    "signature_hash": "sha1:9042a0df697",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 10,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_587ba62cce",
     "file": "src/store/hunchStore.ts",
     "name": "inWindow",
     "kind": "function",
-    "signature_hash": "sha1:ed86ef74445",
+    "signature_hash": "sha1:4f90cf49c92",
     "calls": [],
     "called_by": [
       "sym_9301e7f0e9",
@@ -2614,19 +3284,19 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_58c34afd10",
     "file": "src/extractors/parse.ts",
     "name": "ParsedSymbol",
     "kind": "interface",
-    "signature_hash": "sha1:a95701df4ce",
+    "signature_hash": "sha1:b703ba8fdbb",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -2643,7 +3313,7 @@
     "file": "src/store/compact.ts",
     "name": "CompactionPlan",
     "kind": "interface",
-    "signature_hash": "sha1:20081ae04cf",
+    "signature_hash": "sha1:8a91f2d66e3",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -2660,26 +3330,26 @@
     "file": "src/extractors/indexer.ts",
     "name": "walk",
     "kind": "function",
-    "signature_hash": "sha1:0f746665308",
+    "signature_hash": "sha1:38599ecd488",
     "calls": [],
     "called_by": [
       "sym_15d8a2509a"
     ],
     "metrics": {
       "loc": 9,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_5a74d29b94",
     "file": "src/core/ids.ts",
     "name": "shortHash",
     "kind": "function",
-    "signature_hash": "sha1:ecfc94a5b0b",
+    "signature_hash": "sha1:42f2dfefae1",
     "calls": [],
     "called_by": [
       "sym_f54a45b5ef",
@@ -2704,7 +3374,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "draftBugSafe",
     "kind": "function",
-    "signature_hash": "sha1:407ad810e93",
+    "signature_hash": "sha1:2ca0641494c",
     "calls": [],
     "called_by": [
       "sym_7183436879"
@@ -2723,7 +3393,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "str",
     "kind": "function",
-    "signature_hash": "sha1:0131c96017d",
+    "signature_hash": "sha1:456faca23a9",
     "calls": [],
     "called_by": [
       "sym_f75ed167b7"
@@ -2742,7 +3412,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "CapturedFailure",
     "kind": "interface",
-    "signature_hash": "sha1:c003d420bb3",
+    "signature_hash": "sha1:8c9c8f434d0",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -2759,7 +3429,7 @@
     "file": "src/core/ids.ts",
     "name": "bugId",
     "kind": "function",
-    "signature_hash": "sha1:93b1062d5a5",
+    "signature_hash": "sha1:740aa95ab3c",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -2781,7 +3451,7 @@
     "file": "test/compact.test.ts",
     "name": "plan",
     "kind": "function",
-    "signature_hash": "sha1:c5038c71657",
+    "signature_hash": "sha1:a31ce36f294",
     "calls": [
       "sym_a20d4cc8fa"
     ],
@@ -2800,7 +3470,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "close",
     "kind": "method",
-    "signature_hash": "sha1:b05486dd25b",
+    "signature_hash": "sha1:8d1656a300c",
     "calls": [],
     "called_by": [
       "sym_bfe63b3289",
@@ -2809,12 +3479,12 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_5e11546a25",
@@ -2826,20 +3496,21 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_5fb91b7bd2",
     "file": "src/mcp/server.ts",
     "name": "resolveSymbols",
     "kind": "function",
-    "signature_hash": "sha1:df9152253a5",
+    "signature_hash": "sha1:9084bb4392b",
     "calls": [
+      "sym_98c15e9c0a",
       "sym_8fc96bbf18"
     ],
     "called_by": [
@@ -2847,20 +3518,20 @@
       "sym_a708ee9110"
     ],
     "metrics": {
-      "loc": 8,
-      "churn_90d": 9,
+      "loc": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 2,
-      "fan_out": 1
+      "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_603a109a1f",
     "file": "src/extractors/diff.ts",
     "name": "declOf",
     "kind": "function",
-    "signature_hash": "sha1:ebd42126750",
+    "signature_hash": "sha1:ee87d2c347c",
     "calls": [],
     "called_by": [
       "sym_d3cd481b00"
@@ -2879,7 +3550,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "syncCommit",
     "kind": "function",
-    "signature_hash": "sha1:aed10c26541",
+    "signature_hash": "sha1:ffdd8f8e44e",
     "calls": [
       "sym_64db6cba68",
       "sym_cb863afde2",
@@ -2907,7 +3578,7 @@
     "file": "test/helpers.ts",
     "name": "tempStore",
     "kind": "function",
-    "signature_hash": "sha1:912512d4b47",
+    "signature_hash": "sha1:0bb7774efc1",
     "calls": [
       "sym_2c058517d8",
       "sym_d73e258d4a",
@@ -2931,19 +3602,41 @@
     "file": "src/extractors/indexer.ts",
     "name": "addEdge",
     "kind": "function",
-    "signature_hash": "sha1:8972fa6c86c",
+    "signature_hash": "sha1:26b06d290ba",
     "calls": [],
     "called_by": [
       "sym_2f00ac7819"
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
+  },
+  {
+    "id": "sym_62111a4caa",
+    "file": "vscode-extension/src/graph.ts",
+    "name": "html",
+    "kind": "function",
+    "signature_hash": "sha1:d513a49a670",
+    "calls": [
+      "sym_3d0f9f7b88"
+    ],
+    "called_by": [
+      "sym_ee5da30dbe",
+      "sym_9e450479d5"
+    ],
+    "metrics": {
+      "loc": 88,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_6291bd292a",
@@ -2955,19 +3648,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_62d8435560",
     "file": "src/core/types.ts",
     "name": "EntityFor",
     "kind": "type",
-    "signature_hash": "sha1:e023caba913",
+    "signature_hash": "sha1:5b10f923ea6",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -2984,7 +3677,7 @@
     "file": "test/check.test.ts",
     "name": "fixtureRepo",
     "kind": "function",
-    "signature_hash": "sha1:1325981f056",
+    "signature_hash": "sha1:e8b4d79e173",
     "calls": [],
     "called_by": [
       "sym_bfe63b3289"
@@ -3003,7 +3696,7 @@
     "file": "src/extractors/git.ts",
     "name": "headSha",
     "kind": "function",
-    "signature_hash": "sha1:282106e4597",
+    "signature_hash": "sha1:4dcc2b83e57",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -3014,19 +3707,19 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_6510b40667",
     "file": "src/core/io.ts",
     "name": "writeFileAtomic",
     "kind": "function",
-    "signature_hash": "sha1:0c599634da6",
+    "signature_hash": "sha1:886f3aefc69",
     "calls": [
       "sym_efed873770"
     ],
@@ -3052,7 +3745,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "ClaudeCliProvider",
     "kind": "class",
-    "signature_hash": "sha1:19029876b72",
+    "signature_hash": "sha1:67bf479898a",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3069,7 +3762,7 @@
     "file": "src/store/merge.ts",
     "name": "mergeHunchJson",
     "kind": "function",
-    "signature_hash": "sha1:3284bdee7d5",
+    "signature_hash": "sha1:a11fd4dbb5b",
     "calls": [
       "sym_4961c3a2c2",
       "sym_1e169341c9",
@@ -3087,28 +3780,64 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
+    "id": "sym_66553fe4d1",
+    "file": "src/extractors/git.ts",
+    "name": "rangeDiff",
+    "kind": "function",
+    "signature_hash": "sha1:c6c2da5443c",
+    "calls": [
+      "sym_815fdb47eb"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 9,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:d5528c5"
+  },
+  {
     "id": "sym_6672e674f7",
     "file": "vscode-extension/src/extension.ts",
     "name": "deactivate",
     "kind": "function",
-    "signature_hash": "sha1:8982c0cd86b",
+    "signature_hash": "sha1:1253e273bb8",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_679c009caa",
+    "file": "src/core/strictgate.ts",
+    "name": "StrictConstraint",
+    "kind": "interface",
+    "signature_hash": "sha1:5e5eb477f86",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:e2c2fc4"
   },
   {
     "id": "sym_6800d03191",
     "file": "src/extractors/parse.ts",
     "name": "parseSource",
     "kind": "function",
-    "signature_hash": "sha1:63ee11c9ad2",
+    "signature_hash": "sha1:97b83a8fcb3",
     "calls": [
       "sym_008b9dc0f8",
       "sym_3d4a43a092",
@@ -3127,11 +3856,45 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_68237a6b18",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "HunchCache",
+    "kind": "class",
+    "signature_hash": "sha1:7050f9d28d4",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 14,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_68acdbdaa2",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "GetHunch",
+    "kind": "type",
+    "signature_hash": "sha1:77c23f765a4",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_68b975f9d6",
     "file": "src/store/hunchStore.ts",
     "name": "regressionHits",
     "kind": "method",
-    "signature_hash": "sha1:f265c6a0afa",
+    "signature_hash": "sha1:c6dd583c234",
     "calls": [
       "sym_8fc96bbf18",
       "sym_2c470ebb79"
@@ -3139,19 +3902,19 @@
     "called_by": [],
     "metrics": {
       "loc": 35,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_6912241729",
     "file": "src/integrations/providers.ts",
     "name": "writeWindsurfRule",
     "kind": "function",
-    "signature_hash": "sha1:9b165f19808",
+    "signature_hash": "sha1:68511612a27",
     "calls": [
       "sym_43f8b248dd"
     ],
@@ -3160,19 +3923,19 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_697a66fc08",
     "file": "test/compact.test.ts",
     "name": "bug",
     "kind": "function",
-    "signature_hash": "sha1:86562ebf453",
+    "signature_hash": "sha1:d42c3db6fc1",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3189,7 +3952,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "topLevelJsonSlices",
     "kind": "function",
-    "signature_hash": "sha1:8a95193d07e",
+    "signature_hash": "sha1:d3c7dac5a65",
     "calls": [
       "sym_824739e294",
       "sym_f205556005"
@@ -3211,7 +3974,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "shouldPromoteConstraint",
     "kind": "function",
-    "signature_hash": "sha1:ed081563838",
+    "signature_hash": "sha1:d9ed9b5cf79",
     "calls": [],
     "called_by": [
       "sym_7183436879"
@@ -3230,7 +3993,7 @@
     "file": "src/integrations/scaffold.ts",
     "name": "Invocation",
     "kind": "interface",
-    "signature_hash": "sha1:caf12b1e7ca",
+    "signature_hash": "sha1:8e5354f0757",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3252,19 +4015,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_6bc91f64da",
     "file": "test/provider.test.ts",
     "name": "throwingProvider",
     "kind": "function",
-    "signature_hash": "sha1:494f60c9977",
+    "signature_hash": "sha1:45d474f632c",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3281,24 +4044,24 @@
     "file": "src/store/hunchStore.ts",
     "name": "HunchStore",
     "kind": "class",
-    "signature_hash": "sha1:6d09c7fb066",
+    "signature_hash": "sha1:3cb0a571b67",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 603,
-      "churn_90d": 6,
+      "loc": 606,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_6ca243362e",
     "file": "test/hunchtest.test.ts",
     "name": "report",
     "kind": "function",
-    "signature_hash": "sha1:2ba4fdcdbf4",
+    "signature_hash": "sha1:960dc71ea88",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3315,7 +4078,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "supersede",
     "kind": "method",
-    "signature_hash": "sha1:0cc30c1cabf",
+    "signature_hash": "sha1:5f56070f841",
     "calls": [
       "sym_383cbb69ef",
       "sym_1ada613a64"
@@ -3325,19 +4088,36 @@
     ],
     "metrics": {
       "loc": 22,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_6d3f2e2bba",
+    "file": "src/core/checkreport.ts",
+    "name": "CheckReport",
+    "kind": "interface",
+    "signature_hash": "sha1:a68fa3e1050",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 11,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
   },
   {
     "id": "sym_6d8e5db01f",
     "file": "src/core/ids.ts",
     "name": "sha1",
     "kind": "function",
-    "signature_hash": "sha1:cae6c40119a",
+    "signature_hash": "sha1:eb2ae9a1c07",
     "calls": [],
     "called_by": [
       "sym_2f00ac7819"
@@ -3356,26 +4136,71 @@
     "file": "src/integrations/providers.ts",
     "name": "tomlStr",
     "kind": "function",
-    "signature_hash": "sha1:5d6d3a09df0",
+    "signature_hash": "sha1:0c26e86ae2f",
     "calls": [],
     "called_by": [
       "sym_cd29325160"
     ],
     "metrics": {
       "loc": 12,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
+  },
+  {
+    "id": "sym_6eb407df5b",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "symbolSignals",
+    "kind": "function",
+    "signature_hash": "sha1:73fa77fffde",
+    "calls": [
+      "sym_de04d84ffc"
+    ],
+    "called_by": [
+      "sym_9bae37e3e4",
+      "sym_41400a6b0a",
+      "sym_df5a40b2e7",
+      "sym_c685855784"
+    ],
+    "metrics": {
+      "loc": 14,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 4,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_6f3774bcfa",
+    "file": "src/extractors/git.ts",
+    "name": "fileGitMetrics",
+    "kind": "function",
+    "signature_hash": "sha1:3c77441bca5",
+    "calls": [
+      "sym_815fdb47eb"
+    ],
+    "called_by": [
+      "sym_2f00ac7819"
+    ],
+    "metrics": {
+      "loc": 39,
+      "churn_90d": 9,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_7091878093",
     "file": "src/core/format.ts",
     "name": "prov",
     "kind": "function",
-    "signature_hash": "sha1:f9b66abc77f",
+    "signature_hash": "sha1:20681238dca",
     "calls": [],
     "called_by": [
       "sym_8f174cd09f"
@@ -3400,26 +4225,29 @@
       "sym_81fc88e59c"
     ],
     "called_by": [
-      "sym_3f3af7117b"
+      "sym_3f3af7117b",
+      "sym_8033077ffd",
+      "sym_f80ce17080",
+      "sym_832d2ed106"
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 4,
       "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_71788d2ebe",
     "file": "src/store/hunchStore.ts",
     "name": "reindex",
     "kind": "method",
-    "signature_hash": "sha1:a2af1267b15",
+    "signature_hash": "sha1:b839b725d3e",
     "calls": [
       "sym_8fc96bbf18",
-      "sym_ee9980dcd2",
+      "sym_bbc1da5ec5",
       "sym_785a2cb66a"
     ],
     "called_by": [
@@ -3431,20 +4259,20 @@
       "sym_744b192507"
     ],
     "metrics": {
-      "loc": 89,
-      "churn_90d": 6,
+      "loc": 94,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 6,
       "fan_out": 3
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_7183436879",
     "file": "src/synthesis/synthesize.ts",
     "name": "recordFailure",
     "kind": "function",
-    "signature_hash": "sha1:9d7c355a58b",
+    "signature_hash": "sha1:4b7e1ad2c38",
     "calls": [
       "sym_8fc96bbf18",
       "sym_9d1964b9a2",
@@ -3492,7 +4320,7 @@
     "file": "test/store.test.ts",
     "name": "seed",
     "kind": "function",
-    "signature_hash": "sha1:8fad398d24d",
+    "signature_hash": "sha1:bc241fed631",
     "calls": [
       "sym_610aad3fa6",
       "sym_383cbb69ef",
@@ -3509,11 +4337,32 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_7453ff75b2",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "lineageNode",
+    "kind": "function",
+    "signature_hash": "sha1:aef19129ef1",
+    "calls": [
+      "sym_d0a07420b5"
+    ],
+    "called_by": [
+      "sym_1585ecfb0b"
+    ],
+    "metrics": {
+      "loc": 12,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_74d3a2e9bd",
     "file": "src/core/ids.ts",
     "name": "componentId",
     "kind": "function",
-    "signature_hash": "sha1:ad641c08c4a",
+    "signature_hash": "sha1:1b3104ea313",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -3539,19 +4388,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_7604831421",
     "file": "src/extractors/diff.ts",
     "name": "importOf",
     "kind": "function",
-    "signature_hash": "sha1:d7562b14cc7",
+    "signature_hash": "sha1:97618f3b0c5",
     "calls": [],
     "called_by": [
       "sym_d3cd481b00"
@@ -3575,19 +4424,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_76837948cb",
     "file": "src/integrations/hooks.ts",
     "name": "installPostCommitHook",
     "kind": "function",
-    "signature_hash": "sha1:7b961e37f31",
+    "signature_hash": "sha1:a1a576f42e7",
     "calls": [
       "sym_9c164687cf",
       "sym_0e53febe6d",
@@ -3595,30 +4444,30 @@
     ],
     "called_by": [],
     "metrics": {
-      "loc": 28,
-      "churn_90d": 3,
+      "loc": 32,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 3
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:c850095"
   },
   {
     "id": "sym_768b5a7c3c",
     "file": "src/cli/index.ts",
     "name": "dim",
     "kind": "function",
-    "signature_hash": "sha1:7a5f7ecb063",
+    "signature_hash": "sha1:48386967046",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_76d15e31c9",
@@ -3641,11 +4490,28 @@
     "last_changed": "commit:ed35150"
   },
   {
+    "id": "sym_76fe5dae5c",
+    "file": "src/integrations/gitignore.ts",
+    "name": "GitignoreResult",
+    "kind": "interface",
+    "signature_hash": "sha1:3d93426cc10",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:e118f79"
+  },
+  {
     "id": "sym_784aeb8abe",
     "file": "test/hookpolicy.test.ts",
     "name": "indexed",
     "kind": "function",
-    "signature_hash": "sha1:7d8ce5b9e47",
+    "signature_hash": "sha1:d5b9ced8cd6",
     "calls": [
       "sym_2c058517d8",
       "sym_d73e258d4a",
@@ -3669,7 +4535,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "pruneStaleEmbeddings",
     "kind": "method",
-    "signature_hash": "sha1:f6525a2acab",
+    "signature_hash": "sha1:27dd8952536",
     "calls": [
       "sym_430a6ea6d8",
       "sym_c46ede4737"
@@ -3679,19 +4545,19 @@
     ],
     "metrics": {
       "loc": 16,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_786f74a17a",
     "file": "test/regression.test.ts",
     "name": "mkConstraint",
     "kind": "function",
-    "signature_hash": "sha1:684ee35a736",
+    "signature_hash": "sha1:6358eaac103",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3708,26 +4574,26 @@
     "file": "src/store/hunchStore.ts",
     "name": "likeSearch",
     "kind": "method",
-    "signature_hash": "sha1:6d6a7bd7f47",
+    "signature_hash": "sha1:11314c6373c",
     "calls": [],
     "called_by": [
       "sym_22fded8626"
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_790b4f8899",
     "file": "src/synthesis/provider.ts",
     "name": "SynthProvider",
     "kind": "interface",
-    "signature_hash": "sha1:53377b8c8b8",
+    "signature_hash": "sha1:09a4e3947d4",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3761,7 +4627,7 @@
     "file": "src/extractors/parse.ts",
     "name": "ParsedFile",
     "kind": "interface",
-    "signature_hash": "sha1:bfed2554323",
+    "signature_hash": "sha1:24ec06c5d94",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3778,7 +4644,7 @@
     "file": "src/store/merge.ts",
     "name": "isRec",
     "kind": "function",
-    "signature_hash": "sha1:58bcdd05c24",
+    "signature_hash": "sha1:54d6f7a7674",
     "calls": [],
     "called_by": [
       "sym_4961c3a2c2",
@@ -3800,93 +4666,91 @@
     "file": "src/cli/index.ts",
     "name": "rel",
     "kind": "function",
-    "signature_hash": "sha1:f1cb7151c4d",
+    "signature_hash": "sha1:fbd91f4ec6c",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_7a2923507e",
     "file": "src/store/hunchStore.ts",
     "name": "blastRadiusFiles",
     "kind": "method",
-    "signature_hash": "sha1:a85e5be8a54",
-    "calls": [
-      "sym_beea0020b4"
-    ],
+    "signature_hash": "sha1:2dae4696f1e",
+    "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 14,
-      "churn_90d": 6,
+      "loc": 20,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
-      "fan_out": 1
+      "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_7b5e2ca6bc",
     "file": "src/mcp/server.ts",
     "name": "provLine",
     "kind": "function",
-    "signature_hash": "sha1:dbcee809829",
+    "signature_hash": "sha1:7ceb9c49789",
     "calls": [],
     "called_by": [
       "sym_a708ee9110"
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_7b66baae63",
     "file": "src/store/hunchStore.ts",
     "name": "allEdges",
     "kind": "method",
-    "signature_hash": "sha1:afd1fb19da2",
+    "signature_hash": "sha1:ad6fa432916",
     "calls": [
       "sym_8fc96bbf18"
     ],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_7d2c513fff",
     "file": "src/store/jsonStore.ts",
     "name": "get",
     "kind": "method",
-    "signature_hash": "sha1:251318f8874",
+    "signature_hash": "sha1:45082167e38",
     "calls": [
       "sym_8fc96bbf18"
     ],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_7dce3b7a2b",
@@ -3900,19 +4764,19 @@
     ],
     "metrics": {
       "loc": 28,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_7e5dadf2d6",
     "file": "src/core/config.ts",
     "name": "HunchConfig",
     "kind": "interface",
-    "signature_hash": "sha1:9d0e84983af",
+    "signature_hash": "sha1:6a65ef0d299",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3929,7 +4793,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "embedAll",
     "kind": "method",
-    "signature_hash": "sha1:7649b1fe553",
+    "signature_hash": "sha1:6e6bff44ff3",
     "calls": [
       "sym_430a6ea6d8",
       "sym_c46ede4737",
@@ -3938,19 +4802,38 @@
     "called_by": [],
     "metrics": {
       "loc": 30,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 3
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_7ee351138b",
+    "file": "src/cli/index.ts",
+    "name": "mapPool",
+    "kind": "function",
+    "signature_hash": "sha1:df6218c33c5",
+    "calls": [
+      "sym_d9bbf79210"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 29,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_7f76d55097",
     "file": "src/extractors/diff.ts",
     "name": "DiffAnalysis",
     "kind": "interface",
-    "signature_hash": "sha1:df43db59e5a",
+    "signature_hash": "sha1:1a0de8b6b47",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -3963,11 +4846,32 @@
     "last_changed": "commit:c9a0f2b"
   },
   {
+    "id": "sym_8033077ffd",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "ownerComponent",
+    "kind": "function",
+    "signature_hash": "sha1:25e3ab66266",
+    "calls": [
+      "sym_712bc8ed6f"
+    ],
+    "called_by": [
+      "sym_f80ce17080"
+    ],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_803f912202",
     "file": "src/core/migrate.ts",
     "name": "writeManifest",
     "kind": "function",
-    "signature_hash": "sha1:8149c5507cd",
+    "signature_hash": "sha1:5027b6a6e9e",
     "calls": [
       "sym_6510b40667"
     ],
@@ -3988,7 +4892,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "CursorCliProvider",
     "kind": "class",
-    "signature_hash": "sha1:fa973dd7772",
+    "signature_hash": "sha1:f9c3e46a2f9",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4022,7 +4926,7 @@
     "file": "src/store/jsonStore.ts",
     "name": "readRawArray",
     "kind": "method",
-    "signature_hash": "sha1:46b387a5561",
+    "signature_hash": "sha1:a7cb19416ea",
     "calls": [],
     "called_by": [
       "sym_383cbb69ef",
@@ -4030,19 +4934,19 @@
     ],
     "metrics": {
       "loc": 12,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_815fdb47eb",
     "file": "src/extractors/git.ts",
     "name": "gitSafe",
     "kind": "function",
-    "signature_hash": "sha1:36565f7f16b",
+    "signature_hash": "sha1:6dda9a6f5d9",
     "calls": [
       "sym_2e868206d6"
     ],
@@ -4058,7 +4962,11 @@
       "sym_41326cde36",
       "sym_9853d94477",
       "sym_547bbf9a26",
+      "sym_6f3774bcfa",
       "sym_18c032ca4f",
+      "sym_ababa126ef",
+      "sym_a6d1b80f7d",
+      "sym_66553fe4d1",
       "sym_e26c522c4a",
       "sym_f1e8c6fbda",
       "sym_be1263261e",
@@ -4066,29 +4974,29 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
-      "fan_in": 16,
+      "fan_in": 20,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_81ebbd0760",
     "file": "src/store/hunchStore.ts",
     "name": "AssembledContext",
     "kind": "interface",
-    "signature_hash": "sha1:776f108a2ba",
+    "signature_hash": "sha1:27848ef45ca",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 9,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_81fc88e59c",
@@ -4104,38 +5012,57 @@
     ],
     "metrics": {
       "loc": 19,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_8211cca258",
     "file": "src/extractors/indexer.ts",
     "name": "capitalize",
     "kind": "function",
-    "signature_hash": "sha1:26e9e3fb273",
+    "signature_hash": "sha1:1bc7e2d0417",
     "calls": [],
     "called_by": [
       "sym_949445a607"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
+  },
+  {
+    "id": "sym_823f45c8fc",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "revealScope",
+    "kind": "function",
+    "signature_hash": "sha1:c92f02aecd0",
+    "calls": [],
+    "called_by": [
+      "sym_e551d96773"
+    ],
+    "metrics": {
+      "loc": 16,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_824739e294",
     "file": "src/synthesis/provider.ts",
     "name": "looksLikeJsonObject",
     "kind": "function",
-    "signature_hash": "sha1:46c63c11ace",
+    "signature_hash": "sha1:54c878ca401",
     "calls": [],
     "called_by": [
       "sym_6994da53cc"
@@ -4154,7 +5081,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "isSignificant",
     "kind": "function",
-    "signature_hash": "sha1:44b012f7599",
+    "signature_hash": "sha1:50f62c6ed3d",
     "calls": [],
     "called_by": [
       "sym_6103f9eaf1"
@@ -4169,11 +5096,32 @@
     "last_changed": "commit:17b2de2"
   },
   {
+    "id": "sym_832d2ed106",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "inComp",
+    "kind": "function",
+    "signature_hash": "sha1:0c30b5a79f3",
+    "calls": [
+      "sym_712bc8ed6f"
+    ],
+    "called_by": [
+      "sym_f80ce17080"
+    ],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_837ee1b990",
     "file": "src/integrations/claudemd.ts",
     "name": "sev",
     "kind": "function",
-    "signature_hash": "sha1:8fc8728a67b",
+    "signature_hash": "sha1:9a987b25e4c",
     "calls": [],
     "called_by": [
       "sym_43f8b248dd"
@@ -4211,7 +5159,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "tryParseObject",
     "kind": "function",
-    "signature_hash": "sha1:90d63eb5ddb",
+    "signature_hash": "sha1:460c88f5f9d",
     "calls": [],
     "called_by": [
       "sym_412280cb7c"
@@ -4230,7 +5178,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "extractJson",
     "kind": "function",
-    "signature_hash": "sha1:e810492e234",
+    "signature_hash": "sha1:743dcd595be",
     "calls": [
       "sym_4fae276ed8"
     ],
@@ -4245,11 +5193,28 @@
     "last_changed": "commit:b9cb365"
   },
   {
+    "id": "sym_86d4c264c2",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "GetHunch",
+    "kind": "type",
+    "signature_hash": "sha1:77c23f765a4",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_871abb4df2",
     "file": "src/core/ids.ts",
     "name": "decisionId",
     "kind": "function",
-    "signature_hash": "sha1:776b70cfeb8",
+    "signature_hash": "sha1:3a945f27080",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -4271,7 +5236,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "commitPrompt",
     "kind": "function",
-    "signature_hash": "sha1:deeab68bb32",
+    "signature_hash": "sha1:faca2b052db",
     "calls": [
       "sym_1c5c6e0d21",
       "sym_2296d86a35"
@@ -4293,7 +5258,7 @@
     "file": "src/store/merge.ts",
     "name": "confidence",
     "kind": "function",
-    "signature_hash": "sha1:33418135fc6",
+    "signature_hash": "sha1:5a794157a6a",
     "calls": [
       "sym_7973c0cb31"
     ],
@@ -4314,7 +5279,7 @@
     "file": "src/store/merge.ts",
     "name": "sortKeys",
     "kind": "function",
-    "signature_hash": "sha1:98ab220b783",
+    "signature_hash": "sha1:61385bdaab9",
     "calls": [],
     "called_by": [
       "sym_56b7347cc6"
@@ -4333,7 +5298,7 @@
     "file": "test/migrate.test.ts",
     "name": "tmp",
     "kind": "function",
-    "signature_hash": "sha1:4e8be501efe",
+    "signature_hash": "sha1:57631232e0e",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4350,7 +5315,7 @@
     "file": "src/store/compact.ts",
     "name": "CompactionCandidate",
     "kind": "interface",
-    "signature_hash": "sha1:dc5ac534f5a",
+    "signature_hash": "sha1:dd8b6f9359e",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4363,28 +5328,45 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
-    "id": "sym_88ccc26394",
-    "file": "src/integrations/hooks.ts",
-    "name": "HookInstall",
+    "id": "sym_88a32221b1",
+    "file": "vscode-extension/src/search.ts",
+    "name": "Item",
     "kind": "interface",
-    "signature_hash": "sha1:0b0b36c078d",
+    "signature_hash": "sha1:86c86e0de7a",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 4,
-      "churn_90d": 3,
+      "loc": 1,
+      "churn_90d": 1,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_88ccc26394",
+    "file": "src/integrations/hooks.ts",
+    "name": "HookInstall",
+    "kind": "interface",
+    "signature_hash": "sha1:c1d30e0eed9",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:c850095"
   },
   {
     "id": "sym_8931cf883c",
     "file": "src/core/migrate.ts",
     "name": "Migration",
     "kind": "interface",
-    "signature_hash": "sha1:12a1a924614",
+    "signature_hash": "sha1:0862467bef4",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4401,7 +5383,7 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "whyBrief",
     "kind": "function",
-    "signature_hash": "sha1:68636524974",
+    "signature_hash": "sha1:92c07b2fc8f",
     "calls": [
       "sym_ac2297b171",
       "sym_04547bba25",
@@ -4412,38 +5394,58 @@
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 3
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_8a2ab47851",
     "file": "src/mcp/server.ts",
     "name": "more",
     "kind": "function",
-    "signature_hash": "sha1:2fd4caa3ba1",
+    "signature_hash": "sha1:73f08021b95",
     "calls": [],
     "called_by": [
       "sym_a708ee9110"
     ],
     "metrics": {
       "loc": 2,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
+  },
+  {
+    "id": "sym_8ad0b6e254",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "cliCommand",
+    "kind": "function",
+    "signature_hash": "sha1:952f6d10c23",
+    "calls": [],
+    "called_by": [
+      "sym_393e7562e1",
+      "sym_aa84f090d3"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_8af42d54b6",
     "file": "src/synthesis/provider.ts",
     "name": "asSeverity",
     "kind": "function",
-    "signature_hash": "sha1:d07b944d506",
+    "signature_hash": "sha1:905f80bc827",
     "calls": [],
     "called_by": [
       "sym_51499a878a"
@@ -4467,19 +5469,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_8d8ca38f4d",
     "file": "src/synthesis/provider.ts",
     "name": "cap",
     "kind": "function",
-    "signature_hash": "sha1:23cf405b0c2",
+    "signature_hash": "sha1:188fdf53196",
     "calls": [],
     "called_by": [
       "sym_c7716287ec_1"
@@ -4498,7 +5500,7 @@
     "file": "src/core/hookpolicy.ts",
     "name": "BlockingHit",
     "kind": "interface",
-    "signature_hash": "sha1:455c6209e1c",
+    "signature_hash": "sha1:73fa5a2d948",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4532,7 +5534,7 @@
     "file": "src/core/format.ts",
     "name": "formatContext",
     "kind": "function",
-    "signature_hash": "sha1:645af3189c6",
+    "signature_hash": "sha1:07934d798be",
     "calls": [
       "sym_7091878093"
     ],
@@ -4553,7 +5555,7 @@
     "file": "test/compact.test.ts",
     "name": "con",
     "kind": "function",
-    "signature_hash": "sha1:ad5161fb50b",
+    "signature_hash": "sha1:14241e4b49c",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4570,27 +5572,26 @@
     "file": "src/cli/index.ts",
     "name": "emitDeny",
     "kind": "function",
-    "signature_hash": "sha1:6475e9117e2",
+    "signature_hash": "sha1:315c4627564",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_8fc96bbf18",
     "file": "src/store/jsonStore.ts",
     "name": "loadAll",
     "kind": "method",
-    "signature_hash": "sha1:0f3d7051568",
+    "signature_hash": "sha1:88f80174da5",
     "calls": [
-      "sym_056000a4c3",
-      "sym_48db7d72bc"
+      "sym_011f6866e6"
     ],
     "called_by": [
       "sym_43f8b248dd",
@@ -4613,20 +5614,20 @@
       "sym_784aeb8abe"
     ],
     "metrics": {
-      "loc": 39,
-      "churn_90d": 4,
+      "loc": 9,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 18,
-      "fan_out": 2
+      "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_91e8631ffc",
     "file": "src/extractors/git.ts",
     "name": "commitFiles",
     "kind": "function",
-    "signature_hash": "sha1:46592c0c5b2",
+    "signature_hash": "sha1:b15686b5cca",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -4635,20 +5636,21 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_9301e7f0e9",
     "file": "src/store/hunchStore.ts",
     "name": "why",
     "kind": "method",
-    "signature_hash": "sha1:e7f1a6ac9d0",
+    "signature_hash": "sha1:508312e127e",
     "calls": [
+      "sym_98c15e9c0a",
       "sym_8fc96bbf18",
       "sym_170ec80106",
       "sym_587ba62cce"
@@ -4658,39 +5660,39 @@
       "sym_37773766b1"
     ],
     "metrics": {
-      "loc": 28,
-      "churn_90d": 6,
+      "loc": 29,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
-      "fan_out": 3
+      "fan_out": 4
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_938d882d9f",
     "file": "src/core/paths.ts",
     "name": "isDir",
     "kind": "function",
-    "signature_hash": "sha1:52c6eea0ecd",
+    "signature_hash": "sha1:7425008b260",
     "calls": [],
     "called_by": [
       "sym_9e8caabda8"
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b33755"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_949445a607",
     "file": "src/extractors/indexer.ts",
     "name": "deriveComponents",
     "kind": "function",
-    "signature_hash": "sha1:776f0fd3739",
+    "signature_hash": "sha1:3d98c207fbc",
     "calls": [
       "sym_b90745ce9f",
       "sym_74d3a2e9bd",
@@ -4702,19 +5704,19 @@
     ],
     "metrics": {
       "loc": 27,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 4
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_9509f5cc82",
     "file": "src/synthesis/provider.ts",
     "name": "FailureInput",
     "kind": "interface",
-    "signature_hash": "sha1:bad2a590004",
+    "signature_hash": "sha1:fcd0455d0aa",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4731,24 +5733,24 @@
     "file": "src/cli/index.ts",
     "name": "toRepoRel",
     "kind": "function",
-    "signature_hash": "sha1:7213489d68d",
+    "signature_hash": "sha1:e89f9398834",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_957c2a54f2",
     "file": "src/extractors/diff.ts",
     "name": "SymbolChange",
     "kind": "interface",
-    "signature_hash": "sha1:dd2e94cd1de",
+    "signature_hash": "sha1:6b6d414024b",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -4765,7 +5767,7 @@
     "file": "src/store/jsonStore.ts",
     "name": "fileFor",
     "kind": "method",
-    "signature_hash": "sha1:35e76a02244",
+    "signature_hash": "sha1:193c8fe2f09",
     "calls": [],
     "called_by": [
       "sym_383cbb69ef",
@@ -4774,12 +5776,46 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_96813bd32a",
+    "file": "src/core/checkreport.ts",
+    "name": "CheckDirect",
+    "kind": "interface",
+    "signature_hash": "sha1:c8f61fda478",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 11,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
+  },
+  {
+    "id": "sym_96baf76b86",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "SymbolSignal",
+    "kind": "interface",
+    "signature_hash": "sha1:c6f344ec031",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 6,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_970462f9e7",
@@ -4791,19 +5827,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_97208a8294",
     "file": "src/core/glob.ts",
     "name": "pathMatchesGlob",
     "kind": "function",
-    "signature_hash": "sha1:96f5fe669f4",
+    "signature_hash": "sha1:32a5718d4ae",
     "calls": [
       "sym_f48c80382c",
       "sym_b26ad02a58"
@@ -4819,92 +5855,168 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_980c0130b3",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "LineageNode",
+    "kind": "interface",
+    "signature_hash": "sha1:f366702f8a7",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_9853d94477",
     "file": "src/extractors/git.ts",
     "name": "lastCommitForFile",
     "kind": "function",
-    "signature_hash": "sha1:d5e835da035",
+    "signature_hash": "sha1:9eba8f5fb16",
     "calls": [
       "sym_815fdb47eb"
     ],
-    "called_by": [
-      "sym_2f00ac7819"
-    ],
+    "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
+  },
+  {
+    "id": "sym_989104f7ed",
+    "file": "src/integrations/ciAction.ts",
+    "name": "writeCiWorkflow",
+    "kind": "function",
+    "signature_hash": "sha1:57144863321",
+    "calls": [
+      "sym_f1192d2c2e"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 8,
+      "churn_90d": 2,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_98a8c4f84f",
     "file": "src/store/hunchStore.ts",
     "name": "toFtsQuery",
     "kind": "function",
-    "signature_hash": "sha1:98e89c9e6be",
+    "signature_hash": "sha1:5504e56ebe4",
     "calls": [],
     "called_by": [
       "sym_22fded8626"
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_98c15e9c0a",
+    "file": "src/core/paths.ts",
+    "name": "toPosixTarget",
+    "kind": "function",
+    "signature_hash": "sha1:602f517ac07",
+    "calls": [],
+    "called_by": [
+      "sym_5fb91b7bd2",
+      "sym_27284a3c8e",
+      "sym_9301e7f0e9",
+      "sym_37773766b1"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 4,
+      "fan_out": 0
+    },
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_993c48c2a3",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "refreshAll",
+    "kind": "function",
+    "signature_hash": "sha1:a1ef9f933d0",
+    "calls": [
+      "sym_532e5d09cb",
+      "sym_32c00c06bc",
+      "sym_1be7c8e393",
+      "sym_9e450479d5"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 8,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 4
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_9a375345fc",
     "file": "vscode-extension/src/extension.ts",
     "name": "withHunch",
     "kind": "function",
-    "signature_hash": "sha1:bb56c422dca",
+    "signature_hash": "sha1:79b7d156552",
     "calls": [
-      "sym_9cd3f7fe96",
       "sym_aa8f652189",
-      "sym_0b13a0b6ff",
       "sym_aed7c11714"
     ],
     "called_by": [
       "sym_e551d96773"
     ],
     "metrics": {
-      "loc": 8,
-      "churn_90d": 4,
+      "loc": 7,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
-      "fan_out": 4
+      "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_9b3ae16978",
     "file": "src/extractors/indexer.ts",
     "name": "ComponentDraft",
     "kind": "interface",
-    "signature_hash": "sha1:95437e24906",
+    "signature_hash": "sha1:749eb7f8b25",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_9b40137fc8",
     "file": "src/core/migrate.ts",
     "name": "up",
     "kind": "method",
-    "signature_hash": "sha1:db46afe9878",
+    "signature_hash": "sha1:6d234af09c2",
     "calls": [],
     "called_by": [
       "sym_eba9589407"
@@ -4936,11 +6048,31 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_9bae37e3e4",
+    "file": "vscode-extension/src/decorations.ts",
+    "name": "update",
+    "kind": "method",
+    "signature_hash": "sha1:32782b2efae",
+    "calls": [
+      "sym_6eb407df5b",
+      "sym_51c007bc15"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 29,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 2
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_9c164687cf",
     "file": "src/extractors/git.ts",
     "name": "hooksDir",
     "kind": "function",
-    "signature_hash": "sha1:906768726e4",
+    "signature_hash": "sha1:4d4485ede97",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -4950,42 +6082,56 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
+  },
+  {
+    "id": "sym_9c988f5804",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "SearchHit",
+    "kind": "interface",
+    "signature_hash": "sha1:714e6514a71",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 8,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_9cd3f7fe96",
     "file": "vscode-extension/src/extension.ts",
     "name": "workspaceRoot",
     "kind": "function",
-    "signature_hash": "sha1:bdc8ef2f0b0",
+    "signature_hash": "sha1:68e15c7ce66",
     "calls": [],
     "called_by": [
       "sym_aed7c11714",
-      "sym_32c00c06bc",
-      "sym_c75e922555",
-      "sym_e551d96773",
-      "sym_9a375345fc"
+      "sym_e551d96773"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 5,
+      "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_9d1964b9a2",
     "file": "src/synthesis/synthesize.ts",
     "name": "rankSuspects",
     "kind": "function",
-    "signature_hash": "sha1:1dff27b8737",
+    "signature_hash": "sha1:90c8fa14252",
     "calls": [],
     "called_by": [
       "sym_7183436879"
@@ -5004,7 +6150,7 @@
     "file": "src/store/embedder.ts",
     "name": "StubEmbedder",
     "kind": "class",
-    "signature_hash": "sha1:4f66ee49be4",
+    "signature_hash": "sha1:36b9bd5d642",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5017,11 +6163,71 @@
     "last_changed": "commit:fb0b277"
   },
   {
+    "id": "sym_9e17df05dc",
+    "file": "src/core/checkreport.ts",
+    "name": "renderText",
+    "kind": "function",
+    "signature_hash": "sha1:042f726468f",
+    "calls": [
+      "sym_328c39499a",
+      "sym_da554fc009",
+      "sym_ffd72a6f96"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 39,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 3
+    },
+    "last_changed": "commit:05caf72"
+  },
+  {
+    "id": "sym_9e363f6eb1",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "refresh",
+    "kind": "method",
+    "signature_hash": "sha1:01f1bd32b15",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_9e450479d5",
+    "file": "vscode-extension/src/graph.ts",
+    "name": "refreshGraph",
+    "kind": "function",
+    "signature_hash": "sha1:57b934618db",
+    "calls": [
+      "sym_62111a4caa",
+      "sym_f80ce17080"
+    ],
+    "called_by": [
+      "sym_993c48c2a3"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 2
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_9e8caabda8",
     "file": "src/core/paths.ts",
     "name": "findRoot",
     "kind": "function",
-    "signature_hash": "sha1:ca85e071e00",
+    "signature_hash": "sha1:6628e861cb1",
     "calls": [
       "sym_2107f96eaf",
       "sym_938d882d9f"
@@ -5032,19 +6238,19 @@
     ],
     "metrics": {
       "loc": 19,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 2
     },
-    "last_changed": "commit:8b33755"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_9f3f0902e9",
     "file": "src/integrations/hooks.ts",
     "name": "escapeRe",
     "kind": "function",
-    "signature_hash": "sha1:510a05ee067",
+    "signature_hash": "sha1:5fce8d563db",
     "calls": [],
     "called_by": [
       "sym_76837948cb",
@@ -5052,19 +6258,19 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:c850095"
   },
   {
     "id": "sym_a20d4cc8fa",
     "file": "src/store/compact.ts",
     "name": "planCompaction",
     "kind": "function",
-    "signature_hash": "sha1:f29976d95ba",
+    "signature_hash": "sha1:71d81e01d73",
     "calls": [
       "sym_a6d93d75c6",
       "sym_18a4279b0b"
@@ -5086,7 +6292,7 @@
     "file": "src/extractors/diff.ts",
     "name": "RenamePair",
     "kind": "interface",
-    "signature_hash": "sha1:1acbc69702f",
+    "signature_hash": "sha1:015704c1086",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5103,7 +6309,7 @@
     "file": "src/extractors/git.ts",
     "name": "trackedFiles",
     "kind": "function",
-    "signature_hash": "sha1:320ac2689e1",
+    "signature_hash": "sha1:0eefdb1622a",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -5112,12 +6318,12 @@
     ],
     "metrics": {
       "loc": 5,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_a4d5805f6c",
@@ -5131,19 +6337,53 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_a5b6369db3",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "dispose",
+    "kind": "method",
+    "signature_hash": "sha1:aa55c8d6179",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_a5d442a59c",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "StaleEntry",
+    "kind": "type",
+    "signature_hash": "sha1:02345e1c391",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_a626b99958",
     "file": "src/synthesis/provider.ts",
     "name": "extractCodexText",
     "kind": "function",
-    "signature_hash": "sha1:63e1107165e",
+    "signature_hash": "sha1:3c436a3a49d",
     "calls": [],
     "called_by": [
       "sym_3ede8a26b9_1"
@@ -5167,19 +6407,38 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
+  },
+  {
+    "id": "sym_a6d1b80f7d",
+    "file": "src/extractors/git.ts",
+    "name": "rangeFiles",
+    "kind": "function",
+    "signature_hash": "sha1:3e23725b490",
+    "calls": [
+      "sym_815fdb47eb"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 9,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_a6d93d75c6",
     "file": "src/store/compact.ts",
     "name": "decReason",
     "kind": "function",
-    "signature_hash": "sha1:d55bd0fea3e",
+    "signature_hash": "sha1:f76287b4549",
     "calls": [
       "sym_2b00d47f6e"
     ],
@@ -5200,7 +6459,7 @@
     "file": "src/mcp/server.ts",
     "name": "buildServer",
     "kind": "function",
-    "signature_hash": "sha1:34b51fcd5f4",
+    "signature_hash": "sha1:1d763fbe16d",
     "calls": [
       "sym_2c058517d8",
       "sym_71788d2ebe",
@@ -5229,19 +6488,19 @@
     ],
     "metrics": {
       "loc": 286,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 21
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_aa5f50456c",
     "file": "src/extractors/indexer.ts",
     "name": "toPosix",
     "kind": "function",
-    "signature_hash": "sha1:d1e2eb3e5a4",
+    "signature_hash": "sha1:658d4c2d7db",
     "calls": [],
     "called_by": [
       "sym_2f00ac7819",
@@ -5249,31 +6508,54 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_aa7221e606",
     "file": "src/extractors/git.ts",
     "name": "gitDir",
     "kind": "function",
-    "signature_hash": "sha1:178741869c6",
+    "signature_hash": "sha1:822795a1059",
     "calls": [
       "sym_815fdb47eb"
     ],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
+  },
+  {
+    "id": "sym_aa84f090d3",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "recordBug",
+    "kind": "function",
+    "signature_hash": "sha1:8a49835f559",
+    "calls": [
+      "sym_8ad0b6e254",
+      "sym_532e5d09cb",
+      "sym_2107f96eaf"
+    ],
+    "called_by": [
+      "sym_e551d96773"
+    ],
+    "metrics": {
+      "loc": 17,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 3
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_aa8f652189",
@@ -5287,19 +6569,19 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_aadef97cb3",
     "file": "test/embed.test.ts",
     "name": "floatEq",
     "kind": "function",
-    "signature_hash": "sha1:cccba0bea18",
+    "signature_hash": "sha1:7c622701919",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5321,19 +6603,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_ab1bba2184",
     "file": "src/synthesis/provider.ts",
     "name": "jsonInstruction",
     "kind": "function",
-    "signature_hash": "sha1:9efb9322668",
+    "signature_hash": "sha1:46fe54fa263",
     "calls": [],
     "called_by": [
       "sym_c7716287ec",
@@ -5349,6 +6631,25 @@
     "last_changed": "commit:b9cb365"
   },
   {
+    "id": "sym_ababa126ef",
+    "file": "src/extractors/git.ts",
+    "name": "revExists",
+    "kind": "function",
+    "signature_hash": "sha1:23cc3221e74",
+    "calls": [
+      "sym_815fdb47eb"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 9,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 1
+    },
+    "last_changed": "commit:d5528c5"
+  },
+  {
     "id": "sym_abe707c6f0",
     "file": "vscode-extension/src/hunchData.ts",
     "name": "isStale",
@@ -5358,23 +6659,24 @@
       "sym_76d15e31c9"
     ],
     "called_by": [
-      "sym_1585ecfb0b"
+      "sym_1585ecfb0b",
+      "sym_eab51776c0"
     ],
     "metrics": {
       "loc": 10,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_ac083f186f",
     "file": "src/store/embedder.ts",
     "name": "TransformersEmbedder",
     "kind": "class",
-    "signature_hash": "sha1:c3912ee5644",
+    "signature_hash": "sha1:4c715e1061f",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5397,17 +6699,19 @@
       "sym_7dce3b7a2b"
     ],
     "called_by": [
+      "sym_0297ebb8f0",
       "sym_89d5502a58",
-      "sym_c75e922555"
+      "sym_c75e922555",
+      "sym_df5a40b2e7"
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 2,
+      "fan_in": 4,
       "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_acc60a9760",
@@ -5419,19 +6723,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_acc82aef14",
     "file": "src/extractors/parse.ts",
     "name": "ascendToDef",
     "kind": "function",
-    "signature_hash": "sha1:650e519b623",
+    "signature_hash": "sha1:8466b67d509",
     "calls": [],
     "called_by": [
       "sym_6800d03191"
@@ -5463,11 +6767,28 @@
     "last_changed": "commit:17b2de2"
   },
   {
+    "id": "sym_add973e254",
+    "file": "src/core/strictgate.ts",
+    "name": "isStrictBlocker",
+    "kind": "function",
+    "signature_hash": "sha1:1b98dc7b5f8",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 6,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:e2c2fc4"
+  },
+  {
     "id": "sym_ae0f7d8b5a",
     "file": "src/integrations/providers.ts",
     "name": "writeAgentsMd",
     "kind": "function",
-    "signature_hash": "sha1:e14eb0461ea",
+    "signature_hash": "sha1:d70fb70958a",
     "calls": [
       "sym_47649456f3",
       "sym_43f8b248dd"
@@ -5477,43 +6798,45 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_aed7c11714",
     "file": "vscode-extension/src/extension.ts",
     "name": "relPath",
     "kind": "function",
-    "signature_hash": "sha1:8833dcce2ec",
+    "signature_hash": "sha1:37a5fba01a7",
     "calls": [
       "sym_9cd3f7fe96"
     ],
     "called_by": [
       "sym_89d5502a58",
+      "sym_41400a6b0a",
       "sym_c75e922555",
+      "sym_393e7562e1",
       "sym_e551d96773",
       "sym_9a375345fc"
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 4,
+      "fan_in": 6,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_af10089088",
     "file": "src/store/compact.ts",
     "name": "CompactionOpts",
     "kind": "interface",
-    "signature_hash": "sha1:944d704719c",
+    "signature_hash": "sha1:377e237a007",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5530,7 +6853,7 @@
     "file": "src/integrations/providers.ts",
     "name": "stripJsonc",
     "kind": "function",
-    "signature_hash": "sha1:80a2787a71f",
+    "signature_hash": "sha1:db848ac459d",
     "calls": [
       "sym_501aebcf1e"
     ],
@@ -5539,19 +6862,36 @@
     ],
     "metrics": {
       "loc": 19,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
+  },
+  {
+    "id": "sym_af7808c19e",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "GraphLink",
+    "kind": "interface",
+    "signature_hash": "sha1:9cbf6029355",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_afe2366215",
     "file": "src/extractors/git.ts",
     "name": "asOfDate",
     "kind": "function",
-    "signature_hash": "sha1:30025d1da60",
+    "signature_hash": "sha1:68ab36a83e2",
     "calls": [
       "sym_fbc5451f63",
       "sym_cb863afde2",
@@ -5562,19 +6902,19 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 3
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_b002278a20",
     "file": "src/store/hunchStore.ts",
     "name": "checkConstraints",
     "kind": "method",
-    "signature_hash": "sha1:e6d4fb7dc38",
+    "signature_hash": "sha1:fc44dc66b14",
     "calls": [
       "sym_8fc96bbf18",
       "sym_587ba62cce",
@@ -5586,19 +6926,39 @@
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 3
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_b05d886ed1",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "bugsForSymbol",
+    "kind": "function",
+    "signature_hash": "sha1:b243d9b7f14",
+    "calls": [],
+    "called_by": [
+      "sym_41400a6b0a",
+      "sym_c685855784"
+    ],
+    "metrics": {
+      "loc": 4,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_b0a72a1182",
     "file": "src/extractors/testreport.ts",
     "name": "stripDirective",
     "kind": "function",
-    "signature_hash": "sha1:a69a7e67d93",
+    "signature_hash": "sha1:c49a90b0de0",
     "calls": [],
     "called_by": [
       "sym_e0ac1bf3e6"
@@ -5617,7 +6977,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "pexecIn",
     "kind": "function",
-    "signature_hash": "sha1:681a7d7544e",
+    "signature_hash": "sha1:58acfc6c2f0",
     "calls": [
       "sym_4c67596cb4",
       "sym_2107f96eaf"
@@ -5643,7 +7003,7 @@
     "file": "src/store/embedder.ts",
     "name": "selectEmbedder",
     "kind": "function",
-    "signature_hash": "sha1:e5d5436ebb3",
+    "signature_hash": "sha1:5c396aacae5",
     "calls": [
       "sym_ea87515072"
     ],
@@ -5665,24 +7025,24 @@
     "file": "src/extractors/indexer.ts",
     "name": "IndexResult",
     "kind": "interface",
-    "signature_hash": "sha1:2a4cbf113b4",
+    "signature_hash": "sha1:9d3f52d6b49",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 8,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_b24c20a0d9",
     "file": "src/core/config.ts",
     "name": "isFirmness",
     "kind": "function",
-    "signature_hash": "sha1:22a68c36a88",
+    "signature_hash": "sha1:1ad2c893410",
     "calls": [],
     "called_by": [
       "sym_010a360b82"
@@ -5701,7 +7061,7 @@
     "file": "src/core/glob.ts",
     "name": "globToRegExp",
     "kind": "function",
-    "signature_hash": "sha1:4350fd0db90",
+    "signature_hash": "sha1:02b02b538e6",
     "calls": [
       "sym_0c63caa8a0"
     ],
@@ -5722,7 +7082,7 @@
     "file": "test/timetravel.test.ts",
     "name": "mkConstraint",
     "kind": "function",
-    "signature_hash": "sha1:684ee35a736",
+    "signature_hash": "sha1:6358eaac103",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5761,19 +7121,19 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_b55f36f4a8",
     "file": "src/integrations/providers.ts",
     "name": "writeCursorRule",
     "kind": "function",
-    "signature_hash": "sha1:5a7cc3e4bea",
+    "signature_hash": "sha1:56f39b2e681",
     "calls": [
       "sym_43f8b248dd"
     ],
@@ -5782,36 +7142,36 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
-    "id": "sym_b5e368db68",
-    "file": "src/cli/index.ts",
-    "name": "mark",
-    "kind": "function",
-    "signature_hash": "sha1:03f4c4fd3a1",
+    "id": "sym_b773be3e47",
+    "file": "src/core/checkreport.ts",
+    "name": "CheckNear",
+    "kind": "interface",
+    "signature_hash": "sha1:4aca744a0d7",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 21,
+      "churn_90d": 1,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:05caf72"
   },
   {
     "id": "sym_b8c374a5e3",
     "file": "src/synthesis/provider.ts",
     "name": "CodexCliProvider",
     "kind": "class",
-    "signature_hash": "sha1:1149d995f59",
+    "signature_hash": "sha1:09031db3aa0",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -5828,26 +7188,26 @@
     "file": "src/extractors/indexer.ts",
     "name": "componentDir",
     "kind": "function",
-    "signature_hash": "sha1:d346713ad63",
+    "signature_hash": "sha1:49d2674b868",
     "calls": [],
     "called_by": [
       "sym_949445a607"
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:0df729d"
   },
   {
     "id": "sym_b91e9afbb5",
     "file": "src/mcp/server.ts",
     "name": "startServer",
     "kind": "function",
-    "signature_hash": "sha1:a0c164d9f98",
+    "signature_hash": "sha1:909d504f13f",
     "calls": [
       "sym_9e8caabda8",
       "sym_a708ee9110"
@@ -5855,19 +7215,19 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 9,
+      "churn_90d": 11,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_b9ad124ad8",
     "file": "src/synthesis/provider.ts",
     "name": "decisionDraftFromText",
     "kind": "function",
-    "signature_hash": "sha1:86ede1bd226",
+    "signature_hash": "sha1:bd00367a8e5",
     "calls": [
       "sym_4fae276ed8",
       "sym_f75ed167b7",
@@ -5890,7 +7250,7 @@
     "file": "test/hookpolicy.test.ts",
     "name": "seedBlocking",
     "kind": "function",
-    "signature_hash": "sha1:682d056146e",
+    "signature_hash": "sha1:511f986fd53",
     "calls": [
       "sym_383cbb69ef",
       "sym_71788d2ebe"
@@ -5910,17 +7270,17 @@
     "file": "src/store/hunchStore.ts",
     "name": "WhyResult",
     "kind": "interface",
-    "signature_hash": "sha1:af2e18972dd",
+    "signature_hash": "sha1:10c3500d479",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 8,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_bb5808fc22",
@@ -5935,12 +7295,48 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_bbc1da5ec5",
+    "file": "src/store/hunchStore.ts",
+    "name": "fts",
+    "kind": "function",
+    "signature_hash": "sha1:4c1058ee0cb",
+    "calls": [],
+    "called_by": [
+      "sym_71788d2ebe"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 8,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_bd9facfa09",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "build",
+    "kind": "function",
+    "signature_hash": "sha1:220c82ad36f",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_bda955394e",
@@ -5954,19 +7350,19 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 1,
+      "churn_90d": 2,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:a2d3f81"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_be1263261e",
     "file": "src/extractors/git.ts",
     "name": "fixCommits",
     "kind": "function",
-    "signature_hash": "sha1:2409caade38",
+    "signature_hash": "sha1:f7bd6ed5441",
     "calls": [
       "sym_815fdb47eb",
       "sym_e1155c29cf"
@@ -5974,19 +7370,19 @@
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_be1c9d5bfe",
     "file": "test/synthesis.test.ts",
     "name": "analysis",
     "kind": "function",
-    "signature_hash": "sha1:a7a8c115f78",
+    "signature_hash": "sha1:c43aab43b47",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6003,23 +7399,20 @@
     "file": "src/store/hunchStore.ts",
     "name": "getDependents",
     "kind": "method",
-    "signature_hash": "sha1:0880a50cb3a",
-    "calls": [
-      "sym_e7fcc521a7"
-    ],
+    "signature_hash": "sha1:ede268aa428",
+    "calls": [],
     "called_by": [
       "sym_a708ee9110",
-      "sym_7a2923507e",
       "sym_37773766b1"
     ],
     "metrics": {
-      "loc": 15,
-      "churn_90d": 6,
+      "loc": 18,
+      "churn_90d": 8,
       "bug_count": 0,
-      "fan_in": 3,
-      "fan_out": 1
+      "fan_in": 2,
+      "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_bf3eb2cd32",
@@ -6043,7 +7436,7 @@
     "file": "test/check.test.ts",
     "name": "indexed",
     "kind": "function",
-    "signature_hash": "sha1:e1c2c5fa490",
+    "signature_hash": "sha1:5a1d87a212f",
     "calls": [
       "sym_63a12614e4",
       "sym_2c058517d8",
@@ -6078,19 +7471,19 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 4,
       "fan_out": 0
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_c06e2500a7",
     "file": "src/core/hookpolicy.ts",
     "name": "blockingInScope",
     "kind": "function",
-    "signature_hash": "sha1:f453b62aa67",
+    "signature_hash": "sha1:72967ee9fe1",
     "calls": [
       "sym_b002278a20"
     ],
@@ -6114,12 +7507,29 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_c1b7dbb8b6",
+    "file": "vscode-extension/src/decorations.ts",
+    "name": "constructor",
+    "kind": "method",
+    "signature_hash": "sha1:562c02bbbf6",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_c1bb807aa9",
@@ -6131,12 +7541,12 @@
     "called_by": [],
     "metrics": {
       "loc": 1,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_c1d49e9920",
@@ -6150,19 +7560,19 @@
     ],
     "metrics": {
       "loc": 1,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_c1e85563e2",
     "file": "src/extractors/git.ts",
     "name": "revParse",
     "kind": "function",
-    "signature_hash": "sha1:2ca48df4b81",
+    "signature_hash": "sha1:1df25026506",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -6172,19 +7582,19 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_c228c1cc99",
     "file": "src/synthesis/synthesize.ts",
     "name": "draftDecisionSafe",
     "kind": "function",
-    "signature_hash": "sha1:e110eba4cef",
+    "signature_hash": "sha1:97eeb723fa3",
     "calls": [],
     "called_by": [
       "sym_6103f9eaf1"
@@ -6203,7 +7613,7 @@
     "file": "src/store/schema.ts",
     "name": "embedHash",
     "kind": "function",
-    "signature_hash": "sha1:af723342cb6",
+    "signature_hash": "sha1:e7234e0f223",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -6225,7 +7635,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "DeterministicProvider",
     "kind": "class",
-    "signature_hash": "sha1:853a0d582d8",
+    "signature_hash": "sha1:25d9357cd39",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6242,7 +7652,7 @@
     "file": "src/extractors/diff.ts",
     "name": "declsFor",
     "kind": "function",
-    "signature_hash": "sha1:815ef9ee702",
+    "signature_hash": "sha1:13a65ab1a95",
     "calls": [
       "sym_ec99de2bc3"
     ],
@@ -6263,7 +7673,7 @@
     "file": "src/store/merge.ts",
     "name": "humanConfirmed",
     "kind": "function",
-    "signature_hash": "sha1:e636a4366a9",
+    "signature_hash": "sha1:ae91f366b55",
     "calls": [
       "sym_f7439daa82"
     ],
@@ -6280,37 +7690,54 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
+    "id": "sym_c685855784",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "provideHover",
+    "kind": "method",
+    "signature_hash": "sha1:b4e02e69877",
+    "calls": [
+      "sym_6eb407df5b",
+      "sym_b05d886ed1"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 27,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 2
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_c75e922555",
     "file": "vscode-extension/src/extension.ts",
     "name": "updateStatusBar",
     "kind": "function",
-    "signature_hash": "sha1:7cc70af300d",
+    "signature_hash": "sha1:deab33bd7ae",
     "calls": [
-      "sym_9cd3f7fe96",
-      "sym_0b13a0b6ff",
       "sym_aed7c11714",
       "sym_3f3af7117b",
       "sym_ac2297b171"
     ],
     "called_by": [
-      "sym_e551d96773",
-      "sym_343edf66d4"
+      "sym_1be7c8e393"
     ],
     "metrics": {
-      "loc": 34,
-      "churn_90d": 4,
+      "loc": 33,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 2,
-      "fan_out": 5
+      "fan_in": 1,
+      "fan_out": 3
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_c7716287ec",
     "file": "src/synthesis/provider.ts",
     "name": "draftDecision",
     "kind": "method",
-    "signature_hash": "sha1:1b081ed9c72",
+    "signature_hash": "sha1:cbcf1a8d19b",
     "calls": [
       "sym_87824224e8",
       "sym_ab1bba2184",
@@ -6331,7 +7758,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "draftDecision",
     "kind": "method",
-    "signature_hash": "sha1:db77bde9a3a",
+    "signature_hash": "sha1:70f471ee000",
     "calls": [
       "sym_cf6099323a",
       "sym_1c5c6e0d21",
@@ -6352,7 +7779,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "isAvailable",
     "kind": "function",
-    "signature_hash": "sha1:ee3a5cf815b",
+    "signature_hash": "sha1:efad44e8c0d",
     "calls": [],
     "called_by": [
       "sym_dfb2a0090e"
@@ -6390,7 +7817,7 @@
     "file": "test/embed.test.ts",
     "name": "decode",
     "kind": "function",
-    "signature_hash": "sha1:58ead982426",
+    "signature_hash": "sha1:c8ea245c77b",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6407,7 +7834,7 @@
     "file": "src/extractors/git.ts",
     "name": "commitMeta",
     "kind": "function",
-    "signature_hash": "sha1:857f7c2d943",
+    "signature_hash": "sha1:043be157ff7",
     "calls": [
       "sym_815fdb47eb",
       "sym_91e8631ffc"
@@ -6418,36 +7845,36 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_cccd3391c4",
     "file": "src/store/hunchStore.ts",
     "name": "SearchHit",
     "kind": "interface",
-    "signature_hash": "sha1:b48256cd614",
+    "signature_hash": "sha1:2cd257261ad",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 7,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_cd29325160",
     "file": "src/integrations/providers.ts",
     "name": "writeCodexConfig",
     "kind": "function",
-    "signature_hash": "sha1:3d8366c7ae2",
+    "signature_hash": "sha1:f0c58cf50a6",
     "calls": [
       "sym_6df1170eb0"
     ],
@@ -6456,38 +7883,38 @@
     ],
     "metrics": {
       "loc": 31,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_cdd31058aa",
     "file": "src/store/hunchStore.ts",
     "name": "vecToBlob",
     "kind": "function",
-    "signature_hash": "sha1:57e7b34a94b",
+    "signature_hash": "sha1:b716b8424fc",
     "calls": [],
     "called_by": [
       "sym_7e79e01009"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_cdff71a1f9",
     "file": "src/synthesis/synthesize.ts",
     "name": "recentDiffFor",
     "kind": "function",
-    "signature_hash": "sha1:d1e71576f3a",
+    "signature_hash": "sha1:6ad3fdfee8f",
     "calls": [
       "sym_64db6cba68",
       "sym_f9d958acb6"
@@ -6505,11 +7932,28 @@
     "last_changed": "commit:17b2de2"
   },
   {
+    "id": "sym_ce8ecf1380",
+    "file": "vscode-extension/src/decorations.ts",
+    "name": "HunchDecorations",
+    "kind": "class",
+    "signature_hash": "sha1:66db1ec5a9f",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 47,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_cf6099323a",
     "file": "src/synthesis/provider.ts",
     "name": "topDirs",
     "kind": "function",
-    "signature_hash": "sha1:19c2fb64f66",
+    "signature_hash": "sha1:81282185162",
     "calls": [],
     "called_by": [
       "sym_c7716287ec_1"
@@ -6524,11 +7968,28 @@
     "last_changed": "commit:b9cb365"
   },
   {
+    "id": "sym_cfa3f04137",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "constructor",
+    "kind": "method",
+    "signature_hash": "sha1:562c02bbbf6",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_cfe228d023",
     "file": "src/store/hunchStore.ts",
     "name": "timeline",
     "kind": "method",
-    "signature_hash": "sha1:4ba43d9a80e",
+    "signature_hash": "sha1:04655b67a08",
     "calls": [
       "sym_9301e7f0e9"
     ],
@@ -6537,40 +7998,42 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_d0a07420b5",
     "file": "vscode-extension/src/extension.ts",
     "name": "firstFile",
     "kind": "function",
-    "signature_hash": "sha1:db1f98075bf",
+    "signature_hash": "sha1:a50f7a64404",
     "calls": [
       "sym_eb5c83c0b6"
     ],
     "called_by": [
-      "sym_1585ecfb0b"
+      "sym_1585ecfb0b",
+      "sym_48e64385a7",
+      "sym_7453ff75b2"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_d0a790bbad",
     "file": "src/store/hunchStore.ts",
     "name": "fragility",
     "kind": "method",
-    "signature_hash": "sha1:9c98aa13d13",
+    "signature_hash": "sha1:a5cb938ee3b",
     "calls": [
       "sym_8fc96bbf18",
       "sym_0328d7861c"
@@ -6578,19 +8041,19 @@
     "called_by": [],
     "metrics": {
       "loc": 25,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_d12f6e978e",
     "file": "test/integration.test.ts",
     "name": "gitRepo",
     "kind": "function",
-    "signature_hash": "sha1:af6439598f5",
+    "signature_hash": "sha1:f83696ffd22",
     "calls": [
       "sym_f23f22701a"
     ],
@@ -6609,7 +8072,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "isPlaceholder",
     "kind": "function",
-    "signature_hash": "sha1:38917d4efd8",
+    "signature_hash": "sha1:b4ab31855fd",
     "calls": [],
     "called_by": [
       "sym_f75ed167b7"
@@ -6628,7 +8091,7 @@
     "file": "test/compact.test.ts",
     "name": "dec",
     "kind": "function",
-    "signature_hash": "sha1:aee393bb0ec",
+    "signature_hash": "sha1:31086df6da7",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6645,7 +8108,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "asStrArr",
     "kind": "function",
-    "signature_hash": "sha1:71c9debfd7d",
+    "signature_hash": "sha1:cb3b1a8fdb7",
     "calls": [],
     "called_by": [
       "sym_b9ad124ad8"
@@ -6664,7 +8127,7 @@
     "file": "src/extractors/diff.ts",
     "name": "analyzeDiff",
     "kind": "function",
-    "signature_hash": "sha1:c9eb5ecd292",
+    "signature_hash": "sha1:8dddee0237b",
     "calls": [
       "sym_ec99de2bc3",
       "sym_2b3d152f3e",
@@ -6689,7 +8152,7 @@
     "file": "src/integrations/providers.ts",
     "name": "writeCursorMcp",
     "kind": "function",
-    "signature_hash": "sha1:ce5ef9a14bc",
+    "signature_hash": "sha1:8e995a80d18",
     "calls": [
       "sym_1141cec963",
       "sym_39f0639bf0"
@@ -6699,12 +8162,12 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_d538f687c4",
@@ -6716,19 +8179,19 @@
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_d5f67ecf71",
     "file": "src/integrations/scaffold.ts",
     "name": "writeMcpJson",
     "kind": "function",
-    "signature_hash": "sha1:073d19c049f",
+    "signature_hash": "sha1:58c46002782",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6745,7 +8208,7 @@
     "file": "test/timetravel.test.ts",
     "name": "mkDecision",
     "kind": "function",
-    "signature_hash": "sha1:4a7e2215708",
+    "signature_hash": "sha1:65ae78df1a3",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6762,29 +8225,30 @@
     "file": "src/store/jsonStore.ts",
     "name": "delete",
     "kind": "method",
-    "signature_hash": "sha1:13fb3bdfb02",
+    "signature_hash": "sha1:e3e9f5bc8aa",
     "calls": [
       "sym_95e5f5139f",
       "sym_80eb1c4aa3",
       "sym_6510b40667",
-      "sym_c01eb1b0a1"
+      "sym_c01eb1b0a1",
+      "sym_468960ffdc"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 16,
-      "churn_90d": 4,
+      "loc": 18,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
-      "fan_out": 4
+      "fan_out": 5
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_d73e258d4a",
     "file": "src/store/jsonStore.ts",
     "name": "ensureDirs",
     "kind": "method",
-    "signature_hash": "sha1:a997f408a5f",
+    "signature_hash": "sha1:02cd11e1299",
     "calls": [
       "sym_803f912202"
     ],
@@ -6795,19 +8259,36 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
+  },
+  {
+    "id": "sym_d74eed6595",
+    "file": "src/store/jsonStore.ts",
+    "name": "clearCache",
+    "kind": "method",
+    "signature_hash": "sha1:f6707657e45",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_d8c7062650",
     "file": "src/synthesis/provider.ts",
     "name": "draftBug",
     "kind": "method",
-    "signature_hash": "sha1:8877cc1d208",
+    "signature_hash": "sha1:a85af7a5932",
     "calls": [
       "sym_f6dee26225",
       "sym_ab1bba2184",
@@ -6828,7 +8309,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "draftBug",
     "kind": "method",
-    "signature_hash": "sha1:94affe6cdf2",
+    "signature_hash": "sha1:4c8fddef6cd",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6845,7 +8326,7 @@
     "file": "src/extractors/testreport.ts",
     "name": "TestFailure",
     "kind": "interface",
-    "signature_hash": "sha1:dd420b2fc78",
+    "signature_hash": "sha1:4a3788594d8",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6862,7 +8343,7 @@
     "file": "src/store/db.ts",
     "name": "openDb",
     "kind": "function",
-    "signature_hash": "sha1:696836b198e",
+    "signature_hash": "sha1:b27baa46b0e",
     "calls": [],
     "called_by": [
       "sym_df9ee4e404"
@@ -6877,11 +8358,49 @@
     "last_changed": "commit:a2d3f81"
   },
   {
+    "id": "sym_d9bbf79210",
+    "file": "src/cli/index.ts",
+    "name": "worker",
+    "kind": "function",
+    "signature_hash": "sha1:a2ff51c16b5",
+    "calls": [],
+    "called_by": [
+      "sym_7ee351138b"
+    ],
+    "metrics": {
+      "loc": 6,
+      "churn_90d": 29,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:6b245a6"
+  },
+  {
+    "id": "sym_da554fc009",
+    "file": "src/core/checkreport.ts",
+    "name": "mark",
+    "kind": "function",
+    "signature_hash": "sha1:28ef650935f",
+    "calls": [],
+    "called_by": [
+      "sym_9e17df05dc"
+    ],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
+  },
+  {
     "id": "sym_daac570c01",
     "file": "src/integrations/providers.ts",
     "name": "writeCopilotInstructions",
     "kind": "function",
-    "signature_hash": "sha1:7fa581bf22b",
+    "signature_hash": "sha1:0faabddbb6b",
     "calls": [
       "sym_47649456f3",
       "sym_43f8b248dd"
@@ -6891,19 +8410,53 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
+  },
+  {
+    "id": "sym_dcf8df6252",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "q",
+    "kind": "function",
+    "signature_hash": "sha1:4b8ed216c1c",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_dcf8df6252_1",
+    "file": "vscode-extension/src/extension.ts",
+    "name": "q",
+    "kind": "function",
+    "signature_hash": "sha1:4b8ed216c1c",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 5,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_dcff303e8e",
     "file": "src/integrations/scaffold.ts",
     "name": "HookEntry",
     "kind": "interface",
-    "signature_hash": "sha1:71a5795b310",
+    "signature_hash": "sha1:3ca4cf7e5ab",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -6916,6 +8469,42 @@
     "last_changed": "commit:8b33755"
   },
   {
+    "id": "sym_dd307d5654",
+    "file": "vscode-extension/src/decorations.ts",
+    "name": "GetHunch",
+    "kind": "type",
+    "signature_hash": "sha1:77c23f765a4",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_dd44d72859",
+    "file": "vscode-extension/src/diagnostics.ts",
+    "name": "clearClosed",
+    "kind": "method",
+    "signature_hash": "sha1:f01711af903",
+    "calls": [],
+    "called_by": [
+      "sym_e551d96773"
+    ],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_de04d84ffc",
     "file": "vscode-extension/src/hunchData.ts",
     "name": "fragileSymbols",
@@ -6923,40 +8512,41 @@
     "signature_hash": "sha1:c462d954c3c",
     "calls": [],
     "called_by": [
-      "sym_1585ecfb0b"
+      "sym_30ba3fa365",
+      "sym_6eb407df5b"
     ],
     "metrics": {
       "loc": 16,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_de29ba6521",
     "file": "src/store/hunchStore.ts",
     "name": "RegressionHit",
     "kind": "interface",
-    "signature_hash": "sha1:9c56efb8665",
+    "signature_hash": "sha1:1800117309e",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 9,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_df31ea2089",
     "file": "src/store/merge.ts",
     "name": "mergeRecordsById",
     "kind": "function",
-    "signature_hash": "sha1:b2a802fbcce",
+    "signature_hash": "sha1:d9a6720754b",
     "calls": [
       "sym_f2f7000786",
       "sym_56b7347cc6",
@@ -6975,30 +8565,52 @@
     "last_changed": "commit:8b1bcfe"
   },
   {
+    "id": "sym_df5a40b2e7",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "provideCodeLenses",
+    "kind": "method",
+    "signature_hash": "sha1:98fcbe42968",
+    "calls": [
+      "sym_ac2297b171",
+      "sym_6eb407df5b",
+      "sym_51c007bc15",
+      "sym_eb66bfc170"
+    ],
+    "called_by": [],
+    "metrics": {
+      "loc": 42,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 4
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_df9ee4e404",
     "file": "src/store/hunchStore.ts",
     "name": "db",
     "kind": "method",
-    "signature_hash": "sha1:cc1f6c6c573",
+    "signature_hash": "sha1:3cc73494b75",
     "calls": [
       "sym_d9b3eb8f1c"
     ],
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_dfb2a0090e",
     "file": "src/synthesis/provider.ts",
     "name": "selectProvider",
     "kind": "function",
-    "signature_hash": "sha1:384cc1df94d",
+    "signature_hash": "sha1:e1541708ba9",
     "calls": [
       "sym_c7c5813cd6"
     ],
@@ -7020,7 +8632,7 @@
     "file": "src/extractors/testreport.ts",
     "name": "parseTestReport",
     "kind": "function",
-    "signature_hash": "sha1:e5704ed6137",
+    "signature_hash": "sha1:20f460e63e8",
     "calls": [
       "sym_b0a72a1182",
       "sym_4399ce5337"
@@ -7040,7 +8652,7 @@
     "file": "src/extractors/git.ts",
     "name": "windowArgs",
     "kind": "function",
-    "signature_hash": "sha1:369059f089f",
+    "signature_hash": "sha1:f7b54325963",
     "calls": [],
     "called_by": [
       "sym_f1e8c6fbda",
@@ -7048,19 +8660,19 @@
     ],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_e15976d9bd",
     "file": "src/store/embedder.ts",
     "name": "embed",
     "kind": "method",
-    "signature_hash": "sha1:79efaef96f9",
+    "signature_hash": "sha1:7dfa1645e5d",
     "calls": [
       "sym_e6dc4ad2cd"
     ],
@@ -7079,7 +8691,7 @@
     "file": "src/store/embedder.ts",
     "name": "embed",
     "kind": "method",
-    "signature_hash": "sha1:f2563f08cf4",
+    "signature_hash": "sha1:ab0e9e37869",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -7096,19 +8708,41 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "prov",
     "kind": "function",
-    "signature_hash": "sha1:1a74da94fd0",
+    "signature_hash": "sha1:1730552711c",
     "calls": [],
     "called_by": [
-      "sym_1585ecfb0b"
+      "sym_1585ecfb0b",
+      "sym_48e64385a7"
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 1,
+      "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_e1d5de5d42",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "searchAll",
+    "kind": "function",
+    "signature_hash": "sha1:cefff1979cd",
+    "calls": [
+      "sym_f73c9232bf"
+    ],
+    "called_by": [
+      "sym_174cd5e9a8"
+    ],
+    "metrics": {
+      "loc": 33,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_e234379403",
@@ -7142,31 +8776,31 @@
     "called_by": [],
     "metrics": {
       "loc": 17,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_e26c522c4a",
     "file": "src/extractors/git.ts",
     "name": "stagedDiff",
     "kind": "function",
-    "signature_hash": "sha1:6394ea0a0ed",
+    "signature_hash": "sha1:37ff9b80014",
     "calls": [
       "sym_815fdb47eb"
     ],
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_e26de656df",
@@ -7180,61 +8814,68 @@
     ],
     "metrics": {
       "loc": 13,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_e2a2bbb504",
     "file": "src/store/hunchStore.ts",
     "name": "RetiredNote",
     "kind": "interface",
-    "signature_hash": "sha1:2f4e5ea49c7",
+    "signature_hash": "sha1:8ce8a54a5d7",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 6,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_e551d96773",
     "file": "vscode-extension/src/extension.ts",
     "name": "activate",
     "kind": "function",
-    "signature_hash": "sha1:d141af77fee",
+    "signature_hash": "sha1:50ce42dac34",
     "calls": [
-      "sym_32c00c06bc",
-      "sym_c75e922555",
+      "sym_9cd3f7fe96",
+      "sym_532e5d09cb",
       "sym_9a375345fc",
       "sym_89d5502a58",
       "sym_04547bba25",
       "sym_aed7c11714",
-      "sym_9cd3f7fe96"
+      "sym_41400a6b0a",
+      "sym_30ea1bb96d",
+      "sym_ee5da30dbe",
+      "sym_823f45c8fc",
+      "sym_393e7562e1",
+      "sym_aa84f090d3",
+      "sym_1be7c8e393",
+      "sym_dd44d72859"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 54,
-      "churn_90d": 4,
+      "loc": 121,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
-      "fan_out": 7
+      "fan_out": 14
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_e5ea0616b0",
     "file": "src/core/migrate.ts",
     "name": "readManifest",
     "kind": "function",
-    "signature_hash": "sha1:05936abba95",
+    "signature_hash": "sha1:46ded65e0da",
     "calls": [],
     "called_by": [
       "sym_056000a4c3"
@@ -7253,7 +8894,7 @@
     "file": "src/store/embedder.ts",
     "name": "load",
     "kind": "method",
-    "signature_hash": "sha1:2bcd6f16d7d",
+    "signature_hash": "sha1:8a3a3d338b4",
     "calls": [
       "sym_ea87515072"
     ],
@@ -7274,7 +8915,7 @@
     "file": "test/regression.test.ts",
     "name": "mkDecision",
     "kind": "function",
-    "signature_hash": "sha1:6d6e82684c9",
+    "signature_hash": "sha1:cc98b1c0c82",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -7304,26 +8945,6 @@
     "last_changed": "commit:a2d3f81"
   },
   {
-    "id": "sym_e7fcc521a7",
-    "file": "src/store/hunchStore.ts",
-    "name": "labelFor",
-    "kind": "method",
-    "signature_hash": "sha1:b2bfc2b5232",
-    "calls": [],
-    "called_by": [
-      "sym_beea0020b4",
-      "sym_0194d263c7"
-    ],
-    "metrics": {
-      "loc": 11,
-      "churn_90d": 6,
-      "bug_count": 0,
-      "fan_in": 2,
-      "fan_out": 0
-    },
-    "last_changed": "commit:93d2be4"
-  },
-  {
     "id": "sym_e8a4767dd6",
     "file": "vscode-extension/src/hunchData.ts",
     "name": "Hunch",
@@ -7333,19 +8954,36 @@
     "called_by": [],
     "metrics": {
       "loc": 9,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_e8db32c772",
+    "file": "test/checkreport.test.ts",
+    "name": "base",
+    "kind": "function",
+    "signature_hash": "sha1:fefd4129463",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
   },
   {
     "id": "sym_e95ad12cc2",
     "file": "src/synthesis/provider.ts",
     "name": "DecisionDraft",
     "kind": "interface",
-    "signature_hash": "sha1:0b6b3234e03",
+    "signature_hash": "sha1:8ffbda6d4e4",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -7362,7 +9000,7 @@
     "file": "src/core/config.ts",
     "name": "defaults",
     "kind": "function",
-    "signature_hash": "sha1:a8b7884776c",
+    "signature_hash": "sha1:cdbecac9593",
     "calls": [],
     "called_by": [
       "sym_010a360b82"
@@ -7381,24 +9019,24 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "getTreeItem",
     "kind": "method",
-    "signature_hash": "sha1:d3fc0e4a8a3",
+    "signature_hash": "sha1:6ad8b4e0419",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 15,
-      "churn_90d": 4,
+      "loc": 20,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_ea87515072",
     "file": "src/store/embedder.ts",
     "name": "installedPackage",
     "kind": "function",
-    "signature_hash": "sha1:12db2244f0d",
+    "signature_hash": "sha1:d8ef2e7eafc",
     "calls": [],
     "called_by": [
       "sym_e6dc4ad2cd",
@@ -7412,6 +9050,27 @@
       "fan_out": 0
     },
     "last_changed": "commit:fb0b277"
+  },
+  {
+    "id": "sym_eab51776c0",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "staleRecords",
+    "kind": "function",
+    "signature_hash": "sha1:9c64f29877b",
+    "calls": [
+      "sym_abe707c6f0"
+    ],
+    "called_by": [
+      "sym_1585ecfb0b"
+    ],
+    "metrics": {
+      "loc": 7,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 1
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_eb3d6b0aa3",
@@ -7437,47 +9096,67 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "absFile",
     "kind": "function",
-    "signature_hash": "sha1:ed5f8fd7a9d",
+    "signature_hash": "sha1:55c69de7937",
     "calls": [],
     "called_by": [
       "sym_1585ecfb0b",
+      "sym_30ba3fa365",
       "sym_d0a07420b5"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
-      "fan_in": 2,
+      "fan_in": 3,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_eb66bfc170",
+    "file": "vscode-extension/src/providers.ts",
+    "name": "symbolLensTitle",
+    "kind": "function",
+    "signature_hash": "sha1:cc2fd312692",
+    "calls": [],
+    "called_by": [
+      "sym_df5a40b2e7"
+    ],
+    "metrics": {
+      "loc": 7,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_eb961ae48f",
     "file": "src/integrations/hooks.ts",
     "name": "installPreCommitHook",
     "kind": "function",
-    "signature_hash": "sha1:c5246abd2f1",
+    "signature_hash": "sha1:9922bb2b6bf",
     "calls": [
       "sym_9c164687cf",
       "sym_9f3f0902e9"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 24,
-      "churn_90d": 3,
+      "loc": 28,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:c850095"
   },
   {
     "id": "sym_eba9589407",
     "file": "src/core/migrate.ts",
     "name": "migrateRaw",
     "kind": "function",
-    "signature_hash": "sha1:d6f7fe7e2a7",
+    "signature_hash": "sha1:230fa38272c",
     "calls": [
       "sym_9b40137fc8"
     ],
@@ -7519,7 +9198,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "available",
     "kind": "method",
-    "signature_hash": "sha1:f24c96f56ae",
+    "signature_hash": "sha1:bf9981c51d0",
     "calls": [
       "sym_b0cd752eeb"
     ],
@@ -7538,7 +9217,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "available",
     "kind": "method",
-    "signature_hash": "sha1:a3e2a84d623",
+    "signature_hash": "sha1:4038a050bd7",
     "calls": [
       "sym_b0cd752eeb"
     ],
@@ -7557,7 +9236,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "available",
     "kind": "method",
-    "signature_hash": "sha1:cd219ef1410",
+    "signature_hash": "sha1:380902c09e0",
     "calls": [
       "sym_b0cd752eeb"
     ],
@@ -7576,7 +9255,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "available",
     "kind": "method",
-    "signature_hash": "sha1:02b90b11d17",
+    "signature_hash": "sha1:f5db2c053a3",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -7613,24 +9292,24 @@
     "file": "vscode-extension/src/extension.ts",
     "name": "HunchTree",
     "kind": "class",
-    "signature_hash": "sha1:8f43a95c5e9",
+    "signature_hash": "sha1:8dd9a96736a",
     "calls": [],
     "called_by": [],
     "metrics": {
-      "loc": 90,
-      "churn_90d": 4,
+      "loc": 85,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_edf2a5e3c6",
     "file": "src/synthesis/synthesize.ts",
     "name": "salientTerms",
     "kind": "function",
-    "signature_hash": "sha1:1dffac2b82c",
+    "signature_hash": "sha1:d301561fd66",
     "calls": [
       "sym_3a906a6c90"
     ],
@@ -7647,23 +9326,26 @@
     "last_changed": "commit:17b2de2"
   },
   {
-    "id": "sym_ee9980dcd2",
-    "file": "src/store/hunchStore.ts",
-    "name": "fts",
-    "kind": "method",
-    "signature_hash": "sha1:94caa0de5bc",
-    "calls": [],
+    "id": "sym_ee5da30dbe",
+    "file": "vscode-extension/src/graph.ts",
+    "name": "showGraph",
+    "kind": "function",
+    "signature_hash": "sha1:e61b9384d75",
+    "calls": [
+      "sym_f80ce17080",
+      "sym_62111a4caa"
+    ],
     "called_by": [
-      "sym_71788d2ebe"
+      "sym_e551d96773"
     ],
     "metrics": {
-      "loc": 3,
-      "churn_90d": 6,
+      "loc": 20,
+      "churn_90d": 1,
       "bug_count": 0,
       "fan_in": 1,
-      "fan_out": 0
+      "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_efcb4ed61f",
@@ -7677,19 +9359,19 @@
     ],
     "metrics": {
       "loc": 8,
-      "churn_90d": 2,
+      "churn_90d": 3,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:70c235f"
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_efed873770",
     "file": "src/core/io.ts",
     "name": "safeRm",
     "kind": "function",
-    "signature_hash": "sha1:98bd116f876",
+    "signature_hash": "sha1:df844a5e92a",
     "calls": [],
     "called_by": [
       "sym_6510b40667"
@@ -7708,24 +9390,24 @@
     "file": "src/core/paths.ts",
     "name": "HunchPaths",
     "kind": "interface",
-    "signature_hash": "sha1:5388e9f9aa2",
+    "signature_hash": "sha1:a27c26c888f",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 11,
-      "churn_90d": 4,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:8b33755"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_f0a8fcb4e1",
     "file": "src/integrations/claudemd.ts",
     "name": "updateClaudeMd",
     "kind": "function",
-    "signature_hash": "sha1:1cf1cebd7cd",
+    "signature_hash": "sha1:20e2743bad2",
     "calls": [
       "sym_47649456f3",
       "sym_43f8b248dd"
@@ -7741,11 +9423,30 @@
     "last_changed": "commit:4d7ade7"
   },
   {
+    "id": "sym_f1192d2c2e",
+    "file": "src/integrations/ciAction.ts",
+    "name": "ciWorkflowYaml",
+    "kind": "function",
+    "signature_hash": "sha1:bce46b8006c",
+    "calls": [],
+    "called_by": [
+      "sym_989104f7ed"
+    ],
+    "metrics": {
+      "loc": 70,
+      "churn_90d": 2,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:d5528c5"
+  },
+  {
     "id": "sym_f188e70a14",
     "file": "src/extractors/diff.ts",
     "name": "FileDecls",
     "kind": "interface",
-    "signature_hash": "sha1:1ef013e060c",
+    "signature_hash": "sha1:9247eedb36c",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -7762,7 +9463,7 @@
     "file": "src/extractors/git.ts",
     "name": "logSince",
     "kind": "function",
-    "signature_hash": "sha1:0c7a65ed0cb",
+    "signature_hash": "sha1:d6ace812731",
     "calls": [
       "sym_815fdb47eb",
       "sym_e1155c29cf"
@@ -7770,19 +9471,19 @@
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_f205556005",
     "file": "src/synthesis/provider.ts",
     "name": "balancedEnd",
     "kind": "function",
-    "signature_hash": "sha1:7b56ce6a4de",
+    "signature_hash": "sha1:cba86c08ffe",
     "calls": [],
     "called_by": [
       "sym_6994da53cc"
@@ -7820,7 +9521,7 @@
     "file": "src/store/merge.ts",
     "name": "byId",
     "kind": "function",
-    "signature_hash": "sha1:d7ad17ac828",
+    "signature_hash": "sha1:22a6e0b1c95",
     "calls": [],
     "called_by": [
       "sym_df31ea2089"
@@ -7839,24 +9540,24 @@
     "file": "src/cli/index.ts",
     "name": "fail",
     "kind": "function",
-    "signature_hash": "sha1:a1799c14a02",
+    "signature_hash": "sha1:a277116dce5",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 4,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_f48c80382c",
     "file": "src/core/glob.ts",
     "name": "norm",
     "kind": "function",
-    "signature_hash": "sha1:4cbd956ad5d",
+    "signature_hash": "sha1:41f8ad9dda3",
     "calls": [],
     "called_by": [
       "sym_97208a8294"
@@ -7892,7 +9593,7 @@
     "file": "src/core/ids.ts",
     "name": "symbolId",
     "kind": "function",
-    "signature_hash": "sha1:6dc66cb1794",
+    "signature_hash": "sha1:abbd9c298c5",
     "calls": [
       "sym_5a74d29b94"
     ],
@@ -7913,7 +9614,7 @@
     "file": "src/store/db.ts",
     "name": "openMemoryDb",
     "kind": "function",
-    "signature_hash": "sha1:2cadfb966a4",
+    "signature_hash": "sha1:4f5d70ce769",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -7930,24 +9631,24 @@
     "file": "src/cli/index.ts",
     "name": "emitContext",
     "kind": "function",
-    "signature_hash": "sha1:2a9a353013d",
+    "signature_hash": "sha1:13448305695",
     "calls": [],
     "called_by": [],
     "metrics": {
       "loc": 3,
-      "churn_90d": 21,
+      "churn_90d": 29,
       "bug_count": 0,
       "fan_in": 0,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:6b245a6"
   },
   {
     "id": "sym_f5f04a2f17",
     "file": "src/store/hunchStore.ts",
     "name": "sev",
     "kind": "function",
-    "signature_hash": "sha1:8fc8728a67b",
+    "signature_hash": "sha1:9a987b25e4c",
     "calls": [],
     "called_by": [
       "sym_b002278a20",
@@ -7955,40 +9656,41 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_f66a553cec",
     "file": "src/store/jsonStore.ts",
     "name": "replaceAll",
     "kind": "method",
-    "signature_hash": "sha1:1a7e63b199d",
+    "signature_hash": "sha1:0c606cd3023",
     "calls": [
+      "sym_468960ffdc",
       "sym_6510b40667",
       "sym_95e5f5139f",
       "sym_c01eb1b0a1"
     ],
     "called_by": [],
     "metrics": {
-      "loc": 20,
-      "churn_90d": 4,
+      "loc": 21,
+      "churn_90d": 5,
       "bug_count": 0,
       "fan_in": 0,
-      "fan_out": 3
+      "fan_out": 4
     },
-    "last_changed": "commit:8b1bcfe"
+    "last_changed": "commit:1624ebe"
   },
   {
     "id": "sym_f6dee26225",
     "file": "src/synthesis/provider.ts",
     "name": "failurePrompt",
     "kind": "function",
-    "signature_hash": "sha1:fbc7aacad0c",
+    "signature_hash": "sha1:9b6f3083ba8",
     "calls": [],
     "called_by": [
       "sym_d8c7062650"
@@ -8007,26 +9709,45 @@
     "file": "src/store/hunchStore.ts",
     "name": "semanticReady",
     "kind": "method",
-    "signature_hash": "sha1:02a1d0b16a0",
+    "signature_hash": "sha1:d573e8d8ac4",
     "calls": [],
     "called_by": [
       "sym_2a33513ef4"
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
+  },
+  {
+    "id": "sym_f73c9232bf",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "score",
+    "kind": "function",
+    "signature_hash": "sha1:83239d0dff5",
+    "calls": [],
+    "called_by": [
+      "sym_e1d5de5d42"
+    ],
+    "metrics": {
+      "loc": 10,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 1,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
   },
   {
     "id": "sym_f7439daa82",
     "file": "src/store/merge.ts",
     "name": "provSource",
     "kind": "function",
-    "signature_hash": "sha1:2eca958a7de",
+    "signature_hash": "sha1:f868674e9f8",
     "calls": [
       "sym_7973c0cb31"
     ],
@@ -8047,7 +9768,7 @@
     "file": "src/synthesis/provider.ts",
     "name": "realStr",
     "kind": "function",
-    "signature_hash": "sha1:4a542b81e2b",
+    "signature_hash": "sha1:fa5140e4135",
     "calls": [
       "sym_5ae5a5a486",
       "sym_d212d8b14b"
@@ -8066,11 +9787,52 @@
     "last_changed": "commit:b9cb365"
   },
   {
+    "id": "sym_f7a5727cde",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "ComponentGraph",
+    "kind": "interface",
+    "signature_hash": "sha1:5a21542c103",
+    "calls": [],
+    "called_by": [],
+    "metrics": {
+      "loc": 1,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 0,
+      "fan_out": 0
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
+    "id": "sym_f80ce17080",
+    "file": "vscode-extension/src/hunchData.ts",
+    "name": "componentGraph",
+    "kind": "function",
+    "signature_hash": "sha1:fb73b896625",
+    "calls": [
+      "sym_8033077ffd",
+      "sym_712bc8ed6f",
+      "sym_832d2ed106"
+    ],
+    "called_by": [
+      "sym_ee5da30dbe",
+      "sym_9e450479d5"
+    ],
+    "metrics": {
+      "loc": 36,
+      "churn_90d": 3,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 3
+    },
+    "last_changed": "commit:8056b94"
+  },
+  {
     "id": "sym_f9be9d4add",
     "file": "src/store/hunchStore.ts",
     "name": "pathRelated",
     "kind": "function",
-    "signature_hash": "sha1:634e211ce06",
+    "signature_hash": "sha1:54f06c413bb",
     "calls": [],
     "called_by": [
       "sym_2c470ebb79",
@@ -8078,19 +9840,19 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 0
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_f9d958acb6",
     "file": "src/extractors/git.ts",
     "name": "commitDiff",
     "kind": "function",
-    "signature_hash": "sha1:946a99de2e0",
+    "signature_hash": "sha1:86b9e833262",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -8100,19 +9862,19 @@
     ],
     "metrics": {
       "loc": 4,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_fa2f281da6",
     "file": "src/integrations/providers.ts",
     "name": "writeWindsurfMcp",
     "kind": "function",
-    "signature_hash": "sha1:c69b1e45342",
+    "signature_hash": "sha1:09a2733b17c",
     "calls": [
       "sym_1141cec963",
       "sym_39f0639bf0"
@@ -8122,19 +9884,19 @@
     ],
     "metrics": {
       "loc": 7,
-      "churn_90d": 3,
+      "churn_90d": 4,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 2
     },
-    "last_changed": "commit:3337c78"
+    "last_changed": "commit:5c261e6"
   },
   {
     "id": "sym_fac6cf59a8",
     "file": "src/integrations/scaffold.ts",
     "name": "ClaudeHookInstall",
     "kind": "interface",
-    "signature_hash": "sha1:95843c5cd42",
+    "signature_hash": "sha1:f147075bd1e",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -8151,7 +9913,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "bugLineage",
     "kind": "method",
-    "signature_hash": "sha1:795b80e85bd",
+    "signature_hash": "sha1:4f154783448",
     "calls": [
       "sym_8fc96bbf18",
       "sym_22fded8626"
@@ -8162,19 +9924,19 @@
     ],
     "metrics": {
       "loc": 14,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 2,
       "fan_out": 2
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_fbc5451f63",
     "file": "src/extractors/git.ts",
     "name": "isGitRepo",
     "kind": "function",
-    "signature_hash": "sha1:015013e4221",
+    "signature_hash": "sha1:55545d8abe2",
     "calls": [
       "sym_815fdb47eb"
     ],
@@ -8185,19 +9947,19 @@
     ],
     "metrics": {
       "loc": 3,
-      "churn_90d": 6,
+      "churn_90d": 9,
       "bug_count": 0,
       "fan_in": 3,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:d5528c5"
   },
   {
     "id": "sym_fbd16af17d",
     "file": "src/store/merge.ts",
     "name": "recency",
     "kind": "function",
-    "signature_hash": "sha1:258e077dc81",
+    "signature_hash": "sha1:fa0c4307b97",
     "calls": [
       "sym_7973c0cb31"
     ],
@@ -8218,7 +9980,7 @@
     "file": "src/store/hunchStore.ts",
     "name": "check",
     "kind": "function",
-    "signature_hash": "sha1:d98750f1bcc",
+    "signature_hash": "sha1:4b7f35611f7",
     "calls": [
       "sym_76d15e31c9"
     ],
@@ -8227,19 +9989,19 @@
     ],
     "metrics": {
       "loc": 11,
-      "churn_90d": 6,
+      "churn_90d": 8,
       "bug_count": 0,
       "fan_in": 1,
       "fan_out": 1
     },
-    "last_changed": "commit:93d2be4"
+    "last_changed": "commit:26af2b6"
   },
   {
     "id": "sym_fc4df1d598",
     "file": "src/synthesis/synthesize.ts",
     "name": "SyncResult",
     "kind": "interface",
-    "signature_hash": "sha1:c40be668c5f",
+    "signature_hash": "sha1:63a49c7c155",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -8256,7 +10018,7 @@
     "file": "src/synthesis/synthesize.ts",
     "name": "TestRunCapture",
     "kind": "interface",
-    "signature_hash": "sha1:ae0b456d096",
+    "signature_hash": "sha1:3e5f190c8c6",
     "calls": [],
     "called_by": [],
     "metrics": {
@@ -8284,5 +10046,25 @@
       "fan_out": 0
     },
     "last_changed": "commit:17b2de2"
+  },
+  {
+    "id": "sym_ffd72a6f96",
+    "file": "src/core/checkreport.ts",
+    "name": "reportFailsStrict",
+    "kind": "function",
+    "signature_hash": "sha1:047adf61a97",
+    "calls": [],
+    "called_by": [
+      "sym_9e17df05dc",
+      "sym_18949f0e15"
+    ],
+    "metrics": {
+      "loc": 3,
+      "churn_90d": 1,
+      "bug_count": 0,
+      "fan_in": 2,
+      "fan_out": 0
+    },
+    "last_changed": "commit:05caf72"
   }
 ]

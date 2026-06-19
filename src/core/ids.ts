@@ -40,7 +40,9 @@ export function bugId(seed: string): string {
   return "bug_" + shortHash(seed);
 }
 
-/** Constraint id seeded by its statement. */
+/** Constraint id seeded by its statement. Trim + lowercase so trivial
+ *  whitespace/case variants of the same rule collapse to one id (idempotent
+ *  re-capture), instead of minting a duplicate constraint. */
 export function constraintId(statement: string): string {
-  return "con_" + shortHash(statement.toLowerCase());
+  return "con_" + shortHash(statement.trim().toLowerCase());
 }

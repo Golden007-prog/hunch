@@ -18,6 +18,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { Command } from "commander";
 import { hunchPaths, findRoot, toPosixTarget } from "../core/paths.js";
+import { looksLikeCorrection, CORRECTION_NUDGE } from "../core/correction.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { selectEmbedder } from "../store/embedder.js";
 import { indexRepo } from "../extractors/indexer.js";
@@ -709,6 +710,7 @@ program
       const evt = JSON.parse(await readStdin()) as {
         hook_event_name?: string;
         tool_input?: { file_path?: string };
+        prompt?: string;
       };
       const root = findRoot();
       const paths = hunchPaths(root);
@@ -716,7 +718,11 @@ program
       if (firmness === "off") return;
 
       if (evt.hook_event_name === "UserPromptSubmit") {
-        emitContext("UserPromptSubmit", HOOK_REMINDER);
+        // When the prompt reads like a correction ("no / that's wrong / never X"),
+        // nudge the agent to PERSIST it as an enforced constraint (Never Twice) —
+        // not just obey it this once and forget it next session.
+        const text = looksLikeCorrection(evt.prompt) ? `${HOOK_REMINDER}\n\n${CORRECTION_NUDGE}` : HOOK_REMINDER;
+        emitContext("UserPromptSubmit", text);
         return;
       }
       if (evt.hook_event_name !== "PreToolUse") return;

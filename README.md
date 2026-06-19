@@ -195,6 +195,31 @@ The hook never breaks your flow: any error or unrecognized input emits nothing a
 none, every level degrades to context-only. Opt out of the hooks entirely with `hunch init
 --no-agent-hooks`.
 
+## Never Twice: corrections become enforced invariants
+
+The most expensive failure in AI coding is being corrected and then *re-corrected* — you
+tell the agent "no, never call the pay-per-token API here," it complies once, and next
+session it does it again because the feedback was stored as advisory text, not enforced.
+
+Hunch closes that loop. When you correct the agent, it captures the rule as a **first-class
+Constraint** (provenance `human_confirmed`) via the `hunch_record_correction` MCP tool — and
+from then on the **same pre-edit hook + CI Constraint Guard** hold *every* assistant to it:
+
+```text
+You:   "no — never import lodash, we ship our own utils"
+Agent: calls hunch_record_correction({ rule: "never import lodash; use src/utils",
+                                       scope_hint_file: "src/cart.ts", severity: "blocking" })
+→ con_… recorded. A later edit that adds `import _ from "lodash"` to that scope is DENIED
+  (strict firmness) and the PR fails CI — in Cursor, Copilot, Windsurf, or Claude Code alike.
+```
+
+The `UserPromptSubmit` hook nudges the agent to persist a rule whenever your prompt reads
+like a correction ("no…", "that's wrong", "never do X"), so capture is one frictionless step
+rather than a discipline. Scoping is conservative by default (the file you were in); a
+repo-wide (`**`) rule is only blocking when you pass `applies_to_all`, so one correction
+can't silently gate the whole tree. Because it's the *same* constraint machinery, a
+correction is enforced exactly like a hand-authored invariant — see firmness above.
+
 ## Semantic search (optional)
 
 By default `hunch query` and the `hunch_query` MCP tool use fast keyword (FTS) search —
