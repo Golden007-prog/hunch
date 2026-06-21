@@ -258,11 +258,32 @@ or a blocking-linked regression — near-hits stay advisory, so it's safe as a m
 it before opening a PR (`{}` checks staged changes; pass `base: "origin/main"` for the range);
 the CI Constraint Guard renders the same cited verdict as a PR comment.
 
-> **Coming — Veto (design):** the regression guard catches re-adding code you *retired*. **Veto** is
-> the sibling that catches re-introducing an approach you *rejected* — the `alternatives_rejected` that
-> never existed in code. An agent that re-adds a rejected dependency is blocked with the receipt
-> ("you rejected this for latency; you chose X instead"). Advisory until you confirm the tripwire, then
-> deterministic. Full design + DX: [docs/veto.md](docs/veto.md).
+## Veto: re-introducing a *rejected* approach is blocked
+
+The Regression Guard catches re-adding code a decision deliberately **retired**. But the most
+expensive reversal is re-introducing an approach a decision **rejected** — the
+`alternatives_rejected` that *never existed in code*, so a diff-only reviewer (and the regression
+guard) is blind to it. A fresh session, not knowing, re-adds the very dependency you rejected for
+latency last month.
+
+**Veto** closes that gap. A decision can carry **tripwires** — machine-checkable signals (a
+forbidden dependency, symbol, or scoped pattern) for an `alternatives_rejected` entry. When a diff
+re-introduces one, Hunch blocks it with the receipt:
+
+```text
+⛔ VETO — this reverses dec_49916d02c9 ("Read-only layer over committed .hunch/ JSON").
+   You rejected: "extension queries MCP/API server for data" (adds latency, runtime coupling)
+   You chose:    read directly from committed JSON, no backend dependency.
+   evidence: +import axios   (vscode-extension/src/extension.ts)
+```
+
+It rides the **same rails** as everything else: `CheckReport.vetoes` lights up `hunch check`, the CI
+guard, and `hunch_merge_verdict` together, and the pre-edit hook denies the live edit (Edit / Write /
+MultiEdit) *before* it's staged — so the agent self-corrects with no human in the loop. Enforcement
+is **deterministic** (a set-intersection over a human-vouched record — no model in the block path)
+and **progressive**: an auto-drafted tripwire only *warns*; `hunch veto backfill` drafts them and
+`hunch review --accept` confirms a decision **and** its tripwires, flipping it from advisory to
+blocking in one keypress. Full design + DX: [docs/veto.md](docs/veto.md).
 
 ## Semantic search (optional)
 
