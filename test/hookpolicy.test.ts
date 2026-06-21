@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { indexRepo } from "../src/extractors/indexer.js";
-import { blockingInScope } from "../src/core/hookpolicy.js";
+import { blockingInScope, vetoInScope } from "../src/core/hookpolicy.js";
 import { prov } from "./helpers.js";
 
 // jwt.ts ← session.ts ← charge.ts : a 2-hop dependency chain (mirrors check.test).
@@ -80,5 +80,60 @@ test("deny reason never coaches lowering enforcement (no bypass instructions)", 
       assert.doesNotMatch(reason, /firmness/i, "must not mention the firmness command");
       assert.doesNotMatch(reason, /lower|disable|bypass|--no-/i, "must not tell the agent how to get around the guard");
     }
+  } finally { cleanup(); }
+});
+
+function seedVeto(store: HunchStore, scopeGlob: string, source = "human_confirmed") {
+  store.json.put("decisions", {
+    id: "dec_ext", title: "Read-only visualization layer", status: "accepted", context: "",
+    decision: "read directly from committed JSON, no backend dependency", consequences: [],
+    alternatives_rejected: [],
+    rejected_tripwires: [{
+      alternative: "extension queries MCP/API server for data",
+      scope: [scopeGlob], forbids: { deps: ["axios"], symbols: [], patterns: [] },
+      provenance: { source, confidence: 0.9, evidence: [] },
+    }],
+    related_components: [], related_files: ["src/billing/charge.ts"],
+    supersedes: null, superseded_by: null, caused_by_bug: null, commit: null,
+    valid_from: "2026-01-01T00:00:00Z", valid_to: null, retired: { symbols: [], deps: [] },
+    provenance: { source: "human_confirmed", confidence: 1, evidence: [] }, date: "2026-01-01T00:00:00Z",
+  } as never);
+}
+
+test("vetoInScope denies a live edit that re-introduces a rejected dependency (confirmed tripwire)", () => {
+  const { store, fileOf, cleanup } = indexed();
+  try {
+    seedVeto(store, "src/**");
+    const hit = vetoInScope(store, fileOf("charge"), ['import axios from "axios";']);
+    assert.ok(hit, "confirmed veto denies the edit before staging");
+    assert.match(hit!.reason, /REVERSE decision dec_ext/);
+    assert.match(hit!.reason, /extension queries MCP\/API server for data/);
+  } finally { cleanup(); }
+});
+
+test("vetoInScope returns null for an llm_draft tripwire (advisory only — never blocks live)", () => {
+  const { store, fileOf, cleanup } = indexed();
+  try {
+    seedVeto(store, "src/**", "llm_draft");
+    assert.equal(vetoInScope(store, fileOf("charge"), ['import axios from "axios";']), null);
+  } finally { cleanup(); }
+});
+
+test("vetoInScope deny text never coaches lowering enforcement (no supersede/bypass)", () => {
+  const { store, fileOf, cleanup } = indexed();
+  try {
+    seedVeto(store, "src/**");
+    const reason = vetoInScope(store, fileOf("charge"), ['import axios from "axios";'])!.reason;
+    assert.doesNotMatch(reason, /supersede|firmness/i, "must not name the override path to the agent");
+    assert.doesNotMatch(reason, /lower|disable|bypass|--no-/i, "must not tell the agent how to get around the guard");
+  } finally { cleanup(); }
+});
+
+test("vetoInScope returns null when the proposed edit adds nothing forbidden", () => {
+  const { store, fileOf, cleanup } = indexed();
+  try {
+    seedVeto(store, "src/**");
+    assert.equal(vetoInScope(store, fileOf("charge"), ["const x = 1;"]), null);
+    assert.equal(vetoInScope(store, fileOf("charge"), []), null);
   } finally { cleanup(); }
 });

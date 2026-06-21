@@ -13,6 +13,7 @@ import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
 import { selectProvider, DeterministicProvider, type SynthProvider, type DecisionDraft, type BugDraft, type CommitInput, type FailureInput } from "./provider.js";
 import { decisionId, bugId, constraintId } from "../core/ids.js";
 import { pathMatchesGlob } from "../core/glob.js";
+import { draftTripwires, knownRepoDeps } from "./tripwires.js";
 import type { Decision, Bug, Constraint, Component, Symbol } from "../core/types.js";
 import type { TestReport } from "../extractors/testreport.js";
 
@@ -117,6 +118,12 @@ export async function syncCommit(
     decision: draft.decision,
     consequences: draft.consequences,
     alternatives_rejected: draft.alternatives_rejected,
+    // Capture-time drafting: scaffold ADVISORY tripwires from the rejected
+    // alternatives (preserve any already-curated ones across re-sync). All llm_draft
+    // → never block until confirmed via `hunch review --accept` (dec_a466655539).
+    rejected_tripwires: existing?.rejected_tripwires?.length
+      ? existing.rejected_tripwires
+      : draftTripwires(draft.alternatives_rejected, codeFiles, knownRepoDeps(root)),
     related_components: relatedComponents,
     related_files: codeFiles,
     supersedes: existing?.supersedes ?? null,

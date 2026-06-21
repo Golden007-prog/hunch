@@ -33,3 +33,16 @@ export function blockingInScope(store: HunchStore, file: string): BlockingHit | 
   }
   return null;
 }
+
+/** Return a BlockingHit if the proposed added lines for `file` re-introduce an
+ *  approach an in-force decision deliberately REJECTED (a blocking veto), else null.
+ *  The deny text states ONLY the decision + receipt (what was rejected, what was
+ *  chosen) — never how to supersede or disable the guard, so an autonomous agent
+ *  cannot be coached into reversing a decision to land its edit (dec_a466655539). */
+export function vetoInScope(store: HunchStore, file: string, proposedAddedLines: string[]): BlockingHit | null {
+  const hit = store.vetoForFileEdit(file, proposedAddedLines).find((v) => v.blocks);
+  if (!hit) return null;
+  return {
+    reason: `Hunch: editing ${file} would REVERSE decision ${hit.decision} — you rejected "${hit.alternative}" and chose "${hit.chosen}". Do not re-introduce the rejected approach; preserve the chosen design.`,
+  };
+}

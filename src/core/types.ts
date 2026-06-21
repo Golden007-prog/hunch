@@ -90,6 +90,27 @@ export const RetiredSignalSchema = z.object({
 });
 export type RetiredSignal = z.infer<typeof RetiredSignalSchema>;
 
+/** A machine-checkable signal for a REJECTED alternative (the Veto Guard). Unlike
+ *  `retired` (code that once existed and was removed), a rejected alternative never
+ *  existed in code, so its prose is turned into a testable set/regex. Carries its
+ *  OWN provenance, separate from the decision's: an LLM may DRAFT a tripwire
+ *  (advisory only); only a `human_confirmed` tripwire may BLOCK a commit — for every
+ *  tier. One predictable rule (dec_a466655539). See docs/veto.md. */
+export const RejectedTripwireSchema = z.object({
+  alternative: z.string().describe("the rejected approach's human text — printed verbatim in the receipt"),
+  scope: z.array(z.string()).default([]).describe("glob(s) it applies to, e.g. vscode-extension/**"),
+  forbids: z
+    .object({
+      deps: z.array(z.string()).default([]).describe("external imports that signal the rejected approach"),
+      symbols: z.array(z.string()).default([]).describe("identifier names that signal it"),
+      patterns: z.array(z.string()).default([]).describe("scoped line regexes (last resort)"),
+    })
+    .default({ deps: [], symbols: [], patterns: [] }),
+  embed_ref: z.string().optional().describe("optional handle into embeddings for the advisory semantic tier"),
+  provenance: ProvenanceSchema,
+});
+export type RejectedTripwire = z.infer<typeof RejectedTripwireSchema>;
+
 /** ADR-style decision record, auto-drafted and human-confirmable. */
 export const DecisionSchema = z.object({
   id: z.string().describe("dec_*"),
@@ -99,6 +120,7 @@ export const DecisionSchema = z.object({
   decision: z.string().default(""),
   consequences: z.array(z.string()).default([]),
   alternatives_rejected: z.array(z.string()).default([]),
+  rejected_tripwires: z.array(RejectedTripwireSchema).default([]).describe("machine-checkable signals for alternatives_rejected (Veto Guard)"),
   related_components: z.array(z.string()).default([]),
   related_files: z.array(z.string()).default([]),
   supersedes: z.string().nullable().default(null),

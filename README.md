@@ -258,6 +258,12 @@ or a blocking-linked regression — near-hits stay advisory, so it's safe as a m
 it before opening a PR (`{}` checks staged changes; pass `base: "origin/main"` for the range);
 the CI Constraint Guard renders the same cited verdict as a PR comment.
 
+> **Coming — Veto (design):** the regression guard catches re-adding code you *retired*. **Veto** is
+> the sibling that catches re-introducing an approach you *rejected* — the `alternatives_rejected` that
+> never existed in code. An agent that re-adds a rejected dependency is blocked with the receipt
+> ("you rejected this for latency; you chose X instead"). Advisory until you confirm the tripwire, then
+> deterministic. Full design + DX: [docs/veto.md](docs/veto.md).
+
 ## Semantic search (optional)
 
 By default `hunch query` and the `hunch_query` MCP tool use fast keyword (FTS) search —

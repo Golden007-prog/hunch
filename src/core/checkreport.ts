@@ -28,6 +28,8 @@ export interface CheckDirect {
 }
 export interface CheckNear { id: string; severity: string; statement: string; via: string[]; }
 export interface CheckRegression { kind: string; name: string; decision: string; title: string; reason: string; blocking: boolean; }
+/** A diff re-introducing an approach an in-force decision deliberately REJECTED. */
+export interface CheckVeto { decision: string; title: string; alternative: string; chosen: string; tier: string; evidence: string[]; blocking: boolean; }
 
 export interface CheckReport {
   fileCount: number;
@@ -35,19 +37,22 @@ export interface CheckReport {
   direct: CheckDirect[];
   near: CheckNear[];
   regressions: CheckRegression[];
+  vetoes: CheckVeto[];
   /** Count of direct invariants that pass the hardened strict gate. */
   strictBlockers: number;
   /** Count of blocking-linked regressions. */
   regBlocking: number;
+  /** Count of vetoes that pass the veto gate (human-confirmed, in-force, non-stale). */
+  vetoBlocking: number;
 }
 
 export function reportIsClean(r: CheckReport): boolean {
-  return r.direct.length === 0 && r.near.length === 0 && r.regressions.length === 0;
+  return r.direct.length === 0 && r.near.length === 0 && r.regressions.length === 0 && r.vetoes.length === 0;
 }
 
 /** True when --strict should FAIL the commit/PR. */
 export function reportFailsStrict(r: CheckReport): boolean {
-  return r.strict && (r.strictBlockers > 0 || r.regBlocking > 0);
+  return r.strict && (r.strictBlockers > 0 || r.regBlocking > 0 || r.vetoBlocking > 0);
 }
 
 const mark = (s: string): string => (s === "blocking" ? "⛔" : s === "warning" ? "⚠" : "·");
@@ -57,7 +62,7 @@ const clip = (s: string, n = 160): string => (s.length > n ? s.slice(0, n - 1).t
 /** The deterministic VERDICT for a merge: block (a hard gate fired), warn (touches
  *  memory but nothing hard-blocks), or pass (touches no recorded memory at all). */
 export function verdict(r: CheckReport): "block" | "warn" | "pass" {
-  if (r.strictBlockers > 0 || r.regBlocking > 0) return "block";
+  if (r.strictBlockers > 0 || r.regBlocking > 0 || r.vetoBlocking > 0) return "block";
   return reportIsClean(r) ? "pass" : "warn";
 }
 
@@ -108,10 +113,17 @@ export function renderText(r: CheckReport): string {
       out.push(`  ${h.blocking ? "⛔" : "⚠"} re-adds ${h.kind} \`${h.name}\` — ${h.decision} removed it${h.blocking ? " (blocking-linked)" : ""}\n      “${h.title}”\n      ${h.reason}`);
     }
   }
+  if (r.vetoes.length) {
+    out.push(`${r.direct.length || r.near.length || r.regressions.length ? "\n" : ""}Reverses ${r.vetoes.length} decision(s) you rejected:\n`);
+    for (const v of r.vetoes) {
+      out.push(`  ${v.blocking ? "⛔" : "⚠"} ${v.decision} rejected this approach${v.blocking ? " (human-confirmed)" : " (advisory)"}\n      you rejected: ${clip(v.alternative)}\n      you chose:    ${clip(v.chosen)}\n      evidence: ${v.evidence.slice(0, 4).join(", ")}`);
+    }
+  }
   if (reportFailsStrict(r)) {
     const reasons = [
       r.strictBlockers ? `${r.strictBlockers} high-confidence blocking invariant(s) directly in scope` : "",
       r.regBlocking ? `${r.regBlocking} blocking-linked regression(s)` : "",
+      r.vetoBlocking ? `${r.vetoBlocking} reversed-decision veto(es)` : "",
     ].filter(Boolean).join(" + ");
     out.push(`\n✗ ${reasons} — review before committing.`);
   } else if (r.strict) {
@@ -160,11 +172,22 @@ export function renderMarkdown(r: CheckReport): string {
     }
     out.push("");
   }
+  if (r.vetoes.length) {
+    out.push(`### ⛔ Reverses a decision you rejected`);
+    for (const v of r.vetoes) {
+      out.push(`- ${v.blocking ? "⛔" : "⚠"} \`${v.decision}\` rejected this approach${v.blocking ? " **(human-confirmed)**" : " _(advisory)_"}`);
+      out.push(`  - you rejected: _${clip(v.alternative)}_`);
+      out.push(`  - you chose: ${clip(v.chosen)}`);
+      out.push(`  - evidence: ${v.evidence.slice(0, 4).map((e) => `\`${e}\``).join(", ")}`);
+    }
+    out.push("");
+  }
   out.push("---");
   if (reportFailsStrict(r)) {
     const reasons = [
       r.strictBlockers ? `${r.strictBlockers} high-confidence blocking invariant(s) directly in scope` : "",
       r.regBlocking ? `${r.regBlocking} blocking-linked regression(s)` : "",
+      r.vetoBlocking ? `${r.vetoBlocking} reversed-decision veto(es)` : "",
     ].filter(Boolean).join(" + ");
     out.push(`❌ **This PR breaks ${reasons}.** Resolve or supersede the decision before merge.`);
   } else if (r.strict) {

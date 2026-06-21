@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { renderText, renderMarkdown, reportFailsStrict, reportIsClean, type CheckReport } from "../src/core/checkreport.js";
 
 const base = (over: Partial<CheckReport> = {}): CheckReport => ({
-  fileCount: 3, strict: false, direct: [], near: [], regressions: [], strictBlockers: 0, regBlocking: 0, ...over,
+  fileCount: 3, strict: false, direct: [], near: [], regressions: [], vetoes: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0, ...over,
 });
 
 test("clean report — both renderers say nothing is affected; not failing", () => {

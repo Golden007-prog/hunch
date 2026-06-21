@@ -311,6 +311,7 @@ export function buildServer(root: string): McpServer {
           decision: decision.decision ?? existing?.decision ?? "",
           consequences: decision.consequences ?? [],
           alternatives_rejected: decision.alternatives_rejected ?? [],
+          rejected_tripwires: existing?.rejected_tripwires ?? [], // preserve confirmed tripwires across re-record
           related_components: decision.related_components ?? existing?.related_components ?? [],
           related_files: (decision.related_files ?? existing?.related_files ?? []).map(toPosixTarget),
           supersedes: decision.supersedes ?? existing?.supersedes ?? null,

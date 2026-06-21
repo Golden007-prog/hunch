@@ -13,7 +13,8 @@ function analysis(over: Partial<DiffAnalysis> = {}): DiffAnalysis {
   return {
     filesAdded: [], filesDeleted: [], filesModified: [], filesRenamed: [],
     addedSymbols: [], removedSymbols: [], changedSymbols: [],
-    addedDeps: [], removedDeps: [], addedLines: 0, removedLines: 0, ...over,
+    addedDeps: [], removedDeps: [], addedLines: 0, removedLines: 0,
+    addedLinesByFile: new Map(), ...over,
   };
 }
 

@@ -32,6 +32,10 @@ export interface DiffAnalysis {
   removedDeps: string[];
   addedLines: number; // code lines only
   removedLines: number;
+  /** Added line bodies (the "+" content, marker stripped) per code file. The text
+   *  veto's symbol/pattern tiers match against — call sites, not just declarations,
+   *  which addedSymbols can't see. Keyed by the same (new-path) key as perFile. */
+  addedLinesByFile: Map<string, string[]>;
 }
 
 const DECL_PATTERNS: Array<{ kind: SymbolChange["kind"]; re: RegExp }> = [
@@ -76,6 +80,7 @@ export function analyzeDiff(diff: string): DiffAnalysis {
   const perFile = new Map<string, FileDecls>();
   const addedImports = new Set<string>();
   const removedImports = new Set<string>();
+  const addedLinesBy = new Map<string, string[]>();
   let addedLines = 0;
   let removedLines = 0;
 
@@ -142,6 +147,9 @@ export function analyzeDiff(diff: string): DiffAnalysis {
       addedLines++;
       if (!curAdded && !curDeleted) filesModified.add(curFile);
       const body = raw.slice(1);
+      let lines = addedLinesBy.get(curFile);
+      if (!lines) { lines = []; addedLinesBy.set(curFile, lines); }
+      lines.push(body);
       const d = declOf(body);
       if (d) declsFor(curFile)?.added.set(d.name, d);
       const imp = importOf(body);
@@ -185,6 +193,7 @@ export function analyzeDiff(diff: string): DiffAnalysis {
     removedDeps: [...removedImports].filter((d) => !addedImports.has(d)),
     addedLines,
     removedLines,
+    addedLinesByFile: addedLinesBy,
   };
 }
 

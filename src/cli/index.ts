@@ -37,7 +37,8 @@ import { scaffoldProviders } from "../integrations/providers.js";
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
-import { blockingInScope } from "../core/hookpolicy.js";
+import { blockingInScope, vetoInScope } from "../core/hookpolicy.js";
+import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
 import type { Constraint } from "../core/types.js";
 import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
@@ -535,7 +536,7 @@ program
     const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged"].filter(Boolean);
     if (sources.length > 1) return fail(`pick one of --staged / --commit / --base (got ${sources.join(", ")})`);
     const markdown = opts.format === "markdown";
-    const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], strictBlockers: 0, regBlocking: 0 };
+    const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
 
     const { store, root } = storeFor();
     // Fail loudly on an unresolvable --base (e.g. CI forgot to fetch the base
@@ -574,6 +575,76 @@ program
 
     console.log(markdown ? renderMarkdown(report) : renderText(report));
     if (reportFailsStrict(report)) process.exitCode = 1;
+    store.close();
+  });
+
+// ---- veto (the rejected-alternative class, in isolation) ------------------
+const vetoCmd = program
+  .command("veto")
+  .description("Decision Guard: flag changes that REVERSE a decision — re-introducing an approach an in-force decision rejected (the rejected-alternatives class, on its own).")
+  .option("--staged", "check git staged files (default)")
+  .option("--commit <sha>", "check a specific commit's files")
+  .option("--base <ref>", "check a PR/branch: files changed vs <ref> (e.g. origin/main)")
+  .option("--strict", "exit non-zero on a human-confirmed, in-force, non-stale veto")
+  .option("--format <fmt>", "output: text (default) | markdown", "text")
+  .action((opts: { staged?: boolean; commit?: string; base?: string; strict?: boolean; format?: string }) => {
+    const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged"].filter(Boolean);
+    if (sources.length > 1) return fail(`pick one of --staged / --commit / --base (got ${sources.join(", ")})`);
+    const markdown = opts.format === "markdown";
+    const { store, root } = storeFor();
+    if (opts.base && !revExists(opts.base, root)) {
+      store.close();
+      return fail(`--base ref "${opts.base}" does not resolve. In CI, fetch the base branch first (git fetch origin <branch>).`);
+    }
+    store.reindex();
+    const files = opts.commit ? commitFiles(opts.commit, root)
+      : opts.base ? rangeFiles(opts.base, root)
+      : stagedFiles(root);
+    if (!files.length) {
+      console.log("No changed files to check.");
+      store.close();
+      return;
+    }
+    const diff = opts.commit ? commitDiff(opts.commit, root) : opts.base ? rangeDiff(opts.base, root) : stagedDiff(root);
+    const full = store.buildCheckReport(files, diff, { strict: !!opts.strict, lastChange: (f) => lastChangeDate(f, root) });
+    if (!full.vetoes.length) {
+      console.log(`✓ ${files.length} changed file(s) reverse no decision you rejected.`);
+      store.close();
+      return;
+    }
+    // Render ONLY the veto class — zero the other sections so the shared renderer
+    // shows just the rejected-alternative reversals (the rest is `hunch check`).
+    const vetoOnly: CheckReport = { ...full, direct: [], near: [], regressions: [], strictBlockers: 0, regBlocking: 0 };
+    console.log(markdown ? renderMarkdown(vetoOnly) : renderText(vetoOnly));
+    if (reportFailsStrict(vetoOnly)) process.exitCode = 1;
+    store.close();
+  });
+
+vetoCmd
+  .command("backfill")
+  .description("Draft machine-checkable tripwires for existing rejected alternatives. Drafts are ADVISORY — confirm with `hunch review --accept <id>` to enable blocking.")
+  .action(() => {
+    const { store, root } = storeFor();
+    const knownDeps = knownRepoDeps(root);
+    let drafted = 0;
+    let touched = 0;
+    for (const d of store.json.loadAll("decisions")) {
+      if (d.superseded_by || d.status === "superseded") continue;
+      if (!d.alternatives_rejected.length) continue;
+      if ((d.rejected_tripwires?.length ?? 0) > 0) continue; // never clobber existing tripwires
+      const tws = draftTripwires(d.alternatives_rejected, d.related_files, knownDeps);
+      store.json.put("decisions", { ...d, rejected_tripwires: tws });
+      drafted += tws.length;
+      touched++;
+    }
+    store.reindex();
+    if (!touched) {
+      console.log("✓ Nothing to backfill — every in-force decision with rejected alternatives already has tripwires.");
+    } else {
+      console.log(`✓ Drafted ${drafted} tripwire(s) across ${touched} decision(s) — all ADVISORY (llm_draft).`);
+      console.log("  They warn but never block until confirmed. Confirm a decision's tripwires:");
+      console.log("  hunch review --accept <decision-id>");
+    }
     store.close();
   });
 
@@ -679,7 +750,7 @@ program
     try {
       const evt = JSON.parse(await readStdin()) as {
         hook_event_name?: string;
-        tool_input?: { file_path?: string };
+        tool_input?: { file_path?: string; new_string?: string; content?: string };
         prompt?: string;
       };
       const root = findRoot();
@@ -717,6 +788,15 @@ program
         const deny = blockingInScope(store, target);
         if (deny) {
           emitDeny(deny.reason);
+          return;
+        }
+        // Veto Guard (live): the proposed edit text — Edit's new_string or Write's
+        // content — re-introduces an approach an in-force decision REJECTED. The
+        // agent self-corrects before staging. Only human-confirmed tripwires deny.
+        const proposed = evt.tool_input?.new_string ?? evt.tool_input?.content ?? "";
+        const vetoDeny = proposed ? vetoInScope(store, target, proposed.split("\n")) : null;
+        if (vetoDeny) {
+          emitDeny(vetoDeny.reason);
           return;
         }
       }
@@ -759,10 +839,27 @@ program
       const d = store.json.get("decisions", opts.accept);
       if (!d) return fail(`decision ${opts.accept} not found`);
       const source = d.provenance.source.includes("llm_draft") ? "llm_draft+human_confirmed" : "human_confirmed";
-      store.json.put("decisions", { ...d, status: "accepted", provenance: { ...d.provenance, source, confidence: 0.95, last_verified: new Date().toISOString() } });
+      const now = new Date().toISOString();
+      // Accepting a decision also CONFIRMS its drafted tripwires — this is how the
+      // Veto Guard goes from advisory to blocking ("confirm rides hunch review").
+      const tws = d.rejected_tripwires ?? [];
+      const confirmedTws = tws.map((tw) => ({
+        ...tw,
+        provenance: {
+          ...tw.provenance,
+          source: tw.provenance.source.includes("human_confirmed")
+            ? tw.provenance.source
+            : tw.provenance.source.includes("llm_draft")
+              ? "llm_draft+human_confirmed"
+              : "human_confirmed",
+          last_verified: now,
+        },
+      }));
+      store.json.put("decisions", { ...d, status: "accepted", rejected_tripwires: confirmedTws, provenance: { ...d.provenance, source, confidence: 0.95, last_verified: now } });
       store.reindex();
       updateClaudeMd(root, store);
-      console.log(`✓ accepted ${opts.accept} (now ${source}, confidence 0.95)`);
+      const twNote = confirmedTws.length ? `, ${confirmedTws.length} tripwire(s) now blocking` : "";
+      console.log(`✓ accepted ${opts.accept} (now ${source}, confidence 0.95${twNote})`);
     } else if (opts.reject) {
       const ok2 = store.json.delete("decisions", opts.reject);
       store.reindex();

@@ -11,15 +11,15 @@
  *   - fragility():      ranked fragility report with evidence
  */
 import { toPosixTarget, type HunchPaths } from "../core/paths.js";
-import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge } from "../core/types.js";
+import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type RejectedTripwire } from "../core/types.js";
 import { openDb, type DB } from "./db.js";
 import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
 import { pathMatchesGlob } from "../core/glob.js";
 import { edgeId } from "../core/ids.js";
-import { isStrictBlocker } from "../core/strictgate.js";
-import { analyzeDiff } from "../extractors/diff.js";
+import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
+import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
 import type { CheckReport, CheckDirect, CausalWhy } from "../core/checkreport.js";
 
 export interface SearchHit {
@@ -502,9 +502,10 @@ export class HunchStore {
     }
     const an = analyzeDiff(diff);
     const regHits = this.regressionHits({ symbols: an.addedSymbols.map((s) => s.name), deps: an.addedDeps }, files);
-    const staleIds = opts.strict && opts.lastChange
-      ? new Set(this.staleness(opts.lastChange).filter((s) => s.kind === "constraint").map((s) => s.id))
-      : new Set<string>();
+    const staleRecords = opts.strict && opts.lastChange ? this.staleness(opts.lastChange) : [];
+    const staleIds = new Set(staleRecords.filter((s) => s.kind === "constraint").map((s) => s.id));
+    const staleDecisionIds = new Set(staleRecords.filter((s) => s.kind === "decision").map((s) => s.id));
+    const vetoes = this.vetoHits(an, files, staleDecisionIds);
     const directReport: CheckDirect[] = [...direct.values()].map(({ c, files: fs }) => {
       const stale = staleIds.has(c.id);
       const strictBlocks = isStrictBlocker(c, stale);
@@ -521,8 +522,10 @@ export class HunchStore {
       direct: directReport,
       near: [...near.values()].map(({ c, via }) => ({ id: c.id, severity: c.severity ?? "advisory", statement: c.statement, via })),
       regressions: regHits.map((h) => ({ kind: h.kind, name: h.name, decision: h.decision, title: h.title, reason: h.reason, blocking: h.blocking })),
+      vetoes: vetoes.map((v) => ({ decision: v.decision, title: v.title, alternative: v.alternative, chosen: v.chosen, tier: v.tier, evidence: v.evidence, blocking: v.blocks })),
       strictBlockers: directReport.filter((d) => d.strictBlocks).length,
       regBlocking: regHits.filter((h) => h.blocking).length,
+      vetoBlocking: vetoes.filter((v) => v.blocks).length,
     };
   }
 
@@ -600,6 +603,78 @@ export class HunchStore {
       for (const dep of d.retired.deps) if (addedDeps.has(dep)) add(d, "dep", dep);
     }
     return out;
+  }
+
+  /** Veto Guard: detect a change RE-INTRODUCING an approach an in-force decision
+   *  deliberately REJECTED (`decision.rejected_tripwires`). The counterpart to
+   *  regressionHits, which only sees code that once existed — a rejected alternative
+   *  never did. Precision-first ladder (dep > symbol > pattern); the semantic tier is
+   *  advisory and lives elsewhere. A hit `blocks` only when isVetoBlocker passes (a
+   *  human-confirmed tripwire on an in-force, non-stale decision — dec_a466655539).
+   *  Read-only; shared by buildCheckReport. See docs/veto.md. */
+  vetoHits(an: DiffAnalysis, files: string[], staleDecisions: Set<string> = new Set()): VetoHit[] {
+    const addedDeps = new Set(an.addedDeps);
+    const out: VetoHit[] = [];
+    const seen = new Set<string>(); // dedup: one hit per decision+alternative
+    for (const d of this.json.loadAll("decisions")) {
+      if (d.superseded_by || d.status === "superseded") continue; // in-force only
+      const tripwires = d.rejected_tripwires ?? [];
+      if (!tripwires.length) continue;
+      const stale = staleDecisions.has(d.id);
+      for (const tw of tripwires) {
+        // scope: a tripwire with globs must intersect the touched files; scopeless = any
+        const scopedFiles = tw.scope.length
+          ? files.filter((f) => tw.scope.some((g) => pathMatchesGlob(f, g)))
+          : files;
+        if (tw.scope.length && !scopedFiles.length) continue;
+        // added line bodies within the scoped files (call sites, not just decls)
+        const scopedAdded: string[] = [];
+        for (const f of scopedFiles) {
+          const lines = an.addedLinesByFile.get(f);
+          if (lines) scopedAdded.push(...lines);
+        }
+        const match = matchTripwire(tw, addedDeps, scopedAdded);
+        if (!match) continue;
+        const key = `${d.id}::${tw.alternative}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          decision: d.id,
+          title: d.title,
+          alternative: tw.alternative,
+          chosen: d.decision || d.title,
+          tier: match.tier,
+          evidence: [...match.evidence, ...scopedFiles.slice(0, 3)],
+          blocks: isVetoBlocker(d, tw, match.tier, stale),
+          why: d.caused_by_bug ? this.vetoWhy(d.caused_by_bug) : undefined,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Resolve a veto's causal citation: the bug whose root cause spawned the decision
+   *  (decision → caused_by_bug). Distinct from causalChain, which is constraint-keyed. */
+  private vetoWhy(bugId: string): VetoHit["why"] {
+    const bug = this.json.get("bugs", bugId);
+    return bug ? { bug: { id: bug.id, title: bug.title, root_cause: bug.root_cause } } : undefined;
+  }
+
+  /** Veto check for a LIVE edit (the agent pre-edit hook): no diff exists yet, so
+   *  synthesize a minimal added-only diff from the proposed new lines and run the
+   *  same vetoHits ladder. Freshness needs git lastChange (unavailable at edit time),
+   *  so the staleness gate is skipped here — the commit/CI path applies it. */
+  vetoForFileEdit(file: string, addedLines: string[]): VetoHit[] {
+    if (!addedLines.length) return [];
+    const f = toPosixTarget(file);
+    const synthetic = [
+      `diff --git a/${f} b/${f}`,
+      `--- a/${f}`,
+      `+++ b/${f}`,
+      `@@ -0,0 +1,${addedLines.length} @@`,
+      ...addedLines.map((l) => `+${l}`),
+    ].join("\n");
+    return this.vetoHits(analyzeDiff(synthetic), [f]);
   }
 
   /** The symbols/deps an in-force decision deliberately RETIRED from a file — the
@@ -740,6 +815,69 @@ export interface RegressionHit {
   /** True only when the retiring decision is tied to an active blocking invariant. */
   blocking: boolean;
   reason: string;
+}
+
+/** A diff re-introducing an approach an in-force decision deliberately REJECTED. */
+export interface VetoHit {
+  decision: string;
+  title: string;
+  /** The rejected approach's text — the receipt headline. */
+  alternative: string;
+  /** What was chosen instead (decision.decision). */
+  chosen: string;
+  tier: VetoTier;
+  evidence: string[];
+  /** True only when the matched tripwire is human-confirmed, in-force, non-stale. */
+  blocks: boolean;
+  why?: { bug?: { id: string; title: string; root_cause: string } };
+}
+
+interface TripwireMatch {
+  tier: VetoTier;
+  evidence: string[];
+}
+
+/** Walk a tripwire's precision-first ladder against an analyzed diff. dep (exact
+ *  set intersection) > symbol (whole-word identifier in an added line) > pattern
+ *  (scoped regex). Returns the highest-precision match, or null. Bad user/LLM regex
+ *  is compiled defensively and never throws (a malformed pattern is simply inert). */
+function matchTripwire(tw: RejectedTripwire, addedDeps: Set<string>, scopedAdded: string[]): TripwireMatch | null {
+  // dep tier: the forbidden dep must be a genuinely-new external import (addedDeps)
+  // AND imported in a SCOPED added line — not merely added somewhere else in the
+  // diff. Without the scoped check, axios added in an out-of-scope file plus any
+  // edit to an in-scope file would false-positive.
+  const hitDeps = tw.forbids.deps.filter((dep) => addedDeps.has(dep) && scopedAdded.some((l) => importsDep(l, dep)));
+  if (hitDeps.length) return { tier: "dep", evidence: hitDeps.map((d) => `+import ${d}`) };
+
+  const hitSyms = tw.forbids.symbols.filter((s) => {
+    const re = new RegExp(`\\b${escapeRe(s)}\\b`);
+    return scopedAdded.some((l) => re.test(l));
+  });
+  if (hitSyms.length) return { tier: "symbol", evidence: hitSyms.map((s) => `+${s}`) };
+
+  for (const p of tw.forbids.patterns) {
+    let re: RegExp | null = null;
+    try {
+      re = new RegExp(p);
+    } catch {
+      re = null; // malformed pattern is inert, never a thrown error in the gate
+    }
+    if (!re) continue;
+    const hit = scopedAdded.find((l) => re!.test(l));
+    if (hit) return { tier: "pattern", evidence: [`/${p}/ matched: ${hit.trim().slice(0, 80)}`] };
+  }
+  return null;
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Does an added line actually IMPORT `dep` (not merely mention it in a string)?
+ *  Covers `import x from "dep"`, `import "dep"`, `} from "dep"`, `require("dep")` —
+ *  so a literal like `const m = "axios"` no longer trips the dep tier. */
+function importsDep(line: string, dep: string): boolean {
+  return new RegExp(`(?:from|import|require\\(?)\\s*['"]${escapeRe(dep)}['"]`).test(line);
 }
 
 /** What an in-force decision retired from a file (agent-hook grounding). */

@@ -10,6 +10,13 @@
  *  failing a teammate's commit. */
 export const STRICT_MIN_CONFIDENCE = 0.8;
 
+/** Is a provenance source HUMAN-CONFIRMED? Token-aware, so a composite source like
+ *  "llm_draft+human_confirmed" counts, but a lookalike ("not_human_confirmed",
+ *  "human_confirmed_pending") does not. The sources Hunch writes are "+"-joined. */
+export function isHumanConfirmed(source: string | undefined): boolean {
+  return (source ?? "").split("+").includes("human_confirmed");
+}
+
 export interface StrictConstraint {
   severity?: string;
   provenance?: { confidence?: number; source?: string };
@@ -23,5 +30,25 @@ export function isStrictBlocker(c: StrictConstraint, stale: boolean): boolean {
   if (c.severity !== "blocking") return false;
   if (stale) return false;
   const confidence = c.provenance?.confidence ?? 0;
-  return confidence >= STRICT_MIN_CONFIDENCE || c.provenance?.source === "human_confirmed";
+  return confidence >= STRICT_MIN_CONFIDENCE || isHumanConfirmed(c.provenance?.source);
+}
+
+export type VetoTier = "dep" | "symbol" | "pattern" | "semantic";
+
+/** May a VETO fail a commit? Sibling of isStrictBlocker, but keys on the TRIPWIRE's
+ *  trust — not the rejecting decision's — and uses ONE rule for every tier: only a
+ *  `human_confirmed` tripwire blocks. An llm_draft tripwire never blocks regardless
+ *  of confidence (an LLM self-score is not a licence to fail a commit); it only
+ *  warns. Semantic similarity never blocks. In-force + non-stale gates run first.
+ *  This is what makes the "day-one is advisory" DX true (dec_a466655539). */
+export function isVetoBlocker(
+  d: { status?: string; superseded_by?: string | null },
+  tw: { provenance?: { source?: string } },
+  tier: VetoTier,
+  stale: boolean,
+): boolean {
+  if (d.status === "superseded" || d.superseded_by) return false; // in-force decisions only
+  if (stale) return false; // freshness gate
+  if (tier === "semantic") return false; // never block on similarity
+  return isHumanConfirmed(tw.provenance?.source); // confirmed ⇒ blocks, any tier
 }

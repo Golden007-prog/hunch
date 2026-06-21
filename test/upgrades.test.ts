@@ -71,6 +71,32 @@ test("analyzeDiff records a pure rename (regression: renames were invisible)", (
   assert.deepEqual(a.filesRenamed, [{ from: "src/old.ts", to: "src/new.ts" }]);
 });
 
+test("analyzeDiff captures added line bodies per file (veto: call sites, not just decls)", () => {
+  const diff = [
+    "diff --git a/vscode-extension/src/extension.ts b/vscode-extension/src/extension.ts",
+    "--- a/vscode-extension/src/extension.ts",
+    "+++ b/vscode-extension/src/extension.ts",
+    "@@ -1,2 +1,4 @@",
+    '+import axios from "axios";',
+    "+const data = await axios.get('/api/memory');",
+    " const unchanged = 1;",
+    "-const gone = 2;",
+    "diff --git a/README.md b/README.md",
+    "--- a/README.md",
+    "+++ b/README.md",
+    "@@ -1 +1,2 @@",
+    "+docs only, not a code file",
+  ].join("\n");
+  const a = analyzeDiff(diff);
+  const lines = a.addedLinesByFile.get("vscode-extension/src/extension.ts");
+  assert.deepEqual(lines, ['import axios from "axios";', "const data = await axios.get('/api/memory');"]);
+  // the call site is in the added-line text even though it is not a declaration
+  assert.ok(lines!.some((l) => l.includes("axios.get")), "call site captured");
+  assert.ok(!a.addedSymbols.some((s) => s.name === "data"), "await-call const is not classified as an added symbol");
+  // non-code files are excluded, same as the rest of the analyzer
+  assert.equal(a.addedLinesByFile.has("README.md"), false);
+});
+
 test("moving a symbol between files is added+removed, not 'changed' (regression: per-file classification)", () => {
   const diff = [
     "diff --git a/src/a.ts b/src/a.ts",
