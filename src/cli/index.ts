@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { join, relative, dirname } from "node:path";
+import { join, relative, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { hunchPaths, findRoot, toPosixTarget } from "../core/paths.js";
@@ -534,7 +534,8 @@ program
   .option("--strict", "exit non-zero ONLY on a direct, high-confidence, non-stale blocking invariant (near/stale/low-confidence stay advisory)")
   .option("--format <fmt>", "output: text (default) | markdown (a PR comment)", "text")
   .option("--blast", "also print the dependency blast radius of the changed files")
-  .action((opts: { staged?: boolean; commit?: string; base?: string; strict?: boolean; format?: string; blast?: boolean }) => {
+  .option("--public-only", "exclude the private overlay (HUNCH_PRIVATE_DIR) from the report — use for any output that may be posted publicly (the CI PR comment passes this)")
+  .action((opts: { staged?: boolean; commit?: string; base?: string; strict?: boolean; format?: string; blast?: boolean; publicOnly?: boolean }) => {
     const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged"].filter(Boolean);
     if (sources.length > 1) return fail(`pick one of --staged / --commit / --base (got ${sources.join(", ")})`);
     const markdown = opts.format === "markdown";
@@ -564,6 +565,7 @@ program
     const report: CheckReport = store.buildCheckReport(files, diff, {
       strict: !!opts.strict,
       lastChange: (f) => lastChangeDate(f, root),
+      publicOnly: !!opts.publicOnly,
     });
 
     if (opts.blast && !markdown) {
@@ -1018,6 +1020,10 @@ program
     }
     const c = store.reindex().counts;
     console.log(`hunch:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
+    const privDir = process.env.HUNCH_PRIVATE_DIR?.trim();
+    console.log(privDir
+      ? `private:    on → ${resolve(privDir)} (local overlay — unioned into queries; never committed or posted publicly)`
+      : dim(`private:    off — set HUNCH_PRIVATE_DIR to overlay a separate private memory repo for sensitive records`));
     // Semantic search is opt-in and local. Report availability + coverage without
     // loading the model (selectEmbedder only probes; embeddingStats just counts rows).
     const emb = await selectEmbedder();

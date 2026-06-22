@@ -10,8 +10,9 @@
  *   - bugLineage():     bugs matching a symptom/symbol + their lineage
  *   - fragility():      ranked fragility report with evidence
  */
-import { toPosixTarget, type HunchPaths } from "../core/paths.js";
-import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type RejectedTripwire } from "../core/types.js";
+import { resolve } from "node:path";
+import { toPosixTarget, hunchPathsForDir, type HunchPaths } from "../core/paths.js";
+import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type RejectedTripwire, type EntityKind, type EntityFor } from "../core/types.js";
 import { openDb, type DB } from "./db.js";
 import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
@@ -52,10 +53,50 @@ export interface FragileNode {
 
 export class HunchStore {
   readonly json: JsonStore;
+  /** Optional PRIVATE overlay (HUNCH_PRIVATE_DIR) — a second store in a repo the
+   *  user controls. Unioned into reads via recs(); never written by public paths. */
+  private readonly privateJson?: JsonStore;
+  /** When true, recs() ignores the private overlay (public-only). Set transiently by
+   *  buildCheckReport({publicOnly}) so any PUBLICLY-POSTED report (the CI PR comment)
+   *  can never render a private record — a publicly-posted output is a leak surface
+   *  equal to a committed file (dec_d7bad4ccb7). */
+  private suppressPrivate = false;
   private _db: DB | null = null;
 
   constructor(private readonly paths: HunchPaths) {
     this.json = new JsonStore(paths);
+    const priv = process.env.HUNCH_PRIVATE_DIR?.trim();
+    if (priv) this.privateJson = new JsonStore(hunchPathsForDir(resolve(priv)));
+  }
+
+  /** Merged read: public ∪ private overlay (private wins on id collision). Every
+   *  QUERY / REINDEX path uses this so MCP + the guards see private memory. Public-
+   *  artifact writers keep using this.json.loadAll (public-only) so a private record
+   *  can never reach a committed file — see dec_d7bad4ccb7. */
+  recs<K extends EntityKind>(kind: K): EntityFor[K][] {
+    const pub = this.json.loadAll(kind);
+    const priv = this.suppressPrivate ? undefined : this.privateJson?.loadAll(kind);
+    if (!priv?.length) return pub;
+    const byId = new Map<string, EntityFor[K]>();
+    for (const r of pub) byId.set((r as { id: string }).id, r);
+    for (const r of priv) byId.set((r as { id: string }).id, r);
+    return [...byId.values()];
+  }
+
+  /** Whether a private overlay store is configured (HUNCH_PRIVATE_DIR is set). */
+  get hasPrivate(): boolean {
+    return !!this.privateJson;
+  }
+
+  /** Write a record into the PRIVATE overlay (never the public repo). Throws if no
+   *  HUNCH_PRIVATE_DIR is configured, so a "private" write can never silently land
+   *  in the public `.hunch/`. */
+  putPrivate<K extends EntityKind>(kind: K, record: EntityFor[K]): EntityFor[K] {
+    if (!this.privateJson) {
+      throw new Error("No private store configured — set HUNCH_PRIVATE_DIR to a directory Hunch can write sensitive records into.");
+    }
+    this.privateJson.ensureDirs();
+    return this.privateJson.put(kind, record);
   }
 
   get db(): DB {
@@ -83,7 +124,7 @@ export class HunchStore {
         insFts.run(ref, kind, title, body ?? "");
       };
 
-      const comps = this.json.loadAll("components");
+      const comps = this.recs("components");
       const insComp = db.prepare(
         `INSERT INTO components VALUES (@id,@kind,@name,@responsibility,@paths,@status,@owners,@fragility,@ps,@pc,@pe,@created_at,@updated_at)`,
       );
@@ -98,7 +139,7 @@ export class HunchStore {
       }
       counts.components = comps.length;
 
-      const edges = this.json.loadAll("edges");
+      const edges = this.recs("edges");
       const insEdge = db.prepare(`INSERT INTO edges VALUES (@id,@from,@to,@type,@reason,@strength,@ps,@pc,@pe)`);
       for (const e of edges) {
         insEdge.run({ id: e.id, from: e.from, to: e.to, type: e.type, reason: e.reason, strength: e.strength,
@@ -106,7 +147,7 @@ export class HunchStore {
       }
       counts.edges = edges.length;
 
-      const syms = this.json.loadAll("symbols");
+      const syms = this.recs("symbols");
       const insSym = db.prepare(
         `INSERT INTO symbols VALUES (@id,@file,@name,@kind,@sh,@calls,@called_by,@loc,@churn,@bug,@fanin,@fanout,@last)`,
       );
@@ -119,7 +160,7 @@ export class HunchStore {
       }
       counts.symbols = syms.length;
 
-      const decs = this.json.loadAll("decisions");
+      const decs = this.recs("decisions");
       const insDec = db.prepare(
         `INSERT INTO decisions VALUES (@id,@title,@status,@context,@decision,@cons,@alts,@rc,@rf,@sup,@cbb,@commit,@ps,@pc,@pe,@date)`,
       );
@@ -133,7 +174,7 @@ export class HunchStore {
       }
       counts.decisions = decs.length;
 
-      const bugs = this.json.loadAll("bugs");
+      const bugs = this.recs("bugs");
       const insBug = db.prepare(
         `INSERT INTO bugs VALUES (@id,@title,@symptom,@rc,@sev,@status,@af,@as,@lin,@ps,@pc,@pe)`,
       );
@@ -145,7 +186,7 @@ export class HunchStore {
       }
       counts.bugs = bugs.length;
 
-      const cons = this.json.loadAll("constraints");
+      const cons = this.recs("constraints");
       const insCon = db.prepare(
         `INSERT INTO constraints VALUES (@id,@type,@statement,@scope,@sev,@enf,@rat,@sd,@viol,@ps,@pc,@pe)`,
       );
@@ -353,11 +394,11 @@ export class HunchStore {
    *  history-inclusive view (backward-compatible default). */
   why(target: string, opts: { asOf?: string } = {}): WhyResult {
     target = toPosixTarget(target);
-    const decisions = this.json.loadAll("decisions");
-    const bugs = this.json.loadAll("bugs");
-    const constraints = this.json.loadAll("constraints");
-    const symbols = this.json.loadAll("symbols");
-    const components = this.json.loadAll("components");
+    const decisions = this.recs("decisions");
+    const bugs = this.recs("bugs");
+    const constraints = this.recs("constraints");
+    const symbols = this.recs("symbols");
+    const components = this.recs("components");
     const asOf = opts.asOf;
 
     const matchedSymbols = symbols.filter((s) => s.file === target || s.name === target || s.id === target || s.file.endsWith(target));
@@ -452,7 +493,7 @@ export class HunchStore {
    *  longer enforced. Pass `{ asOf }` to instead return the invariants in force at
    *  that instant (time-travel: "what must I not have broken as of commit X?"). */
   checkConstraints(scope: string, opts: { asOf?: string } = {}): Constraint[] {
-    const all = this.json.loadAll("constraints");
+    const all = this.recs("constraints");
     const asOf = opts.asOf;
     return all
       .filter((c) => c.scope.some((g) => pathMatchesGlob(scope, g) || pathMatchesGlob(g, scope) || g === scope))
@@ -470,7 +511,7 @@ export class HunchStore {
     if (!c) return out;
     const dec = c.source_decision ? this.json.get("decisions", c.source_decision) : null;
     if (dec) out.decision = { id: dec.id, title: dec.title, decision: dec.decision };
-    const bugs = this.json.loadAll("bugs");
+    const bugs = this.recs("bugs");
     // Deterministic when several bugs link one constraint (the verdict claims to be
     // deterministic): highest severity first, then lowest id — never filesystem order.
     const SEV: Record<string, number> = { critical: 3, high: 2, medium: 1, low: 0 };
@@ -486,7 +527,14 @@ export class HunchStore {
    *  radius), and regressions (re-added retired code), with the hardened strict
    *  gate and a causal `why` citation per direct hit. Read-only — shared by
    *  `hunch check`, the CI guard, and hunch_merge_verdict so they never drift. */
-  buildCheckReport(files: string[], diff: string, opts: { strict: boolean; lastChange?: (f: string) => string }): CheckReport {
+  buildCheckReport(files: string[], diff: string, opts: { strict: boolean; lastChange?: (f: string) => string; publicOnly?: boolean }): CheckReport {
+    // publicOnly excludes the private overlay from THIS report — required for any output
+    // that may be posted publicly (the CI PR comment), since a posted comment is a leak
+    // surface equal to a committed file. Local `hunch check` / the pre-edit hook omit it
+    // and so still enforce private constraints. See dec_d7bad4ccb7.
+    const prevSuppress = this.suppressPrivate;
+    this.suppressPrivate = opts.publicOnly ?? false;
+    try {
     const direct = new Map<string, { c: Constraint; files: string[] }>();
     for (const f of files) for (const c of this.checkConstraints(f)) {
       const e = direct.get(c.id) ?? { c, files: [] };
@@ -532,6 +580,9 @@ export class HunchStore {
       regBlocking: regHits.filter((h) => h.blocking).length,
       vetoBlocking: vetoes.filter((v) => v.blocks).length,
     };
+    } finally {
+      this.suppressPrivate = prevSuppress;
+    }
   }
 
   /** Sprawl/"this already exists" guard (ADVISORY, never blocks). A symbol the diff
@@ -569,7 +620,7 @@ export class HunchStore {
     // test fixture or a separate sub-project (test/, vscode-extension/, site/) is not
     // sprawl in the source under change — different roots, different ownership.
     const roots = new Set(files.map((f) => f.split("/")[0]));
-    const symbols = this.json.loadAll("symbols");
+    const symbols = this.recs("symbols");
     const out: Array<{ name: string; kind: string; existingFile: string }> = [];
     const seen = new Set<string>();
     for (const sc of added) {
@@ -632,10 +683,10 @@ export class HunchStore {
     if (!addedSyms.size && !addedDeps.size) return [];
     const fileRelevant = (related: string[]) =>
       related.some((f) => files.some((x) => pathRelated(x, f)));
-    const decisions = this.json.loadAll("decisions");
+    const decisions = this.recs("decisions");
     // decisions tied to an active blocking constraint via source_decision
     const blockingDec = new Set(
-      this.json.loadAll("constraints")
+      this.recs("constraints")
         .filter((c) => c.severity === "blocking" && c.status !== "retired" && c.source_decision)
         .map((c) => c.source_decision as string),
     );
@@ -673,7 +724,7 @@ export class HunchStore {
     const addedDeps = new Set(an.addedDeps);
     const out: VetoHit[] = [];
     const seen = new Set<string>(); // dedup: one hit per decision+alternative
-    for (const d of this.json.loadAll("decisions")) {
+    for (const d of this.recs("decisions")) {
       if (d.superseded_by || d.status === "superseded") continue; // in-force only
       const tripwires = d.rejected_tripwires ?? [];
       if (!tripwires.length) continue;
@@ -739,7 +790,7 @@ export class HunchStore {
    *  available at edit time, so this surfaces the risk as context, not a block. */
   retiredForFile(file: string): RetiredNote[] {
     const out: RetiredNote[] = [];
-    for (const d of this.json.loadAll("decisions")) {
+    for (const d of this.recs("decisions")) {
       if (d.superseded_by || d.status === "superseded") continue;
       if (!d.retired.symbols.length && !d.retired.deps.length) continue;
       if (!d.related_files.some((f) => pathRelated(f, file))) continue;
@@ -750,7 +801,7 @@ export class HunchStore {
 
   /** Bugs matching a symptom (FTS over bugs) or a symbol, with lineage (hunch_bug_lineage). */
   bugLineage(symptomOrSymbol: string): Bug[] {
-    const bugs = this.json.loadAll("bugs");
+    const bugs = this.recs("bugs");
     const direct = bugs.filter(
       (b) => b.affected_symbols.includes(symptomOrSymbol) || b.affected_files.includes(symptomOrSymbol),
     );
@@ -766,8 +817,8 @@ export class HunchStore {
 
   /** Ranked fragility report (hunch fragile). fragility = weighted churn + bugs + fan-in. */
   fragility(limit = 15): FragileNode[] {
-    const syms = this.json.loadAll("symbols");
-    const bugs = this.json.loadAll("bugs");
+    const syms = this.recs("symbols");
+    const bugs = this.recs("bugs");
     // bug counts per symbol from actual bug records (authoritative over stale metric)
     const bugBySym = new Map<string, number>();
     for (const b of bugs) for (const s of b.affected_symbols) bugBySym.set(s, (bugBySym.get(s) ?? 0) + 1);
@@ -802,7 +853,7 @@ export class HunchStore {
 
   /** All edges (for graph export). */
   allEdges(): Edge[] {
-    return this.json.loadAll("edges");
+    return this.recs("edges");
   }
 
   /** Drift detection (DESIGN §9 "staleness kills trust"): a decision/constraint
@@ -821,8 +872,8 @@ export class HunchStore {
       }
       if (newest) out.push({ kind, id, last_verified: verified, changed_at: newest, files: files.slice(0, 8) });
     };
-    for (const d of this.json.loadAll("decisions")) check("decision", d.id, d.related_files, d.provenance.last_verified);
-    for (const c of this.json.loadAll("constraints")) check("constraint", c.id, c.scope, c.provenance.last_verified);
+    for (const d of this.recs("decisions")) check("decision", d.id, d.related_files, d.provenance.last_verified);
+    for (const c of this.recs("constraints")) check("constraint", c.id, c.scope, c.provenance.last_verified);
     return out.sort((a, b) => b.changed_at.localeCompare(a.changed_at));
   }
 

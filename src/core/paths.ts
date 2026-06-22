@@ -38,6 +38,22 @@ export function hunchPaths(root: string): HunchPaths {
   };
 }
 
+/** Build paths for a hunch-layout directory given DIRECTLY — i.e. `hunchDir` IS
+ *  the dir holding the kind subdirs (decisions/, bugs/, …). Used for an external
+ *  PRIVATE overlay store (HUNCH_PRIVATE_DIR), which lives in a separate repo the
+ *  user controls rather than under the current repo's `.hunch/`. */
+export function hunchPathsForDir(hunchDir: string): HunchPaths {
+  const hunch = resolve(hunchDir);
+  return {
+    root: dirname(hunch),
+    hunch,
+    sqlite: join(hunch, "hunch.sqlite"),
+    manifest: join(hunch, "manifest.json"),
+    config: join(hunch, "config.json"),
+    dir: (kind: string) => join(hunch, kind),
+  };
+}
+
 /** Walk up from `start` to find the nearest repo containing a .hunch/ dir,
  *  else the nearest git repo, else `start`. Lets `hunch` run from subdirs. */
 export function findRoot(start: string = process.cwd()): string {

@@ -20,6 +20,10 @@ const ENTRIES = [
   ".hunch/*.sqlite-wal",
   ".hunch/*.sqlite-journal",
   ".hunch/**/*.tmp*",
+  // A local PRIVATE overlay store (HUNCH_PRIVATE_DIR) for sensitive memory — never
+  // committed. This is the conventional in-repo path; point the env elsewhere for a
+  // fully separate private repo.
+  ".hunch-private/",
 ];
 
 export interface GitignoreResult {

@@ -33,3 +33,7 @@ dist/
 .hunch/*.sqlite-shm
 # Atomic-write temp files (normally consumed by rename; ignored in case one leaks).
 .hunch/**/*.tmp*
+# Hunch: a local PRIVATE overlay store (HUNCH_PRIVATE_DIR) for sensitive memory —
+# kept OUT of this (public) repo. Point it at a separate private repo, or use this
+# conventional in-repo path which is ignored here.
+.hunch-private/

@@ -268,7 +268,7 @@ export function buildServer(root: string): McpServer {
     {
       title: "Record a decision (write-back)",
       description:
-        "Persist a new Decision (ADR) into Hunch with provenance. Use after making a non-trivial design choice so future sessions are grounded in it.",
+        "Persist a new Decision (ADR) into Hunch with provenance. Use after making a non-trivial design choice so future sessions are grounded in it. Set private:true to keep a SENSITIVE decision out of a (possibly public) repo — it is written to the HUNCH_PRIVATE_DIR overlay store and stays queryable locally, never committed here.",
       inputSchema: {
         decision: z.object({
           title: z.string(),
@@ -281,6 +281,7 @@ export function buildServer(root: string): McpServer {
           status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(),
           commit: z.string().optional(),
           supersedes: z.string().optional().describe("id of a decision this one replaces — closes its valid-time window (invalidate, don't delete)"),
+          private: z.boolean().optional().describe("write into the PRIVATE overlay store (HUNCH_PRIVATE_DIR) instead of the committed repo — for sensitive decisions kept out of a public repo. Errors if no private store is configured."),
         }),
       },
     },
@@ -298,7 +299,9 @@ export function buildServer(root: string): McpServer {
 
         // Preserve the ADR lineage: upgrading an auto-draft yields the composite
         // provenance the design specifies.
-        const existing = store.json.get("decisions", id);
+        // Public-only lookup; skip it for a private write so a private decision never
+        // inherits fields from a same-id PUBLIC record (and vice-versa).
+        const existing = decision.private ? undefined : store.json.get("decisions", id);
         const source = existing && existing.provenance.source.includes("llm_draft")
           ? "llm_draft+human_confirmed"
           : "human_confirmed";
@@ -325,14 +328,20 @@ export function buildServer(root: string): McpServer {
           provenance: { source, confidence: 0.95, evidence: (decision.related_files ?? existing?.provenance.evidence ?? []).map(toPosixTarget) },
           date: now,
         };
-        store.json.put("decisions", rec);
-        // Invalidate, don't delete: closing the superseded decision's valid-time
-        // window (+ a supersedes edge) preserves the why-it-changed trail.
-        const superseded = decision.supersedes ? store.supersede(decision.supersedes, rec) : null;
+        // Route the write: private records go to the HUNCH_PRIVATE_DIR overlay (never
+        // the committed repo); everything else to the public store. putPrivate throws
+        // if no private store is configured, so "private" can't silently fall public.
+        if (decision.private) store.putPrivate("decisions", rec);
+        else store.json.put("decisions", rec);
+        // Invalidate, don't delete: closing the superseded decision's valid-time window
+        // (+ a supersedes edge) preserves the why-it-changed trail. Supersede operates on
+        // the public store, so skip it for a private record (a v1 limitation, not a leak).
+        const superseded = decision.supersedes && !decision.private ? store.supersede(decision.supersedes, rec) : null;
         store.reindex();
         const supNote = superseded ? ` Superseded ${superseded.id} (window closed at ${rec.valid_from}).` : "";
         const note = decision.commit && !fullSha ? ` (note: commit "${decision.commit}" could not be resolved — recorded as a standalone decision, not linked to a commit)` : "";
-        return ok(`Recorded decision ${id}: "${rec.title}" (status ${rec.status}, ${source}).${supNote}${note}`);
+        const where = decision.private ? " [PRIVATE overlay — not committed to this repo]" : "";
+        return ok(`Recorded decision ${id}: "${rec.title}" (status ${rec.status}, ${source}).${where}${supNote}${note}`);
       } catch (e) {
         return err(`Failed to record decision: ${(e as Error).message}`);
       }
@@ -354,19 +363,24 @@ export function buildServer(root: string): McpServer {
         type: z.enum(["security", "performance", "correctness", "architecture", "compliance"]).optional(),
         rationale: z.string().optional().describe("Why it must hold."),
         source_decision: z.string().optional().describe("id of a decision this correction derives from."),
+        private: z.boolean().optional().describe("write into the PRIVATE overlay store (HUNCH_PRIVATE_DIR) instead of the committed repo — a sensitive rule enforced locally (pre-edit hook + local check) but never exposed in a public PR comment. Errors if no private store is configured."),
       },
     },
     async (input): Promise<ToolResult> => {
       try {
         if (!input.rule || !input.rule.trim()) return err("rule is required — state the invariant in plain words.");
         const rec = buildCorrectionConstraint(input, new Date().toISOString());
-        const existing = store.json.get("constraints", rec.id);
-        store.json.put("constraints", rec);
+        // Private corrections go to the overlay (enforced locally via the merged read,
+        // never rendered into the public CI comment, which is public-only by construction).
+        const existing = input.private ? undefined : store.json.get("constraints", rec.id);
+        if (input.private) store.putPrivate("constraints", rec);
+        else store.json.put("constraints", rec);
         store.reindex();
         const enforce = rec.severity === "blocking"
           ? "blocks a DIRECT edit to its scope at strict firmness, and fails a PR whose diff touches that scope (CI guard); blast-radius hits and lower firmness stay advisory"
           : "flags violating edits and PRs (advisory)";
-        return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}). It now ${enforce}.`);
+        const where = input.private ? " [PRIVATE overlay — not committed to this repo]" : "";
+        return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}).${where} It now ${enforce}.`);
       } catch (e) {
         return err(`Failed to record correction: ${(e as Error).message}`);
       }

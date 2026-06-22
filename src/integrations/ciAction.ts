@@ -47,9 +47,14 @@ jobs:
 
       - name: Run Constraint Guard
         id: guard
+        # The report is posted as a public PR comment, so it MUST stay public-only:
+        # --public-only excludes any private overlay, and HUNCH_PRIVATE_DIR is neutralized
+        # here as defense-in-depth. Never wire a private memory store into CI.
+        env:
+          HUNCH_PRIVATE_DIR: ""
         run: |
           set +e
-          hunch check --base "origin/\${{ github.base_ref }}" --strict --format markdown > hunch-report.md
+          hunch check --base "origin/\${{ github.base_ref }}" --strict --format markdown --public-only > hunch-report.md
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           set -e
 

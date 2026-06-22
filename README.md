@@ -158,6 +158,17 @@ is **OS-agnostic**: paths are stored in POSIX form and an installed Hunch regist
 server by package name, so Windows / macOS / Linux teammates share one memory without
 per-machine fixups. → [docs](https://hunch-pi.vercel.app/docs#team)
 
+## Private memory (public repo, private context)
+
+Open-source your code without open-sourcing your *reasoning*. Point `HUNCH_PRIVATE_DIR` at a
+separate **private repo** and Hunch unions that store into every query and guard **locally** —
+MCP and the pre-edit hook see your sensitive decisions/bugs/constraints — while your public
+`.hunch/` stays clean. It's **opt-in and default-off** (unset the var → fully inert), and
+**leak-safe by construction**: committed files and the CI PR comment render *public-only*, so a
+private record can't reach a public surface. Record sensitive items with `private: true`
+(`hunch_record_decision` / `hunch_record_correction`); `hunch doctor` shows whether the overlay
+is on. → [docs](https://hunch-pi.vercel.app/docs#private)
+
 ## Continuous learning (CI)
 
 The decision half of the loop is automatic (the post-commit hook). Light up the bug/constraint
