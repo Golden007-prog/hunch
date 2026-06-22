@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Docs — Hunch · Engineering Memory OS</title>
+<meta name="description" content="Hunch documentation — install, initialize, wire up your coding assistant over MCP, and use the guards (Never Twice, Causal Merge Verdict, Decision Guard, CI Constraint Guard). Complete CLI and MCP reference." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#ffffff;
+    --bg-soft:#fbfaf8;
+    --ink:#16150f;
+    --ink-soft:#3d3b32;
+    --muted:#6f6c63;
+    --line:rgba(22,21,15,.10);
+    --line-soft:rgba(22,21,15,.06);
+    --accent:#2742ff;
+    --accent-deep:#1a2fcf;
+    --accent-wash:rgba(39,66,255,.07);
+    --warn:#e0432d;
+    --warn-wash:rgba(224,67,45,.07);
+    --ok:#1f9d68;
+    --ok-wash:rgba(31,157,104,.08);
+    --code-bg:#fbfaf8;
+    --r:12px;
+    --sidebar:280px;
+    --toc:230px;
+    --ease:cubic-bezier(.22,1,.36,1);
+    --serif:"Fraunces",Georgia,serif;
+    --sans:"Inter",system-ui,-apple-system,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-weight:400;line-height:1.5;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ---------- top bar ---------- */
+  header.top{
+    position:sticky;top:0;z-index:50;height:60px;
+    background:rgba(255,255,255,.82);backdrop-filter:saturate(180%) blur(14px);
+    border-bottom:1px solid var(--line);
+    display:flex;align-items:center;
+  }
+  .top-row{width:100%;max-width:1400px;margin:0 auto;padding:0 24px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;letter-spacing:-.01em}
+  .brand .dot{width:22px;height:22px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:13px}
+  .brand .tag{font-family:var(--mono);font-size:11px;font-weight:500;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin-left:4px}
+  .top-links{display:flex;align-items:center;gap:26px;font-size:14px;color:var(--ink-soft)}
+  .top-links a{font-weight:450;transition:color .2s}
+  .top-links a:hover{color:var(--accent)}
+  .top-cta{display:inline-flex;align-items:center;gap:7px;background:var(--ink);color:#fff;font-size:13.5px;font-weight:500;padding:8px 15px;border-radius:9px;transition:transform .25s var(--ease),background .25s}
+  .top-cta:hover{background:var(--accent);transform:translateY(-1px)}
+  .menu-btn{display:none;background:none;border:1px solid var(--line);border-radius:8px;width:38px;height:34px;cursor:pointer;align-items:center;justify-content:center}
+  .menu-btn span,.menu-btn span::before,.menu-btn span::after{content:"";display:block;width:16px;height:1.6px;background:var(--ink);position:relative;transition:.2s}
+  .menu-btn span::before{position:absolute;top:-5px}.menu-btn span::after{position:absolute;top:5px}
+
+  /* ---------- layout ---------- */
+  .shell{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:var(--sidebar) minmax(0,1fr) var(--toc);gap:0}
+  @media(max-width:1180px){.shell{grid-template-columns:var(--sidebar) minmax(0,1fr)}.toc{display:none}}
+  @media(max-width:920px){.shell{grid-template-columns:1fr}}
+
+  /* ---------- sidebar ---------- */
+  aside.side{
+    position:sticky;top:60px;align-self:start;height:calc(100vh - 60px);overflow-y:auto;
+    padding:30px 22px 60px;border-right:1px solid var(--line-soft);
+  }
+  aside.side::-webkit-scrollbar{width:8px}aside.side::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+  .nav-group{margin-bottom:24px}
+  .nav-group h4{margin:0 0 9px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .nav-group a{display:block;padding:6px 10px;font-size:14px;color:var(--ink-soft);border-radius:8px;font-weight:450;border-left:2px solid transparent;transition:color .15s,background .15s}
+  .nav-group a:hover{color:var(--ink);background:var(--bg-soft)}
+  .nav-group a.active{color:var(--accent);font-weight:550;background:var(--accent-wash);border-left-color:var(--accent)}
+  @media(max-width:920px){
+    aside.side{position:fixed;top:60px;left:0;width:300px;max-width:86vw;background:var(--bg);border-right:1px solid var(--line);
+      transform:translateX(-104%);transition:transform .3s var(--ease);z-index:40;box-shadow:0 30px 80px -30px rgba(0,0,0,.3)}
+    body.nav-open aside.side{transform:none}
+    .menu-btn{display:flex}
+    body.nav-open .scrim{opacity:1;pointer-events:auto}
+  }
+  .scrim{position:fixed;inset:60px 0 0;background:rgba(22,21,15,.32);opacity:0;pointer-events:none;transition:opacity .3s;z-index:35}
+
+  /* ---------- content ---------- */
+  main{padding:48px 56px 120px;min-width:0;max-width:860px}
+  @media(max-width:920px){main{padding:36px 24px 90px}}
+  .eyebrow{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--accent);letter-spacing:.04em;text-transform:uppercase}
+  h1.page{font-family:var(--serif);font-weight:520;font-size:clamp(34px,5vw,46px);line-height:1.04;letter-spacing:-.02em;margin:10px 0 14px}
+  .lead{font-size:18px;line-height:1.6;color:var(--ink-soft);max-width:60ch;margin:0 0 8px}
+  section{scroll-margin-top:84px;padding-top:46px}
+  section.first{padding-top:24px}
+  h2{font-size:25px;font-weight:600;letter-spacing:-.02em;margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid var(--line-soft);scroll-margin-top:84px}
+  h3{font-size:17.5px;font-weight:600;letter-spacing:-.01em;margin:30px 0 10px}
+  p{margin:0 0 15px;color:var(--ink-soft);font-size:15.5px;line-height:1.72;max-width:68ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;color:var(--ink-soft);font-size:15.5px;line-height:1.72;max-width:66ch}
+  li{margin:5px 0}
+  strong{color:var(--ink);font-weight:600}
+  a.link{color:var(--accent);font-weight:500;border-bottom:1px solid var(--accent-wash);transition:border-color .2s}
+  a.link:hover{border-bottom-color:var(--accent)}
+  code{font-family:var(--mono);font-size:.86em;background:var(--accent-wash);color:var(--accent-deep);padding:.12em .42em;border-radius:6px;font-weight:500}
+  h2 code,h3 code{font-size:.8em}
+
+  /* anchor on headings */
+  .anchor{margin-left:8px;color:var(--muted);opacity:0;font-weight:400;transition:opacity .15s;font-size:.8em}
+  h2:hover .anchor,h3:hover .anchor{opacity:.7}
+
+  /* code blocks */
+  .code{position:relative;margin:0 0 20px;border:1px solid var(--line);border-radius:var(--r);background:var(--code-bg);overflow:hidden}
+  .code-head{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid var(--line-soft);background:rgba(22,21,15,.015)}
+  .code-head .lbl{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em}
+  .copy{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:6px;padding:3px 9px;cursor:pointer;transition:.18s}
+  .copy:hover{color:var(--accent);border-color:var(--accent)}
+  .copy.done{color:var(--ok);border-color:var(--ok)}
+  pre{margin:0;padding:15px 16px;overflow-x:auto;font-family:var(--mono);font-size:13.4px;line-height:1.65;color:var(--ink)}
+  pre .c{color:var(--muted)}            /* comment */
+  pre .k{color:var(--accent-deep);font-weight:500} /* keyword/cmd */
+  pre .s{color:var(--ok)}               /* string */
+  pre .d{color:var(--warn)}             /* deny/danger */
+
+  /* callouts */
+  .note{position:relative;margin:0 0 20px;padding:13px 16px 13px 16px;border:1px solid var(--line-soft);border-left:3px solid var(--accent);border-radius:10px;background:var(--accent-wash);font-size:14.5px;line-height:1.6;color:var(--ink-soft)}
+  .note.warn{border-left-color:var(--warn);background:var(--warn-wash)}
+  .note.tip{border-left-color:var(--ok);background:var(--ok-wash)}
+  .note b{color:var(--ink)}
+  .note .ic{font-weight:600;margin-right:6px}
+
+  /* tables */
+  .tbl{width:100%;border-collapse:collapse;margin:0 0 22px;font-size:14px;display:block;overflow-x:auto}
+  .tbl th,.tbl td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  .tbl th{font-weight:600;color:var(--ink);font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .tbl td code{white-space:nowrap}
+  .tbl tr:last-child td{border-bottom:none}
+
+  .steps{counter-reset:step;list-style:none;padding:0;margin:18px 0 8px}
+  .steps>li{position:relative;padding-left:42px;margin:0 0 22px}
+  .steps>li::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:-2px;width:28px;height:28px;border-radius:9px;background:var(--ink);color:#fff;font-family:var(--mono);font-size:13px;font-weight:500;display:grid;place-items:center}
+  .steps>li h3{margin:2px 0 8px}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:8px;vertical-align:middle}
+  .pill.block{color:var(--warn);border-color:var(--warn-wash);background:var(--warn-wash)}
+  .pill.ok{color:var(--ok);border-color:var(--ok-wash);background:var(--ok-wash)}
+
+  /* on-this-page (right toc) */
+  .toc{position:sticky;top:60px;align-self:start;height:calc(100vh - 60px);overflow-y:auto;padding:48px 20px;font-size:13px}
+  .toc h5{margin:0 0 12px;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .toc a{display:block;padding:4px 0;color:var(--muted);border-left:2px solid transparent;padding-left:12px;margin-left:-2px;transition:.15s}
+  .toc a:hover{color:var(--ink)}
+  .toc a.active{color:var(--accent);border-left-color:var(--accent)}
+
+  footer{border-top:1px solid var(--line-soft);padding:30px 56px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  @media(max-width:920px){footer{padding:24px}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-row">
+    <div style="display:flex;align-items:center;gap:14px">
+      <button class="menu-btn" id="menuBtn" aria-label="Toggle navigation"><span></span></button>
+      <a class="brand" href="/">
+        <span class="dot">🧠</span> Hunch <span class="tag">docs</span>
+      </a>
+    </div>
+    <nav class="top-links">
+      <a href="/">Home</a>
+      <a href="/#features">Features</a>
+      <a href="/#changelog">Changelog</a>
+      <a href="https://github.com/davesheffer/hunch" target="_blank" rel="noopener">GitHub</a>
+      <a class="top-cta" href="https://www.npmjs.com/package/@davesheffer/hunch" target="_blank" rel="noopener">npm ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <!-- ──────────────── SIDEBAR ──────────────── -->
+  <aside class="side" id="side">
+    <div class="nav-group">
+      <h4>Getting started</h4>
+      <a href="#overview">Overview</a>
+      <a href="#install">Install</a>
+      <a href="#initialize">Initialize a repo</a>
+      <a href="#first-query">Your first query</a>
+    </div>
+    <div class="nav-group">
+      <h4>Setup</h4>
+      <a href="#synthesis">Synthesis &amp; billing</a>
+      <a href="#mcp">MCP &amp; assistants</a>
+      <a href="#reload">Reload your assistant</a>
+      <a href="#windows">Windows note</a>
+    </div>
+    <div class="nav-group">
+      <h4>Concepts</h4>
+      <a href="#graph">The reasoning graph</a>
+      <a href="#provenance">Provenance &amp; confidence</a>
+      <a href="#time-travel">Time-travel</a>
+    </div>
+    <div class="nav-group">
+      <h4>Using Hunch</h4>
+      <a href="#mcp-tools">MCP tools</a>
+      <a href="#slash">Slash commands</a>
+      <a href="#firmness">Firmness levels</a>
+    </div>
+    <div class="nav-group">
+      <h4>Guards</h4>
+      <a href="#never-twice">Never Twice</a>
+      <a href="#merge-verdict">Causal Merge Verdict</a>
+      <a href="#veto">Decision Guard</a>
+      <a href="#regression">Regression Guard</a>
+      <a href="#ci">CI Constraint Guard</a>
+    </div>
+    <div class="nav-group">
+      <h4>Reference</h4>
+      <a href="#cli">CLI reference</a>
+      <a href="#storage">Where it's stored</a>
+    </div>
+    <div class="nav-group">
+      <h4>Operations</h4>
+      <a href="#doctor">Doctor &amp; troubleshooting</a>
+      <a href="#team">Working as a team</a>
+      <a href="#maintenance">Maintenance</a>
+      <a href="#develop">Develop &amp; contribute</a>
+    </div>
+  </aside>
+
+  <!-- ──────────────── CONTENT ──────────────── -->
+  <main>
+    <section class="first" id="overview">
+      <div class="eyebrow">Documentation</div>
+      <h1 class="page">Hunch — Engineering&nbsp;Memory&nbsp;OS</h1>
+      <p class="lead">Git stores <em>what</em> the code is. Hunch stores <em>why</em> — a persistent, git-native reasoning graph of decisions, bugs, and invariants, surfaced to your coding assistant at reasoning time so it stops re-deriving understanding and stops undoing intentional design.</p>
+      <p>Hunch is a CLI plus a local MCP server. It captures the “why” as a byproduct of normal work — commits and test failures — stores it as git-tracked JSON in <code>.hunch/</code>, and feeds the minimal relevant slice back to <strong>any</strong> MCP assistant (Claude Code, Cursor, Copilot, Windsurf, Codex). Local-first, no SaaS, and synthesis is billed to your existing coding-assistant subscription — never a pay-per-token API key.</p>
+      <div class="note tip"><span class="ic">⚡</span><b>In a hurry?</b> <code>npm i -g @davesheffer/hunch</code> → <code>cd your-repo &amp;&amp; hunch init &amp;&amp; hunch backfill --since 90d</code> → reload your assistant and ask “why is X built this way?”. The rest of this page is the full tour.</div>
+    </section>
+
+    <section id="install">
+      <h2>Install<a class="anchor" href="#install">#</a></h2>
+      <p>Hunch needs <strong>Node ≥ 20</strong>. Install the CLI globally — that puts a <code>hunch</code> binary on your PATH:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">npm</span> install -g @davesheffer/hunch</pre></div>
+      <p>Or run from source (for hacking on Hunch itself):</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">git</span> clone https://github.com/davesheffer/hunch &amp;&amp; <span class="k">cd</span> hunch
+<span class="k">npm</span> install
+<span class="k">npm</span> run build        <span class="c"># compile to dist/</span>
+<span class="k">npm</span> link             <span class="c"># optional: global `hunch` from source</span></pre></div>
+    </section>
+
+    <section id="initialize">
+      <h2>Initialize a repo<a class="anchor" href="#initialize">#</a></h2>
+      <p>Run <code>hunch init</code> in the repo you want a memory for. One command scaffolds everything:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> init               <span class="c"># scaffold .hunch/, index, install hooks, wire up assistants</span>
+<span class="k">hunch</span> backfill --since 90d <span class="c"># cold start: seed decisions from recent git history</span></pre></div>
+      <p><code>hunch init</code> does the following, idempotently (re-running is safe and merges into existing files):</p>
+      <ul>
+        <li>Scaffolds <code>.hunch/</code> and indexes the repo into a symbol/dependency graph.</li>
+        <li>Installs a <strong>post-commit hook</strong> (the learning loop) and a <strong>pre-commit Constraint Guard</strong>.</li>
+        <li>Writes <code>.mcp.json</code> + slash commands + an auto-maintained <code>CLAUDE.md</code>, and registers a git <strong>merge driver</strong> for the graph.</li>
+        <li>Wires up every detected assistant — Claude Code, Cursor, VS&nbsp;Code (Copilot), Windsurf, Codex — to the same <code>.hunch/</code> graph.</li>
+      </ul>
+      <div class="note"><span class="ic">ℹ</span><code>init</code> writes a <code>.mcp.json</code> pointing at <em>this machine’s</em> Node + Hunch, so each teammate runs <code>hunch init</code> once to wire up their own clone. The captured <code>.hunch/</code> content is shared via git.</div>
+    </section>
+
+    <section id="first-query">
+      <h2>Your first query<a class="anchor" href="#first-query">#</a></h2>
+      <p>Ask the codebase why — from the CLI, or in your assistant once the MCP server is registered:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> why src/auth/session.ts   <span class="c"># decisions / bugs / invariants behind a file</span>
+<span class="k">hunch</span> doctor                    <span class="c"># git, schema version, synthesis mode</span></pre></div>
+      <p>…and in your assistant: <em>“why is the session module built this way?”</em> — Claude consults Hunch and answers with citations (record ids + provenance).</p>
+    </section>
+
+    <section id="synthesis">
+      <h2>Synthesis &amp; billing<a class="anchor" href="#synthesis">#</a></h2>
+      <p>When Hunch turns a commit into a structured Decision, the LLM call is billed to <strong>your coding-assistant subscription</strong> through its CLI — <strong>never</strong> a pay-per-token API key (the API key is stripped from the spawned environment). Hunch auto-detects the first CLI present, in order:</p>
+      <table class="tbl">
+        <thead><tr><th>CLI</th><th>Subscription</th><th>Detected by</th></tr></thead>
+        <tbody>
+          <tr><td><code>claude</code> (Claude Code)</td><td>Claude Pro / Max</td><td><code>claude --version</code></td></tr>
+          <tr><td><code>codex</code> (OpenAI Codex)</td><td>ChatGPT Plus / Pro</td><td><code>codex --version</code></td></tr>
+          <tr><td><code>cursor-agent</code> (Cursor)</td><td>Cursor</td><td><code>cursor-agent --version</code></td></tr>
+        </tbody>
+      </table>
+      <p>If none is installed, Hunch still works with a deterministic structural heuristic (lower-confidence drafts). <code>hunch doctor</code> tells you which mode you’re in; force one with the <code>HUNCH_SYNTH_PROVIDER</code> env var:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">export</span> HUNCH_SYNTH_PROVIDER=claude-cli   <span class="c"># | codex-cli | cursor-agent | deterministic</span></pre></div>
+    </section>
+
+    <section id="mcp">
+      <h2>MCP &amp; assistants<a class="anchor" href="#mcp">#</a></h2>
+      <p>The Hunch MCP server is <strong>client-agnostic</strong>: one <code>.hunch/</code> graph powers every assistant. <code>hunch init</code> scaffolds each tool’s MCP config plus an ambient grounding file so they all consult the same memory.</p>
+      <table class="tbl">
+        <thead><tr><th>Assistant</th><th>MCP config</th><th>Grounding file</th></tr></thead>
+        <tbody>
+          <tr><td>Claude Code</td><td><code>.mcp.json</code></td><td><code>CLAUDE.md</code> + <code>/hunch-*</code> commands</td></tr>
+          <tr><td>Cursor</td><td><code>.cursor/mcp.json</code></td><td><code>.cursor/rules/hunch.mdc</code></td></tr>
+          <tr><td>VS Code (Copilot)</td><td><code>.vscode/mcp.json</code></td><td><code>.github/copilot-instructions.md</code></td></tr>
+          <tr><td>Windsurf</td><td><code>.windsurf/mcp_config.json</code></td><td><code>.windsurf/rules/hunch.md</code></td></tr>
+          <tr><td>Codex / any</td><td><code>.codex/config.toml</code></td><td><code>AGENTS.md</code></td></tr>
+        </tbody>
+      </table>
+      <p>The server runs over stdio and exposes the <code>hunch_*</code> tools. You can start it manually to verify:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> mcp   <span class="c"># serves Hunch over stdio (this is what .mcp.json launches)</span></pre></div>
+      <div class="note tip"><span class="ic">★</span><b>Prefer <code>hunch init</code> over a global <code>claude mcp add</code>.</b> <code>.mcp.json</code> is registered by file path, so it’s robust and travels with the repo.</div>
+    </section>
+
+    <section id="reload">
+      <h2>Reload your assistant<a class="anchor" href="#reload">#</a></h2>
+      <p>After <code>hunch init</code> (or after pulling new Hunch versions), the MCP server config has changed but a running assistant session still holds the old process. <strong>Reload your assistant in the repo</strong> — reload the window / restart the session — so it respawns the server and picks up the <code>hunch_*</code> tools.</p>
+      <div class="note"><span class="ic">ℹ</span>The on-disk directory is <code>.hunch/</code> and the tools are <code>hunch_*</code>. If the tools don’t appear after a reload, run <code>hunch doctor</code>.</div>
+    </section>
+
+    <section id="windows">
+      <h2>Windows note<a class="anchor" href="#windows">#</a></h2>
+      <p>On Windows, a global <code>claude mcp add</code> writes to <code>~/.claude.json</code> keyed by the raw working-directory string. Drive letters are case-insensitive (<code>c:\</code> and <code>C:\</code> are the same folder) but Claude Code compares the key case-sensitively — so it can create two project blocks for one directory, and a session that resolves to the <em>other</em> casing sees no <code>hunch_*</code> tools.</p>
+      <p>If you hit this, run <code>hunch doctor</code> — on Windows it detects the split and heals it (merging the MCP servers across both casings, after backing up <code>~/.claude.json</code>). <code>hunch init</code> runs the same heal automatically.</p>
+    </section>
+
+    <section id="graph">
+      <h2>The reasoning graph<a class="anchor" href="#graph">#</a></h2>
+      <p>Hunch stores four kinds of record as git-tracked JSON, plus the code graph that links them:</p>
+      <table class="tbl">
+        <thead><tr><th>Record</th><th>What it captures</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Decision</strong></td><td>Why a change was made — an ADR auto-drafted from each commit (context, decision, alternatives, consequences).</td></tr>
+          <tr><td><strong>Bug</strong></td><td>A root cause + lineage (introduced → fixed → recurred), captured from a failing test with a ranked suspect list.</td></tr>
+          <tr><td><strong>Constraint</strong></td><td>A do-not-break invariant. Recurring or severe bugs get promoted into one; corrections mint one directly.</td></tr>
+          <tr><td><strong>Component / Symbol / Edge</strong></td><td>The tree-sitter code graph — functions, call edges, imports, components — plus churn and fan-in metrics.</td></tr>
+        </tbody>
+      </table>
+      <p>The flow is <strong>events → extract → synthesize → store → ground</strong>. The JSON in <code>.hunch/</code> is the source of truth; a local SQLite file is a derived FTS + vector index, rebuilt on demand and never authoritative.</p>
+    </section>
+
+    <section id="provenance">
+      <h2>Provenance &amp; confidence<a class="anchor" href="#provenance">#</a></h2>
+      <p>Every record carries provenance — <strong>source + confidence + evidence</strong> — so nothing is a blind assertion. Sources rank <code>inferred</code> &lt; <code>llm_draft</code> &lt; <code>human_confirmed</code>. Low-confidence auto-drafts stay <em>advisory</em> and are cheap to discard; the enforcement gates only ever <em>block</em> on high-confidence, human-vouched records (see <a class="link" href="#firmness">firmness</a>). Triage drafts with <code>hunch review</code>.</p>
+    </section>
+
+    <section id="time-travel">
+      <h2>Time-travel<a class="anchor" href="#time-travel">#</a></h2>
+      <p>Decisions and constraints carry a git-anchored <strong>valid-time window</strong>. Supersession closes a window instead of deleting the record, so history stays auditable. Ask the graph what was believed at any past commit or tag:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> why src/auth/session.ts --as-of v0.7.0
+<span class="k">hunch</span> timeline src/auth/session.ts   <span class="c"># the full decision history, newest first</span></pre></div>
+      <p>The <code>hunch_why</code> and <code>hunch_context</code> MCP tools take the same optional <code>as_of</code> ref.</p>
+    </section>
+
+    <section id="mcp-tools">
+      <h2>MCP tools<a class="anchor" href="#mcp-tools">#</a></h2>
+      <p>The tools your assistant calls under the hood. Read tools answer “why / what-must-not-break / blast radius”; write tools persist new memory.</p>
+      <table class="tbl">
+        <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>hunch_query</code></td><td>Full-text + graph search across all records, ranked with provenance.</td></tr>
+          <tr><td><code>hunch_why</code></td><td>Decisions, bugs &amp; constraints behind a file/symbol (accepts <code>as_of</code>).</td></tr>
+          <tr><td><code>hunch_check_constraints</code></td><td>Invariants whose scope matches a path/glob — call before editing.</td></tr>
+          <tr><td><code>hunch_get_dependents</code></td><td>Transitive dependents of a symbol — the blast radius.</td></tr>
+          <tr><td><code>hunch_blast_radius</code></td><td>Dependent files + near-violations a change could break indirectly.</td></tr>
+          <tr><td><code>hunch_bug_lineage</code></td><td>Bugs matching a symptom/symbol with their introduced→fixed→recurred lineage.</td></tr>
+          <tr><td><code>hunch_context</code></td><td>The minimal relevant slice for a task — invariants, why, bug history, blast radius.</td></tr>
+          <tr><td><code>hunch_timeline</code></td><td>A target’s decision history over time, with valid-time windows.</td></tr>
+          <tr><td><code>hunch_merge_verdict</code></td><td>A cited <b>BLOCK / WARN / PASS</b> over a diff (see <a class="link" href="#merge-verdict">below</a>).</td></tr>
+          <tr><td><code>hunch_record_decision</code></td><td>Write-back: persist a new Decision (ADR) with provenance.</td></tr>
+          <tr><td><code>hunch_record_correction</code></td><td>Write-back: turn a correction into an enforced invariant (see <a class="link" href="#never-twice">Never Twice</a>).</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="slash">
+      <h2>Slash commands<a class="anchor" href="#slash">#</a></h2>
+      <p>For Claude Code, <code>hunch init</code> also writes ergonomic slash commands:</p>
+      <table class="tbl">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>/hunch-why &lt;file|symbol&gt;</code></td><td>The decisions, invariants, and bug history behind it — with citations.</td></tr>
+          <tr><td><code>/hunch-fix &lt;bug&gt;</code></td><td>Fix a bug grounded in past root causes, blast radius, and constraints.</td></tr>
+          <tr><td><code>/hunch-fragile</code></td><td>A fragility report — the riskiest code, with evidence.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="firmness">
+      <h2>Firmness levels<a class="anchor" href="#firmness">#</a></h2>
+      <p>Telling an assistant “consult Hunch first” in a prompt drifts. Instead, <code>hunch init</code> installs agent hooks so grounding is enforced by the harness. How hard it pushes is one committed knob — set it once, it applies to the whole team:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> firmness          <span class="c"># print the current level</span>
+<span class="k">hunch</span> firmness strict   <span class="c"># change it (takes effect on the next edit; no restart)</span></pre></div>
+      <table class="tbl">
+        <thead><tr><th>Level</th><th>Before an edit</th></tr></thead>
+        <tbody>
+          <tr><td><code>off</code></td><td>nothing (the hook is a no-op)</td></tr>
+          <tr><td><code>advisory</code> <span class="pill">default</span></td><td>inject the relevant Hunch slice as context</td></tr>
+          <tr><td><code>firm</code></td><td>advisory + explicitly flag invariants in the file’s scope</td></tr>
+          <tr><td><code>strict</code></td><td>firm + <b>deny</b> an edit that hits a <em>blocking</em> invariant (directly or via blast radius), feeding the invariant back as the refusal reason</td></tr>
+        </tbody>
+      </table>
+      <div class="note"><span class="ic">ℹ</span>The hook never breaks your flow: any error or unrecognized input emits nothing and exits 0, and it stays silent on files Hunch hasn’t learned. <code>strict</code> only bites once you have <strong>blocking</strong> constraints recorded.</div>
+    </section>
+
+    <section id="never-twice">
+      <h2>Never Twice <span class="pill ok">v0.13</span><a class="anchor" href="#never-twice">#</a></h2>
+      <p>The most expensive failure in AI coding is being corrected and then <em>re-corrected</em>: you say “no, never call X here”, the agent complies once, and next session it does it again — because the feedback was stored as advisory text, not enforced. Hunch closes that loop.</p>
+      <p>When you correct the agent, it captures the rule as a first-class <strong>Constraint</strong> (provenance <code>human_confirmed</code>) via <code>hunch_record_correction</code> — and from then on the <em>same</em> pre-edit hook + CI guard hold <strong>every</strong> assistant to it.</p>
+      <div class="code" data-lang="text"><div class="code-head"><span class="lbl">in your assistant</span><button class="copy">Copy</button></div><pre>You:   "no — never import lodash, we ship our own utils"
+Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
+                                 scope_hint_file: "src/cart.ts", severity: "blocking" })
+<span class="d">→</span> con_… recorded. A later edit that adds `import _ from "lodash"` to that scope is
+  DENIED (strict) and the PR fails CI — in Cursor, Copilot, Windsurf, or Claude Code alike.</pre></div>
+      <p>The <code>UserPromptSubmit</code> hook nudges the agent to persist a rule whenever your prompt reads like a correction. Scoping is conservative by default (the file you were in); a repo-wide rule is only <em>blocking</em> when you pass <code>applies_to_all</code>, so one correction can’t silently gate the whole tree.</p>
+    </section>
+
+    <section id="merge-verdict">
+      <h2>Causal Merge Verdict <span class="pill ok">v0.14</span><a class="anchor" href="#merge-verdict">#</a></h2>
+      <p>A diff-only reviewer sees <em>what</em> changed. It can’t see that the line you’re deleting is the fix for an incident, or that the symbol you’re re-adding was deliberately retired. Hunch can — because it holds the <em>why</em>.</p>
+      <p><code>hunch_merge_verdict</code> (and <code>hunch check</code> / the CI guard) replays a diff against the graph and returns one cited verdict — <b>BLOCK / WARN / PASS</b> — that shows the reasoning, not just the rule:</p>
+      <div class="code" data-lang="text"><div class="code-head"><span class="lbl">hunch_merge_verdict</span><button class="copy">Copy</button></div><pre><span class="d">VERDICT: ⛔ BLOCK</span> — this change breaks a recorded invariant or re-opens a known bug.
+
+⛔ pay() must verify the session before charging — con_pay
+   🧠 why: "Charge must verify the session first" (dec_pay)
+   🐞 guards against: Double-charge on unverified session — pay() charged without verifying (bug_…)</pre></div>
+      <p>It’s <strong>deterministic</strong> (no LLM): for every invariant directly in scope it walks constraint → <code>source_decision</code> → the bug whose root cause spawned it. BLOCK fires only on a direct, high-confidence, non-stale <em>blocking</em> invariant or a blocking-linked regression — near-hits stay advisory, so it’s safe as a merge gate. Call it with <code>{}</code> to check staged changes, or pass <code>base: "origin/main"</code> for a PR range.</p>
+    </section>
+
+    <section id="veto">
+      <h2>Decision Guard (Veto) <span class="pill ok">v0.15</span><a class="anchor" href="#veto">#</a></h2>
+      <p>Decisions record not just what you chose but the alternatives you <em>rejected</em>. The Decision Guard flags a change that <strong>reverses</strong> a decision — re-introducing an approach an in-force decision rejected — so the agent can’t quietly walk back a deliberate call.</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> veto              <span class="c"># flag changes that reverse a rejected alternative</span></pre></div>
+      <p>Like the other gates: it warns by default and blocks under strict only when the rejected-alternative is human-confirmed, in-force, and non-stale. Machine-checkable “tripwires” can be drafted for existing rejected alternatives and confirmed with <code>hunch review --accept &lt;id&gt;</code> to enable blocking.</p>
+    </section>
+
+    <section id="regression">
+      <h2>Regression Guard<a class="anchor" href="#regression">#</a></h2>
+      <p>Re-adding a symbol or dependency that an in-force decision deliberately <strong>retired</strong> gets flagged — warns always, fails a strict commit only when the retirement is tied to a blocking invariant. The agent stops undoing intentional design. The pre-edit hook also surfaces what a decision retired from a file (“don’t re-add <code>login</code> here — dec_017 removed it”), and the commit-time <code>hunch check</code> does the actual gating.</p>
+    </section>
+
+    <section id="ci">
+      <h2>CI Constraint Guard<a class="anchor" href="#ci">#</a></h2>
+      <p>Memory that blocks a merge, not just advises. <code>hunch ci</code> scaffolds a GitHub Action that runs <code>hunch check</code> on every PR, comments the affected invariants and decisions (with <code>con_</code>/<code>dec_</code> ids and the causal <em>why</em>), and <strong>fails the check</strong> on a direct, high-confidence, non-stale blocking invariant.</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> ci    <span class="c"># scaffold .github/workflows/ + the PR comment action</span></pre></div>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">run a check locally</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> check --staged --strict      <span class="c"># gate staged changes</span>
+<span class="k">hunch</span> check --base origin/main      <span class="c"># gate a PR range (used in CI)</span></pre></div>
+    </section>
+
+    <section id="cli">
+      <h2>CLI reference<a class="anchor" href="#cli">#</a></h2>
+      <p>Run <code>hunch &lt;command&gt; --help</code> for full flags. The everyday commands:</p>
+      <table class="tbl">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>init</code></td><td>Scaffold <code>.hunch/</code>, index, install hooks, wire up assistants.</td></tr>
+          <tr><td><code>index</code></td><td>Parse the repo into a symbol/dependency graph (deterministic, no LLM).</td></tr>
+          <tr><td><code>backfill</code></td><td>Replay git history to seed decisions (cold-start fix). <code>--since 90d</code></td></tr>
+          <tr><td><code>sync</code></td><td>Capture a decision from a commit (run by the post-commit hook).</td></tr>
+          <tr><td><code>query</code></td><td>Full-text + graph search. Add <code>--semantic</code> for embeddings recall.</td></tr>
+          <tr><td><code>why</code></td><td>Explain why a file/symbol is the way it is. <code>--as-of &lt;ref&gt;</code></td></tr>
+          <tr><td><code>timeline</code></td><td>The decision history for a file/symbol over time.</td></tr>
+          <tr><td><code>context</code></td><td>Assemble the minimal relevant Hunch slice for a task.</td></tr>
+          <tr><td><code>fragile</code></td><td>Ranked fragility report with evidence.</td></tr>
+          <tr><td><code>check</code></td><td>Flag changes that touch a do-not-break invariant (local + CI guard).</td></tr>
+          <tr><td><code>veto</code></td><td>Decision Guard — flag changes that reverse a rejected alternative.</td></tr>
+          <tr><td><code>ci</code></td><td>Scaffold the CI Constraint Guard (GitHub Action).</td></tr>
+          <tr><td><code>record-constraint</code></td><td>Record an invariant the codebase must not break.</td></tr>
+          <tr><td><code>record-bug</code></td><td>Capture a Bug from a failing test (symptom + suspects).</td></tr>
+          <tr><td><code>test</code></td><td>Run tests; capture failures as Bugs, promote recurrences to Constraints.</td></tr>
+          <tr><td><code>supersede</code></td><td>Mark one decision as replaced by another (invalidate, don’t delete).</td></tr>
+          <tr><td><code>stale</code></td><td>List decisions/constraints whose files changed after last verified (drift).</td></tr>
+          <tr><td><code>review</code></td><td>Triage low-confidence drafts: list, accept, or reject.</td></tr>
+          <tr><td><code>firmness</code></td><td>Get or set how firmly the agent hook enforces Hunch.</td></tr>
+          <tr><td><code>embed</code></td><td>Generate local embeddings for semantic search (opt-in).</td></tr>
+          <tr><td><code>compact</code></td><td>Prune low-value auto-captured records.</td></tr>
+          <tr><td><code>migrate</code></td><td>Upgrade <code>.hunch/</code> records to the current schema version.</td></tr>
+          <tr><td><code>mcp</code></td><td>Start the MCP server over stdio.</td></tr>
+          <tr><td><code>doctor</code></td><td>Diagnose the environment (git, synthesis provider, index freshness).</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="storage">
+      <h2>Where it’s stored<a class="anchor" href="#storage">#</a></h2>
+      <p>Everything lives under <code>.hunch/</code> as git-tracked JSON — the source of truth, diffable and reviewable in PRs:</p>
+      <div class="code" data-lang="text"><div class="code-head"><span class="lbl">.hunch/</span><button class="copy">Copy</button></div><pre>.hunch/
+├─ decisions/      one JSON file per Decision (ADR)
+├─ bugs/           root causes + lineage
+├─ constraints/    do-not-break invariants
+├─ components/     code components + fragility
+├─ symbols/  edges/  the tree-sitter graph (index.json)
+├─ manifest.json   on-disk schema version
+├─ config.json     firmness + runtime config
+└─ hunch.sqlite    DERIVED FTS+vector index (gitignored; rebuilt by `hunch index`)</pre></div>
+      <div class="note"><span class="ic">ℹ</span>The SQLite index is gitignored and regenerable. Only the JSON is committed — so the graph syncs for free over <code>git push</code> / <code>pull</code>.</div>
+    </section>
+
+    <section id="doctor">
+      <h2>Doctor &amp; troubleshooting<a class="anchor" href="#doctor">#</a></h2>
+      <p><code>hunch doctor</code> is the first stop for anything that looks off — it reports git status, the resolved synthesis provider, schema version, index freshness, and record counts (and on Windows, heals the <code>~/.claude.json</code> casing split).</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> doctor</pre></div>
+      <table class="tbl">
+        <thead><tr><th>Symptom</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>Assistant shows no <code>hunch_*</code> tools</td><td>Reload the assistant in the repo; if still missing, <code>hunch doctor</code>.</td></tr>
+          <tr><td>Synthesis is <code>deterministic</code></td><td>Log into a coding-assistant CLI (e.g. <code>claude /login</code>); drafts become high-confidence.</td></tr>
+          <tr><td>Graph looks stale</td><td><code>hunch index</code> to rebuild the symbol graph from current source.</td></tr>
+          <tr><td>Schema mismatch after upgrade</td><td><code>hunch migrate</code> to upgrade <code>.hunch/</code> records.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="team">
+      <h2>Working as a team<a class="anchor" href="#team">#</a></h2>
+      <p>The <code>.hunch/</code> JSON is the source of truth — diffable, reviewable in PRs, synced for free over <code>git push</code> / <code>pull</code>. <code>hunch init</code> registers a git <strong>merge driver</strong> so concurrent edits to the graph merge <em>by record id</em> instead of throwing conflict markers (human-confirmed beats auto, then higher confidence, then recency). The graph is OS-agnostic: paths are stored in POSIX form, and an installed Hunch registers its MCP server by package name — so teammates on Windows, macOS, or Linux share the same memory without per-machine fixups.</p>
+    </section>
+
+    <section id="maintenance">
+      <h2>Maintenance<a class="anchor" href="#maintenance">#</a></h2>
+      <p>Two housekeeping commands keep the graph healthy over time:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> compact   <span class="c"># prune rejected/superseded/stale low-value drafts</span>
+<span class="k">hunch</span> stale     <span class="c"># list records whose files changed after they were last verified</span></pre></div>
+      <p>Use <code>hunch review</code> to triage low-confidence drafts before they accumulate — accept the good ones (promoting them to higher confidence) and reject the noise.</p>
+    </section>
+
+    <section id="develop">
+      <h2>Develop &amp; contribute<a class="anchor" href="#develop">#</a></h2>
+      <p>Hunch is pure TypeScript ESM, Node ≥ 20, no build step at dev time (runs via <code>tsx</code>). It’s licensed <strong>Apache-2.0</strong>.</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">npm</span> run dev -- &lt;args&gt;   <span class="c"># run the CLI from source via tsx</span>
+<span class="k">npm</span> run typecheck       <span class="c"># strict tsc — the gate (no separate lint)</span>
+<span class="k">npm</span> test                <span class="c"># tsx --test over test/*.test.ts</span>
+<span class="k">npm</span> run build           <span class="c"># compile to dist/ (the published artifact)</span></pre></div>
+      <p>See <a class="link" href="https://github.com/davesheffer/hunch/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a> and <a class="link" href="https://github.com/davesheffer/hunch/blob/main/DESIGN.md" target="_blank" rel="noopener">DESIGN.md</a> for the full conceptual model and contribution flow.</p>
+    </section>
+  </main>
+
+  <!-- ──────────────── ON THIS PAGE ──────────────── -->
+  <nav class="toc" id="toc" aria-label="On this page">
+    <h5>On this page</h5>
+    <div id="tocList"></div>
+  </nav>
+</div>
+
+<footer>
+  <span>🧠 Hunch — engineering memory. Apache-2.0.</span>
+  <span><a class="link" href="/">hunch-pi.vercel.app</a> · <a class="link" href="https://www.npmjs.com/package/@davesheffer/hunch" target="_blank" rel="noopener">npm</a> · <a class="link" href="https://github.com/davesheffer/hunch" target="_blank" rel="noopener">GitHub</a></span>
+</footer>
+
+<script>
+  // copy buttons
+  document.querySelectorAll(".code").forEach((block) => {
+    const btn = block.querySelector(".copy");
+    const pre = block.querySelector("pre");
+    if (!btn || !pre) return;
+    btn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(pre.innerText);
+        btn.textContent = "Copied"; btn.classList.add("done");
+        setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("done"); }, 1400);
+      } catch { btn.textContent = "⌘C"; }
+    });
+  });
+
+  // mobile sidebar
+  const body = document.body, menuBtn = document.getElementById("menuBtn"), scrim = document.getElementById("scrim");
+  const toggle = () => body.classList.toggle("nav-open");
+  menuBtn && menuBtn.addEventListener("click", toggle);
+  scrim && scrim.addEventListener("click", () => body.classList.remove("nav-open"));
+  document.querySelectorAll("aside.side a").forEach((a) => a.addEventListener("click", () => body.classList.remove("nav-open")));
+
+  // build the right-hand "on this page" from h2s, and scroll-spy both navs
+  const sections = [...document.querySelectorAll("main section[id]")];
+  const tocList = document.getElementById("tocList");
+  sections.forEach((s) => {
+    const h2 = s.querySelector("h2"); if (!h2 || !tocList) return;
+    const a = document.createElement("a");
+    a.href = "#" + s.id;
+    a.textContent = h2.textContent.replace(/#$/, "").replace(/\s+(v0\.\d+|default)$/i, "").trim();
+    a.dataset.id = s.id;
+    tocList.appendChild(a);
+  });
+  const sideLinks = [...document.querySelectorAll("aside.side a")];
+  const tocLinks = [...document.querySelectorAll("#tocList a")];
+  const setActive = (id) => {
+    sideLinks.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + id));
+    tocLinks.forEach((a) => a.classList.toggle("active", a.dataset.id === id));
+  };
+  const obs = new IntersectionObserver((entries) => {
+    const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+    if (vis[0]) setActive(vis[0].target.id);
+  }, { rootMargin: "-72px 0px -68% 0px", threshold: 0 });
+  sections.forEach((s) => obs.observe(s));
+
+  // sticky top-bar shadow
+  const top = document.querySelector("header.top");
+  addEventListener("scroll", () => { top.style.boxShadow = scrollY > 8 ? "0 1px 0 rgba(22,21,15,.06)" : "none"; });
+</script>
+</body>
+</html>
