@@ -10,7 +10,8 @@
  *   - bugLineage():     bugs matching a symptom/symbol + their lineage
  *   - fragility():      ranked fragility report with evidence
  */
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { toPosixTarget, hunchPathsForDir, type HunchPaths } from "../core/paths.js";
 import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type RejectedTripwire, type EntityKind, type EntityFor } from "../core/types.js";
 import { openDb, type DB } from "./db.js";
@@ -56,6 +57,9 @@ export class HunchStore {
   /** Optional PRIVATE overlay (HUNCH_PRIVATE_DIR) — a second store in a repo the
    *  user controls. Unioned into reads via recs(); never written by public paths. */
   private readonly privateJson?: JsonStore;
+  /** The resolved private-overlay hunch dir (from env or .hunch/local.json), or undefined
+   *  when no overlay is configured. Surfaced so `hunch doctor` reflects the true state. */
+  readonly privateDir?: string;
   /** When true, recs() ignores the private overlay (public-only). Set transiently by
    *  buildCheckReport({publicOnly}) so any PUBLICLY-POSTED report (the CI PR comment)
    *  can never render a private record — a publicly-posted output is a leak surface
@@ -65,8 +69,27 @@ export class HunchStore {
 
   constructor(private readonly paths: HunchPaths) {
     this.json = new JsonStore(paths);
-    const priv = process.env.HUNCH_PRIVATE_DIR?.trim();
-    if (priv) this.privateJson = new JsonStore(hunchPathsForDir(resolve(priv)));
+    // Private overlay location: env (override, for CI / portability) → else a gitignored
+    // local config (.hunch/local.json) so `hunch private` enables it with NO env var, and
+    // the MCP server / hook pick it up automatically. Relative paths resolve from root.
+    const priv = process.env.HUNCH_PRIVATE_DIR?.trim() || this.localPrivateDir();
+    if (priv) {
+      this.privateDir = resolve(this.paths.root, priv);
+      this.privateJson = new JsonStore(hunchPathsForDir(this.privateDir));
+    }
+  }
+
+  /** The private-overlay path from the gitignored `.hunch/local.json` (per-machine,
+   *  never committed). Tolerant: undefined on missing/invalid so reads never crash. */
+  private localPrivateDir(): string | undefined {
+    try {
+      const f = join(this.paths.hunch, "local.json");
+      if (!existsSync(f)) return undefined;
+      const v = JSON.parse(readFileSync(f, "utf8")) as { privateDir?: unknown };
+      return typeof v.privateDir === "string" && v.privateDir.trim() ? v.privateDir.trim() : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Merged read: public ∪ private overlay (private wins on id collision). Every

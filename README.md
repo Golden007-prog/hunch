@@ -160,14 +160,15 @@ per-machine fixups. → [docs](https://hunch-pi.vercel.app/docs#team)
 
 ## Private memory (public repo, private context)
 
-Open-source your code without open-sourcing your *reasoning*. Point `HUNCH_PRIVATE_DIR` at a
-separate **private repo** and Hunch unions that store into every query and guard **locally** —
-MCP and the pre-edit hook see your sensitive decisions/bugs/constraints — while your public
-`.hunch/` stays clean. It's **opt-in and default-off** (unset the var → fully inert), and
-**leak-safe by construction**: committed files and the CI PR comment render *public-only*, so a
-private record can't reach a public surface. Record sensitive items with `private: true`
-(`hunch_record_decision` / `hunch_record_correction`); `hunch doctor` shows whether the overlay
-is on. → [docs](https://hunch-pi.vercel.app/docs#private)
+Open-source your code without open-sourcing your *reasoning*. **`hunch private`** sets up a
+separate private store in one command — Hunch unions it into every query and guard **locally**
+(MCP and the pre-edit hook see your sensitive decisions/bugs/constraints) while your public
+`.hunch/` stays clean. It writes a gitignored `.hunch/local.json` so it's auto-detected — **no
+env var, no shell-profile edit** (and `HUNCH_PRIVATE_DIR` still overrides per-shell). **Opt-in,
+default-off** (no config → fully inert), and **leak-safe by construction**: committed files and
+the CI PR comment render *public-only*, so a private record can't reach a public surface. Record
+sensitive items with `private: true` (`hunch_record_decision` / `hunch_record_correction`);
+post-commit synthesis can route there too. → [docs](https://hunch-pi.vercel.app/docs#private)
 
 ## Continuous learning (CI)
 

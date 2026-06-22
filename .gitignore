@@ -37,3 +37,5 @@ dist/
 # kept OUT of this (public) repo. Point it at a separate private repo, or use this
 # conventional in-repo path which is ignored here.
 .hunch-private/
+# Per-machine private-overlay pointer written by `hunch private` (never committed).
+.hunch/local.json

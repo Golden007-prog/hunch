@@ -13,15 +13,17 @@
  *   mcp       start the MCP server (Claude Code connects here)
  *   doctor    environment diagnostics
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { join, relative, dirname, resolve } from "node:path";
+import { join, relative, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
-import { hunchPaths, findRoot, toPosixTarget } from "../core/paths.js";
+import { hunchPaths, hunchPathsForDir, findRoot, toPosixTarget } from "../core/paths.js";
+import { writeFileAtomic } from "../core/io.js";
 import { looksLikeCorrection, CORRECTION_NUDGE } from "../core/correction.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import { HunchStore } from "../store/hunchStore.js";
+import { JsonStore } from "../store/jsonStore.js";
 import { selectEmbedder } from "../store/embedder.js";
 import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
@@ -248,6 +250,55 @@ program
       console.log(`· skipped: ${r.reason}`);
     }
     store.close();
+  });
+
+// ---- private (one-command setup for the private memory overlay) ------------
+program
+  .command("private [dir]")
+  .description("Enable a PRIVATE memory overlay — sensitive decisions/bugs/constraints kept in a separate location, unioned into local queries, never committed here. Writes a gitignored .hunch/local.json so it's auto-detected (no env var needed).")
+  .option("--repo <url>", "clone a private git repo to use as the store (into ./.hunch-private)")
+  .option("--no-hook", "don't switch the post-commit hook to private sync")
+  .action((dir: string | undefined, opts: { repo?: string; hook: boolean }) => {
+    const root = findRoot();
+    const paths = hunchPaths(root);
+    // 1) resolve the private store's hunch dir (holds decisions/, bugs/, …)
+    let hunchDir: string;
+    if (opts.repo) {
+      const dest = join(root, ".hunch-private");
+      if (!existsSync(dest)) {
+        const r = spawnSync("git", ["clone", opts.repo, dest], { stdio: "inherit" });
+        if (r.status !== 0) return fail(`git clone failed for ${opts.repo}`);
+      }
+      hunchDir = join(dest, ".hunch");
+    } else {
+      hunchDir = dir ? resolve(root, dir) : join(root, ".hunch-private", ".hunch");
+    }
+    // 2) create the layout (decisions/, manifest, …) so it's queryable immediately
+    new JsonStore(hunchPathsForDir(hunchDir)).ensureDirs();
+    // 3) record the path in a GITIGNORED local config — auto-detected, no env var, and
+    //    the MCP server picks it up too. Atomic write (con_902759b3dc) since it's under .hunch/.
+    mkdirSync(paths.hunch, { recursive: true }); // tolerate a repo where `hunch init` hasn't run yet
+    // Store a repo-relative POSIX path when the store lives INSIDE the repo (portable +
+    // OS-clean — survives a repo move, resolves the same on any OS); an absolute path for
+    // a store elsewhere on disk. Resolution (env || local.json) re-resolves against root.
+    const rel = relative(root, hunchDir);
+    const stored = rel && !rel.startsWith("..") && !isAbsolute(rel) ? toPosixTarget(rel) : hunchDir;
+    writeFileAtomic(join(paths.hunch, "local.json"), JSON.stringify({ privateDir: stored }, null, 2) + "\n");
+    ensureGitignore(root); // keeps .hunch/local.json + .hunch-private/ out of git
+    // 4) route post-commit synthesis to the overlay (local hook, never committed)
+    let hookNote = "";
+    if (opts.hook && isGitRepo(root)) {
+      const inv = resolveInvocation();
+      const h = installPostCommitHook(root, inv.shell, { private: true });
+      hookNote = `  ✓ post-commit hook ${h.action} — captured decisions route here\n`;
+    }
+    console.log(
+      `✓ private overlay enabled → ${hunchDir}\n` +
+      `  ✓ recorded in .hunch/local.json (gitignored) — auto-detected, no env var or shell-profile edit\n` +
+      hookNote +
+      `  record sensitive items with private:true (hunch_record_decision / hunch_record_correction)\n` +
+      `  override per-shell with HUNCH_PRIVATE_DIR; CI / public PR comments stay public-only.`,
+    );
   });
 
 // ---- query ----------------------------------------------------------------
@@ -1023,10 +1074,9 @@ program
     }
     const c = store.reindex().counts;
     console.log(`hunch:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
-    const privDir = process.env.HUNCH_PRIVATE_DIR?.trim();
-    console.log(privDir
-      ? `private:    on → ${resolve(privDir)} (local overlay — unioned into queries; never committed or posted publicly)`
-      : dim(`private:    off — set HUNCH_PRIVATE_DIR to overlay a separate private memory repo for sensitive records`));
+    console.log(store.privateDir
+      ? `private:    on → ${store.privateDir} (local overlay — unioned into queries; never committed or posted publicly)`
+      : dim(`private:    off — run \`hunch private\` to keep sensitive memory in a separate repo (or set HUNCH_PRIVATE_DIR)`));
     // Semantic search is opt-in and local. Report availability + coverage without
     // loading the model (selectEmbedder only probes; embeddingStats just counts rows).
     const emb = await selectEmbedder();

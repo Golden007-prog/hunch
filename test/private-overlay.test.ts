@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { renderMarkdown } from "../src/core/checkreport.js";
@@ -93,6 +93,73 @@ test("private overlay: a publicOnly report renders NO private constraint (CI PR-
     assert.doesNotMatch(posted, /SENSITIVE pricing rule/);  // public-only (CI comment): private EXCLUDED
     assert.match(posted, /Public rule/);                    // public constraint still rendered
   } finally { cleanup(); }
+});
+
+test("private overlay: resolves from gitignored .hunch/local.json when NO env var is set", () => {
+  const pub = mkdtempSync(join(tmpdir(), "hunch-pub-"));
+  const priv = mkdtempSync(join(tmpdir(), "hunch-priv-"));
+  const prev = process.env.HUNCH_PRIVATE_DIR;
+  delete process.env.HUNCH_PRIVATE_DIR; // prove it works with NO env
+  try {
+    mkdirSync(join(pub, ".hunch"), { recursive: true });
+    writeFileSync(join(pub, ".hunch", "local.json"), JSON.stringify({ privateDir: priv }));
+    const store = new HunchStore(hunchPaths(pub));
+    store.json.ensureDirs();
+    assert.equal(store.hasPrivate, true); // picked up from local.json, not env
+    store.json.put("decisions", DEC("dec_pub", "public"));
+    store.putPrivate("decisions", DEC("dec_priv", "sensitive"));
+    assert.deepEqual(store.recs("decisions").map((d) => d.id).sort(), ["dec_priv", "dec_pub"]);
+    assert.deepEqual(store.json.loadAll("decisions").map((d) => d.id), ["dec_pub"]); // public-only excludes private
+    store.close();
+  } finally {
+    if (prev === undefined) delete process.env.HUNCH_PRIVATE_DIR;
+    else process.env.HUNCH_PRIVATE_DIR = prev;
+    rmSync(pub, { recursive: true, force: true });
+    rmSync(priv, { recursive: true, force: true });
+  }
+});
+
+test("private overlay: a RELATIVE privateDir in local.json resolves against the repo root (portable, OS-clean)", () => {
+  const pub = mkdtempSync(join(tmpdir(), "hunch-pub-"));
+  const prev = process.env.HUNCH_PRIVATE_DIR;
+  delete process.env.HUNCH_PRIVATE_DIR;
+  try {
+    mkdirSync(join(pub, ".hunch"), { recursive: true });
+    writeFileSync(join(pub, ".hunch", "local.json"), JSON.stringify({ privateDir: ".hunch-private/.hunch" }));
+    const store = new HunchStore(hunchPaths(pub));
+    assert.equal(store.hasPrivate, true);
+    assert.equal(store.privateDir, resolve(pub, ".hunch-private/.hunch")); // resolved under root, not cwd
+    store.putPrivate("decisions", DEC("dec_p", "p"));
+    assert.ok(existsSync(join(pub, ".hunch-private", ".hunch", "decisions", "dec_p.json")));
+    store.close();
+  } finally {
+    if (prev === undefined) delete process.env.HUNCH_PRIVATE_DIR;
+    else process.env.HUNCH_PRIVATE_DIR = prev;
+    rmSync(pub, { recursive: true, force: true });
+  }
+});
+
+test("private overlay: HUNCH_PRIVATE_DIR env overrides .hunch/local.json", () => {
+  const pub = mkdtempSync(join(tmpdir(), "hunch-pub-"));
+  const envDir = mkdtempSync(join(tmpdir(), "hunch-env-"));
+  const localDir = mkdtempSync(join(tmpdir(), "hunch-local-"));
+  const prev = process.env.HUNCH_PRIVATE_DIR;
+  try {
+    mkdirSync(join(pub, ".hunch"), { recursive: true });
+    writeFileSync(join(pub, ".hunch", "local.json"), JSON.stringify({ privateDir: localDir }));
+    process.env.HUNCH_PRIVATE_DIR = envDir; // env should win
+    const store = new HunchStore(hunchPaths(pub));
+    store.json.ensureDirs();
+    store.putPrivate("decisions", DEC("dec_env", "from env dir"));
+    // the record landed in the ENV dir, not the local.json dir
+    assert.ok(existsSync(join(envDir, "decisions", "dec_env.json")));
+    assert.ok(!existsSync(join(localDir, "decisions", "dec_env.json")));
+    store.close();
+  } finally {
+    if (prev === undefined) delete process.env.HUNCH_PRIVATE_DIR;
+    else process.env.HUNCH_PRIVATE_DIR = prev;
+    for (const d of [pub, envDir, localDir]) rmSync(d, { recursive: true, force: true });
+  }
 });
 
 test("private overlay: with no private store, recs() equals the public loadAll", () => {
