@@ -538,7 +538,7 @@ program
     const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged"].filter(Boolean);
     if (sources.length > 1) return fail(`pick one of --staged / --commit / --base (got ${sources.join(", ")})`);
     const markdown = opts.format === "markdown";
-    const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
+    const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], redundant: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
 
     const { store, root } = storeFor();
     // Fail loudly on an unresolvable --base (e.g. CI forgot to fetch the base
@@ -616,7 +616,7 @@ const vetoCmd = program
     }
     // Render ONLY the veto class — zero the other sections so the shared renderer
     // shows just the rejected-alternative reversals (the rest is `hunch check`).
-    const vetoOnly: CheckReport = { ...full, direct: [], near: [], regressions: [], strictBlockers: 0, regBlocking: 0 };
+    const vetoOnly: CheckReport = { ...full, direct: [], near: [], regressions: [], redundant: [], strictBlockers: 0, regBlocking: 0 };
     console.log(markdown ? renderMarkdown(vetoOnly) : renderText(vetoOnly));
     if (reportFailsStrict(vetoOnly)) process.exitCode = 1;
     store.close();

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { renderText, renderMarkdown, reportFailsStrict, reportIsClean, type CheckReport } from "../src/core/checkreport.js";
 
 const base = (over: Partial<CheckReport> = {}): CheckReport => ({
-  fileCount: 3, strict: false, direct: [], near: [], regressions: [], vetoes: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0, ...over,
+  fileCount: 3, strict: false, direct: [], near: [], regressions: [], vetoes: [], redundant: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0, ...over,
 });
 
 test("clean report — both renderers say nothing is affected; not failing", () => {
@@ -58,6 +58,22 @@ test("blocking-linked regression fails strict", () => {
   assert.equal(reportFailsStrict(r), true);
   assert.match(renderMarkdown(r), /Re-introduces deliberately-retired code/);
   assert.match(renderMarkdown(r), /blocking-linked/);
+});
+
+test("redundant-only (sprawl) → advisory: shown in both renderers, never blocks even under strict", () => {
+  const r = base({
+    strict: true,
+    redundant: [{ name: "formatDate", kind: "function", existingFile: "src/util/date.ts" }],
+  });
+  assert.equal(reportIsClean(r), false);     // surfaces (not a clean PR)
+  assert.equal(reportFailsStrict(r), false); // but never blocks
+  assert.match(renderText(r), /Possibly re-implements/);
+  assert.match(renderText(r), /formatDate/);
+  assert.match(renderText(r), /src\/util\/date\.ts/);
+  const md = renderMarkdown(r);
+  assert.match(md, /Possibly re-implements existing code/);
+  assert.match(md, /formatDate/);
+  assert.doesNotMatch(md, /❌/); // advisory, no block banner
 });
 
 test("non-strict never fails regardless of severity", () => {

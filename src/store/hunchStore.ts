@@ -506,6 +506,10 @@ export class HunchStore {
     const staleIds = new Set(staleRecords.filter((s) => s.kind === "constraint").map((s) => s.id));
     const staleDecisionIds = new Set(staleRecords.filter((s) => s.kind === "decision").map((s) => s.id));
     const vetoes = this.vetoHits(an, files, staleDecisionIds);
+    const redundant = this.redundantSymbols(an.addedSymbols, files, {
+      movedFrom: [...an.filesRenamed.map((r) => r.from), ...an.filesDeleted],
+      removedNames: new Set(an.removedSymbols.map((s) => s.name)),
+    });
     const directReport: CheckDirect[] = [...direct.values()].map(({ c, files: fs }) => {
       const stale = staleIds.has(c.id);
       const strictBlocks = isStrictBlocker(c, stale);
@@ -523,10 +527,63 @@ export class HunchStore {
       near: [...near.values()].map(({ c, via }) => ({ id: c.id, severity: c.severity ?? "advisory", statement: c.statement, via })),
       regressions: regHits.map((h) => ({ kind: h.kind, name: h.name, decision: h.decision, title: h.title, reason: h.reason, blocking: h.blocking })),
       vetoes: vetoes.map((v) => ({ decision: v.decision, title: v.title, alternative: v.alternative, chosen: v.chosen, tier: v.tier, evidence: v.evidence, blocking: v.blocks })),
+      redundant,
       strictBlockers: directReport.filter((d) => d.strictBlocks).length,
       regBlocking: regHits.filter((h) => h.blocking).length,
       vetoBlocking: vetoes.filter((v) => v.blocks).length,
     };
+  }
+
+  /** Sprawl/"this already exists" guard (ADVISORY, never blocks). A symbol the diff
+   *  ADDS whose name already exists in the indexed graph in a file NOT touched by the
+   *  diff is a likely re-implementation the agent's local context window couldn't see.
+   *  Read-only. Heuristic, so noise is controlled: top-level function/class/const only,
+   *  name length ≥ 4, a stopword list of generic names, deduped, and capped. */
+  redundantSymbols(
+    added: Array<{ name: string; kind: string }>,
+    files: string[],
+    opts: { movedFrom?: string[]; removedNames?: Set<string> } = {},
+  ): Array<{ name: string; kind: string; existingFile: string }> {
+    if (!added.length) return [];
+    const KINDS = new Set(["function", "class", "const"]);
+    const STOP = new Set([
+      "index", "handler", "handlers", "default", "main", "run", "start", "stop", "setup", "init",
+      "constructor", "render", "create", "update", "build", "parse", "load", "save", "next", "data",
+      "value", "item", "items", "props", "state", "config", "options", "result", "route", "routes",
+      "app", "server", "client", "test", "tests", "mock", "stub", "helper", "helpers", "util", "utils",
+      "types", "schema", "constants", "common", "shared", "base", "model", "models", "view", "store",
+    ]);
+    // Match only against top-level VALUE declarations already in the graph. A method
+    // (`obj.close()`) or the file node itself sharing a name is not a re-implementation.
+    // ("variable" is kept for forward-compat; the current indexer emits arrow-fn consts
+    // as "function", so const re-implementations are still matched.)
+    const EXISTING_KINDS = new Set(["function", "class", "variable"]);
+    // A symbol carried into a moved/deleted file is being relocated, not duplicated. The
+    // changed-file list uses --diff-filter=ACMR, so a sub-threshold move (Add new + Delete
+    // old) drops the old path — add the move-from / deleted paths back so their lingering
+    // graph entries are not mistaken for a separate "existing" implementation.
+    const changed = new Set(files);
+    for (const p of opts.movedFrom ?? []) changed.add(p);
+    const removedNames = opts.removedNames ?? new Set<string>();
+    // Only compare within the diff's own top-level root(s). A name that also exists in a
+    // test fixture or a separate sub-project (test/, vscode-extension/, site/) is not
+    // sprawl in the source under change — different roots, different ownership.
+    const roots = new Set(files.map((f) => f.split("/")[0]));
+    const symbols = this.json.loadAll("symbols");
+    const out: Array<{ name: string; kind: string; existingFile: string }> = [];
+    const seen = new Set<string>();
+    for (const sc of added) {
+      const name = sc.name;
+      if (seen.has(name) || name.length < 4 || !KINDS.has(sc.kind) || STOP.has(name.toLowerCase())) continue;
+      if (removedNames.has(name)) continue; // the same name was removed in this diff → moved, not duplicated
+      const hit = symbols.find((s) => s.name === name && !changed.has(s.file) && EXISTING_KINDS.has(s.kind) && roots.has(s.file.split("/")[0]));
+      if (hit) {
+        seen.add(name);
+        out.push({ name, kind: sc.kind, existingFile: hit.file });
+        if (out.length >= 10) break;
+      }
+    }
+    return out;
   }
 
   /** Time-travel: the decision history for a target — every decision touching it,

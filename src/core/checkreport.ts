@@ -30,6 +30,9 @@ export interface CheckNear { id: string; severity: string; statement: string; vi
 export interface CheckRegression { kind: string; name: string; decision: string; title: string; reason: string; blocking: boolean; }
 /** A diff re-introducing an approach an in-force decision deliberately REJECTED. */
 export interface CheckVeto { decision: string; title: string; alternative: string; chosen: string; tier: string; evidence: string[]; blocking: boolean; }
+/** A diff that ADDS a symbol already defined elsewhere in the graph — likely a
+ *  re-implementation the local-context-window agent couldn't see. Advisory only. */
+export interface CheckRedundant { name: string; kind: string; existingFile: string; }
 
 export interface CheckReport {
   fileCount: number;
@@ -38,6 +41,8 @@ export interface CheckReport {
   near: CheckNear[];
   regressions: CheckRegression[];
   vetoes: CheckVeto[];
+  /** Advisory: symbols this diff adds that already exist elsewhere (possible sprawl). Never blocks. */
+  redundant: CheckRedundant[];
   /** Count of direct invariants that pass the hardened strict gate. */
   strictBlockers: number;
   /** Count of blocking-linked regressions. */
@@ -47,7 +52,7 @@ export interface CheckReport {
 }
 
 export function reportIsClean(r: CheckReport): boolean {
-  return r.direct.length === 0 && r.near.length === 0 && r.regressions.length === 0 && r.vetoes.length === 0;
+  return r.direct.length === 0 && r.near.length === 0 && r.regressions.length === 0 && r.vetoes.length === 0 && r.redundant.length === 0;
 }
 
 /** True when --strict should FAIL the commit/PR. */
@@ -119,6 +124,12 @@ export function renderText(r: CheckReport): string {
       out.push(`  ${v.blocking ? "⛔" : "⚠"} ${v.decision} rejected this approach${v.blocking ? " (human-confirmed)" : " (advisory)"}\n      you rejected: ${clip(v.alternative)}\n      you chose:    ${clip(v.chosen)}\n      evidence: ${v.evidence.slice(0, 4).join(", ")}`);
     }
   }
+  if (r.redundant.length) {
+    out.push(`${r.direct.length || r.near.length || r.regressions.length || r.vetoes.length ? "\n" : ""}Possibly re-implements ${r.redundant.length} symbol(s) that already exist (advisory — review, never blocks):\n`);
+    for (const x of r.redundant) {
+      out.push(`  ⟲ adds ${x.kind} \`${x.name}\` — already defined in ${x.existingFile}`);
+    }
+  }
   if (reportFailsStrict(r)) {
     const reasons = [
       r.strictBlockers ? `${r.strictBlockers} high-confidence blocking invariant(s) directly in scope` : "",
@@ -179,6 +190,13 @@ export function renderMarkdown(r: CheckReport): string {
       out.push(`  - you rejected: _${clip(v.alternative)}_`);
       out.push(`  - you chose: ${clip(v.chosen)}`);
       out.push(`  - evidence: ${v.evidence.slice(0, 4).map((e) => `\`${e}\``).join(", ")}`);
+    }
+    out.push("");
+  }
+  if (r.redundant.length) {
+    out.push(`### ⟲ Possibly re-implements existing code (advisory)`);
+    for (const x of r.redundant) {
+      out.push(`- \`${x.name}\` (${x.kind}) — already defined in \`${x.existingFile}\``);
     }
     out.push("");
   }
