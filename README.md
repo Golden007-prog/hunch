@@ -1,8 +1,24 @@
 # 🧠 Hunch — Engineering Memory OS
 
+[![npm version](https://img.shields.io/npm/v/@davesheffer/hunch?color=2742ff&label=npm)](https://www.npmjs.com/package/@davesheffer/hunch)
+[![npm downloads](https://img.shields.io/npm/dw/@davesheffer/hunch?color=2742ff)](https://www.npmjs.com/package/@davesheffer/hunch)
+[![license](https://img.shields.io/npm/l/@davesheffer/hunch?color=2742ff)](LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A520-2742ff)](https://nodejs.org)
+[![MCP](https://img.shields.io/badge/MCP-native-2742ff)](https://modelcontextprotocol.io)
+
 > Git stores *what* the code is. **Hunch** stores ***why*** it is that way — a persistent,
 > git-native reasoning graph over your codebase, surfaced to Claude Code at reasoning time
 > so the AI stops re-deriving understanding and stops undoing intentional design.
+
+### ⚡ 60-second start
+
+```bash
+npm i -g @davesheffer/hunch
+cd your-repo && hunch init && hunch backfill --since 90d
+hunch why src/some/file.ts     # …or just ask Claude Code: "why is X built this way?"
+```
+
+<sub>Works with **Claude Code, Cursor, Copilot & Windsurf** from one shared graph. Full walkthrough in [Getting started](#getting-started).</sub>
 
 ## The problem
 
