@@ -118,6 +118,11 @@ export interface DecisionDraft {
   samples?: number;
   agreement?: number;
   grounded?: number;
+  // Outcome of the Critic pass when it was REQUESTED (--verify/--deep): "applied"
+  // when the audit ran, "unavailable" when no CLI could verify, "failed" when the
+  // call errored after a retry. Lets telemetry distinguish "verified, nothing to
+  // flag" from "verification was skipped" instead of degrading silently.
+  verifyOutcome?: "applied" | "unavailable" | "failed";
 }
 
 /** A skeptical audit of a DecisionDraft against the commit it was derived from.
@@ -729,18 +734,25 @@ export function applyVerdict(draft: DecisionDraft, v: VerifyVerdict): DecisionDr
   // Penalize weak grounding; (0.5 + 0.5*grounded) ∈ [0.5,1], so this only lowers.
   const confidence = Math.min(draft.confidence, Math.round(draft.confidence * (0.5 + 0.5 * grounded) * 100) / 100);
   const source = draft.source.includes("verified") ? draft.source : `${draft.source}+verified`;
-  return { ...draft, alternatives_rejected, consequences, confidence, grounded, source };
+  return { ...draft, alternatives_rejected, consequences, confidence, grounded, source, verifyOutcome: "applied" };
 }
 
-/** Run the Critic pass and apply it, degrading to the un-audited draft on any failure
- *  or when the provider can't verify (deterministic / no CLI). Never throws. */
+/** Run the Critic pass and apply it, degrading to the un-audited draft when the
+ *  provider can't verify (deterministic / no CLI) or the call keeps failing. Never
+ *  throws. Marks the OUTCOME on the draft (applied / unavailable / failed) so the
+ *  degradation is visible in telemetry instead of silent. Retries once: under --deep
+ *  the Critic call stacks after sampling, and a single transient failure on that
+ *  extra call shouldn't drop the audit. */
 export async function verifyDecisionSafe(verifier: SynthProvider | null, input: CommitInput, draft: DecisionDraft): Promise<DecisionDraft> {
-  if (!verifier?.verifyDecision) return draft;
-  try {
-    return applyVerdict(draft, await verifier.verifyDecision(input, draft));
-  } catch {
-    return draft;
+  if (!verifier?.verifyDecision) return { ...draft, verifyOutcome: "unavailable" };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return applyVerdict(draft, await verifier.verifyDecision(input, draft));
+    } catch {
+      /* transient (network / unparseable verdict) — retry once, then give up */
+    }
   }
+  return { ...draft, verifyOutcome: "failed" };
 }
 
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1);

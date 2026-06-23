@@ -115,6 +115,9 @@ export async function syncCommit(
   if (draft.samples) synthBits.push(`samples=${draft.samples}`);
   if (draft.agreement != null) synthBits.push(`agreement=${draft.agreement}`);
   if (draft.grounded != null) synthBits.push(`grounded=${draft.grounded}`);
+  // The Critic was requested (--verify/--deep) but didn't apply — surface WHY
+  // (unavailable / failed) so a skipped audit is never mistaken for a clean one.
+  else if (draft.verifyOutcome && draft.verifyOutcome !== "applied") synthBits.push(`verify=${draft.verifyOutcome}`);
   const synthEvidence = `synth:${synthBits.join(" ")}`;
 
   const components = store.json.loadAll("components");

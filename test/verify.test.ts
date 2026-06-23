@@ -68,20 +68,42 @@ test("verdictFromText: missing grounded defaults to 1 when lists are present", (
   assert.equal(v!.grounded, 1);
 });
 
-test("verifyDecisionSafe: degrades to the un-audited draft on absence/inability/failure", async () => {
+test("verifyDecisionSafe: degrades visibly (not silently) on absence/inability/failure", async () => {
   const draft = DRAFT();
-  // no verifier available (no CLI installed)
-  assert.equal((await verifyDecisionSafe(null, INPUT, draft)).source, "llm_draft");
+  // no verifier available (no CLI installed) → marked 'unavailable', draft untouched
+  const none = await verifyDecisionSafe(null, INPUT, draft);
+  assert.equal(none.source, "llm_draft");
+  assert.equal(none.verifyOutcome, "unavailable");
 
   // a provider that can't verify (deterministic-like — no verifyDecision method)
   const noVerify: SynthProvider = { name: "det", available: async () => true, draftDecision: async () => draft, draftBug: async () => ({} as BugDraft) };
-  assert.equal((await verifyDecisionSafe(noVerify, INPUT, draft)).source, "llm_draft");
+  assert.equal((await verifyDecisionSafe(noVerify, INPUT, draft)).verifyOutcome, "unavailable");
 
-  // a verifier that throws must never lose the draft (dec_18a81c8291)
-  const boom: SynthProvider = { ...noVerify, verifyDecision: async () => { throw new Error("x"); } };
+  // a verifier that always throws → retried, then marked 'failed' (never loses the draft)
+  let calls = 0;
+  const boom: SynthProvider = { ...noVerify, verifyDecision: async () => { calls++; throw new Error("x"); } };
   const out = await verifyDecisionSafe(boom, INPUT, draft);
   assert.equal(out.source, "llm_draft");
+  assert.equal(out.verifyOutcome, "failed");
   assert.equal(out.alternatives_rejected.length, 2, "draft untouched on failure");
+  assert.equal(calls, 2, "the Critic call is retried once before giving up");
+});
+
+test("verifyDecisionSafe: a transient failure is recovered by the single retry", async () => {
+  let calls = 0;
+  const flaky: SynthProvider = {
+    name: "v", available: async () => true,
+    draftDecision: async () => DRAFT(),
+    draftBug: async () => ({} as BugDraft),
+    verifyDecision: async () => {
+      if (++calls === 1) throw new Error("transient");
+      return { grounded: 1, unsupported_alternatives: [], unsupported_claims: [] };
+    },
+  };
+  const out = await verifyDecisionSafe(flaky, INPUT, DRAFT());
+  assert.equal(calls, 2, "first attempt failed, retry succeeded");
+  assert.equal(out.verifyOutcome, "applied");
+  assert.match(out.source, /verified/);
 });
 
 test("verifyDecisionSafe: applies a successful verdict end-to-end", async () => {
@@ -94,4 +116,5 @@ test("verifyDecisionSafe: applies a successful verdict end-to-end", async () => 
   const out = await verifyDecisionSafe(ok, INPUT, DRAFT());
   assert.deepEqual(out.alternatives_rejected, ["use Redis instead"]);
   assert.match(out.source, /verified/);
+  assert.equal(out.verifyOutcome, "applied");
 });
