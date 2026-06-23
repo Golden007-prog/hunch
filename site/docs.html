@@ -660,5 +660,179 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
     document.documentElement.classList.remove("gsap-on");
   }
 </script>
+
+<!-- ===== Docs assistant: deterministic (no LLM), explains the docs in plain words ===== -->
+<style>
+  .hb-launch{position:fixed;right:20px;bottom:20px;z-index:60;display:flex;align-items:center;gap:9px;
+    padding:12px 16px;border:none;border-radius:100px;background:var(--accent);color:#fff;cursor:pointer;
+    font:600 14px/1 var(--sans);box-shadow:0 8px 26px rgba(39,66,255,.32);transition:transform .15s var(--ease),box-shadow .15s}
+  .hb-launch:hover{transform:translateY(-1px);box-shadow:0 12px 32px rgba(39,66,255,.4)}
+  .hb-launch svg{width:17px;height:17px}
+  .hb-launch.hide{display:none}
+  .hb-panel{position:fixed;right:20px;bottom:20px;z-index:61;width:380px;max-width:calc(100vw - 32px);
+    height:560px;max-height:calc(100vh - 40px);display:none;flex-direction:column;background:var(--bg);
+    border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(22,21,15,.22);overflow:hidden}
+  .hb-panel.open{display:flex;animation:hb-in .22s var(--ease)}
+  @keyframes hb-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .hb-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg-soft)}
+  .hb-head .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-wash)}
+  .hb-head h4{margin:0;font:650 14px/1.2 var(--sans);color:var(--ink)}
+  .hb-head p{margin:1px 0 0;font:450 11.5px/1.3 var(--sans);color:var(--muted)}
+  .hb-x{margin-left:auto;border:none;background:none;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;padding:4px}
+  .hb-x:hover{color:var(--ink)}
+  .hb-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+  .hb-msg{max-width:88%;padding:10px 13px;border-radius:13px;font:450 13.5px/1.5 var(--sans);word-wrap:break-word}
+  .hb-msg.bot{align-self:flex-start;background:var(--bg-soft);border:1px solid var(--line-soft);color:var(--ink-soft);border-bottom-left-radius:4px}
+  .hb-msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+  .hb-msg.bot code{font:600 12px var(--mono);background:rgba(39,66,255,.08);color:var(--accent-deep);padding:1px 5px;border-radius:5px}
+  .hb-msg.bot a{color:var(--accent);font-weight:600;text-decoration:none}
+  .hb-msg.bot a:hover{text-decoration:underline}
+  .hb-msg.bot b{color:var(--ink);font-weight:650}
+  .hb-chips{display:flex;flex-wrap:wrap;gap:7px;padding:0 16px 12px}
+  .hb-chip{border:1px solid var(--line);background:var(--bg);color:var(--ink-soft);border-radius:100px;
+    padding:7px 12px;font:500 12px var(--sans);cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .hb-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-wash)}
+  .hb-form{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line);background:var(--bg-soft)}
+  .hb-form input{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:450 13.5px var(--sans);
+    color:var(--ink);background:var(--bg);outline:none}
+  .hb-form input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
+  .hb-form button{border:none;background:var(--accent);color:#fff;border-radius:10px;padding:0 14px;cursor:pointer;font:600 13px var(--sans)}
+  .hb-form button:hover{background:var(--accent-deep)}
+  @media (max-width:560px){.hb-panel{right:8px;bottom:8px;height:calc(100vh - 16px)}.hb-launch{right:12px;bottom:12px}}
+</style>
+
+<button class="hb-launch" id="hbLaunch" aria-label="Open the docs assistant">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5z"/></svg>
+  Ask the docs
+</button>
+
+<div class="hb-panel" id="hbPanel" role="dialog" aria-label="Docs assistant">
+  <div class="hb-head">
+    <span class="dot"></span>
+    <div><h4>Docs assistant</h4><p>Plain-English answers — no AI, just the docs.</p></div>
+    <button class="hb-x" id="hbClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="hb-msgs" id="hbMsgs"></div>
+  <div class="hb-chips" id="hbChips"></div>
+  <form class="hb-form" id="hbForm">
+    <input id="hbInput" type="text" placeholder="Ask anything about Hunch…" autocomplete="off" aria-label="Your question" />
+    <button type="submit">Ask</button>
+  </form>
+</div>
+
+<script>
+(function(){
+  // Curated, NON-TECHNICAL knowledge base. Every concept in the docs has an entry;
+  // matching is deterministic keyword/phrase scoring — no model, runs offline.
+  const KB = [
+    {q:"What is Hunch?", kw:["what is hunch","what is this","what does hunch","what does it do","explain hunch","about hunch","whats hunch","engineering memory","memory os"], a:`Hunch is your codebase's <b>memory</b>. As you build, it quietly records <b>why</b> things are the way they are — the decisions, the bugs you fixed, the rules you must not break — and feeds that to your AI coding assistant so it stops repeating old mistakes. Like a teammate who's been on the project for years and remembers everything. → <a href="#overview">Overview</a>`},
+    {q:"Why would I use it?", kw:["why use","why would i","what problem","the point","worth it","benefit","why do i need","reason to"], a:`AI assistants are brilliant but forgetful — they read your code fresh each time and don't know the history. Hunch remembers the <b>reasons</b> behind the code, so the AI (and new teammates) don't re-break old fixes or quietly undo deliberate choices. → <a href="#overview">Overview</a>`},
+    {q:"How does it work, simply?", kw:["how does it work","how it works","how does hunch work","simply","in simple terms","explain how"], a:`Every time you commit code, Hunch writes a short note about what changed and why, and saves it next to your code as a plain file in git. When your AI assistant is about to edit something, Hunch hands it the relevant notes first. → <a href="#graph">The reasoning graph</a>`},
+    {q:"Is it free? Does it cost money?", kw:["free","cost","price","pay","money","expensive","billing","how much","charge"], a:`Hunch is free and open-source. Writing the notes uses your <b>existing</b> coding-assistant subscription (Claude, Codex or Cursor) — never a pay-per-use API key. No subscription? It still works with a simpler built-in method, for free. → <a href="#synthesis">Synthesis & billing</a>`},
+    {q:"Does it send my code anywhere?", kw:["cloud","send my code","privacy","secure","data leave","upload","server","store my code","leak","spy"], a:`No. Everything lives in plain files inside your own repo on your machine — nothing goes to a Hunch server. The only thing that leaves is whatever your AI assistant normally sends to draft a note, via your own subscription. You can also keep sensitive notes in a separate private repo. → <a href="#private">Private memory</a>`},
+    {q:"How do I install it?", kw:["install","installation","get hunch","download","add hunch"], a:`One command: <code>npm i -g @davesheffer/hunch</code>, then <code>hunch init</code> inside your project. → <a href="#install">Install</a>`},
+    {q:"How do I set it up on my project?", kw:["set up","setup","initialize","init","start using","configure","onboard","enable"], a:`Run <code>hunch init</code> in your repo — it scaffolds everything, indexes your code, and wires up your AI assistants automatically. → <a href="#initialize">Initialize a repo</a>`},
+    {q:"Which AI assistants work with it?", kw:["assistant","claude","cursor","copilot","codex","windsurf","vscode","vs code","which ai","work with","ide","editor"], a:`All the major ones — Claude Code, Cursor, GitHub Copilot (VS Code), Codex and Windsurf — and they all read from the <b>same</b> shared memory. → <a href="#mcp">MCP & assistants</a>`},
+    {q:"What is MCP?", kw:["mcp","model context protocol","protocol"], a:`MCP is just the standard "plug" that lets your AI assistant talk to tools like Hunch. You don't have to think about it — <code>hunch init</code> sets it up. It's how the assistant asks Hunch things like "why is this file built this way?" → <a href="#mcp">MCP & assistants</a>`},
+    {q:"What's a 'decision'?", kw:["decision","decisions","adr","what is a decision"], a:`A short note about a choice and why you made it — e.g. "switched to Redis sessions because JWT logout couldn't be revoked." Hunch captures these from your commits automatically. → <a href="#graph">The graph</a>`},
+    {q:"What's a 'constraint'?", kw:["constraint","rule","invariant","must not","never break","guardrail"], a:`A rule you never want broken — like "always verify the session before charging a card." Hunch reminds the AI of it before editing anything related, and can even block a change that would break it. → <a href="#never-twice">Never Twice</a>`},
+    {q:"What's bug history / lineage?", kw:["bug","bug history","lineage","incident","past bug","recurring","reopen"], a:`When a fix lands, Hunch remembers the bug, its root cause and the fix — so if someone later tries to undo it, it can warn "careful, this line is the fix for an old incident." → <a href="#merge-verdict">Causal Merge Verdict</a>`},
+    {q:"What's the 'reasoning graph'?", kw:["graph","reasoning graph","knowledge graph","connections","web"], a:`It's the web of everything Hunch knows — decisions, bugs, rules and how your code connects — linked so it can answer "why" questions and trace the ripple effect of a change. → <a href="#graph">The graph</a>`},
+    {q:"What do 'confidence' and 'provenance' mean?", kw:["confidence","provenance","evidence","how sure","trust","reliable","source of"], a:`Every note is tagged with where it came from and how sure Hunch is. A quick auto-guess is marked low-confidence and stays advisory; only things you've personally confirmed are trusted enough to block a change. Nothing is a blind assertion. → <a href="#provenance">Provenance</a>`},
+    {q:"How does it stop the AI from making mistakes?", kw:["stop mistakes","prevent","guard","guards","protect","catch","mistake","safety","how does it help","stop the ai"], a:`Hunch has guards that watch for risky changes: re-opening a fixed bug, re-adding code you removed on purpose, bringing back an approach you rejected, or duplicating code that already exists. Most just warn; the strict ones can block a bad merge. → <a href="#never-twice">Guards</a>`},
+    {q:"What's 'Never Twice'?", kw:["never twice","correction","told it before","same mistake","repeat","again","corrected"], a:`When you correct the AI ("no — never do X here"), Hunch turns that into a saved rule so it sticks — the AI won't make the same mistake next session, and neither will your other assistants. → <a href="#never-twice">Never Twice</a>`},
+    {q:"How do I know if my change is safe?", kw:["safe","is my change safe","review","merge","verdict","check my change","risky","before merge","pr safe","is it safe"], a:`Ask for a merge verdict — Hunch replays your change against everything it remembers and gives a plain <b>BLOCK / WARN / PASS</b>, with the reason: which rule it touches and which old bug it might re-open. → <a href="#merge-verdict">Causal Merge Verdict</a>`},
+    {q:"What's the Decision Guard (Veto)?", kw:["veto","decision guard","rejected","alternative","approach we rejected","reverse"], a:`If you once decided <i>against</i> an approach, the Decision Guard catches a change that quietly brings it back — with a receipt of what you rejected and why. → <a href="#veto">Decision Guard</a>`},
+    {q:"What's the Regression Guard?", kw:["regression","readd","re add","retired","removed code","brought back","deleted code"], a:`It flags when a change re-adds code you deliberately retired — so old, removed-on-purpose code can't creep back in. → <a href="#regression">Regression Guard</a>`},
+    {q:"What's the Redundancy Guard?", kw:["redundancy","duplicate","already exists","reinvent","sprawl","rewrite existing","same function","reimplement"], a:`AI assistants only see the file in front of them, so they sometimes re-write a helper that already exists elsewhere. Hunch sees the whole project and flags "you just added something that already exists over here." → <a href="#redundancy">Redundancy Guard</a>`},
+    {q:"Does it work in pull requests / CI?", kw:["ci","pull request","pr","github action","continuous integration","merge block","review bot","github","actions"], a:`Yes — <code>hunch ci</code> adds a GitHub check that comments on each pull request with the rules and decisions it affects, and can fail the check if it breaks a hard rule. → <a href="#ci">CI Constraint Guard</a>`},
+    {q:"How strict is it? Can it block me?", kw:["strict","block","blocks","block me","block my commits","firmness","annoying","get in the way","stop me","aggressive","levels","tune","control"], a:`You choose. Four levels — off, advisory (just notes), firm, and strict (can block). By default it only <b>warns</b>; it blocks only when you turn on strict, and even then only for high-confidence, human-confirmed rules. → <a href="#firmness">Firmness levels</a>`},
+    {q:"Can I see why something changed?", kw:["history","why did this change","time travel","as of","the past","when did","old version","evolve","timeline"], a:`Yes — Hunch keeps a timeline. Ask "what did we believe about this at release v1.2?" and it answers as of that point. Decisions are never deleted, just superseded, so the trail stays intact. → <a href="#time-travel">Time-travel</a>`},
+    {q:"How do I ask it questions?", kw:["ask","query","search","find","look up","question"], a:`Two ways: your AI assistant queries it automatically, or you run <code>hunch query "..."</code> / <code>hunch why &lt;file&gt;</code> in the terminal. → <a href="#first-query">Your first query</a>`},
+    {q:"How do I keep sensitive notes private?", kw:["private","sensitive","secret","public repo","keep private","hide","confidential","open source my code"], a:`Run <code>hunch private</code>. It keeps sensitive decisions in a separate private repo that only you see locally — your public repo stays clean, and nothing private can leak into a public pull-request comment. → <a href="#private">Private memory</a>`},
+    {q:"What's Deep Synthesis?", kw:["deep synthesis","deep","ensemble","better notes","higher quality","multiple ai","several ai"], a:`If you're signed into more than one AI assistant, Deep Synthesis asks all of them to describe a change, then merges their answers into one better note — and trusts it more when they independently agree. → <a href="#synthesis">Synthesis</a>`},
+    {q:"Does it work for a whole team?", kw:["team","share","colleague","everyone","sync","collaborate","teammates","coworkers"], a:`Yes — the memory is plain files in git, so it syncs with a normal push/pull, like your code. Everyone's assistant reads the same shared memory. → <a href="#team">Working as a team</a>`},
+    {q:"Where is my data stored?", kw:["where stored","storage","stored","data","my data","where is the data","location","saved","on disk","folder","files kept"], a:`In a <code>.hunch/</code> folder in your repo, as plain readable JSON committed alongside your code — that's the source of truth. A fast search index is built from it and never matters if deleted. → <a href="#storage">Where it's stored</a>`},
+    {q:"It's not working — how do I check?", kw:["not working","broken","troubleshoot","problem","help","doctor","fix","tools missing","doesnt appear","does not appear","issue","error"], a:`Run <code>hunch doctor</code> — it checks your setup (git, which AI assistant it found, index freshness, private overlay) and tells you exactly what to fix. → <a href="#doctor">Doctor & troubleshooting</a>`},
+    {q:"Will it slow me down?", kw:["slow","slow me down","performance","speed","overhead","lag","fast"], a:`No. Capturing a note happens in the background after you commit and never blocks your work; the guards run in milliseconds. → <a href="#first-query">How it works</a>`},
+    {q:"Do I have to do anything, or is it automatic?", kw:["do i have to","do i need","need to do","anything","automatic","manual","effort","maintain","by hand","works for me","hands off"], a:`Mostly automatic. After <code>hunch init</code>, notes are captured on every commit on their own. You only step in to confirm an important rule or correct the AI — and that correction becomes a saved rule. → <a href="#initialize">Getting started</a>`},
+    {q:"Does it work on Windows / Mac / Linux?", kw:["windows","mac","macos","linux","operating system","cross platform","wsl"], a:`Yes — Windows, macOS and Linux. Paths and setup are handled per-OS automatically; there's one small Windows tip for Claude Code. → <a href="#windows">Windows note</a>`},
+    {q:"What languages does it support?", kw:["language","languages","python","typescript","javascript","java","golang","rust","support code","ruby"], a:`The code-structure part understands TypeScript and JavaScript today. The "why" part — decisions, bugs, rules — works for <b>any</b> language, since it reads your commits and diffs. → <a href="#graph">The graph</a>`},
+    {q:"Does it work offline?", kw:["offline","no internet","without internet","disconnected","airplane"], a:`Yes — everything is local. Without an AI assistant available it falls back to a simpler built-in method for notes, still fully offline. → <a href="#synthesis">Synthesis</a>`},
+    {q:"How is it different from Copilot or Cursor memory?", kw:["different","copilot memory","cursor memory","versus","compare","competitor","better than","vs"], a:`Those search your code at edit time. Hunch captures the <b>why</b> at commit/PR/bug time and curates it into a lasting graph — a teammate who remembers the history, not just a fast reader of the current code. → <a href="#overview">Overview</a>`},
+    {q:"Who is this for?", kw:["who is this for","who should","for me","beginner","solo","big team","right for"], a:`Anyone working with an AI coding assistant — solo or in a team — who's tired of it forgetting context or repeating old mistakes. Especially valuable on long-lived codebases.`},
+    {q:"Is it open source?", kw:["open source","license","apache","mit","source code","free software","github repo"], a:`Yes — open source under Apache-2.0; you can read every line on GitHub. → <a href="#develop">Develop & contribute</a>`},
+    {q:"Just tell me how to start in a minute.", kw:["quick start","quickstart","one minute","fastest","tldr","just start","get going","steps","60 second"], a:`1) <code>npm i -g @davesheffer/hunch</code> &nbsp;2) <code>hunch init</code> in your repo &nbsp;3) reload your AI assistant. Done — it now captures and surfaces memory automatically. → <a href="#install">Install</a>`},
+    {q:"What's semantic search?", kw:["semantic","embedding","embeddings","meaning search","smart search","search by meaning"], a:`An optional add-on that lets you search by <b>meaning</b>, not just keywords — so "how do we handle logins" finds the right notes even if they say "authentication." Off by default. → <a href="#storage">Storage</a>`},
+    {q:"Does it need maintenance?", kw:["maintenance","prune","cleanup","clean up","compact","too big","tidy","grow"], a:`Barely. <code>hunch compact</code> tidies low-value drafts when you want, and stale notes are flagged automatically. → <a href="#maintenance">Maintenance</a>`},
+    {q:"How can I contribute or report a problem?", kw:["contribute","contributing","report","issue","bug report","help out","feedback","suggest"], a:`It's open source — open an issue or PR on GitHub. See the contributing guide. → <a href="#develop">Develop & contribute</a>`},
+    {q:"How do I remove it?", kw:["remove","uninstall","delete hunch","get rid","stop using","disable hunch"], a:`Delete the <code>.hunch/</code> folder and the git hook, and uninstall the package — nothing else is touched. Hunch never modifies your actual code.`},
+    {q:"What can I do with the CLI?", kw:["cli","command","commands","terminal","what commands"], a:`Lots — <code>init</code>, <code>query</code>, <code>why</code>, <code>check</code>, <code>backfill</code>, <code>private</code>, <code>doctor</code> and more. The full list is in the reference. → <a href="#cli">CLI reference</a>`},
+  ];
+
+  const STARTERS = ["What is Hunch?","Is it free?","Does it send my code anywhere?","How do I start?","How does it stop mistakes?","How is it different from Copilot?"];
+
+  const norm = (s) => s.toLowerCase().replace(/[^a-z0-9\s]/g," ").replace(/\s+/g," ").trim();
+  function scoreEntry(qn, e){
+    let s = 0;
+    for(const k of e.kw){
+      if(k.indexOf(" ") >= 0){ if(qn.indexOf(k) >= 0) s += 3; }
+      else { if(new RegExp("\\b"+k+"\\b").test(qn)) s += 1; }
+    }
+    return s;
+  }
+  function findAnswer(q){
+    const qn = norm(q);
+    const ranked = KB.map((e)=>({e, s:scoreEntry(qn, e)})).filter((r)=>r.s>0).sort((a,b)=>b.s-a.s);
+    if(!ranked.length) return null;
+    return { entry: ranked[0].e, related: ranked.slice(1,3).map((r)=>r.e) };
+  }
+
+  const panel=document.getElementById("hbPanel"), launch=document.getElementById("hbLaunch"),
+        msgs=document.getElementById("hbMsgs"), chipsBox=document.getElementById("hbChips"),
+        form=document.getElementById("hbForm"), input=document.getElementById("hbInput");
+
+  function addMsg(html, who){
+    const d=document.createElement("div"); d.className="hb-msg "+who;
+    if(who==="user") d.textContent=html; else d.innerHTML=html;
+    msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight; return d;
+  }
+  function setChips(list){
+    chipsBox.innerHTML="";
+    list.forEach((q)=>{ const c=document.createElement("button"); c.className="hb-chip"; c.type="button"; c.textContent=q;
+      c.addEventListener("click", ()=>{ ask(q); }); chipsBox.appendChild(c); });
+  }
+  function ask(q){
+    addMsg(q, "user");
+    const hit = findAnswer(q);
+    if(!hit){
+      addMsg(`I'm not certain which part of the docs that's about — but I can explain any of these in plain words. Pick one, or try rephrasing:`, "bot");
+      setChips(STARTERS);
+      return;
+    }
+    addMsg(hit.entry.a, "bot");
+    if(hit.related.length){ setChips(hit.related.map((e)=>e.q)); }
+    else { setChips(STARTERS); }
+  }
+
+  let greeted=false;
+  function open(){
+    panel.classList.add("open"); launch.classList.add("hide");
+    if(!greeted){ greeted=true;
+      addMsg(`Hi! I explain the Hunch docs in plain, non-technical language — ask me anything, or tap a question below.`, "bot");
+      setChips(STARTERS);
+    }
+    input.focus();
+  }
+  function close(){ panel.classList.remove("open"); launch.classList.remove("hide"); }
+
+  launch.addEventListener("click", open);
+  document.getElementById("hbClose").addEventListener("click", close);
+  form.addEventListener("submit", (e)=>{ e.preventDefault(); const q=input.value.trim(); if(!q) return; input.value=""; ask(q); });
+  document.addEventListener("keydown", (e)=>{ if(e.key==="Escape" && panel.classList.contains("open")) close(); });
+  // Following an answer's link closes the panel so the user lands on the section.
+  msgs.addEventListener("click", (e)=>{ if(e.target.tagName==="A") close(); });
+})();
+</script>
 </body>
 </html>
