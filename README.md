@@ -66,6 +66,24 @@ came before. Local-first, no documentation toil, no SaaS.
 [provenance](https://hunch-pi.vercel.app/docs#provenance) ·
 [time-travel](https://hunch-pi.vercel.app/docs#time-travel)
 
+## Why Hunch is different
+
+"Memory for coding agents" is getting crowded, but most of it is a *server-side, ephemeral,
+single-vendor* RAG cache over your current code. Hunch is the opposite on every axis — and that
+combination is the moat:
+
+| | Typical agent memory | **Hunch** |
+|---|---|---|
+| **Storage** | server-side / a vendor's cloud | **git-tracked JSON in your repo** — diff it, review it in PRs, sync it over `git push` |
+| **Lifetime** | the session; often auto-expiring | the **lifetime of the codebase** — non-destructive supersede/veto keeps the *why-it-changed* trail |
+| **Clients** | one vendor's agent | **client-agnostic** — one `.hunch/` graph serves Claude Code, Cursor, Copilot & Windsurf via MCP |
+| **What's stored** | opaque extracted "facts" | **structured ADRs** — decisions with rejected-alternatives, bug lineage, and invariants |
+| **Enforcement** | advisory / just-in-time hints | **fail-closed deterministic guards** — no model in the block path; a commit fails on a human-vouched, set-intersection match |
+| **Trust** | take it on faith | **provenance on every record** (source + confidence + evidence) and a measurable retrieval signal (`hunch eval`) |
+
+The short version: **git tracks *what* changed; Hunch tracks *why*** — locally, durably, and under
+your control, with guards that actually hold the line instead of just suggesting.
+
 ## Getting started
 
 ```bash
