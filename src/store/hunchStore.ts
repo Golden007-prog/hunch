@@ -678,7 +678,23 @@ export class HunchStore {
    *  and write a `supersedes` edge. Returns the updated old decision, or null if it
    *  doesn't exist. All writes are atomic via json.put (con_902759b3dc). */
   supersede(oldId: string, by: Decision): Decision | null {
-    const old = this.json.get("decisions", oldId);
+    return this.supersedeIn(this.json, oldId, by);
+  }
+
+  /** Private-overlay counterpart of `supersede`: close + link the old decision inside
+   *  the HUNCH_PRIVATE_DIR store, so a PRIVATE decision can supersede another private
+   *  one (the MCP record path is private→private). A private write never mutates the
+   *  committed public store. Returns null if no private store is configured or the old
+   *  record isn't in it. */
+  supersedePrivate(oldId: string, by: Decision): Decision | null {
+    if (!this.privateJson) return null;
+    this.privateJson.ensureDirs();
+    return this.supersedeIn(this.privateJson, oldId, by);
+  }
+
+  /** Shared body for supersede / supersedePrivate against a specific store. */
+  private supersedeIn(json: JsonStore, oldId: string, by: Decision): Decision | null {
+    const old = json.get("decisions", oldId);
     if (!old || old.id === by.id) return null;
     const closed: Decision = {
       ...old,
@@ -686,7 +702,7 @@ export class HunchStore {
       superseded_by: by.id,
       valid_to: old.valid_to ?? by.valid_from ?? null,
     };
-    this.json.put("decisions", closed);
+    json.put("decisions", closed);
     const edge: Edge = {
       id: edgeId(by.id, oldId, "supersedes"),
       from: by.id,
@@ -696,7 +712,7 @@ export class HunchStore {
       strength: 1,
       provenance: { source: "derived", confidence: 1, evidence: [by.id, oldId] },
     };
-    this.json.put("edges", edge);
+    json.put("edges", edge);
     return closed;
   }
 

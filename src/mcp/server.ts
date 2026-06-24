@@ -334,9 +334,13 @@ export function buildServer(root: string): McpServer {
         if (decision.private) store.putPrivate("decisions", rec);
         else store.json.put("decisions", rec);
         // Invalidate, don't delete: closing the superseded decision's valid-time window
-        // (+ a supersedes edge) preserves the why-it-changed trail. Supersede operates on
-        // the public store, so skip it for a private record (a v1 limitation, not a leak).
-        const superseded = decision.supersedes && !decision.private ? store.supersede(decision.supersedes, rec) : null;
+        // (+ a supersedes edge) preserves the why-it-changed trail. Route the close to the
+        // same store the new record landed in — a private decision supersedes within the
+        // private overlay; a public one in the committed store. A private write never
+        // mutates the public store.
+        const superseded = decision.supersedes
+          ? (decision.private ? store.supersedePrivate(decision.supersedes, rec) : store.supersede(decision.supersedes, rec))
+          : null;
         store.reindex();
         // Auto-flush the private repo when configured (hunch private --auto-commit), so a
         // record made via MCP between public commits is committed+pushed immediately.

@@ -169,3 +169,38 @@ test("private overlay: with no private store, recs() equals the public loadAll",
     assert.deepEqual(store.recs("decisions").map((d) => d.id), ["dec_pub"]);
   } finally { cleanup(); }
 });
+
+test("private overlay: supersedePrivate closes a private decision in the private store (MCP private-supersede fix)", () => {
+  const { store, pub, cleanup } = setup(true);
+  try {
+    store.putPrivate("decisions", DEC("dec_old", "old private decision"));
+    const by: Decision = { ...DEC("dec_new", "new private decision"), valid_from: "2026-06-01T00:00:00Z", supersedes: "dec_old" };
+    store.putPrivate("decisions", by);
+
+    const closed = store.supersedePrivate("dec_old", by);
+    assert.ok(closed, "supersedePrivate returned null");
+    assert.equal(closed!.status, "superseded");
+    assert.equal(closed!.superseded_by, "dec_new");
+    assert.equal(closed!.valid_to, "2026-06-01T00:00:00Z"); // window closed at by.valid_from
+
+    // the close persisted in the PRIVATE store (visible via the unioned read)
+    assert.equal(store.recs("decisions").find((d) => d.id === "dec_old")?.status, "superseded");
+
+    // a supersedes edge was written into the private overlay
+    const edge = store.recs("edges").find((e) => e.type === "supersedes" && e.to === "dec_old");
+    assert.ok(edge, "supersedes edge missing");
+    assert.equal(edge!.from, "dec_new");
+
+    // LEAK CHECK: nothing landed in the public .hunch/ tree
+    const pubDec = join(pub, ".hunch", "decisions");
+    const pubFiles = existsSync(pubDec) ? readdirSync(pubDec) : [];
+    assert.ok(!pubFiles.some((f) => f.includes("dec_old") || f.includes("dec_new")), "private supersede leaked into public store");
+  } finally { cleanup(); }
+});
+
+test("private overlay: supersedePrivate returns null when no private store is configured", () => {
+  const { store, cleanup } = setup(false);
+  try {
+    assert.equal(store.supersedePrivate("dec_x", DEC("dec_y", "y")), null);
+  } finally { cleanup(); }
+});
