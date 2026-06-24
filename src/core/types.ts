@@ -95,7 +95,7 @@ export type RetiredSignal = z.infer<typeof RetiredSignalSchema>;
  *  existed in code, so its prose is turned into a testable set/regex. Carries its
  *  OWN provenance, separate from the decision's: an LLM may DRAFT a tripwire
  *  (advisory only); only a `human_confirmed` tripwire may BLOCK a commit — for every
- *  tier. One predictable rule (dec_a466655539). See docs/veto.md. */
+ *  tier. One predictable rule (dec_a466655539). */
 export const RejectedTripwireSchema = z.object({
   alternative: z.string().describe("the rejected approach's human text — printed verbatim in the receipt"),
   scope: z.array(z.string()).default([]).describe("glob(s) it applies to, e.g. vscode-extension/**"),

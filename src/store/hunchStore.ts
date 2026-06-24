@@ -748,7 +748,7 @@ export class HunchStore {
    *  never did. Precision-first ladder (dep > symbol > pattern); the semantic tier is
    *  advisory and lives elsewhere. A hit `blocks` only when isVetoBlocker passes (a
    *  human-confirmed tripwire on an in-force, non-stale decision — dec_a466655539).
-   *  Read-only; shared by buildCheckReport. See docs/veto.md. */
+   *  Read-only; shared by buildCheckReport. */
   vetoHits(an: DiffAnalysis, files: string[], staleDecisions: Set<string> = new Set()): VetoHit[] {
     const addedDeps = new Set(an.addedDeps);
     const out: VetoHit[] = [];
