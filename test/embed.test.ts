@@ -148,11 +148,11 @@ test("reindex does NOT wipe embeddings for unchanged docs (RESET_SQL regression 
 test("rrfFuse: a doc strong in BOTH lists outranks one strong in only one", (t) => {
   const { store, cleanup } = seed();
   t.after(cleanup);
-  const fuse = (store as unknown as { rrfFuse(a: Hit[], b: Hit[], n: number): Hit[] }).rrfFuse.bind(store);
+  const fuse = (store as unknown as { rrfFuse(a: Hit[], b: Hit[], g: Hit[], n: number): Hit[] }).rrfFuse.bind(store);
   const mk = (ref: string): Hit => ({ ref, kind: "decisions", title: ref, snippet: "", score: 0 });
   const fts = [mk("A"), mk("B"), mk("C")]; // A best lexically
   const sem = [mk("B"), mk("A"), mk("D")]; // B best semantically; A high in both
-  const out = fuse(fts, sem, 4).map((h) => h.ref);
+  const out = fuse(fts, sem, [], 4).map((h) => h.ref);
   assert.equal(out[0], "A", "A ranks high in both lists → overall winner");
   assert.ok(out.indexOf("B") < out.indexOf("C"), "B (in both) beats C (fts-only)");
   assert.ok(out.indexOf("B") < out.indexOf("D"), "B (in both) beats D (sem-only)");
@@ -161,9 +161,9 @@ test("rrfFuse: a doc strong in BOTH lists outranks one strong in only one", (t) 
 test("rrfFuse: lexical weight keeps an exact keyword hit above a semantic-only hit at equal rank", (t) => {
   const { store, cleanup } = seed();
   t.after(cleanup);
-  const fuse = (store as unknown as { rrfFuse(a: Hit[], b: Hit[], n: number): Hit[] }).rrfFuse.bind(store);
+  const fuse = (store as unknown as { rrfFuse(a: Hit[], b: Hit[], g: Hit[], n: number): Hit[] }).rrfFuse.bind(store);
   const mk = (ref: string): Hit => ({ ref, kind: "decisions", title: ref, snippet: "", score: 0 });
-  const out = fuse([mk("E")], [mk("F")], 2).map((h) => h.ref);
+  const out = fuse([mk("E")], [mk("F")], [], 2).map((h) => h.ref);
   assert.deepEqual(out, ["E", "F"], "equal rank → lexical (FTS) hit wins on the higher weight");
 });
 

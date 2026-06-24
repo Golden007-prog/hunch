@@ -351,21 +351,27 @@ export class HunchStore {
    *  the lean install and fallback regressions are unaffected. Pass
    *  `embedder: null` to FORCE FTS-only without auto-selecting. */
   async hybridSearch(query: string, limit = 12, opts: { embedder?: Embedder | null } = {}): Promise<SearchHit[]> {
+    // Explicit `embedder: null` forces pure FTS-only (no semantic, no graph) — the
+    // documented escape hatch and the lean-fallback regression guard.
+    if (opts.embedder === null) return this.search(query, limit);
     const embedder = opts.embedder !== undefined ? opts.embedder : await selectEmbedder();
-    if (!this.semanticReady(embedder)) return this.search(query, limit);
 
     const fts = this.search(query, Math.max(limit, 50));
-    try {
-      // The whole semantic leg (query embedding + decode + cosine + fuse) is guarded:
-      // any failure — model load, a corrupt/dim-mismatched vector — degrades to the
-      // lexical results rather than failing the query.
-      const [qvec] = await embedder.embed([query]);
-      if (!qvec) return fts.slice(0, limit);
-      const sem = this.cosineRank(qvec, embedder.id, 50);
-      return this.rrfFuse(fts, sem, limit);
-    } catch {
-      return fts.slice(0, limit);
+    let sem: SearchHit[] = [];
+    if (embedder && this.semanticReady(embedder)) {
+      try {
+        // The semantic leg (query embedding + decode + cosine) is guarded: any failure —
+        // model load, a corrupt/dim-mismatched vector — degrades to lexical + graph.
+        const [qvec] = await embedder.embed([query]);
+        if (qvec) sem = this.cosineRank(qvec, embedder.id, 50);
+      } catch { sem = []; }
     }
+    // The graph stream is model-free, so it contributes even on a lean (no-embeddings)
+    // install. With neither semantic nor graph signal, return pure FTS so the
+    // zero-fusion-overhead fast path is preserved.
+    const graph = this.graphExpand([...fts, ...sem], 50);
+    if (!sem.length && !graph.length) return fts.slice(0, limit);
+    return this.rrfFuse(fts, sem, graph, limit);
   }
 
   /** Brute-force exact cosine top-n over stored vectors for one model. Vectors are
@@ -400,10 +406,12 @@ export class HunchStore {
     });
   }
 
-  /** Rank-based Reciprocal Rank Fusion of the FTS and semantic lists. Ranks (not
-   *  raw scores) erase the bm25-vs-cosine scale mismatch; a small lexical weight
-   *  keeps exact symbol/path matches from being displaced by paraphrase hits. */
-  private rrfFuse(fts: SearchHit[], sem: SearchHit[], limit: number): SearchHit[] {
+  /** Rank-based Reciprocal Rank Fusion of the FTS, semantic, and graph lists. Ranks
+   *  (not raw scores) erase the bm25-vs-cosine-vs-graph scale mismatch; a small lexical
+   *  weight keeps exact symbol/path matches from being displaced by paraphrase or
+   *  neighbor hits. An empty list contributes nothing, so 2-stream behavior is exactly
+   *  preserved when graph (or sem) is absent. */
+  private rrfFuse(fts: SearchHit[], sem: SearchHit[], graph: SearchHit[], limit: number): SearchHit[] {
     const acc = new Map<string, { hit: SearchHit; score: number }>();
     const add = (list: SearchHit[], weight: number) =>
       list.forEach((hit, i) => {
@@ -413,7 +421,48 @@ export class HunchStore {
       });
     add(fts, RRF_W_FTS);
     add(sem, RRF_W_SEM);
+    add(graph, RRF_W_GRAPH);
     return [...acc.values()].sort((a, b) => b.score - a.score).slice(0, limit).map((e) => ({ ...e.hit, score: e.score }));
+  }
+
+  /** Graph retrieval stream (roadmap #1): 1-hop expansion over the dependency graph
+   *  from the lexical/semantic seed hits. For each seed SYMBOL, surface its direct
+   *  neighbors (callers/callees, importers/imported, container) — the cross-file
+   *  evidence a "why" question needs but that neither bm25 nor cosine reaches. Each
+   *  neighbor accrues GAMMA-decayed support per linking seed (one pulled in by several
+   *  top seeds ranks higher); seeds themselves are excluded, so this only ADDS context.
+   *  Deterministic, model-free (runs on a lean install too), one indexed query per seed. */
+  private graphExpand(seeds: SearchHit[], n: number): SearchHit[] {
+    if (RRF_W_GRAPH <= 0) return [];
+    const symSeeds = seeds.filter((h) => h.ref.startsWith("sym_"));
+    if (!symSeeds.length) return [];
+    const seen = new Set(seeds.map((h) => h.ref)); // never re-surface a seed
+    const nbStmt = this.db.prepare(
+      /* sql */ `
+      SELECT e."to"   AS nb FROM edges e WHERE e."from" = ? AND e.type IN ('calls','depends_on','imports','contains')
+      UNION
+      SELECT e."from" AS nb FROM edges e WHERE e."to"   = ? AND e.type IN ('calls','depends_on','imports','contains')`,
+    );
+    const score = new Map<string, number>();
+    symSeeds.forEach((h, i) => {
+      const contrib = GRAPH_GAMMA / (RRF_K + i + 1);
+      for (const r of nbStmt.all(h.ref, h.ref) as Array<{ nb: string }>) {
+        if (seen.has(r.nb)) continue;
+        score.set(r.nb, (score.get(r.nb) ?? 0) + contrib);
+      }
+    });
+    if (!score.size) return [];
+    const top = [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+    // Hydrate title/snippet from the FTS table in ONE query (mirrors cosineRank).
+    const placeholders = top.map(() => "?").join(",");
+    const meta = new Map<string, { title: string; body: string }>();
+    for (const row of this.db.prepare(`SELECT ref, title, body FROM search WHERE ref IN (${placeholders})`).all(...top.map(([ref]) => ref)) as Array<{ ref: string; title: string; body: string }>) {
+      meta.set(row.ref, { title: row.title, body: row.body });
+    }
+    return top.map(([ref, s]) => {
+      const m = meta.get(ref);
+      return { ref, kind: ref.startsWith("cmp_") ? "component" : "symbol", title: m?.title ?? ref, snippet: (m?.body ?? "").slice(0, 120), score: s };
+    });
   }
 
   /** All decisions/bugs/constraints/symbols/components touching a file path or
@@ -1078,11 +1127,17 @@ function round(n: number): number {
 
 // --- semantic-search helpers ---------------------------------------------
 
-/** RRF tuning (env-overridable). Lexical weight ≥ semantic so exact matches win
- *  ties while semantic adds paraphrase recall. */
+/** RRF tuning (env-overridable). Lexical weight ≥ semantic ≥ graph: exact matches
+ *  win ties, semantic adds paraphrase recall, and the graph stream adds the
+ *  dependency-neighbor evidence a "why" question needs across files. The graph
+ *  weight is conservative + measurement-gated (set HUNCH_RRF_W_GRAPH=0 to disable);
+ *  GAMMA only decays a neighbor's cross-seed support, so its absolute value is
+ *  normalized away by the rank-based fusion. */
 const RRF_K = numEnv("HUNCH_RRF_K", 60);
 const RRF_W_FTS = numEnv("HUNCH_RRF_W_FTS", 1);
 const RRF_W_SEM = numEnv("HUNCH_RRF_W_SEM", 0.7);
+const RRF_W_GRAPH = numEnv("HUNCH_RRF_W_GRAPH", 0.5);
+const GRAPH_GAMMA = numEnv("HUNCH_GRAPH_GAMMA", 0.25);
 function numEnv(name: string, dflt: number): number {
   const v = Number(process.env[name]);
   return Number.isFinite(v) && v > 0 ? v : dflt;
