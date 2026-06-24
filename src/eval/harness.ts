@@ -35,6 +35,7 @@ export interface EvalOpts {
   k?: number;
   embedder?: Embedder | null; // omit -> deterministic FTS+graph (no semantic) for CI
   graphWeight?: number; // 0 disables the graph stream (A/B the lift)
+  kind?: string; // restrict scoring to one record kind (e.g. "runbooks") — scoped retrieval
 }
 
 /** Score a golden set: Recall@k, MRR, hit-rate. Deterministic when no embedder. */
@@ -42,7 +43,12 @@ export async function evaluateRetrieval(store: HunchStore, cases: EvalCase[], op
   const k = opts.k ?? 10;
   const perCase: CaseResult[] = [];
   for (const c of cases) {
-    const hits = await store.hybridSearch(c.query, k, { embedder: opts.embedder, graphWeight: opts.graphWeight });
+    // A kind-scoped eval uses true scoped retrieval (candidate pool restricted to the
+    // kind from the start), not a whole-corpus fetch + filter — the latter's top-50 cap
+    // buries terse records before any filter.
+    const hits = opts.kind
+      ? await store.searchScoped(c.query, opts.kind, k, { embedder: opts.embedder })
+      : await store.hybridSearch(c.query, k, { embedder: opts.embedder, graphWeight: opts.graphWeight });
     const top = hits.slice(0, k).map((h: SearchHit) => h.ref);
     const expected = new Set(c.expected);
     let found = 0;

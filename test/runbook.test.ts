@@ -50,3 +50,25 @@ test("runbook eval gate: a task query retrieves the answering runbook (Recall@k)
   const m = await evaluateRetrieval(store, [{ query: "redundancy guard sprawl", expected: [id] }], { k: 10 });
   assert.equal(m.recallAtK, 1, "the eval harness can score runbook retrieval — the measurement gate is wired");
 });
+
+test("runbook scoped retrieval: searchRunbooks returns ONLY runbooks and ranks the matching task first", async (t) => {
+  const { store, cleanup } = tempStore();
+  t.after(cleanup);
+  store.json.put("runbooks", RB("add an MCP tool", { steps: ["edit server.ts"], trigger: ["mcp tool", "add tool"] }) as never);
+  store.json.put("runbooks", RB("cut a release", { steps: ["bump version"], trigger: ["release"] }) as never);
+  store.reindex();
+  const hits = await store.searchRunbooks("add an mcp tool", 5);
+  assert.ok(hits.length >= 1);
+  assert.ok(hits.every((h) => h.kind === "runbooks"), "scoped: only runbooks returned");
+  assert.equal(hits[0]!.ref, runbookId("add an MCP tool"), "the matching runbook ranks first");
+});
+
+test("runbook eval: kind-scoped scoring restricts the pool to runbooks", async (t) => {
+  const { store, cleanup } = tempStore();
+  t.after(cleanup);
+  const id = runbookId("add a guard");
+  store.json.put("runbooks", RB("add a guard", { trigger: ["guard"] }) as never);
+  store.reindex();
+  const m = await evaluateRetrieval(store, [{ query: "add a guard", expected: [id] }], { k: 5, kind: "runbooks" });
+  assert.equal(m.recallAtK, 1);
+});

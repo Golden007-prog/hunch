@@ -385,14 +385,60 @@ export class HunchStore {
     return this.rrfFuse(fts, sem, graph, limit, gw);
   }
 
+  /** Runbook-scoped retrieval (roadmap #5): the same FTS+graph(+semantic) fusion,
+   *  restricted to the `runbooks` kind — so a "what's the procedure for X" query
+   *  competes only with other runbooks, not the whole graph. Measurement showed
+   *  whole-corpus retrieval buries terse runbooks (33% recall); scoping + semantic
+   *  lifted recall@5 to 83% (dec_1239efae54 follow-up). Pass an embedder for the
+   *  semantic leg; omit for keyword+graph. */
+  async searchRunbooks(query: string, limit = 5, opts: { embedder?: Embedder | null } = {}): Promise<SearchHit[]> {
+    return this.searchScoped(query, "runbooks", limit, opts);
+  }
+
+  /** Kind-SCOPED retrieval: FTS + (optional) semantic fused, but the candidate pool is
+   *  restricted to one record kind from the START — not over-fetched from a whole-corpus
+   *  ranking (whose top-50 cap can bury a terse record before any filter). This is what
+   *  lifted runbook recall@5 from 33% → 83% in the measurement (dec_1239efae54 follow-up). */
+  async searchScoped(query: string, kind: string, limit = 5, opts: { embedder?: Embedder | null } = {}): Promise<SearchHit[]> {
+    const fts = this.scopedFts(query, kind, Math.max(limit, 20));
+    const embedder = opts.embedder !== undefined ? opts.embedder : await selectEmbedder();
+    let sem: SearchHit[] = [];
+    if (embedder && this.semanticReady(embedder)) {
+      try {
+        const [qvec] = await embedder.embed([query]);
+        if (qvec) sem = this.cosineRank(qvec, embedder.id, Math.max(limit, 20), kind);
+      } catch { sem = []; }
+    }
+    if (!sem.length) return fts.slice(0, limit);
+    return this.rrfFuse(fts, sem, [], limit);
+  }
+
+  /** FTS bm25 over a single kind (the `kind` column is UNINDEXED, so a plain `=`
+   *  constraint composes with MATCH). Empty when the query has no FTS-able terms. */
+  private scopedFts(query: string, kind: string, limit: number): SearchHit[] {
+    const match = toFtsQuery(query);
+    if (!match) return [];
+    try {
+      const rows = this.db.prepare(
+        `SELECT ref, kind, title, snippet(search, 3, '[', ']', '…', 12) AS snip, bm25(search) AS score
+         FROM search WHERE search MATCH ? AND kind = ? ORDER BY score LIMIT ?`,
+      ).all(match, kind, limit) as Array<{ ref: string; kind: string; title: string; snip: string; score: number }>;
+      return rows.map((r) => ({ ref: r.ref, kind: r.kind, title: r.title, snippet: r.snip, score: r.score }));
+    } catch {
+      return [];
+    }
+  }
+
   /** Brute-force exact cosine top-n over stored vectors for one model. Vectors are
    *  pre-normalized, so cosine == dot product. Scoped to `dim = qvec.length` so a
    *  row stored at a different dimension (model id reused at a new dim) can never
    *  drive an out-of-bounds BLOB read; any with an unexpected byte length are
    *  skipped defensively rather than crashing the query. */
-  private cosineRank(qvec: Float32Array, model: string, n: number): SearchHit[] {
+  private cosineRank(qvec: Float32Array, model: string, n: number, kind?: string): SearchHit[] {
     const dim = qvec.length;
-    const rows = this.db.prepare(`SELECT ref, kind, vec FROM embeddings WHERE model = ? AND dim = ?`).all(model, dim) as Array<{ ref: string; kind: string; vec: Buffer }>;
+    const rows = this.db.prepare(
+      `SELECT ref, kind, vec FROM embeddings WHERE model = ? AND dim = ?${kind ? " AND kind = ?" : ""}`,
+    ).all(...(kind ? [model, dim, kind] : [model, dim])) as Array<{ ref: string; kind: string; vec: Buffer }>;
     const scored: Array<{ ref: string; kind: string; score: number }> = [];
     for (const r of rows) {
       if (r.vec.byteLength !== dim * 4) continue; // corrupt/legacy row — skip, don't read past it

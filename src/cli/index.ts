@@ -416,7 +416,8 @@ program
   .requiredOption("--file <path>", "golden set JSON: [{ query, expected: [refs], note? }]")
   .option("--k <n>", "top-k cutoff", "10")
   .option("--semantic", "also blend the semantic stream (requires `hunch embed`; default is deterministic FTS + graph)")
-  .action(async (opts: { file: string; k: string; semantic?: boolean }) => {
+  .option("--kind <kind>", "restrict scoring to one record kind (e.g. runbooks) — scoped retrieval")
+  .action(async (opts: { file: string; k: string; semantic?: boolean; kind?: string }) => {
     const { store } = storeFor();
     store.reindex(); // reflect any out-of-band JSON edits before scoring
     let cases;
@@ -431,7 +432,7 @@ program
     // Default is deterministic (FTS + graph, no model). --semantic only adds the
     // semantic leg when embeddings actually exist; otherwise it's still FTS + graph.
     const embedder = opts.semantic ? await selectEmbedder() : undefined;
-    const lift = await evaluateGraphLift(store, cases, { k, embedder });
+    const lift = await evaluateGraphLift(store, cases, { k, embedder, kind: opts.kind });
     const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
     const dpt = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}pt`;
     const dnum = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(3)}`;
@@ -451,12 +452,25 @@ program
 // ---- runbook (distill reusable "how" from a commit range; roadmap #5) ------
 program
   .command("runbook")
-  .description("Distill a reusable runbook (the 'how' of a recurring task) from a commit range. Advisory; refine before relying on it.")
-  .argument("<range>", "commit range: <base>..<head>, or <base> (→ <base>..HEAD)")
-  .requiredOption("--task <task>", "the recurring task this runbook answers")
-  .option("--private", "write into the private overlay (HUNCH_PRIVATE_DIR), not the committed repo")
-  .action((range: string, opts: { task: string; private?: boolean }) => {
+  .description("Capture a runbook (the 'how' of a recurring task) from a commit range, or --find one. Advisory.")
+  .argument("[range]", "commit range for capture: <base>..<head>, or <base> (→ <base>..HEAD)")
+  .option("--task <task>", "the recurring task this runbook answers (capture mode)")
+  .option("--find <query>", "look up the runbooks that best match a task/intent (scoped retrieval)")
+  .option("--semantic", "use semantic retrieval for --find (requires `hunch embed`)")
+  .option("--private", "capture into the private overlay (HUNCH_PRIVATE_DIR), not the committed repo")
+  .action(async (range: string | undefined, opts: { task?: string; find?: string; semantic?: boolean; private?: boolean }) => {
     const { store, root } = storeFor();
+    // Lookup mode: scoped runbook retrieval (search within runbooks, not the whole graph).
+    if (opts.find) {
+      const emb = opts.semantic ? await selectEmbedder() : undefined;
+      const hits = await store.searchRunbooks(opts.find, 5, { embedder: emb });
+      if (!hits.length) console.log(`No runbook matches "${opts.find}".`);
+      else { console.log(`Runbooks for "${opts.find}":\n`); for (const h of hits) console.log(`• ${h.ref} — ${h.title}\n    ${h.snippet}`); }
+      store.close();
+      return;
+    }
+    // Capture mode.
+    if (!range || !opts.task) { store.close(); return fail("capture needs a <range> and --task (or use --find <query> to look up)"); }
     if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
     const [base, head = "HEAD"] = range.split("..");
     if (!base || !revExists(base, root)) { store.close(); return fail(`base ref "${base ?? ""}" not found (range: ${range})`); }

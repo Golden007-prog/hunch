@@ -16,6 +16,7 @@ import { decisionId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, commitAndPushHunch } from "../extractors/git.js";
 import { formatContext } from "../core/format.js";
+import type { Runbook } from "../core/types.js";
 import { renderMarkdown, verdict } from "../core/checkreport.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import type { Decision, Symbol } from "../core/types.js";
@@ -86,6 +87,29 @@ export function buildServer(root: string): McpServer {
         return `• [${h.kind}] ${h.ref} — ${h.title}\n    ${h.snippet}${provLine(r?.record)}`;
       });
       return ok(`Top matches for "${query}":\n\n${lines.join("\n")}`);
+    },
+  );
+
+  // -- hunch_runbook --------------------------------------------------------
+  server.registerTool(
+    "hunch_runbook",
+    {
+      title: "Find a runbook for a task",
+      description:
+        "Look up the proven 'how-to' (ordered steps + files) for a recurring task — runbook-SCOPED retrieval (searches within runbooks, not the whole graph). Use at the START of a task to reuse a known procedure instead of re-deriving it. Advisory.",
+      inputSchema: { task: z.string().describe("The task/intent, e.g. 'add an MCP tool' or 'cut a release'.") },
+    },
+    async ({ task }): Promise<ToolResult> => {
+      const hits = await store.searchRunbooks(task, 5, { embedder: await embedderReady });
+      if (!hits.length) return ok(`No runbook for "${task}" yet. Capture one with: hunch runbook <base>..<head> --task "${task}"`);
+      const lines = hits.map((h) => {
+        const r = store.resolve(h.ref)?.record as Runbook | undefined;
+        if (!r) return `• ${h.ref} — ${h.title}`;
+        const steps = r.steps.length ? `\n    steps: ${r.steps.map((s, i) => `${i + 1}. ${s}`).join("  ")}` : "";
+        const files = r.files.length ? `\n    files: ${r.files.slice(0, 8).join(", ")}` : "";
+        return `• ${r.id} — ${r.task}${steps}${files}${provLine(r)}`;
+      });
+      return ok(`Runbooks for "${task}" (advisory — a proven 'how', refine to fit):\n\n${lines.join("\n\n")}`);
     },
   );
 
