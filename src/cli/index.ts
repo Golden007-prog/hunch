@@ -29,16 +29,16 @@ import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, revExists, commitAndPushHunch } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, revExists, commitAndPushHunch, gitUntrackCached } from "../extractors/git.js";
 import { renderText, renderMarkdown, reportFailsStrict, type CheckReport } from "../core/checkreport.js";
 import { partitionReview, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
-import { ensureGitignore } from "../integrations/gitignore.js";
+import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS } from "../integrations/gitignore.js";
 import { writeCiWorkflow } from "../integrations/ciAction.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands, installClaudeHooks } from "../integrations/scaffold.js";
-import { scaffoldProviders } from "../integrations/providers.js";
+import { scaffoldProviders, regenerateGrounding } from "../integrations/providers.js";
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
@@ -48,6 +48,8 @@ import { constraintId } from "../core/ids.js";
 import type { Constraint, Decision } from "../core/types.js";
 import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
 import { mergeHunchJson } from "../store/merge.js";
+import { movePublicMemoryToPrivate } from "../store/privateMigrate.js";
+import { ENTITY_KINDS } from "../core/types.js";
 import { planCompaction } from "../store/compact.js";
 import { resolveInvocation } from "./invocation.js";
 
@@ -289,7 +291,8 @@ program
   .option("--no-hook", "don't switch the post-commit hook to private sync")
   .option("--auto-commit", "opt-in: also git add+commit+push the private repo after each capture (post-commit hook AND MCP private writes)")
   .option("--sync", "flush the configured private store now (git add+commit+push) — catches records made via MCP between commits")
-  .action((dir: string | undefined, opts: { repo?: string; hook: boolean; autoCommit?: boolean; sync?: boolean }) => {
+  .option("--migrate", "ONE-TIME: move this repo's EXISTING public .hunch memory into the overlay, then make the public repo code-only — untrack + gitignore the memory tree and regenerate grounding so no memory is published here")
+  .action((dir: string | undefined, opts: { repo?: string; hook: boolean; autoCommit?: boolean; sync?: boolean; migrate?: boolean }) => {
     const root = findRoot();
     if (opts.sync) {
       const s = new HunchStore(hunchPaths(root));
@@ -332,10 +335,35 @@ program
       const h = installPostCommitHook(root, inv.shell, { private: true, commit: opts.autoCommit });
       hookNote = `  ✓ post-commit hook ${h.action} — captured decisions route here${opts.autoCommit ? " (auto-commit+push on)" : ""}\n`;
     }
+    // 5) one-time migration: MOVE existing public memory INTO the overlay, then make
+    //    THIS repo code-only. Records are absorbed (union by id) BEFORE the public
+    //    store is emptied, so an interrupted run never loses memory.
+    let migrateNote = "";
+    if (opts.migrate) {
+      const pub = new JsonStore(paths);
+      const priv = new JsonStore(hunchPathsForDir(hunchDir));
+      const res = movePublicMemoryToPrivate(pub, priv);
+      for (const kind of ENTITY_KINDS) pub.dropAll(kind); // public store now empty on disk
+      if (isGitRepo(root)) gitUntrackCached(root, HUNCH_MEMORY_DIRS); // stop publishing it
+      ignoreHunchMemory(root);
+      const gstore = new HunchStore(paths); // public store is empty → grounding shows no memory
+      const grounding = regenerateGrounding(root, gstore);
+      gstore.close();
+      commitAndPushHunch(hunchDir, "hunch: absorb public memory into private overlay"); // durable
+      const breakdown = Object.entries(res.moved).map(([k, n]) => `${n} ${k}`).join(", ") || "0 records";
+      migrateNote =
+        `  ✓ migrated public memory → overlay (${breakdown}); public store emptied\n` +
+        `  ✓ untracked + gitignored the .hunch memory tree — this repo is now CODE-ONLY\n` +
+        `  ✓ regenerated ${grounding.length} grounding file(s) (CLAUDE.md, AGENTS.md, …) — no public memory shown\n` +
+        `  ✓ committed + pushed the private overlay (best-effort)\n` +
+        `  next: review, then commit the PUBLIC repo:\n` +
+        `      git add -A && git commit -m "chore: move engineering memory to a private overlay" && git push\n`;
+    }
     console.log(
       `✓ private overlay enabled → ${hunchDir}\n` +
       `  ✓ recorded in .hunch/local.json (gitignored) — auto-detected, no env var or shell-profile edit\n` +
       hookNote +
+      migrateNote +
       `  record sensitive items with private:true (hunch_record_decision / hunch_record_correction)\n` +
       `  override per-shell with HUNCH_PRIVATE_DIR; CI / public PR comments stay public-only.`,
     );

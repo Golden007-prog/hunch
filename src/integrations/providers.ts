@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import type { Invocation } from "./scaffold.js";
-import { renderHunchSection, upsertSection } from "./claudemd.js";
+import { renderHunchSection, upsertSection, updateClaudeMd } from "./claudemd.js";
 
 /** Strip // line and block comments + trailing commas (JSONC → JSON). String-aware
  *  (double-quoted, with escapes) so a // inside a value isn't mangled. VS Code's
@@ -207,6 +207,22 @@ export function writeWindsurfRule(root: string, store: HunchStore): string {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, body);
   return file;
+}
+
+/** Rewrite the auto-maintained Hunch section in EVERY assistant grounding doc
+ *  (CLAUDE.md, AGENTS.md, Copilot instructions, Cursor + Windsurf rules) from the
+ *  current store — without touching the MCP/provider config files. `hunch private
+ *  --migrate` calls this AFTER emptying the public store so the committed public
+ *  docs reflect that no engineering memory is published here (renderHunchSection
+ *  reads the public store only, so private records never leak into them). */
+export function regenerateGrounding(root: string, store: HunchStore): string[] {
+  return [
+    updateClaudeMd(root, store),
+    writeAgentsMd(root, store),
+    writeCopilotInstructions(root, store),
+    writeCursorRule(root, store),
+    writeWindsurfRule(root, store),
+  ];
 }
 
 export interface ProviderScaffold {

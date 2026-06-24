@@ -53,6 +53,17 @@ export function headSha(cwd: string): string {
   return gitSafe(["rev-parse", "HEAD"], cwd);
 }
 
+/** Stop tracking `paths` in git (remove from the INDEX only — keep the working-tree
+ *  files). Used by `hunch private --migrate` to un-publish the .hunch memory tree
+ *  without deleting it locally. `--ignore-unmatch` makes an already-untracked path a
+ *  no-op rather than an error; best-effort (a non-repo dir just no-ops). */
+export function gitUntrackCached(cwd: string, paths: string[]): void {
+  if (paths.length === 0) return;
+  try {
+    execFileSync("git", ["-C", cwd, "rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", ...paths], { stdio: "ignore" });
+  } catch { /* best-effort: not a repo / nothing tracked */ }
+}
+
 /** Resolve any commit-ish (short sha / HEAD / branch) to a canonical full sha.
  *  Returns the input unchanged if it can't be resolved (e.g. not a git repo). */
 export function revParse(ref: string, cwd: string): string {

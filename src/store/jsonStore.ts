@@ -226,6 +226,24 @@ export class JsonStore {
     return true;
   }
 
+  /** Remove EVERY record of a kind from disk (the kind dir's JSON files), keeping
+   *  the dir itself so the layout/manifest survive. Used by `hunch private --migrate`
+   *  to empty the PUBLIC store after its records have been moved into the private
+   *  overlay. Returns the number of files removed. Invalidates the memoized load. */
+  dropAll(kind: EntityKind): number {
+    const dir = this.paths.dir(kind);
+    if (!existsSync(dir)) return 0;
+    let n = 0;
+    for (const name of readdirSync(dir)) {
+      if (name.endsWith(".json")) {
+        rmSync(join(dir, name));
+        n++;
+      }
+    }
+    this.invalidate(kind);
+    return n;
+  }
+
   /** Persist a schema migration: rewrite every LOADABLE record in its current shape.
    *  A record that still fails validation after migration is kept untouched (never
    *  deleted) and counted as `skipped`, so migration can't lose data. The caller

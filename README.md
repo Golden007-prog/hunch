@@ -179,6 +179,13 @@ the CI PR comment render *public-only*, so a private record can't reach a public
 sensitive items with `private: true` (`hunch_record_decision` / `hunch_record_correction`);
 post-commit synthesis can route there too, and `hunch private --auto-commit` (opt-in)
 auto-commits + pushes each capture to the private repo — recursion-safe, staging only `.hunch/`.
+
+Already published a repo *with* its `.hunch/` memory and want it private after the fact?
+`hunch private --repo <url> --migrate` does it in one shot: it **moves** your existing public
+records into the overlay (union by id — nothing is lost), empties the public store, untracks +
+gitignores the `.hunch/` memory tree, and regenerates the assistant grounding (CLAUDE.md, AGENTS.md,
+…) so the repo becomes **code-only**. It commits the private overlay for you and prints the one
+`git` command to commit the now-clean public repo.
 → [docs](https://hunch-pi.vercel.app/docs#private)
 
 ## Continuous learning (CI)
