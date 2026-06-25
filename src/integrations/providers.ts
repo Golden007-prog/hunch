@@ -18,6 +18,7 @@
  * and is idempotent, so re-running `hunch init` is safe.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import type { Invocation } from "./scaffold.js";
@@ -126,6 +127,34 @@ export function writeVscodeMcp(root: string, inv: Invocation): string {
   const json = readJsonObj(file) as { servers?: Record<string, unknown> };
   json.servers = json.servers ?? {};
   json.servers.hunch = { type: "stdio", command: inv.command, args: [...inv.args, "mcp"] };
+  return writeJson(file, json);
+}
+
+/** Google Antigravity's MCP config is GLOBAL (user home), not project-local — and the
+ *  dir moved between versions (`antigravity/` vs `config/`). Resolve adaptively: an
+ *  existing config wins, else an existing parent dir, else null (Antigravity not
+ *  installed — we never create a global config for an absent tool). `home` is injectable
+ *  for tests so we never touch the real ~/.gemini. */
+export function antigravityMcpFile(home = homedir()): string | null {
+  const candidates = [
+    join(home, ".gemini", "antigravity", "mcp_config.json"),
+    join(home, ".gemini", "config", "mcp_config.json"),
+  ];
+  for (const c of candidates) if (existsSync(c)) return c;
+  for (const c of candidates) if (existsSync(dirname(c))) return c;
+  return null;
+}
+
+/** Antigravity: merge the hunch stdio server into the global mcp_config.json — same
+ *  `mcpServers` { command, args } shape as Cursor/Claude (stdio; `serverUrl` is only for
+ *  HTTP servers). Returns null when Antigravity isn't detected. Grounding needs nothing
+ *  extra: Antigravity reads the project-root AGENTS.md Hunch already writes. */
+export function writeAntigravityMcp(inv: Invocation, home = homedir()): string | null {
+  const file = antigravityMcpFile(home);
+  if (!file) return null;
+  const json = readJsonObj(file) as { mcpServers?: Record<string, unknown> };
+  json.mcpServers = json.mcpServers ?? {};
+  json.mcpServers.hunch = { command: inv.command, args: [...inv.args, "mcp"] };
   return writeJson(file, json);
 }
 
@@ -269,6 +298,9 @@ export function scaffoldProviders(root: string, inv: Invocation, store: HunchSto
     ["VS Code (Copilot)", () => [writeVscodeMcp(root, inv), writeCopilotInstructions(root, store)]],
     ["Codex CLI", () => [writeCodexConfig(root, inv)]],
     ["Windsurf", () => [writeWindsurfMcp(root, inv), writeWindsurfRule(root, store)]],
+    // Antigravity reads project-root AGENTS.md for grounding (written below); its MCP
+    // config is global + detection-gated, so it only writes when Antigravity is installed.
+    ["Google Antigravity", () => { const f = writeAntigravityMcp(inv); return f ? [f] : []; }],
     ["Any (AGENTS.md)", () => [writeAgentsMd(root, store)]],
   ];
   return tasks.map(([assistant, run]) => {

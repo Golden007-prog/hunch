@@ -18,7 +18,7 @@ cd your-repo && hunch init && hunch backfill --since 90d
 hunch why src/some/file.ts     # …or just ask Claude Code: "why is X built this way?"
 ```
 
-<sub>Works with **Claude Code, Cursor, Copilot & Windsurf** from one shared graph.</sub>
+<sub>Works with **Claude Code, Cursor, Copilot, Windsurf & Google Antigravity** from one shared graph.</sub>
 
 ### 📚 **[Read the full documentation → hunch-pi.vercel.app/docs](https://hunch-pi.vercel.app/docs)**
 
@@ -96,7 +96,7 @@ hunch why src/auth/session.ts       # …then ask your assistant: "why is X buil
 
 `hunch init` scaffolds `.hunch/`, indexes the repo, installs the git hooks + merge driver,
 writes `.mcp.json` + slash commands + an auto-maintained `CLAUDE.md`, and wires up **every
-detected assistant** (Claude Code, Cursor, VS Code/Copilot, Windsurf, Codex) to the same
+detected assistant** (Claude Code, Cursor, VS Code/Copilot, Windsurf, Codex, Google Antigravity) to the same
 graph — merging idempotently into existing files. **Reload your assistant in the repo**
 afterward to pick up the `hunch_*` tools. Each teammate runs `hunch init` once; the
 `.hunch/` content is shared via git.
