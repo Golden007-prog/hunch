@@ -40,7 +40,7 @@ import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS } from "../integr
 import { writeCiWorkflow } from "../integrations/ciAction.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands, installClaudeHooks } from "../integrations/scaffold.js";
-import { scaffoldProviders, regenerateGrounding } from "../integrations/providers.js";
+import { scaffoldProviders, regenerateGrounding, refreshExistingGrounding } from "../integrations/providers.js";
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
@@ -177,9 +177,12 @@ program
     ensureGitignore(root); // keep the derived SQLite index out of git (idempotent)
     const res = indexRepo(store, root);
     const { counts } = store.reindex();
-    updateClaudeMd(root, store);
+    // Self-heal grounding: pick up generator fixes (param names) + fresh counts in every
+    // assistant doc the project already has — no manual re-init. Refresh-only (no scaffold).
+    const healed = refreshExistingGrounding(root, store);
     console.log(`Indexed ${res.files} files:`);
     console.log(`  ${counts.symbols} symbols, ${counts.edges} edges, ${counts.components} components`);
+    if (healed.length) console.log(`  grounding refreshed: ${healed.join(", ")}`);
     if (res.skipped) console.log(`  ⚠ ${res.skipped} file(s) could not be parsed (skipped)`);
     store.close();
   });
@@ -267,9 +270,13 @@ program
     const r = await syncCommit(store, root, sha ?? headSha(root), { force: opts.force, private: opts.private, deep: opts.deep, verify: opts.verify, samples: parseSamples(opts.samples) });
     if (r.status === "written") {
       store.reindex();
-      // Don't rewrite CLAUDE.md from the hook — it would dirty the working tree
-      // on every commit. `hunch index`/`init` refresh it intentionally instead.
-      if (!opts.fromHook) updateClaudeMd(root, store);
+      // Don't rewrite grounding from the hook — it would dirty the working tree on
+      // every commit. Off the hook (manual `hunch sync`), self-heal ALL existing
+      // grounding docs (param-name fixes + fresh counts), not just CLAUDE.md.
+      if (!opts.fromHook) {
+        const healed = refreshExistingGrounding(root, store);
+        if (healed.length && !opts.quiet) console.log(`  ↳ grounding refreshed: ${healed.join(", ")}`);
+      }
       // Opt-in: persist the captured decision in the repo it landed in (private store
       // under --private, else this repo). Best-effort — a non-repo dir / offline push
       // just no-ops. Stage ONLY the hunch dir (never sweep unrelated working-tree

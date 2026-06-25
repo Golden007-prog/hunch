@@ -225,6 +225,32 @@ export function regenerateGrounding(root: string, store: HunchStore): string[] {
   ];
 }
 
+/** Self-heal: refresh the Hunch section in each grounding doc that ALREADY exists,
+ *  and report which ones actually changed. Unlike regenerateGrounding it NEVER creates
+ *  a file (so it can't scaffold grounding into a project that opted out of an
+ *  assistant). Run by `hunch index` and non-hook `hunch sync` so a project silently
+ *  picks up generator fixes (e.g. corrected MCP tool param names) and fresh record
+ *  counts on the next refresh — no manual `hunch init`. Not run from the commit hook,
+ *  which deliberately avoids dirtying the working tree on every commit. */
+export function refreshExistingGrounding(root: string, store: HunchStore): string[] {
+  const targets: Array<[string, () => string]> = [
+    ["CLAUDE.md", () => updateClaudeMd(root, store)],
+    ["AGENTS.md", () => writeAgentsMd(root, store)],
+    [join(".github", "copilot-instructions.md"), () => writeCopilotInstructions(root, store)],
+    [join(".cursor", "rules", "hunch.mdc"), () => writeCursorRule(root, store)],
+    [join(".windsurf", "rules", "hunch.md"), () => writeWindsurfRule(root, store)],
+  ];
+  const changed: string[] = [];
+  for (const [rel, write] of targets) {
+    const file = join(root, rel);
+    if (!existsSync(file)) continue; // refresh-only: never scaffold a doc the project doesn't have
+    const before = readFileSync(file, "utf8");
+    write();
+    if (readFileSync(file, "utf8") !== before) changed.push(rel);
+  }
+  return changed;
+}
+
 export interface ProviderScaffold {
   assistant: string;
   files: string[];

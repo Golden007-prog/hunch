@@ -3,7 +3,7 @@
 <!-- HUNCH:START — auto-generated, do not edit by hand -->
 ## 🧠 Hunch (Engineering Memory)
 
-This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **0 decisions, 0 bugs, 0 constraints, 0 components**.
+This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **0 decisions, 0 bugs, 0 constraints, 10 components**.
 
 **Before reasoning about or editing this codebase, consult Hunch via the `hunch_*` MCP tools:**
 - `hunch_why(target)` — why a file/symbol is shaped this way (decisions, bugs, constraints).
@@ -11,6 +11,7 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 - `hunch_get_dependents(symbol)` — blast radius before a change.
 - `hunch_bug_lineage(symptom_or_symbol)` — has this bug happened before? what was the root cause?
 - `hunch_query(query)` — free-text search across all of Hunch.
+- `hunch_runbook(task)` — the proven steps for a recurring task (e.g. "add an MCP tool", "cut a release").
 - `hunch_record_decision(...)` — write back a decision after a non-trivial choice.
 
 _Hunch updates itself from commits and test failures. Records carry provenance + confidence; treat low-confidence items as advisory._
