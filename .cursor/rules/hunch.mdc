@@ -12,8 +12,8 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 - `hunch_why(target)` — why a file/symbol is shaped this way (decisions, bugs, constraints).
 - `hunch_check_constraints(scope)` — invariants you must not break. **Always run before editing.**
 - `hunch_get_dependents(symbol)` — blast radius before a change.
-- `hunch_bug_lineage(symptom)` — has this bug happened before? what was the root cause?
-- `hunch_query(question)` — free-text search across all of Hunch.
+- `hunch_bug_lineage(symptom_or_symbol)` — has this bug happened before? what was the root cause?
+- `hunch_query(query)` — free-text search across all of Hunch.
 - `hunch_record_decision(...)` — write back a decision after a non-trivial choice.
 
 _Hunch updates itself from commits and test failures. Records carry provenance + confidence; treat low-confidence items as advisory._
