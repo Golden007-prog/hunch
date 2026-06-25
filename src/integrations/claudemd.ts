@@ -39,6 +39,7 @@ export function renderHunchSection(store: HunchStore): string {
   lines.push("- `hunch_bug_lineage(symptom_or_symbol)` — has this bug happened before? what was the root cause?");
   lines.push("- `hunch_query(query)` — free-text search across all of Hunch.");
   lines.push("- `hunch_runbook(task)` — the proven steps for a recurring task (e.g. \"add an MCP tool\", \"cut a release\").");
+  lines.push("- `hunch_compare(candidates)` — rank N candidate branches/commits by architectural fit (fewest invariant hits).");
   lines.push("- `hunch_record_decision(...)` — write back a decision after a non-trivial choice.");
   if (constraints.length) {
     lines.push("");

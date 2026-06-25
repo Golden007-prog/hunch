@@ -47,6 +47,7 @@ import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } f
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { computeDrift } from "../core/drift.js";
+import { compareCandidates } from "../core/compare.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
 import type { Constraint, Decision } from "../core/types.js";
@@ -505,6 +506,28 @@ program
     store.reindex();
     console.log(`✓ runbook ${rec.id} — "${rec.task}"  (${rec.steps.length} steps, ${rec.files.length} files)${opts.private ? " [private overlay]" : ""}`);
     console.log(dim("  advisory, deterministic draft — refine the steps/gotchas; surfaced via `hunch query` and MCP."));
+    store.close();
+  });
+
+// ---- compare (rank N candidate solutions by architectural fit) ------------
+program
+  .command("compare")
+  .description("Rank candidate branches/commits by how well each fits the architecture — deterministic merge-verdict over the graph (the 'evaluate 5 solutions' check).")
+  .argument("<candidates...>", "refs to compare (branches or commits), e.g. feat-a feat-b feat-c")
+  .option("--base <ref>", "base to diff each candidate against (3-dot, since merge-base)", "main")
+  .action((candidates: string[], opts: { base: string }) => {
+    const { store, root } = storeFor();
+    if (!isGitRepo(root)) { store.close(); return fail("compare needs a git repo"); }
+    if (!revExists(opts.base, root)) { store.close(); return fail(`base ref "${opts.base}" not found (pass --base <ref>)`); }
+    store.reindex();
+    const ranked = compareCandidates(store, root, opts.base, candidates);
+    const icon = (v: string) => (v === "pass" ? "✅" : v === "warn" ? "⚠️ " : "⛔");
+    console.log(`Candidates vs ${opts.base} — best architectural fit first:\n`);
+    ranked.forEach((c, i) => {
+      if (c.error) { console.log(`  ${i + 1}. ${c.ref} — ${c.error}`); return; }
+      const best = i === 0 ? dim("  ← best fit") : "";
+      console.log(`  ${i + 1}. ${icon(c.verdict)} ${c.ref}  [${c.verdict}]  ${c.blocking} blocking · ${c.direct} direct · ${c.near} near · ${c.vetoes} veto · ${c.redundant} redundant  (${c.files} files)${best}`);
+    });
     store.close();
   });
 

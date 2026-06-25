@@ -17,6 +17,7 @@ import { buildCorrectionConstraint } from "../core/correction.js";
 import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, commitAndPushHunch } from "../extractors/git.js";
 import { formatContext } from "../core/format.js";
 import type { Runbook } from "../core/types.js";
+import { compareCandidates } from "../core/compare.js";
 import { renderMarkdown, verdict } from "../core/checkreport.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import type { Decision, Symbol } from "../core/types.js";
@@ -458,6 +459,38 @@ export function buildServer(root: string): McpServer {
         return ok(`${head}\n(scope: ${scope}, ${files.length} file(s))\n\n${renderMarkdown(report)}`);
       } catch (e) {
         return err(`Failed to compute merge verdict: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  // -- hunch_compare --------------------------------------------------------
+  server.registerTool(
+    "hunch_compare",
+    {
+      title: "Rank candidate solutions by architectural fit",
+      description:
+        "Given several candidate branches/commits (e.g. N solutions to one task), replay each against engineering memory and RANK them best-fit first — the candidate that trips the fewest in-force invariants, reverses no decisions, and adds the least sprawl wins. Deterministic (the same merge-verdict per candidate, no LLM). Use to choose among multiple solutions before committing to one.",
+      inputSchema: {
+        candidates: z.array(z.string()).describe("Refs to compare — branches or commits, e.g. ['feat-a','feat-b','feat-c']."),
+        base: z.string().optional().describe("Base to diff each candidate against (3-dot; default: main)."),
+      },
+    },
+    async ({ candidates, base }): Promise<ToolResult> => {
+      try {
+        const b = base ?? "main";
+        if (!candidates.length) return err("Pass at least one candidate ref.");
+        if (!revExists(b, root)) return err(`base ref "${b}" does not resolve (in CI, fetch it first).`);
+        const ranked = compareCandidates(store, root, b, candidates);
+        const icon = (v: string) => (v === "pass" ? "✅" : v === "warn" ? "⚠" : "⛔");
+        const lines = ranked.map((c, i) =>
+          c.error
+            ? `${i + 1}. ${c.ref} — ${c.error}`
+            : `${i + 1}. ${icon(c.verdict)} ${c.ref} [${c.verdict}] — ${c.blocking} blocking · ${c.direct} direct · ${c.near} near · ${c.vetoes} veto · ${c.redundant} redundant (${c.files} files)`,
+        );
+        const best = ranked.find((c) => !c.error);
+        return ok(`Candidates vs ${b}, best architectural fit first:\n\n${lines.join("\n")}${best ? `\n\nBest fit: ${best.ref}` : ""}`);
+      } catch (e) {
+        return err(`Failed to compare candidates: ${(e as Error).message}`);
       }
     },
   );
