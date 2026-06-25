@@ -397,6 +397,9 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
           <tr><td><code>hunch_merge_verdict</code></td><td>A cited <b>BLOCK / WARN / PASS</b> over a diff (see <a class="link" href="#merge-verdict">below</a>).</td></tr>
           <tr><td><code>hunch_record_decision</code></td><td>Write-back: persist a new Decision (ADR) with provenance.</td></tr>
           <tr><td><code>hunch_record_correction</code></td><td>Write-back: turn a correction into an enforced invariant (see <a class="link" href="#never-twice">Never Twice</a>).</td></tr>
+          <tr><td><code>hunch_runbook</code></td><td>The proven steps for a recurring task (e.g. “add an MCP tool”) — kind-scoped retrieval over runbooks.</td></tr>
+          <tr><td><code>hunch_compare</code></td><td>Rank N candidate branches/commits by architectural fit (fewest invariant hits) — the “evaluate 5 solutions” check.</td></tr>
+          <tr><td><code>hunch_conformance</code></td><td>Does the code still <b>satisfy</b> recorded intent? (e.g. <code>pay</code> still reaches <code>verifySession</code>) — deterministic, over the graph.</td></tr>
         </tbody>
       </table>
     </section>
@@ -513,7 +516,12 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
           <tr><td><code>compact</code></td><td>Prune low-value auto-captured records.</td></tr>
           <tr><td><code>migrate</code></td><td>Upgrade <code>.hunch/</code> records to the current schema version.</td></tr>
           <tr><td><code>mcp</code></td><td>Start the MCP server over stdio.</td></tr>
-          <tr><td><code>doctor</code></td><td>Diagnose the environment (git, synthesis provider, index freshness).</td></tr>
+          <tr><td><code>doctor</code></td><td>Diagnose the environment (git, synthesis provider, index freshness) + flag memory drift (dead refs, dangling supersedes, stale “proposed” docs).</td></tr>
+          <tr><td><code>conform</code></td><td>Intent-conformance — prove the code still satisfies each decision’s recorded intent over the graph. <code>--strict</code> to fail.</td></tr>
+          <tr><td><code>compare</code></td><td>Rank candidate branches/commits by architectural fit. <code>hunch compare feat-a feat-b --base main</code></td></tr>
+          <tr><td><code>runbook</code></td><td>Distill a reusable runbook from a commit range, or <code>--find &lt;query&gt;</code> to look one up.</td></tr>
+          <tr><td><code>eval</code></td><td>Score retrieval quality (Recall@k, MRR) over a golden set; A/B the graph stream. <code>--kind runbooks</code></td></tr>
+          <tr><td><code>capture-comments</code></td><td>Lift inline <code>hunch-why:</code> / <code>hunch-rule:</code> comments into the graph (decisions + constraints).</td></tr>
         </tbody>
       </table>
     </section>
