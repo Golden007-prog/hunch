@@ -36,8 +36,9 @@ export function renderHunchSection(store: HunchStore): string {
   lines.push("- `hunch_why(target)` — why a file/symbol is shaped this way (decisions, bugs, constraints).");
   lines.push("- `hunch_check_constraints(scope)` — invariants you must not break. **Always run before editing.**");
   lines.push("- `hunch_get_dependents(symbol)` — blast radius before a change.");
-  lines.push("- `hunch_bug_lineage(symptom)` — has this bug happened before? what was the root cause?");
-  lines.push("- `hunch_query(question)` — free-text search across all of Hunch.");
+  lines.push("- `hunch_bug_lineage(symptom_or_symbol)` — has this bug happened before? what was the root cause?");
+  lines.push("- `hunch_query(query)` — free-text search across all of Hunch.");
+  lines.push("- `hunch_runbook(task)` — the proven steps for a recurring task (e.g. \"add an MCP tool\", \"cut a release\").");
   lines.push("- `hunch_record_decision(...)` — write back a decision after a non-trivial choice.");
   if (constraints.length) {
     lines.push("");
