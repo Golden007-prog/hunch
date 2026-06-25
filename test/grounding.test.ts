@@ -16,6 +16,7 @@ test("grounding tool signatures match the real MCP param names (no agent-mislead
   assert.match(md, /hunch_bug_lineage\(symptom_or_symbol\)/, "hunch_bug_lineage param is `symptom_or_symbol`");
   assert.match(md, /hunch_runbook\(task\)/, "hunch_runbook is advertised so agents can discover it");
   assert.match(md, /hunch_compare\(candidates\)/, "hunch_compare is advertised");
+  assert.match(md, /hunch_conformance\(\)/, "hunch_conformance is advertised");
   assert.match(md, /hunch_why\(target\)/);
   assert.match(md, /hunch_check_constraints\(scope\)/);
   assert.match(md, /hunch_get_dependents\(symbol\)/);

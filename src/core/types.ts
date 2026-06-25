@@ -112,6 +112,20 @@ export const RejectedTripwireSchema = z.object({
 export type RejectedTripwire = z.infer<typeof RejectedTripwireSchema>;
 
 /** ADR-style decision record, auto-drafted and human-confirmable. */
+/** Intent-conformance predicate (the "inversion": prove the code still SATISFIES a
+ *  decision's intent, not just that a diff didn't touch a guarded file). Each predicate
+ *  compiles a decision's intent into a DETERMINISTIC check over the symbol/dependency
+ *  graph Hunch already builds — no model. "pay must verify the session" becomes
+ *  { assert: "calls", subject: "pay", object: "verifySession" }; if pay stops calling
+ *  verifySession the intent is VIOLATED even with no diff in scope. */
+export const ConformancePredicateSchema = z.object({
+  assert: z.enum(["calls", "not-calls", "imports", "not-imports", "exists"]),
+  subject: z.string().describe("symbol name / id / file:name the intent is about"),
+  object: z.string().optional().describe("required (calls/imports) or forbidden (not-*) target"),
+  transitive: z.boolean().default(false).describe("allow an indirect path over the dependency graph"),
+});
+export type ConformancePredicate = z.infer<typeof ConformancePredicateSchema>;
+
 export const DecisionSchema = z.object({
   id: z.string().describe("dec_*"),
   title: z.string(),
@@ -135,6 +149,7 @@ export const DecisionSchema = z.object({
   valid_from: z.string().optional().describe("ISO instant the decision took effect (commit date)"),
   valid_to: z.string().nullable().default(null).describe("ISO instant it was superseded (null = in force)"),
   retired: RetiredSignalSchema.default({ symbols: [], deps: [] }),
+  conformance: z.array(ConformancePredicateSchema).optional().describe("deterministic intent-conformance checks over the graph"),
   provenance: ProvenanceSchema,
   date: z.string(),
 });

@@ -40,6 +40,7 @@ export function renderHunchSection(store: HunchStore): string {
   lines.push("- `hunch_query(query)` — free-text search across all of Hunch.");
   lines.push("- `hunch_runbook(task)` — the proven steps for a recurring task (e.g. \"add an MCP tool\", \"cut a release\").");
   lines.push("- `hunch_compare(candidates)` — rank N candidate branches/commits by architectural fit (fewest invariant hits).");
+  lines.push("- `hunch_conformance()` — does the code still SATISFY recorded intent? (e.g. `pay` still reaches `verifySession`). Run before a refactor.");
   lines.push("- `hunch_record_decision(...)` — write back a decision after a non-trivial choice.");
   if (constraints.length) {
     lines.push("");

@@ -18,6 +18,7 @@ import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, c
 import { formatContext } from "../core/format.js";
 import type { Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
+import { checkConformance } from "../core/conformance.js";
 import { renderMarkdown, verdict } from "../core/checkreport.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import type { Decision, Symbol } from "../core/types.js";
@@ -492,6 +493,25 @@ export function buildServer(root: string): McpServer {
       } catch (e) {
         return err(`Failed to compare candidates: ${(e as Error).message}`);
       }
+    },
+  );
+
+  // -- hunch_conformance ----------------------------------------------------
+  server.registerTool(
+    "hunch_conformance",
+    {
+      title: "Does the code still satisfy the recorded intent?",
+      description:
+        "Intent-conformance (the inversion of a normal guard): for every in-force decision carrying a conformance predicate, deterministically verify the CODE still satisfies its intent over the dependency graph — e.g. 'pay still reaches verifySession'. Returns the violations: intent the code has silently drifted away from, with NO diff required. Run before a refactor or merge to catch intent erosion a diff-only check can't see.",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      const results = checkConformance(store);
+      if (!results.length) return ok("No conformance predicates recorded. Add a `conformance` predicate to a decision (e.g. {assert:'calls', subject:'pay', object:'verifySession'}) to prove the code honors its intent.");
+      const violations = results.filter((r) => !r.satisfied);
+      const lines = results.map((r) => `${r.satisfied ? "✅" : "⛔"} ${r.decision} "${r.title}" — ${r.assert} ${r.subject}${r.object ? ` → ${r.object}` : ""}: ${r.detail}`);
+      const head = violations.length ? `⛔ ${violations.length} intent(s) the code no longer satisfies` : "✅ the code satisfies every recorded intent";
+      return ok(`Intent-conformance (${results.length - violations.length}/${results.length} satisfied):\n\n${lines.join("\n")}\n\n${head}`);
     },
   );
 

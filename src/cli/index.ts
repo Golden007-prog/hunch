@@ -49,6 +49,7 @@ import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpol
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { computeDrift } from "../core/drift.js";
 import { compareCandidates } from "../core/compare.js";
+import { checkConformance } from "../core/conformance.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
 import type { Constraint, Decision } from "../core/types.js";
@@ -557,6 +558,36 @@ program
     store.reindex();
     if (!intents.length) console.log("No `hunch-why:` / `hunch-rule:` comments found.");
     else console.log(`✓ captured ${dec} decision(s) + ${con} constraint(s) from inline comments${opts.private ? " [private overlay]" : ""}`);
+    store.close();
+  });
+
+// ---- conform (intent-conformance: does code still satisfy the recorded why) ----
+program
+  .command("conform")
+  .description("Intent-conformance: prove the code still SATISFIES each in-force decision's recorded intent (deterministic, over the graph). Surfaces where code drifted from the why — even with no diff in scope.")
+  .option("--strict", "exit non-zero if any intent is violated")
+  .action((opts: { strict?: boolean }) => {
+    const { store } = storeFor();
+    store.reindex();
+    const results = checkConformance(store);
+    if (!results.length) {
+      console.log("No conformance predicates recorded yet.");
+      console.log(dim("  Add a `conformance` predicate to a decision (e.g. { assert: \"calls\", subject: \"pay\", object: \"verifySession\" }) to prove the code honors its intent."));
+      store.close();
+      return;
+    }
+    const violations = results.filter((r) => !r.satisfied);
+    console.log(`Intent-conformance: ${results.length - violations.length}/${results.length} satisfied\n`);
+    for (const r of results) {
+      console.log(`  ${r.satisfied ? "✅" : "⛔"} ${r.decision} — "${r.title}"`);
+      console.log(`     ${r.assert} ${r.subject}${r.object ? ` → ${r.object}` : ""}: ${r.detail}`);
+    }
+    if (violations.length) {
+      console.log(`\n⛔ ${violations.length} intent(s) the code no longer satisfies.`);
+      if (opts.strict) process.exitCode = 1;
+    } else {
+      console.log(`\n✅ the code satisfies every recorded intent.`);
+    }
     store.close();
   });
 

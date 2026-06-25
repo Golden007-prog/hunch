@@ -13,6 +13,7 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 - `hunch_query(query)` — free-text search across all of Hunch.
 - `hunch_runbook(task)` — the proven steps for a recurring task (e.g. "add an MCP tool", "cut a release").
 - `hunch_compare(candidates)` — rank N candidate branches/commits by architectural fit (fewest invariant hits).
+- `hunch_conformance()` — does the code still SATISFY recorded intent? (e.g. `pay` still reaches `verifySession`). Run before a refactor.
 - `hunch_record_decision(...)` — write back a decision after a non-trivial choice.
 
 _Hunch updates itself from commits and test failures. Records carry provenance + confidence; treat low-confidence items as advisory._
