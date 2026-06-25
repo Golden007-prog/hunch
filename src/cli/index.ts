@@ -30,8 +30,9 @@ import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesi
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
 import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, commitAndPushHunch, gitUntrackCached } from "../extractors/git.js";
-import { runbookId } from "../core/ids.js";
+import { runbookId, decisionId } from "../core/ids.js";
 import type { Runbook } from "../core/types.js";
+import { extractInlineIntent } from "../extractors/comments.js";
 import { renderText, renderMarkdown, reportFailsStrict, type CheckReport } from "../core/checkreport.js";
 import { partitionReview, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
@@ -506,6 +507,56 @@ program
     store.reindex();
     console.log(`✓ runbook ${rec.id} — "${rec.task}"  (${rec.steps.length} steps, ${rec.files.length} files)${opts.private ? " [private overlay]" : ""}`);
     console.log(dim("  advisory, deterministic draft — refine the steps/gotchas; surfaced via `hunch query` and MCP."));
+    store.close();
+  });
+
+// ---- capture-comments (inline intent → graph; addendum #2) ----------------
+program
+  .command("capture-comments")
+  .description("Capture inline intent comments into the graph: `hunch-why:` → a decision, `hunch-rule:` → a file-scoped constraint. Deterministic + idempotent.")
+  .option("--private", "write captured records into the private overlay (HUNCH_PRIVATE_DIR)")
+  .action((opts: { private?: boolean }) => {
+    const { store, root } = storeFor();
+    if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
+    const intents = extractInlineIntent(root);
+    const now = new Date().toISOString();
+    let dec = 0, con = 0;
+    for (const it of intents) {
+      const ev = [`${it.file}:${it.line}`];
+      if (it.kind === "why") {
+        const id = decisionId(`inline:${it.file}:${it.text}`);
+        const prev = store.recs("decisions").find((d) => d.id === id); // preserve window for idempotent re-capture
+        const rec: Decision = {
+          id, title: it.text, status: "accepted",
+          context: `Captured from an inline hunch-why comment (${it.file}:${it.line}).`,
+          decision: it.text, consequences: [], alternatives_rejected: [], rejected_tripwires: [],
+          related_components: [], related_files: [it.file], supersedes: null, superseded_by: null,
+          caused_by_bug: null, commit: null, valid_from: prev?.valid_from ?? now, valid_to: null,
+          retired: { symbols: [], deps: [] },
+          provenance: { source: "human_confirmed", confidence: 0.9, evidence: ev }, date: prev?.date ?? now,
+        };
+        if (opts.private) store.putPrivate("decisions", rec); else store.json.put("decisions", rec);
+        dec++;
+      } else {
+        const id = constraintId(`inline:${it.file}:${it.text}`);
+        const prev = store.recs("constraints").find((c) => c.id === id);
+        const rec: Constraint = {
+          id, type: "correctness", statement: it.text, scope: [it.file],
+          // Advisory by default — an inline rule never auto-blocks a build; raise severity
+          // deliberately if you want enforcement. Keeps day-one zero false-positive rage.
+          severity: "warning", enforcement: "advisory_v1",
+          rationale: `Captured from an inline hunch-rule comment (${it.file}:${it.line}).`,
+          source_decision: null, violations: [], status: "active",
+          valid_from: prev?.valid_from ?? now, valid_to: null,
+          provenance: { source: "human_confirmed", confidence: 0.9, evidence: ev },
+        };
+        if (opts.private) store.putPrivate("constraints", rec); else store.json.put("constraints", rec);
+        con++;
+      }
+    }
+    store.reindex();
+    if (!intents.length) console.log("No `hunch-why:` / `hunch-rule:` comments found.");
+    else console.log(`✓ captured ${dec} decision(s) + ${con} constraint(s) from inline comments${opts.private ? " [private overlay]" : ""}`);
     store.close();
   });
 
