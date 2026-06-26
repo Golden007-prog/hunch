@@ -85,11 +85,15 @@ export function importedDeps(lines: string[]): Set<string> {
  *  goes stale. Conservative: only fires on an explicit import/require verb + a
  *  module-shaped token; returns null otherwise (caller falls back to scope-only). */
 export function deriveForbids(rule: string): Forbids | null {
-  // Only derive a FORBID from a NEGATIVE rule — "always use react" must not forbid react.
+  // Derive ONLY from a NEGATIVE rule with an UNAMBIGUOUS import verb. "use"/"add" are
+  // deliberately excluded: "don't use react hooks" names hooks, not react, and "never use
+  // synchronous fs" names no dependency at all — over-deriving there mints a wrong or
+  // never-firing rule on the seamless path. Under-deriving is safe (caller falls back to a
+  // scope-only rule + the "add --forbid-dep" warning); over-deriving is not.
   if (!/\b(never|don'?t|do\s+not|avoid|stop|without|ban|banned|forbid|forbidden|prohibit|not\s+allowed|no\s+longer)\b/i.test(rule)) return null;
-  const m = rule.match(/\b(?:import(?:ing)?|requir(?:e|ing)|us(?:e|ing)|add|adopt|depend(?:s|ing)?\s+on)\s+(?:from\s+|the\s+)?["'`]?(@?[a-z0-9][\w.@/-]*)["'`]?/i);
+  const m = rule.match(/\b(?:import(?:ing)?|requir(?:e|ing)|depend(?:s|ing)?\s+on)\s+(?:from\s+|the\s+)?["'`]?(@?[a-z0-9][\w.@/-]*)["'`]?/i);
   if (!m || !m[1]) return null;
-  let dep = m[1].replace(/[).,;:'"`]+$/, "").toLowerCase();
+  const dep = m[1].replace(/[).,;:'"`]+$/, "").toLowerCase();
   if (!dep || dep.length < 2 || /\s/.test(dep) || STOP_TOKENS.has(dep)) return null;
   return { deps: [dep], symbols: [], patterns: [] };
 }

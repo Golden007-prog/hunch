@@ -115,10 +115,13 @@ test("blockingInScope denies the importing edit, allows comment / unrelated edit
 });
 
 // ── seamless capture: a correction mints a PRECISE matcher ─────────────────
-test("deriveForbids extracts the forbidden dep from natural language", () => {
+test("deriveForbids derives a dep ONLY from an unambiguous import verb (conservative — wrong > silent)", () => {
   assert.deepEqual(deriveForbids("never import lodash")?.deps, ["lodash"]);
-  assert.deepEqual(deriveForbids("don't use the axios package")?.deps, ["axios"]);
-  assert.deepEqual(deriveForbids("always validate the session"), null, "no import verb → nothing derived");
+  assert.deepEqual(deriveForbids("do not import axios; use fetch")?.deps, ["axios"]);
+  assert.equal(deriveForbids("don't use react hooks"), null, "'use' is ambiguous (names hooks, not react) → not derived");
+  assert.equal(deriveForbids("never use synchronous fs"), null, "'use' + non-dependency → not derived");
+  assert.equal(deriveForbids("always import react"), null, "positive rule → not a forbid");
+  assert.equal(deriveForbids("always validate the session"), null, "no import verb → nothing derived");
 });
 
 test("buildCorrectionConstraint auto-attaches the dep matcher (Never-Twice enforces precisely)", () => {
