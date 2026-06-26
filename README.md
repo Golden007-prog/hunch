@@ -28,8 +28,8 @@ hunch conform --strict     # ✅/⛔ deterministic gate — wire into CI; runs o
 > [`demo/architectural-conformance.sh`](demo/architectural-conformance.sh).
 
 **It works both ways — prevent *and* catch:**
-- **Prevent** — in a controlled test (n=12, Sonnet), giving the agent the layering invariant flipped a "make this endpoint faster" task from **6/6 agents bypassing the service layer → 0/6**. Every one of those violations passes a linter clean.
-- **Catch** — `hunch check --strict` (the pre-commit hook + the [`hunch ci`](https://hunch-pi.vercel.app/docs#ci) PR gate) **blocks** the change that breaks the architecture, with the receipt — deterministically, no model in the gate.
+- **Prevent** — in a reproducible benchmark ([`bench/`](bench/architectural-conformance.md): n=60, Sonnet + Haiku, 3 invariant classes), the recorded invariant in context cut architectural violations **67% → 13%** overall, and **100% → 0%** on every cell where a capable model was genuinely tempted — including a security *"`charge` must always verify the session"* invariant, on **both** models. Each violation passes a linter clean.
+- **Catch** — when the model heeds it less (weaker models do), `hunch check --strict` (the pre-commit hook + the [`hunch ci`](https://hunch-pi.vercel.app/docs#ci) PR gate) **blocks** the change deterministically, with the receipt — no model in the gate. That's why both layers exist.
 
 <sub>Works with **Claude Code, Cursor, Copilot, Windsurf & Google Antigravity** from one shared, git-native graph.</sub>
 
