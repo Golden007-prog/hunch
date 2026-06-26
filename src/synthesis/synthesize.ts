@@ -8,7 +8,7 @@
  * and `proposed` until confirmed — advisory and cheap to discard.
  */
 import type { HunchStore } from "../store/hunchStore.js";
-import { commitMeta, commitDiff, headSha } from "../extractors/git.js";
+import { commitMeta, commitDiff, headSha, currentBranch } from "../extractors/git.js";
 import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
 import { selectProvider, selectEnsemble, selectVerifier, verifyDecisionSafe, DeterministicProvider, type SynthProvider, type DecisionDraft, type BugDraft, type CommitInput, type FailureInput } from "./provider.js";
 import { decisionId, bugId, constraintId } from "../core/ids.js";
@@ -120,6 +120,11 @@ export async function syncCommit(
   else if (draft.verifyOutcome && draft.verifyOutcome !== "applied") synthBits.push(`verify=${draft.verifyOutcome}`);
   if (draft.pruned) synthBits.push(`pruned=${draft.pruned}`); // the Critic's visible value
   const synthEvidence = `synth:${synthBits.join(" ")}`;
+  // Tag the capturing branch so branch-scoped work stays FILTERABLE in the one shared store
+  // (every worktree/branch writes to the same overlay — this keeps "what was decided on
+  // feature-x?" answerable without fragmenting memory per branch). Empty in detached HEAD.
+  const branch = currentBranch(root);
+  const branchTag = branch ? [`branch:${branch}`] : [];
 
   const components = store.json.loadAll("components");
   const relatedComponents = components
@@ -166,7 +171,7 @@ export async function syncCommit(
     provenance: {
       source: draft.source,
       confidence: draft.confidence,
-      evidence: [`commit:${meta.shortSha}`, synthEvidence, ...codeFiles.slice(0, 8)],
+      evidence: [`commit:${meta.shortSha}`, synthEvidence, ...branchTag, ...codeFiles.slice(0, 8)],
       last_verified: new Date().toISOString(), // when the Hunch last re-derived this
     },
     date: meta.date, // the commit date

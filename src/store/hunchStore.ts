@@ -18,6 +18,7 @@ import { openDb, type DB } from "./db.js";
 import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
+import { gitCommonDir } from "../extractors/git.js";
 import { pathMatchesGlob } from "../core/glob.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
@@ -87,15 +88,29 @@ export class HunchStore {
   /** The private-overlay config from the gitignored `.hunch/local.json` (per-machine,
    *  never committed). Tolerant: returns {} on missing/invalid so reads never crash. */
   private localConfig(): { privateDir?: string; autoCommit?: boolean } {
-    try {
-      const f = join(this.paths.hunch, "local.json");
-      if (!existsSync(f)) return {};
-      const v = JSON.parse(readFileSync(f, "utf8")) as { privateDir?: unknown; autoCommit?: unknown };
-      const privateDir = typeof v.privateDir === "string" && v.privateDir.trim() ? v.privateDir.trim() : undefined;
-      return { privateDir, autoCommit: v.autoCommit === true };
-    } catch {
-      return {};
+    const read = (file: string): { privateDir?: string; autoCommit?: boolean } => {
+      try {
+        if (!existsSync(file)) return {};
+        const v = JSON.parse(readFileSync(file, "utf8")) as { privateDir?: unknown; autoCommit?: unknown };
+        const privateDir = typeof v.privateDir === "string" && v.privateDir.trim() ? v.privateDir.trim() : undefined;
+        return { privateDir, autoCommit: v.autoCommit === true };
+      } catch {
+        return {};
+      }
+    };
+    // Per-worktree pointer first (explicit / back-compat). If it names no overlay, fall back to
+    // the SHARED pointer in the git common dir — identical across ALL worktrees, so a freshly
+    // added worktree (whose gitignored .hunch/local.json doesn't exist yet) still auto-discovers
+    // the same memory. The git lookup runs ONLY when the cheap per-worktree read is empty, keeping
+    // it off the hot path for already-configured checkouts.
+    const perWorktree = read(join(this.paths.hunch, "local.json"));
+    if (perWorktree.privateDir) return perWorktree;
+    const common = gitCommonDir(this.paths.root);
+    if (common) {
+      const shared = read(join(common, "hunch", "local.json"));
+      if (shared.privateDir) return shared;
     }
+    return perWorktree;
   }
 
   /** Merged read: public ∪ private overlay (private wins on id collision). Every

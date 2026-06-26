@@ -1,6 +1,8 @@
 /** Deterministic git introspection for the extractor + learning loop.
  *  No LLM here — just parsing what git already knows. */
 import { execFileSync } from "node:child_process";
+import { isAbsolute, resolve, join } from "node:path";
+import { mkdirSync, rmSync, statSync, realpathSync } from "node:fs";
 
 export interface CommitMeta {
   sha: string;
@@ -38,15 +40,43 @@ export function isGitRepo(cwd: string): boolean {
  *  (no recursion). Stages with a pathspec scoped to `hunchDir`, so it never sweeps unrelated
  *  working-tree changes. Never throws — a non-repo dir / offline push just no-ops. */
 export function commitAndPushHunch(hunchDir: string, message: string): void {
-  const env = { ...process.env, HUNCH_SYNC: "1" };
-  const run = (args: string[]): void => {
+  // Serialize across worktrees: several worktrees auto-committing the SAME overlay repo
+  // at once would race git's index.lock. An atomic-mkdir lock lets one proceed; the others
+  // skip — safe because each record is already written to disk, so `git add .` here sweeps
+  // up anything a skipped run left pending (eventually-consistent, never lost).
+  const lock = join(hunchDir, ".hunch-commit.lock");
+  if (!acquireCommitLock(lock)) return;
+  try {
+    const env = { ...process.env, HUNCH_SYNC: "1" };
+    const run = (args: string[]): void => {
+      try {
+        execFileSync("git", ["-C", hunchDir, ...args], { stdio: "ignore", env });
+      } catch { /* best-effort: nothing staged / not a repo / offline */ }
+    };
+    run(["add", "--", "."]);
+    run(["commit", "-m", message]);
+    run(["push"]);
+  } finally {
+    try { rmSync(lock, { recursive: true, force: true }); } catch { /* released best-effort */ }
+  }
+}
+
+/** Atomic mkdir lock; reclaims a stale lock (a crashed holder) older than 60s. Returns
+ *  false when another live holder owns it — the caller skips rather than blocks. */
+function acquireCommitLock(lock: string): boolean {
+  try {
+    mkdirSync(lock);
+    return true;
+  } catch {
     try {
-      execFileSync("git", ["-C", hunchDir, ...args], { stdio: "ignore", env });
-    } catch { /* best-effort: nothing staged / not a repo / offline */ }
-  };
-  run(["add", "--", "."]);
-  run(["commit", "-m", message]);
-  run(["push"]);
+      if (Date.now() - statSync(lock).mtimeMs > 60_000) {
+        rmSync(lock, { recursive: true, force: true });
+        mkdirSync(lock);
+        return true;
+      }
+    } catch { /* lock vanished or races another reclaimer — treat as held */ }
+    return false;
+  }
 }
 
 export function headSha(cwd: string): string {
@@ -79,6 +109,35 @@ export function hooksDir(cwd: string): string {
 
 export function gitDir(cwd: string): string {
   return gitSafe(["rev-parse", "--git-dir"], cwd) || ".git";
+}
+
+/** The SHARED git dir for the repo — identical across ALL linked worktrees (unlike
+ *  `gitDir`, which is per-worktree). Absolute, so callers can anchor worktree-shared
+ *  state (the private-overlay pointer) at one stable place. "" when not a git repo. */
+export function gitCommonDir(cwd: string): string {
+  const p = gitSafe(["rev-parse", "--git-common-dir"], cwd);
+  if (!p) return "";
+  return isAbsolute(p) ? p : resolve(cwd, p);
+}
+
+/** True when `cwd` is inside a LINKED worktree (not the main checkout): its own git
+ *  dir differs from the shared common dir. Used by `hunch doctor` and setup messaging. */
+export function isLinkedWorktree(cwd: string): boolean {
+  const common = gitCommonDir(cwd);
+  const own = gitSafe(["rev-parse", "--absolute-git-dir"], cwd);
+  if (!common || !own) return false;
+  // realpath BOTH before comparing: `--absolute-git-dir` is symlink-resolved while
+  // gitCommonDir is not, so on macOS the main checkout would otherwise mismatch on
+  // /var vs /private/var and falsely read as "linked".
+  const norm = (p: string): string => { try { return realpathSync(p); } catch { return resolve(p); } };
+  return norm(own) !== norm(common);
+}
+
+/** Current branch name (e.g. "main", "feat/x"), or "" in detached HEAD / non-repo.
+ *  Stamped onto auto-captured decisions so branch-scoped work stays filterable. */
+export function currentBranch(cwd: string): string {
+  const b = gitSafe(["rev-parse", "--abbrev-ref", "HEAD"], cwd);
+  return b === "HEAD" ? "" : b; // detached HEAD reports "HEAD" — treat as no branch
 }
 
 /** Files changed in a single commit. `--root` makes the initial commit (which

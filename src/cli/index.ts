@@ -29,7 +29,7 @@ import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, commitAndPushHunch, gitUntrackCached } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, commitAndPushHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree } from "../extractors/git.js";
 import { runbookId, decisionId } from "../core/ids.js";
 import type { Runbook } from "../core/types.js";
 import { extractInlineIntent } from "../extractors/comments.js";
@@ -342,6 +342,18 @@ program
     const stored = rel && !rel.startsWith("..") && !isAbsolute(rel) ? toPosixTarget(rel) : hunchDir;
     writeFileAtomic(join(paths.hunch, "local.json"), JSON.stringify({ privateDir: stored, autoCommit: !!opts.autoCommit }, null, 2) + "\n");
     ensureGitignore(root); // keeps .hunch/local.json + .hunch-private/ out of git
+    // Also register the overlay at the SHARED git common dir, so EVERY worktree of this repo
+    // (current + future, any branch) auto-discovers the same memory with zero per-worktree
+    // setup. Stored ABSOLUTE — a linked worktree resolves relative paths from its OWN root, so
+    // only an absolute path survives the move. Lives under .git/ (never tracked; nothing to ignore).
+    const commonDir = gitCommonDir(root);
+    let worktreeNote = "";
+    if (commonDir) {
+      const sharedDir = join(commonDir, "hunch");
+      mkdirSync(sharedDir, { recursive: true });
+      writeFileAtomic(join(sharedDir, "local.json"), JSON.stringify({ privateDir: hunchDir, autoCommit: !!opts.autoCommit }, null, 2) + "\n");
+      worktreeNote = `  ✓ registered in the git common dir — shared by every worktree of this repo, on any branch\n`;
+    }
     // 4) route post-commit synthesis to the overlay (local hook, never committed)
     let hookNote = "";
     if (opts.hook && isGitRepo(root)) {
@@ -376,6 +388,7 @@ program
     console.log(
       `✓ private overlay enabled → ${hunchDir}\n` +
       `  ✓ recorded in .hunch/local.json (gitignored) — auto-detected, no env var or shell-profile edit\n` +
+      worktreeNote +
       hookNote +
       migrateNote +
       `  record sensitive items with private:true (hunch_record_decision / hunch_record_correction)\n` +
@@ -1390,6 +1403,16 @@ program
     console.log(store.privateDir
       ? `private:    on → ${store.privateDir} (local overlay — unioned into queries; never committed or posted publicly)`
       : dim(`private:    off — run \`hunch private\` to keep sensitive memory in a separate repo (or set HUNCH_PRIVATE_DIR)`));
+    // Worktree posture: linked worktrees share ONE memory via the git common dir. Only
+    // surfaced in a linked worktree (no noise in a normal single checkout), so a
+    // "memory missing here" symptom has an obvious cause + fix.
+    if (isLinkedWorktree(root)) {
+      const common = gitCommonDir(root);
+      const sharedPtr = !!common && existsSync(join(common, "hunch", "local.json"));
+      console.log(store.privateDir
+        ? `worktree:   linked — sharing the repo's memory${sharedPtr ? " via the git common dir" : ""}`
+        : dim(`worktree:   linked, but no overlay resolved here — run \`hunch private\` once (any worktree) so all worktrees share it`));
+    }
     // Semantic search is opt-in and local. Report availability + coverage without
     // loading the model (selectEmbedder only probes; embeddingStats just counts rows).
     const emb = await selectEmbedder();
