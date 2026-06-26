@@ -86,6 +86,7 @@ export function buildCorrectionConstraint(input: CorrectionInput, now: string): 
     scope,
     severity,
     enforcement: "advisory_v1",
+    match: null,
     rationale: input.rationale ?? "Captured from a human correction of the agent (Never Twice).",
     source_decision: input.source_decision ?? null,
     violations: [],

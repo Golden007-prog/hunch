@@ -13,9 +13,9 @@
  *   mcp       start the MCP server (Claude Code connects here)
  *   doctor    environment diagnostics
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { join, relative, dirname, resolve, isAbsolute } from "node:path";
+import { join, relative, dirname, basename, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { hunchPaths, hunchPathsForDir, findRoot, toPosixTarget } from "../core/paths.js";
@@ -666,7 +666,7 @@ program
           id, type: "correctness", statement: it.text, scope: [it.file],
           // Advisory by default — an inline rule never auto-blocks a build; raise severity
           // deliberately if you want enforcement. Keeps day-one zero false-positive rage.
-          severity: "warning", enforcement: "advisory_v1",
+          severity: "warning", enforcement: "advisory_v1", match: null,
           rationale: `Captured from an inline hunch-rule comment (${it.file}:${it.line}).`,
           source_decision: null, violations: [], status: "active",
           valid_from: prev?.valid_from ?? now, valid_to: null,
@@ -859,7 +859,8 @@ program
   .option("--rationale <text>", "why it must hold", "")
   .option("--source-decision <id>", "decision id this derives from")
   .option("--enforcement <e>", "advisory_v1 | ci | manual", "advisory_v1")
-  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string }) => {
+  .option("--match <regex>", "content matcher: block only when an ADDED line matches this regex (precise + immune to staleness, vs scope-touch)")
+  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string; match?: string }) => {
     const SEV = ["advisory", "warning", "blocking"];
     if (!SEV.includes(opts.severity)) return fail(`--severity must be one of: ${SEV.join(", ")}`);
     const { store, root } = storeFor();
@@ -872,6 +873,7 @@ program
       scope,
       severity: opts.severity,
       enforcement: opts.enforcement,
+      match: opts.match ?? null,
       rationale: opts.rationale,
       source_decision: opts.sourceDecision ?? null,
       violations: [],
@@ -1242,16 +1244,18 @@ program
       // index is good enough for grounding.
       if (firmness === "strict") {
         store.reindex();
-        const deny = blockingInScope(store, target);
+        // The lines this edit would ADD — so a content-matched invariant denies only
+        // when the edit actually trips it (not on every edit in scope), and the Veto
+        // Guard can test the proposed text. Covers Edit/Write/MultiEdit.
+        const proposedLines = proposedEditLines(evt.tool_input);
+        const deny = blockingInScope(store, target, proposedLines);
         if (deny) {
           emitDeny(deny.reason);
           return;
         }
         // Veto Guard (live): the proposed edit text re-introduces an approach an
-        // in-force decision REJECTED. Covers Edit (new_string), Write (content), and
-        // MultiEdit (edits[].new_string). The agent self-corrects before staging;
+        // in-force decision REJECTED. The agent self-corrects before staging;
         // only human-confirmed tripwires deny.
-        const proposedLines = proposedEditLines(evt.tool_input);
         const vetoDeny = proposedLines.length ? vetoInScope(store, target, proposedLines) : null;
         if (vetoDeny) {
           emitDeny(vetoDeny.reason);
@@ -1605,8 +1609,26 @@ function readStdin(): Promise<string> {
 
 /** Absolute edit path → repo-relative, forward-slash (constraint scopes are
  *  forward-slash globs even on Windows). */
+/** realpath a path even if it doesn't exist yet (a new file an agent is about to
+ *  Write): resolve the longest existing ancestor, then re-append the missing tail.
+ *  Idempotent on already-resolved paths. */
+function realpathNorm(p: string): string {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    const parent = dirname(p);
+    if (parent === p) return p; // hit the root; nothing more to resolve
+    return join(realpathNorm(parent), basename(p));
+  }
+}
+
+/** Repo-relative POSIX path. BOTH ends are realpath-normalized first: on macOS
+ *  `process.cwd()` (hence findRoot) resolves /var→/private/var, but a hook event's
+ *  file_path arrives UN-resolved — so a naive relative() yields a bogus "../" path
+ *  under any symlinked root (/var, /tmp, symlinked $HOME) and the caller treats the
+ *  file as outside the repo, silently dropping all context (dec_e0a36efbf5). */
 function toRepoRel(root: string, abs: string): string {
-  return relative(root, abs).split("\\").join("/");
+  return relative(realpathNorm(root), realpathNorm(abs)).split("\\").join("/");
 }
 
 function emitContext(event: "PreToolUse" | "UserPromptSubmit", text: string): void {

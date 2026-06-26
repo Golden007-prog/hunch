@@ -191,6 +191,11 @@ export const ConstraintSchema = z.object({
   scope: z.array(z.string()).default([]).describe("glob(s) it applies to"),
   severity: z.enum(["advisory", "warning", "blocking"]).default("warning"),
   enforcement: z.enum(["advisory_v1", "ci", "manual"]).default("advisory_v1"),
+  // Optional CONTENT matcher (regex): the gate blocks when an ADDED line matches it,
+  // instead of on bare scope-touch. A content-verifiable invariant is decided per
+  // commit, so it is immune to file-change "staleness" and keeps its teeth across the
+  // file's whole life — and stays quiet on edits that don't break it (dec_e0a36efbf5).
+  match: z.string().nullable().default(null),
   rationale: z.string().default(""),
   source_decision: z.string().nullable().default(null),
   violations: z.array(z.string()).default([]),

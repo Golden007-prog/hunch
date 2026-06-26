@@ -22,6 +22,7 @@ import { gitCommonDir } from "../extractors/git.js";
 import { pathMatchesGlob } from "../core/glob.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
+import { constraintMatcher, contentViolates } from "../core/constraintmatch.js";
 import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
 import type { CheckReport, CheckDirect, CausalWhy } from "../core/checkreport.js";
 
@@ -708,16 +709,35 @@ export class HunchStore {
       movedFrom: [...an.filesRenamed.map((r) => r.from), ...an.filesDeleted],
       removedNames: new Set(an.removedSymbols.map((s) => s.name)),
     });
-    const directReport: CheckDirect[] = [...direct.values()].map(({ c, files: fs }) => {
+    const directReport: CheckDirect[] = [];
+    for (const { c, files: fs } of direct.values()) {
+      const re = constraintMatcher(c.match);
+      if (re) {
+        // CONTENT-MATCHED: decide by whether an ADDED line in the matched files actually
+        // breaks the rule — not by bare scope-touch. A commit that touches the scope but
+        // doesn't trip the matcher COMPLIES → drop it (no noise). A real hit blocks WITHOUT
+        // the staleness gate: content is verified per commit, so file churn can't retract
+        // the teeth (dec_e0a36efbf5). Empty diff ⇒ can't prove a violation ⇒ treat as clean.
+        const added = fs.flatMap((f) => an.addedLinesByFile.get(f) ?? []);
+        if (!contentViolates(re, added)) continue;
+        const strictBlocks = isStrictBlocker(c, false);
+        directReport.push({
+          id: c.id, severity: c.severity ?? "advisory", statement: c.statement, rationale: c.rationale ?? "",
+          files: fs, strictBlocks,
+          downgrade: c.severity === "blocking" && !strictBlocks ? "low-confidence" : undefined,
+          why: this.causalChain(c.id),
+        });
+        continue;
+      }
       const stale = staleIds.has(c.id);
       const strictBlocks = isStrictBlocker(c, stale);
-      return {
+      directReport.push({
         id: c.id, severity: c.severity ?? "advisory", statement: c.statement, rationale: c.rationale ?? "",
         files: fs, strictBlocks,
         downgrade: c.severity === "blocking" && !strictBlocks ? (stale ? "stale" : "low-confidence") : undefined,
         why: this.causalChain(c.id),
-      };
-    });
+      });
+    }
     return {
       fileCount: files.length,
       strict: opts.strict,

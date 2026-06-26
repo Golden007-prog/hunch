@@ -4,6 +4,7 @@
  *  real HunchStore, and so the model-facing refusal text lives in one audited
  *  place. Mirrors the `hunch check` direct/near logic, blocking-severity only. */
 import type { HunchStore } from "../store/hunchStore.js";
+import { constraintMatcher, contentViolates } from "./constraintmatch.js";
 
 export interface BlockingHit {
   /** Refusal text fed back to the model as the deny reason. Deliberately states
@@ -13,22 +14,30 @@ export interface BlockingHit {
 }
 
 /** Return a BlockingHit if editing `file` (repo-relative) hits a blocking
- *  invariant directly or through its blast radius, else null. */
-export function blockingInScope(store: HunchStore, file: string): BlockingHit | null {
+ *  invariant directly or through its blast radius, else null. `proposedAddedLines`
+ *  are the lines the edit would ADD: a CONTENT-MATCHED invariant (one carrying a
+ *  `match` regex) denies ONLY when those lines actually trip it — so it stays quiet
+ *  on edits that don't break the rule, instead of blocking every edit in scope
+ *  (dec_e0a36efbf5). Scope-only invariants keep the blunt scope-touch behavior. */
+export function blockingInScope(store: HunchStore, file: string, proposedAddedLines: string[] = []): BlockingHit | null {
   for (const c of store.checkConstraints(file)) {
-    if (c.severity === "blocking") {
-      return {
-        reason: `Hunch: editing ${file} would touch a BLOCKING invariant — "${c.statement}" (${c.id}). Do not proceed unless this change is meant to modify that invariant; otherwise preserve it.`,
-      };
-    }
+    if (c.severity !== "blocking") continue;
+    const re = constraintMatcher(c.match);
+    if (re && !contentViolates(re, proposedAddedLines)) continue; // content-matched & not tripped → allow
+    return {
+      reason: `Hunch: editing ${file} would touch a BLOCKING invariant — "${c.statement}" (${c.id}). Do not proceed unless this change is meant to modify that invariant; otherwise preserve it.`,
+    };
   }
   for (const b of store.blastRadiusFiles(file)) {
     for (const c of store.checkConstraints(b.file)) {
-      if (c.severity === "blocking") {
-        return {
-          reason: `Hunch: ${file} is in the blast radius of a BLOCKING invariant — "${c.statement}" (${c.id}; via ${b.file}, ${b.via} depth ${b.depth}). Verify the invariant still holds before editing.`,
-        };
-      }
+      if (c.severity !== "blocking") continue;
+      // A content matcher tests the EDITED file's own added lines; it has nothing to
+      // assert about a transitive dependency, so content-matched invariants don't fire
+      // via blast radius — only scope-only invariants keep the blast-radius warning.
+      if (constraintMatcher(c.match)) continue;
+      return {
+        reason: `Hunch: ${file} is in the blast radius of a BLOCKING invariant — "${c.statement}" (${c.id}; via ${b.file}, ${b.via} depth ${b.depth}). Verify the invariant still holds before editing.`,
+      };
     }
   }
   return null;
