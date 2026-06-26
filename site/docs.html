@@ -292,7 +292,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
 
     <section id="synthesis">
       <h2>Synthesis &amp; billing<a class="anchor" href="#synthesis">#</a></h2>
-      <p>When Hunch turns a commit into a structured Decision, the LLM call is billed to <strong>your coding-assistant subscription</strong> through its CLI — <strong>never</strong> a pay-per-token API key (the API key is stripped from the spawned environment). Hunch auto-detects the first CLI present, in order:</p>
+      <p>When Hunch turns a commit into a structured Decision, the LLM call is billed to <strong>your coding-assistant subscription</strong> through its CLI — <strong>never</strong> a pay-per-token API key. Hunch auto-detects the first CLI present, in order:</p>
       <table class="tbl">
         <thead><tr><th>CLI</th><th>Subscription</th><th>Detected by</th></tr></thead>
         <tbody>
@@ -303,10 +303,10 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
       </table>
       <p>If none is installed, Hunch still works with a deterministic structural heuristic (lower-confidence drafts). <code>hunch doctor</code> tells you which mode you’re in; force one with the <code>HUNCH_SYNTH_PROVIDER</code> env var:</p>
       <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">export</span> HUNCH_SYNTH_PROVIDER=claude-cli   <span class="c"># | codex-cli | cursor-agent | deterministic</span></pre></div>
-      <p><strong>Deep Synthesis <span class="pill ok">v0.19</span>.</strong> <code>--deep</code> reconciles <em>multiple independent drafts</em> into one: across every signed-in assistant CLI, or — with a single CLI — by sampling it N times for <strong>self-consistency</strong> (<code>--samples</code>, default 2). The richest draft is the spine, alternatives &amp; consequences are unioned, and confidence is <strong>agreement-weighted</strong> (more independent agreement → higher score, capped below the enforcement threshold so it stays advisory). Add <code>--verify</code> (automatic under <code>--deep</code>) for a <strong>Critic pass</strong> that audits each draft against its commit — pruning unsupported rejected-alternatives <em>before</em> they become tripwires and down-weighting weak grounding; it only ever <em>lowers</em> confidence, never arming enforcement. Slower; subscription-only; never on the guard path; degrades to the single-provider draft when no CLI is available.</p>
-      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> backfill --deep        <span class="c"># ensemble / self-consistency across history</span>
-<span class="k">hunch</span> sync &lt;sha&gt; --deep       <span class="c"># reconcile a single commit (verify on)</span>
-<span class="k">hunch</span> sync &lt;sha&gt; --verify     <span class="c"># Critic pass only — audit + prune, no ensemble</span></pre></div>
+      <p><strong>Deep Synthesis <span class="pill ok">v0.19</span>.</strong> <code>--deep</code> gathers several independent takes on a change and reconciles them into one note — trusting it more when they agree. <code>--verify</code> then fact-checks the note against the actual commit and drops anything the change doesn't support. The result is a more trustworthy note, and it always stays <em>advisory</em> until you confirm it. Subscription-only; falls back to a single draft when only one assistant is available.</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> backfill --deep        <span class="c"># higher-quality notes across history</span>
+<span class="k">hunch</span> sync &lt;sha&gt; --deep       <span class="c"># a single commit (fact-check on)</span>
+<span class="k">hunch</span> sync &lt;sha&gt; --verify     <span class="c"># fact-check a single note</span></pre></div>
     </section>
 
     <section id="mcp">
@@ -359,17 +359,17 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
         <thead><tr><th>Record</th><th>What it captures</th></tr></thead>
         <tbody>
           <tr><td><strong>Decision</strong></td><td>Why a change was made — an ADR auto-drafted from each commit (context, decision, alternatives, consequences).</td></tr>
-          <tr><td><strong>Bug</strong></td><td>A root cause + lineage (introduced → fixed → recurred), captured from a failing test with a ranked suspect list.</td></tr>
-          <tr><td><strong>Constraint</strong></td><td>A do-not-break invariant. Recurring or severe bugs get promoted into one; corrections mint one directly.</td></tr>
-          <tr><td><strong>Component / Symbol / Edge</strong></td><td>The tree-sitter code graph — functions, call edges, imports, components — plus churn and fan-in metrics.</td></tr>
+          <tr><td><strong>Bug</strong></td><td>A root cause + its history (introduced → fixed → recurred), captured from a failing test.</td></tr>
+          <tr><td><strong>Constraint</strong></td><td>A do-not-break rule. Recurring or severe bugs become one; corrections create one directly.</td></tr>
+          <tr><td><strong>Code map</strong></td><td>How your code connects — functions, files, and components — so Hunch can see the ripple effect of a change.</td></tr>
         </tbody>
       </table>
-      <p>The flow is <strong>events → extract → synthesize → store → ground</strong>. The JSON in <code>.hunch/</code> is the source of truth; a local SQLite file is a derived FTS + vector index, rebuilt on demand and never authoritative.</p>
+      <p>It's all saved as plain, readable files in your repo, with a fast local search index built from them on demand.</p>
     </section>
 
     <section id="provenance">
       <h2>Provenance &amp; confidence<a class="anchor" href="#provenance">#</a></h2>
-      <p>Every record carries provenance — <strong>source + confidence + evidence</strong> — so nothing is a blind assertion. Sources rank <code>inferred</code> &lt; <code>llm_draft</code> &lt; <code>human_confirmed</code>. Low-confidence auto-drafts stay <em>advisory</em> and are cheap to discard; the enforcement gates only ever <em>block</em> on high-confidence, human-vouched records (see <a class="link" href="#firmness">firmness</a>). Triage drafts with <code>hunch review</code>.</p>
+      <p>Every record is tagged with where it came from and how sure Hunch is — so nothing is a blind assertion. A quick auto-guess is marked low-confidence and stays <em>advisory</em>; only what you've personally confirmed is trusted enough to <em>block</em> a change (see <a class="link" href="#firmness">firmness</a>). Triage drafts with <code>hunch review</code>.</p>
     </section>
 
     <section id="time-travel">
@@ -455,14 +455,14 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
 ⛔ pay() must verify the session before charging — con_pay
    🧠 why: "Charge must verify the session first" (dec_pay)
    🐞 guards against: Double-charge on unverified session — pay() charged without verifying (bug_…)</pre></div>
-      <p>It’s <strong>deterministic</strong> (no LLM): for every invariant directly in scope it walks constraint → <code>source_decision</code> → the bug whose root cause spawned it. BLOCK fires only on a direct, high-confidence, non-stale <em>blocking</em> invariant or a blocking-linked regression — near-hits stay advisory, so it’s safe as a merge gate. Call it with <code>{}</code> to check staged changes, or pass <code>base: "origin/main"</code> for a PR range.</p>
+      <p>No model in the loop, so it’s safe as a merge gate: it blocks only on a high-confidence rule you’ve confirmed, and warns on everything softer. Call it with <code>{}</code> to check staged changes, or pass <code>base: "origin/main"</code> for a PR range.</p>
     </section>
 
     <section id="veto">
       <h2>Decision Guard (Veto) <span class="pill ok">v0.15</span><a class="anchor" href="#veto">#</a></h2>
       <p>Decisions record not just what you chose but the alternatives you <em>rejected</em>. The Decision Guard flags a change that <strong>reverses</strong> a decision — re-introducing an approach an in-force decision rejected — so the agent can’t quietly walk back a deliberate call.</p>
       <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> veto              <span class="c"># flag changes that reverse a rejected alternative</span></pre></div>
-      <p>Like the other gates: it warns by default and blocks under strict only when the rejected-alternative is human-confirmed, in-force, and non-stale. Machine-checkable “tripwires” can be drafted for existing rejected alternatives and confirmed with <code>hunch review --accept &lt;id&gt;</code> to enable blocking.</p>
+      <p>Like the other gates: it warns by default and blocks under strict only on a rejected approach you’ve confirmed. Use <code>hunch review</code> to choose which reversals should block.</p>
     </section>
 
     <section id="regression">
@@ -476,7 +476,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
       <div class="code" data-lang="text"><div class="code-head"><span class="lbl">hunch check</span><button class="copy">Copy</button></div><pre>Possibly re-implements 1 symbol(s) that already exist (advisory — review, never blocks):
 
   ⟲ adds function `formatDate` — already defined in src/util/date.ts</pre></div>
-      <p>It’s <strong>deterministic</strong> and <strong>advisory</strong> — it never blocks a commit or fails <code>--strict</code>; it surfaces in <code>hunch check</code>, the CI guard, and <code>hunch_merge_verdict</code> alongside the other dimensions. Tuned to stay quiet: stopword + length filters, scoped to the change’s own top-level project root (so <code>src/</code> never trips over <code>test/</code> or a sub-project), and move-aware — a refactor that relocates a symbol isn’t mistaken for a duplicate.</p>
+      <p>It’s <strong>advisory</strong> — it never blocks a commit; it surfaces in <code>hunch check</code>, the CI guard, and the merge verdict. It’s tuned to stay quiet, so a refactor that just moves code around isn’t mistaken for a duplicate.</p>
     </section>
 
     <section id="ci">
@@ -528,17 +528,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
 
     <section id="storage">
       <h2>Where it’s stored<a class="anchor" href="#storage">#</a></h2>
-      <p>Everything lives under <code>.hunch/</code> as git-tracked JSON — the source of truth, diffable and reviewable in PRs:</p>
-      <div class="code" data-lang="text"><div class="code-head"><span class="lbl">.hunch/</span><button class="copy">Copy</button></div><pre>.hunch/
-├─ decisions/      one JSON file per Decision (ADR)
-├─ bugs/           root causes + lineage
-├─ constraints/    do-not-break invariants
-├─ components/     code components + fragility
-├─ symbols/  edges/  the tree-sitter graph (index.json)
-├─ manifest.json   on-disk schema version
-├─ config.json     firmness + runtime config
-└─ hunch.sqlite    DERIVED FTS+vector index (gitignored; rebuilt by `hunch index`)</pre></div>
-      <div class="note"><span class="ic">ℹ</span>The SQLite index is gitignored and regenerable. Only the JSON is committed — so the graph syncs for free over <code>git push</code> / <code>pull</code>.</div>
+      <p>Everything lives under <code>.hunch/</code> in your repo as plain, readable JSON — one file per note — so your memory is the source of truth: diffable, reviewable in PRs, and synced for free over <code>git push</code> / <code>pull</code>. A fast local search index is built from it and is gitignored (regenerable any time), so only the readable files are ever committed.</p>
     </section>
 
     <section id="doctor">
@@ -558,7 +548,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
 
     <section id="team">
       <h2>Working as a team<a class="anchor" href="#team">#</a></h2>
-      <p>The <code>.hunch/</code> JSON is the source of truth — diffable, reviewable in PRs, synced for free over <code>git push</code> / <code>pull</code>. <code>hunch init</code> registers a git <strong>merge driver</strong> so concurrent edits to the graph merge <em>by record id</em> instead of throwing conflict markers (human-confirmed beats auto, then higher confidence, then recency). The graph is OS-agnostic: paths are stored in POSIX form, and an installed Hunch registers its MCP server by package name — so teammates on Windows, macOS, or Linux share the same memory without per-machine fixups.</p>
+      <p>The <code>.hunch/</code> memory is plain files in git — diffable, reviewable in PRs, synced for free over <code>git push</code> / <code>pull</code>. <code>hunch init</code> sets things up so concurrent edits from different teammates merge cleanly instead of throwing conflict markers, and it’s OS-agnostic — teammates on Windows, macOS, or Linux share the same memory with no per-machine fixups.</p>
     </section>
 
     <section id="maintenance">
@@ -571,12 +561,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
 
     <section id="develop">
       <h2>Develop &amp; contribute<a class="anchor" href="#develop">#</a></h2>
-      <p>Hunch is pure TypeScript ESM, Node ≥ 20, no build step at dev time (runs via <code>tsx</code>). It’s licensed <strong>Apache-2.0</strong>.</p>
-      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">npm</span> run dev -- &lt;args&gt;   <span class="c"># run the CLI from source via tsx</span>
-<span class="k">npm</span> run typecheck       <span class="c"># strict tsc — the gate (no separate lint)</span>
-<span class="k">npm</span> test                <span class="c"># tsx --test over test/*.test.ts</span>
-<span class="k">npm</span> run build           <span class="c"># compile to dist/ (the published artifact)</span></pre></div>
-      <p>See <a class="link" href="https://github.com/davesheffer/hunch/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a> for the contribution flow.</p>
+      <p>Hunch is open source under <strong>Apache-2.0</strong>. Contributions are welcome — see <a class="link" href="https://github.com/davesheffer/hunch/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a> and the <a class="link" href="https://github.com/davesheffer/hunch" target="_blank" rel="noopener">repo</a> to get started.</p>
     </section>
   </main>
 
