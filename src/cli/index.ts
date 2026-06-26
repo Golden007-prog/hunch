@@ -898,7 +898,7 @@ program
       provenance: { source: "human_confirmed", confidence: 1, evidence: [], last_verified: new Date().toISOString() },
     } as Constraint);
     store.reindex();
-    updateClaudeMd(root, store);
+    refreshExistingGrounding(root, store); // keep EVERY assistant's grounding current, not just CLAUDE.md
     console.log(`✓ recorded ${c.severity} constraint ${c.id}: "${c.statement}" (scope: ${scope.join(", ") || "repo"})`);
     if (derived && c.forbids?.deps.length) console.log(`  ↳ matcher: forbids import of ${c.forbids.deps.join(", ")} (precise, immune to staleness)`);
     if (c.severity === "blocking" && !effectiveForbids(c)) {
@@ -1220,6 +1220,47 @@ program
     console.log(`✓ firmness set to ${next} (takes effect on the next edit — no Claude Code restart needed).`);
   });
 
+// ---- status (enforcement readiness at a glance) ---------------------------
+program
+  .command("status")
+  .description("Enforcement readiness at a glance: what's enforcing, what's waiting to confirm, what went stale.")
+  .action(() => {
+    const { store, root } = storeFor();
+    const firmness = readConfig(hunchPaths(root)).firmness;
+    const vouchedSrc = (s?: string) => !!s && (s.includes("human_confirmed") || s === "derived");
+    const blocking = store.recs("constraints").filter((c) => c.status === "active" && c.severity === "blocking" && vouchedSrc(c.provenance?.source));
+    const precise = blocking.filter((c) => !!effectiveForbids(c));
+    const scopeOnly = blocking.filter((c) => !effectiveForbids(c));
+    const drafts = store.json.loadAll("decisions").filter((d) => d.status === "proposed" || d.provenance.confidence < 0.6);
+    const { ready, scrutiny } = partitionReview(drafts, READY_MIN_GROUNDED);
+    const stale = store.staleness((f) => lastChangeDate(f, root)).filter((s) => s.kind === "constraint");
+
+    const fnote: Record<string, string> = {
+      off: "not enforcing — `hunch firmness advisory` to start",
+      advisory: "surfaces context to the agent; never blocks",
+      firm: "surfaces + warns on a violating edit",
+      strict: "edit-time DENY + CI guard — the teeth are on",
+    };
+    console.log(`\nHunch — enforcement status (${root.split("/").pop()})\n`);
+    console.log(`  firmness: ${firmness}   ← ${fnote[firmness] ?? ""}\n`);
+    console.log(`  ✓ ARMED        ${blocking.length} confirmed blocking invariant(s) — held against every assistant`);
+    if (blocking.length) {
+      console.log(`       ${precise.length} precise (block the actual violation, immune to staleness)`);
+      console.log(`       ${scopeOnly.length} scope-only (relax to advisory once the file changes)${scopeOnly.length ? "  → harden with --forbid-dep" : ""}`);
+    }
+    if (ready.length || scrutiny.length) {
+      console.log(`\n  ⏳ TO CONFIRM   ${ready.length} ready · ${scrutiny.length} need scrutiny   → hunch review${ready.length ? " --accept-verified" : ""}`);
+    }
+    if (stale.length) {
+      console.log(`\n  ♻ STALE        ${stale.length} rule(s) whose guarded code moved since last verified   → re-confirm to keep the teeth`);
+    }
+    if (firmness !== "strict" && precise.length) {
+      console.log(`\n  ⚡ ${precise.length} precise rule(s) are armed but firmness is "${firmness}" — set \`hunch firmness strict\` to hard-block them.`);
+    }
+    console.log("");
+    store.close();
+  });
+
 // ---- hook (Claude Code agent-hook handler) --------------------------------
 program
   .command("hook")
@@ -1360,7 +1401,7 @@ program
       if (!d) { store.close(); return fail(`decision ${opts.accept} not found`); }
       const { source, armed } = acceptDecision(store, d);
       store.reindex();
-      updateClaudeMd(root, store);
+      refreshExistingGrounding(root, store); // confirming a rule must reach EVERY assistant's grounding
       console.log(`✓ accepted ${opts.accept} (now ${source}, confidence 0.95${armed ? `, ${armed} tripwire(s) now blocking` : ""})`);
     } else if (opts.reject) {
       const ok2 = store.json.delete("decisions", opts.reject);
@@ -1377,7 +1418,7 @@ program
         let armedTotal = 0;
         for (const it of ready) armedTotal += acceptDecision(store, it.d).armed;
         store.reindex();
-        updateClaudeMd(root, store);
+        refreshExistingGrounding(root, store); // batch-confirm must reach EVERY assistant's grounding
         console.log(`✓ accepted ${ready.length} verified draft(s); ${armedTotal} tripwire(s) now blocking.`);
         for (const it of ready) console.log(`   ${it.d.id}  grounded=${it.synth.grounded ?? "?"}  ${it.d.title}`);
       }
@@ -1465,7 +1506,7 @@ program
       let removed = 0;
       for (const c of plan.remove) if (store.json.delete(c.kind, c.id)) removed++;
       store.reindex();
-      updateClaudeMd(root, store);
+      refreshExistingGrounding(root, store); // removing records must reach EVERY assistant's grounding
       console.log(`\n✓ Removed ${removed} record(s).`);
     } else {
       console.log(`\nDry run — re-run with --apply to delete. Accepted/human-confirmed, open bugs, constraints, and referenced records are never removed.`);

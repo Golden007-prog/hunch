@@ -15,6 +15,7 @@ import { selectEmbedder } from "../store/embedder.js";
 import { decisionId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
+import { refreshExistingGrounding } from "../integrations/providers.js";
 import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, commitAndPushHunch, pullHunch } from "../extractors/git.js";
 import { formatContext } from "../core/format.js";
 import type { Runbook } from "../core/types.js";
@@ -420,6 +421,11 @@ export function buildServer(root: string): McpServer {
         if (input.private) store.putPrivate("constraints", rec);
         else store.json.put("constraints", rec);
         store.reindex();
+        // Propagate the new rule to EVERY assistant's ambient grounding (Cursor/Copilot/
+        // Windsurf/AGENTS.md/CLAUDE.md), so a correction captured in one assistant is held
+        // by all of them. Public only — a private rule must never render into committed
+        // grounding. Refresh-only: it never scaffolds a doc the project opted out of.
+        if (!input.private) refreshExistingGrounding(root, store);
         let flushed = "";
         if (input.private && store.privateAutoCommit && store.privateDir) {
           commitAndPushHunch(store.privateDir, `hunch: capture ${rec.id}`);
