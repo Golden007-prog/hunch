@@ -235,6 +235,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
     <div class="nav-group">
       <h4>Reference</h4>
       <a href="#cli">CLI reference</a>
+      <a href="#recipes">Common workflows</a>
       <a href="#storage">Where it's stored</a>
     </div>
     <div class="nav-group">
@@ -524,6 +525,66 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
           <tr><td><code>capture-comments</code></td><td>Lift inline <code>hunch-why:</code> / <code>hunch-rule:</code> comments into the graph (decisions + constraints).</td></tr>
         </tbody>
       </table>
+    </section>
+
+    <section id="recipes">
+      <h2>Common workflows<a class="anchor" href="#recipes">#</a></h2>
+      <p>Copy-paste sequences for the everyday tasks. Run <code>hunch &lt;command&gt; --help</code> for every flag.</p>
+
+      <h3>Set up a new repo</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> init                          <span class="c"># scaffold, index, install hooks, wire up assistants</span>
+<span class="k">hunch</span> backfill --since 90d          <span class="c"># seed decisions from recent history (no empty day-1)</span>
+<span class="c"># …reload your assistant, then ask: "why is X built this way?"</span></pre></div>
+
+      <h3>Join a repo that already uses Hunch</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">git</span> pull                            <span class="c"># the .hunch/ graph travels with the code</span>
+<span class="k">hunch</span> init                          <span class="c"># wire YOUR assistants to the shared graph (idempotent)</span>
+<span class="c"># …reload your assistant — the team's memory is now in context</span></pre></div>
+
+      <h3>Ask why a file is the way it is</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> why src/auth/session.ts                  <span class="c"># decisions, bugs &amp; rules behind it</span>
+<span class="k">hunch</span> timeline src/auth/session.ts             <span class="c"># how the thinking changed over time</span>
+<span class="k">hunch</span> why src/auth/session.ts --as-of v1.2.0   <span class="c"># what was believed at a past release</span></pre></div>
+
+      <h3>Turn a correction into an enforced rule</h3>
+      <p>Tell your assistant the rule (it records it for you), or do it from the CLI — then confirm it so it actually blocks:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> record-constraint "never import lodash; use src/utils" \
+      --scope "src/**" --severity blocking
+<span class="k">hunch</span> review --accept &lt;id&gt;            <span class="c"># confirm → now held against every assistant</span></pre></div>
+
+      <h3>Curate the draft queue</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> review                        <span class="c"># segmented: ready-to-confirm vs needs-scrutiny</span>
+<span class="k">hunch</span> review --accept-verified      <span class="c"># batch-accept the well-grounded ones</span>
+<span class="k">hunch</span> compact                       <span class="c"># prune rejected / superseded / stale low-value drafts</span></pre></div>
+
+      <h3>Check a change before you merge</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> check --staged --strict       <span class="c"># does this break a do-not-break rule?</span>
+<span class="k">hunch</span> veto --staged                 <span class="c"># does it reverse a rejected decision?</span>
+<span class="k">hunch</span> conform --strict              <span class="c"># does the code still honor recorded intent?</span>
+<span class="c"># …or check a whole PR range instead of staged files:</span>
+<span class="k">hunch</span> check --base origin/main</pre></div>
+
+      <h3>Add the CI merge gate</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> ci                            <span class="c"># scaffold the GitHub Action (runs on every PR)</span>
+<span class="k">git</span> add .github &amp;&amp; <span class="k">git</span> commit -m "ci: add Hunch constraint guard"</pre></div>
+
+      <h3>Capture a higher-quality note for an important commit</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> sync &lt;sha&gt; --deep             <span class="c"># reconcile several drafts + fact-check the note</span>
+<span class="k">hunch</span> review                        <span class="c"># then confirm it</span></pre></div>
+
+      <h3>Make an existing public repo's memory private</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> private --repo git@github.com:you/mem-private.git --migrate
+<span class="c"># moves existing memory into the private store, makes this repo code-only,</span>
+<span class="c"># and prints the one git command to commit the now-clean public repo</span></pre></div>
+
+      <h3>Work across branches &amp; worktrees</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> worktree ../feature-x -b feature-x   <span class="c"># new worktree, already sharing memory</span>
+<span class="k">hunch</span> doctor                        <span class="c"># confirms "worktree: linked — sharing the repo's memory"</span></pre></div>
+
+      <h3>It's not working</h3>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> doctor                        <span class="c"># git, synthesis provider, index freshness, drift</span>
+<span class="k">hunch</span> index                         <span class="c"># rebuild the code map from current source</span>
+<span class="k">hunch</span> migrate                       <span class="c"># after an upgrade, bring records to the latest schema</span></pre></div>
     </section>
 
     <section id="storage">
