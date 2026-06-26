@@ -1096,7 +1096,42 @@ program
     }
 
     console.log(markdown ? renderMarkdown(report) : renderText(report));
-    if (reportFailsStrict(report)) process.exitCode = 1;
+
+    // ARCHITECTURAL CONFORMANCE: does the RESULTING code still satisfy every recorded
+    // architectural invariant? This is graph-reachability, not a diff — so it catches semantic
+    // violations a pattern-matcher / SAST can't express (a controller that now reaches the DB
+    // directly). It must run over the CHANGED code, so re-parse the working tree first — but
+    // ONLY when conformance predicates exist (zero cost on repos that don't use them). The
+    // gate cases (--staged / --base / --commit HEAD) all have the working tree AT the change.
+    // Surfaced always; gates the commit/PR under --strict, with the receipt of the why.
+    const hasConformance = store.recs("decisions").some((d) => (d.conformance?.length ?? 0) > 0);
+    if (hasConformance) {
+      indexRepo(store, root, { churn: false }); // refresh the symbol/dep graph from the working tree
+      store.reindex();
+    }
+    const confViolations = hasConformance ? checkConformance(store).filter((c) => !c.satisfied) : [];
+    if (confViolations.length) {
+      if (markdown) {
+        console.log(`\n### ⛔ Architectural conformance — ${confViolations.length} invariant(s) violated\n`);
+        for (const c of confViolations) {
+          const dec = store.json.get("decisions", c.decision);
+          const why = dec?.context ? ` · _why: ${dec.context}_` : "";
+          const bug = dec?.caused_by_bug ? ` · prevents recurrence of \`${dec.caused_by_bug}\`` : "";
+          console.log(`- ⛔ **${c.detail}** — \`${c.decision}\` "${c.title}"${why}${bug}`);
+        }
+      } else {
+        console.log(`\n⛔ Architectural conformance — ${confViolations.length} invariant(s) the code no longer satisfies (an AI change drifted from the architecture):`);
+        for (const c of confViolations) {
+          const dec = store.json.get("decisions", c.decision);
+          console.log(`   ${c.detail}  (${c.decision} "${c.title}")`);
+          if (dec?.context) console.log(`     ↳ why: ${dec.context}`);
+          if (dec?.caused_by_bug) console.log(`     ↳ prevents recurrence of: ${dec.caused_by_bug}`);
+        }
+        console.log(`   The semantic invariant a linter can't see — run \`hunch conform\` for the full picture.`);
+      }
+    }
+
+    if (reportFailsStrict(report) || (!!opts.strict && confViolations.length > 0)) process.exitCode = 1;
     store.close();
   });
 
