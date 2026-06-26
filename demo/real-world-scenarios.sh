@@ -40,42 +40,59 @@ hdr "SCENARIO 2 — content-matched rule keeps its teeth across the file's life 
 # (so it is committed long after the rule) and THEN a commit adds lodash. The only
 # difference is whether the rule has a --match content matcher.
 
-mkcase(){ # $1 = extra record-constraint args ; sets DIR
-  local extra="$1"; DIR="$(mktemp -d)/repo"; mkdir -p "$DIR/src"; cd "$DIR"; newrepo
+mkcase(){ # $1 = extra record-constraint args ; $2 = statement (default: lodash rule) ; sets DIR
+  local extra="$1"; local stmt="${2:-never import lodash — use src/utils}"
+  DIR="$(mktemp -d)/repo"; mkdir -p "$DIR/src"; cd "$DIR"; newrepo
   printf 'export function total(x){return x}\n' > src/cart.ts; git add -A; future 1 init >/dev/null
   $HUNCH init --no-providers >/dev/null 2>&1
-  $HUNCH record-constraint "never import lodash — use src/utils" --scope "src/**" --severity blocking $extra >/dev/null
+  $HUNCH record-constraint "$stmt" --scope "src/**" --severity blocking $extra >/dev/null
   # normal development: the guarded file changes repeatedly, all WITHOUT violating the rule
   printf 'export function totals(x){return x}\nexport function count(x){return x.length}\n' >> src/cart.ts; git add -A; future 2 "feat: helpers" >/dev/null
   printf 'export function avg(x){return x}\n' >> src/cart.ts; git add -A; future 3 "feat: avg" >/dev/null
 }
 
-# 2a — SCOPE-ONLY rule (the old behavior): churned file → rule goes stale → does NOT block
-mkcase ""
-printf 'import _ from "lodash";\nexport function g(o){return _.groupBy(o)}\n' >> src/cart.ts; git add -A; future 4 "add lodash" >/dev/null
+# 2a — SCOPE-ONLY rule (a SEMANTIC invariant you can't name a token for): churned file → goes
+# stale → does NOT hard-block. This is the gap content/dep-matching closes where you CAN name it.
+mkcase "" "src/cart.ts must stay framework-agnostic"
+printf 'export function g(o){return o}\n' >> src/cart.ts; git add -A; future 4 "edit guarded file" >/dev/null
 $HUNCH check --commit HEAD --strict >/dev/null 2>&1
-[ $? -eq 0 ] && ok "scope-only rule: lodash commit NOT blocked — reproduces the staleness gap (advisory)" \
+[ $? -eq 0 ] && ok "scope-only semantic rule: edit NOT hard-blocked once stale — the gap (advisory)" \
              || no "scope-only rule unexpectedly blocked (scenario setup wrong)"
 
-# 2b — CONTENT-MATCHED rule (the fix): same churn + same violation → BLOCKS
-mkcase '--match lodash'
+# 2b — DEP-MATCHED rule (the fix): same churn + same violation → BLOCKS
+mkcase '--forbid-dep lodash'
 printf 'import _ from "lodash";\nexport function g(o){return _.groupBy(o)}\n' >> src/cart.ts; git add -A; future 4 "add lodash" >/dev/null
 $HUNCH check --commit HEAD --strict >/dev/null 2>&1
-[ $? -eq 1 ] && ok "content-matched rule: lodash commit BLOCKED across the file's life (FIX 2)" \
-             || no "content-matched rule did NOT block the violation (FIX 2 failed)"
+[ $? -eq 1 ] && ok "dep-matched rule: lodash import BLOCKED across the file's life (FIX 2)" \
+             || no "dep-matched rule did NOT block the violation (FIX 2 failed)"
 
-# 2c — PRECISION: a passing commit (touches the guarded file, does NOT add lodash) is NOT flagged
-mkcase '--match lodash'
+# 2c — SUBMODULE: forbidding "lodash" also catches "lodash/groupBy"
+mkcase '--forbid-dep lodash'
+printf 'import groupBy from "lodash/groupBy";\nexport function g(o){return groupBy(o)}\n' >> src/cart.ts; git add -A; future 4 "add lodash submodule" >/dev/null
+$HUNCH check --commit HEAD --strict >/dev/null 2>&1
+[ $? -eq 1 ] && ok "dep-matched rule: submodule import (lodash/groupBy) BLOCKED" \
+             || no "dep-matched rule missed the submodule import"
+
+# 2d — PRECISION: compliant edit is not flagged
+mkcase '--forbid-dep lodash'
 printf 'export function median(x){return x}\n' >> src/cart.ts; git add -A; future 4 "feat: median (no lodash)" >/dev/null
 OUT=$($HUNCH check --commit HEAD --strict 2>&1); CODE=$?
-if [ $CODE -eq 0 ] && ! echo "$OUT" | grep -qi "lodash"; then ok "content-matched rule stays QUIET on a compliant edit (no false positive)"; else no "content-matched rule false-flagged a compliant edit (code=$CODE)"; fi
+if [ $CODE -eq 0 ] && ! echo "$OUT" | grep -qi "lodash"; then ok "dep-matched rule stays QUIET on a compliant edit (no false positive)"; else no "dep-matched rule false-flagged a compliant edit (code=$CODE)"; fi
 
-# 2d — PRECISION: a COMMENT that merely names the term is not a violation (no false positive)
-mkcase '--match lodash'
-printf '// we deliberately avoid lodash in this module\nexport function median(x){return x}\n' >> src/cart.ts; git add -A; future 4 "feat: median + a comment about lodash" >/dev/null
+# 2e — PRECISION: a COMMENT and a STRING that name the dep are not violations (parsed-import immune)
+mkcase '--forbid-dep lodash'
+printf '// we deliberately avoid lodash here\nconst note = "lodash is banned";\nexport function median(x){return x}\n' >> src/cart.ts; git add -A; future 4 "feat: median + comment/string naming lodash" >/dev/null
 $HUNCH check --commit HEAD --strict >/dev/null 2>&1
-[ $? -eq 0 ] && ok "content-matched rule ignores a comment that names the term (matches code, not comments)" \
-             || no "content-matched rule false-blocked a comment (FP regressed)"
+[ $? -eq 0 ] && ok "dep-matched rule ignores a comment AND a string that name the dep (parses the import)" \
+             || no "dep-matched rule false-blocked a comment/string (FP)"
+
+# 2f — SEAMLESS: a recorded rule auto-derives the dep matcher (no --forbid-dep given)
+S2F="$(mktemp -d)/repo"; mkdir -p "$S2F/src"; cd "$S2F"; newrepo
+printf 'export const x=1;\n' > src/cart.ts; git add -A; future 1 init >/dev/null
+$HUNCH init --no-providers >/dev/null 2>&1
+$HUNCH record-constraint "never import lodash" --scope "src/**" --severity blocking 2>&1 | grep -qi "forbids import of lodash" \
+  && ok "recording 'never import lodash' AUTO-derives a precise dep matcher (no flag needed)" \
+  || no "auto-derive did not attach a dep matcher"
 
 # ============================================================================
 printf '\n\033[1m── %d passed, %d failed ──\033[0m\n' "$PASS" "$FAIL"

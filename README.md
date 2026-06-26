@@ -172,11 +172,13 @@ Plus the **Regression Guard** (re-adding deliberately-retired code) and the
 **[CI Constraint Guard](https://hunch-pi.vercel.app/docs#ci)** (`hunch ci` — a PR gate that
 comments the affected `con_`/`dec_` ids and fails on a blocking one).
 
-Give a blocking rule a content matcher — `record-constraint "…" --scope "src/**" --severity
-blocking --match "lodash"` — and it blocks the *actual* violation across the file's whole life
-(matched against added code; comments ignored) instead of relaxing to advisory after the file
-is edited again. It's a deterministic guard for the obvious/accidental violation, not a
-bypass-proof boundary.
+Name the actual violation — `record-constraint "…" --scope "src/**" --severity blocking
+--forbid-dep "lodash"` — and it blocks the *real* change across the file's whole life instead
+of relaxing to advisory after the file is edited again. The dep matcher reads the **parsed
+import**, so a comment or string naming the module can't false-positive and a submodule
+(`lodash/groupBy`) is still caught; a correction your assistant records gets the same matcher
+automatically. (`--match <regex>` remains a lint-grade textual fallback.) None of these are a
+bypass-proof boundary — deliberate indirection can still route around any rule.
 
 ## Working as a team
 

@@ -4,7 +4,7 @@
  *  real HunchStore, and so the model-facing refusal text lives in one audited
  *  place. Mirrors the `hunch check` direct/near logic, blocking-severity only. */
 import type { HunchStore } from "../store/hunchStore.js";
-import { constraintMatcher, contentViolates } from "./constraintmatch.js";
+import { effectiveForbids, matchForbids, importedDeps } from "./constraintmatch.js";
 
 export interface BlockingHit {
   /** Refusal text fed back to the model as the deny reason. Deliberately states
@@ -20,10 +20,12 @@ export interface BlockingHit {
  *  on edits that don't break the rule, instead of blocking every edit in scope
  *  (dec_e0a36efbf5). Scope-only invariants keep the blunt scope-touch behavior. */
 export function blockingInScope(store: HunchStore, file: string, proposedAddedLines: string[] = []): BlockingHit | null {
+  const addedDeps = importedDeps(proposedAddedLines); // parse imports out of the proposed edit
   for (const c of store.checkConstraints(file)) {
     if (c.severity !== "blocking") continue;
-    const re = constraintMatcher(c.match);
-    if (re && !contentViolates(re, proposedAddedLines)) continue; // content-matched & not tripped → allow
+    const forbids = effectiveForbids(c);
+    // content-matched & not tripped by the proposed edit → allow (don't block every edit in scope)
+    if (forbids && !matchForbids(forbids, addedDeps, proposedAddedLines)) continue;
     return {
       reason: `Hunch: editing ${file} would touch a BLOCKING invariant — "${c.statement}" (${c.id}). Do not proceed unless this change is meant to modify that invariant; otherwise preserve it.`,
     };
@@ -34,7 +36,7 @@ export function blockingInScope(store: HunchStore, file: string, proposedAddedLi
       // A content matcher tests the EDITED file's own added lines; it has nothing to
       // assert about a transitive dependency, so content-matched invariants don't fire
       // via blast radius — only scope-only invariants keep the blast-radius warning.
-      if (constraintMatcher(c.match)) continue;
+      if (effectiveForbids(c)) continue;
       return {
         reason: `Hunch: ${file} is in the blast radius of a BLOCKING invariant — "${c.statement}" (${c.id}; via ${b.file}, ${b.via} depth ${b.depth}). Verify the invariant still holds before editing.`,
       };

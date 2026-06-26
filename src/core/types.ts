@@ -195,7 +195,20 @@ export const ConstraintSchema = z.object({
   // instead of on bare scope-touch. A content-verifiable invariant is decided per
   // commit, so it is immune to file-change "staleness" and keeps its teeth across the
   // file's whole life — and stays quiet on edits that don't break it (dec_e0a36efbf5).
+  // Legacy textual tier; prefer `forbids` below, which is parsed-import precise.
   match: z.string().nullable().default(null),
+  // Precise content matcher (same ladder as a veto tripwire): a violation is a forbidden
+  // dep IMPORTED, symbol added, or pattern matched in scoped code. The dep tier is parsed
+  // from the import set, so comments/strings naming the module can't false-positive. Like
+  // `match`, a forbids-matched invariant is staleness-immune.
+  forbids: z
+    .object({
+      deps: z.array(z.string()).default([]),
+      symbols: z.array(z.string()).default([]),
+      patterns: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .default(null),
   rationale: z.string().default(""),
   source_decision: z.string().nullable().default(null),
   violations: z.array(z.string()).default([]),

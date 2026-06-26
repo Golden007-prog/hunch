@@ -547,11 +547,11 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
 <span class="k">hunch</span> why src/auth/session.ts --as-of v1.2.0   <span class="c"># what was believed at a past release</span></pre></div>
 
       <h3>Turn a correction into an enforced rule</h3>
-      <p>Tell your assistant the rule (it records it for you), or do it from the CLI — then confirm it so it actually blocks. Add <code>--match</code> with a pattern for the actual violation: a content-matched rule blocks the real change <em>across the file's whole life</em> and stays quiet on edits that don't break it, where a scope-only rule relaxes to advisory once the file is edited again.</p>
+      <p>Tell your assistant the rule (it records it for you), or do it from the CLI — then confirm it so it actually blocks. Name the actual violation with <code>--forbid-dep</code> (or <code>--forbid-symbol</code>): the rule then blocks the real change <em>across the file's whole life</em> and stays quiet on edits that don't break it, where a scope-only rule relaxes to advisory once the file is edited again.</p>
       <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> record-constraint "never import lodash; use src/utils" \
-      --scope "src/**" --severity blocking --match "lodash"
+      --scope "src/**" --severity blocking --forbid-dep "lodash"
 <span class="k">hunch</span> review --accept &lt;id&gt;            <span class="c"># confirm → now held against every assistant</span></pre></div>
-      <p class="muted" style="font-size:.86em">A matcher is a deterministic guard for the obvious/accidental violation, matched against added code (comments are ignored) — not a bypass-proof boundary; deliberate indirection can still route around any regex.</p>
+      <p class="muted" style="font-size:.86em"><code>--forbid-dep</code> matches the <em>parsed</em> import (a comment or string naming the module can't trip it; a submodule like <code>lodash/groupBy</code> is caught). A correction your assistant records is given the same matcher automatically. <code>--match &lt;regex&gt;</code> remains as a lint-grade textual fallback. None of these are bypass-proof — deliberate indirection can still route around any rule.</p>
 
       <h3>Curate the draft queue</h3>
       <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> review                        <span class="c"># segmented: ready-to-confirm vs needs-scrutiny</span>

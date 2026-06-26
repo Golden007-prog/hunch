@@ -10,6 +10,7 @@
  */
 import { constraintId } from "./ids.js";
 import { toPosixTarget } from "./paths.js";
+import { deriveForbids } from "./constraintmatch.js";
 import type { Constraint } from "./types.js";
 
 /** Correction cues. Deliberately conservative — anchored to imperative/rebuke
@@ -87,6 +88,10 @@ export function buildCorrectionConstraint(input: CorrectionInput, now: string): 
     severity,
     enforcement: "advisory_v1",
     match: null,
+    // Best-effort precise matcher from the rule text ("never import lodash" → forbids lodash),
+    // so the seamless capture path mints enforcement that survives file churn, not a scope-only
+    // rule that goes stale. null when nothing derivable → falls back to scope-based.
+    forbids: deriveForbids(rule),
     rationale: input.rationale ?? "Captured from a human correction of the agent (Never Twice).",
     source_decision: input.source_decision ?? null,
     violations: [],

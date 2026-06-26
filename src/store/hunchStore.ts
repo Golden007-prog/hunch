@@ -22,7 +22,7 @@ import { gitCommonDir } from "../extractors/git.js";
 import { pathMatchesGlob } from "../core/glob.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
-import { constraintMatcher, contentViolates } from "../core/constraintmatch.js";
+import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
 import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
 import type { CheckReport, CheckDirect, CausalWhy } from "../core/checkreport.js";
 
@@ -710,16 +710,18 @@ export class HunchStore {
       removedNames: new Set(an.removedSymbols.map((s) => s.name)),
     });
     const directReport: CheckDirect[] = [];
+    const addedDepSet = new Set(an.addedDeps);
     for (const { c, files: fs } of direct.values()) {
-      const re = constraintMatcher(c.match);
-      if (re) {
-        // CONTENT-MATCHED: decide by whether an ADDED line in the matched files actually
-        // breaks the rule — not by bare scope-touch. A commit that touches the scope but
-        // doesn't trip the matcher COMPLIES → drop it (no noise). A real hit blocks WITHOUT
-        // the staleness gate: content is verified per commit, so file churn can't retract
-        // the teeth (dec_e0a36efbf5). Empty diff ⇒ can't prove a violation ⇒ treat as clean.
-        const added = fs.flatMap((f) => an.addedLinesByFile.get(f) ?? []);
-        if (!contentViolates(re, added)) continue;
+      const forbids = effectiveForbids(c);
+      if (forbids) {
+        // CONTENT-MATCHED: decide by whether the diff actually breaks the rule (a forbidden
+        // dep imported / symbol added / pattern matched in scoped code) — not by bare
+        // scope-touch. A commit that touches the scope but doesn't trip it COMPLIES → drop it
+        // (no noise). A real hit blocks WITHOUT the staleness gate: content is verified per
+        // commit, so file churn can't retract the teeth (dec_e0a36efbf5). Empty diff ⇒ can't
+        // prove a violation ⇒ treat as clean.
+        const scopedAdded = fs.flatMap((f) => an.addedLinesByFile.get(f) ?? []);
+        if (!matchForbids(forbids, addedDepSet, scopedAdded)) continue;
         const strictBlocks = isStrictBlocker(c, false);
         directReport.push({
           id: c.id, severity: c.severity ?? "advisory", statement: c.statement, rationale: c.rationale ?? "",
@@ -1126,52 +1128,11 @@ export interface VetoHit {
   why?: { bug?: { id: string; title: string; root_cause: string } };
 }
 
-interface TripwireMatch {
-  tier: VetoTier;
-  evidence: string[];
-}
-
-/** Walk a tripwire's precision-first ladder against an analyzed diff. dep (exact
- *  set intersection) > symbol (whole-word identifier in an added line) > pattern
- *  (scoped regex). Returns the highest-precision match, or null. Bad user/LLM regex
- *  is compiled defensively and never throws (a malformed pattern is simply inert). */
-function matchTripwire(tw: RejectedTripwire, addedDeps: Set<string>, scopedAdded: string[]): TripwireMatch | null {
-  // dep tier: the forbidden dep must be a genuinely-new external import (addedDeps)
-  // AND imported in a SCOPED added line — not merely added somewhere else in the
-  // diff. Without the scoped check, axios added in an out-of-scope file plus any
-  // edit to an in-scope file would false-positive.
-  const hitDeps = tw.forbids.deps.filter((dep) => addedDeps.has(dep) && scopedAdded.some((l) => importsDep(l, dep)));
-  if (hitDeps.length) return { tier: "dep", evidence: hitDeps.map((d) => `+import ${d}`) };
-
-  const hitSyms = tw.forbids.symbols.filter((s) => {
-    const re = new RegExp(`\\b${escapeRe(s)}\\b`);
-    return scopedAdded.some((l) => re.test(l));
-  });
-  if (hitSyms.length) return { tier: "symbol", evidence: hitSyms.map((s) => `+${s}`) };
-
-  for (const p of tw.forbids.patterns) {
-    let re: RegExp | null = null;
-    try {
-      re = new RegExp(p);
-    } catch {
-      re = null; // malformed pattern is inert, never a thrown error in the gate
-    }
-    if (!re) continue;
-    const hit = scopedAdded.find((l) => re!.test(l));
-    if (hit) return { tier: "pattern", evidence: [`/${p}/ matched: ${hit.trim().slice(0, 80)}`] };
-  }
-  return null;
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Does an added line actually IMPORT `dep` (not merely mention it in a string)?
- *  Covers `import x from "dep"`, `import "dep"`, `} from "dep"`, `require("dep")` —
- *  so a literal like `const m = "axios"` no longer trips the dep tier. */
-function importsDep(line: string, dep: string): boolean {
-  return new RegExp(`(?:from|import|require\\(?)\\s*['"]${escapeRe(dep)}['"]`).test(line);
+/** A tripwire matches via the shared precision ladder (dep > symbol > pattern). One
+ *  matcher backs both the Veto Guard and content-matched constraints (constraintmatch.ts),
+ *  so the parse-the-import precision is audited in exactly one place. */
+function matchTripwire(tw: RejectedTripwire, addedDeps: Set<string>, scopedAdded: string[]): ForbidMatch | null {
+  return matchForbids(tw.forbids, addedDeps, scopedAdded);
 }
 
 /** What an in-force decision retired from a file (agent-hook grounding). */

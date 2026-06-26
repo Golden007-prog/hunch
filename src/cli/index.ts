@@ -31,6 +31,7 @@ import { parseTestReport } from "../extractors/testreport.js";
 import { selectProvider } from "../synthesis/provider.js";
 import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, commitAndPushHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree } from "../extractors/git.js";
 import { runbookId, decisionId } from "../core/ids.js";
+import { deriveForbids, effectiveForbids } from "../core/constraintmatch.js";
 import type { Runbook } from "../core/types.js";
 import { extractInlineIntent } from "../extractors/comments.js";
 import { renderText, renderMarkdown, reportFailsStrict, type CheckReport } from "../core/checkreport.js";
@@ -666,7 +667,7 @@ program
           id, type: "correctness", statement: it.text, scope: [it.file],
           // Advisory by default — an inline rule never auto-blocks a build; raise severity
           // deliberately if you want enforcement. Keeps day-one zero false-positive rage.
-          severity: "warning", enforcement: "advisory_v1", match: null,
+          severity: "warning", enforcement: "advisory_v1", match: null, forbids: null,
           rationale: `Captured from an inline hunch-rule comment (${it.file}:${it.line}).`,
           source_decision: null, violations: [], status: "active",
           valid_from: prev?.valid_from ?? now, valid_to: null,
@@ -859,13 +860,22 @@ program
   .option("--rationale <text>", "why it must hold", "")
   .option("--source-decision <id>", "decision id this derives from")
   .option("--enforcement <e>", "advisory_v1 | ci | manual", "advisory_v1")
-  .option("--match <regex>", "content matcher: block only when an ADDED line matches this regex (precise + immune to staleness, vs scope-touch)")
-  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string; match?: string }) => {
+  .option("--forbid-dep <names>", "comma-sep imports that BREAK the rule (parsed-import precise; e.g. lodash) — blocks the real violation, immune to staleness")
+  .option("--forbid-symbol <names>", "comma-sep identifier names that break the rule")
+  .option("--match <regex>", "textual line regex (lint-grade last resort; prefer --forbid-dep/--forbid-symbol)")
+  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string; match?: string; forbidDep?: string; forbidSymbol?: string }) => {
     const SEV = ["advisory", "warning", "blocking"];
     if (!SEV.includes(opts.severity)) return fail(`--severity must be one of: ${SEV.join(", ")}`);
     const { store, root } = storeFor();
     store.json.ensureDirs();
     const scope = opts.scope.split(",").map((s) => toPosixTarget(s.trim())).filter(Boolean);
+    const csv = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
+    const deps = csv(opts.forbidDep), symbols = csv(opts.forbidSymbol);
+    // Explicit matcher if given; else best-effort derive a dep from the statement so the
+    // common "never import X" rule is precise + staleness-immune by default, not scope-only.
+    let forbids = deps.length || symbols.length ? { deps, symbols, patterns: [] as string[] } : null;
+    let derived = false;
+    if (!forbids && !opts.match) { forbids = deriveForbids(statement); derived = !!forbids; }
     const c = store.json.put("constraints", {
       id: constraintId(statement),
       type: opts.type,
@@ -874,6 +884,7 @@ program
       severity: opts.severity,
       enforcement: opts.enforcement,
       match: opts.match ?? null,
+      forbids,
       rationale: opts.rationale,
       source_decision: opts.sourceDecision ?? null,
       violations: [],
@@ -885,11 +896,12 @@ program
     store.reindex();
     updateClaudeMd(root, store);
     console.log(`✓ recorded ${c.severity} constraint ${c.id}: "${c.statement}" (scope: ${scope.join(", ") || "repo"})`);
-    if (c.severity === "blocking" && !c.match) {
+    if (derived && c.forbids?.deps.length) console.log(`  ↳ matcher: forbids import of ${c.forbids.deps.join(", ")} (precise, immune to staleness)`);
+    if (c.severity === "blocking" && !effectiveForbids(c)) {
       // The default path's sharp edge: a scope-only blocking rule fails OPEN once any
       // file in scope is committed after today (staleness). Point the user at the fix.
       console.log(`  ⚠ scope-only — this will downgrade to advisory once a file in scope is changed after today.`);
-      console.log(`    To block the actual violation across the file's life, add a content matcher, e.g.  --match "lodash"`);
+      console.log(`    To block the actual violation across the file's life, add  --forbid-dep <pkg>  (or --forbid-symbol / --match).`);
     }
     store.close();
   });

@@ -336,6 +336,7 @@ function promoteConstraint(store: HunchStore, bug: Bug): Constraint {
     severity: bug.severity === "critical" ? "blocking" : "warning",
     enforcement: "advisory_v1",
     match: null,
+    forbids: null,
     rationale: `Derived from ${bug.id}: ${bug.root_cause || bug.symptom}`,
     source_decision: null,
     violations: [],
