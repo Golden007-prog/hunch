@@ -27,9 +27,9 @@ hunch conform --strict     # ✅/⛔ deterministic gate — wire into CI; runs o
 > dbQuery — VIOLATED · why: the Mar-2025 N+1 meltdown · prevents recurrence of bug_0317."* See
 > [`demo/architectural-conformance.sh`](demo/architectural-conformance.sh).
 
-**It works both ways — prevent *and* catch:**
-- **Prevent** — in a reproducible benchmark ([`bench/`](bench/architectural-conformance.md): n=60, Sonnet + Haiku, 3 invariant classes), the recorded invariant in context cut architectural violations **67% → 13%** overall, and **100% → 0%** on every cell where a capable model was genuinely tempted — including a security *"`charge` must always verify the session"* invariant, on **both** models. Each violation passes a linter clean.
-- **Catch** — when the model heeds it less (weaker models do), `hunch check --strict` (the pre-commit hook + the [`hunch ci`](https://hunch-pi.vercel.app/docs#ci) PR gate) **blocks** the change deterministically, with the receipt — no model in the gate. That's why both layers exist.
+**It works both ways — prevent *and* catch — and you need both:**
+- **Prevent** — in a reproducible benchmark ([`bench/`](bench/architectural-conformance.md): n=90, Haiku/Sonnet/Opus, 3 invariant classes), the recorded invariant in context cut architectural violations **58% → 16%** overall (Sonnet **67% → 0%**). But prevention is *necessary, not sufficient*: **even Opus ignored a layering rule 60% of the time when told.** Each violation passes a linter clean.
+- **Catch** — which is exactly why the deterministic gate exists. `hunch check --strict` (the pre-commit hook + the [`hunch ci`](https://hunch-pi.vercel.app/docs#ci) PR gate) **blocks** what the model ignores — with the receipt, **no model in the gate**. Injection helps; the gate is the guarantee.
 
 <sub>Works with **Claude Code, Cursor, Copilot, Windsurf & Google Antigravity** from one shared, git-native graph.</sub>
 
