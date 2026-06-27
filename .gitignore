@@ -44,3 +44,7 @@ dist/
 # private GTM/launch playbooks — keep local, never publish
 blog/LAUNCH.md
 blog/*.private.md
+.env
+.env.*
+*.local.json
+api/.env
