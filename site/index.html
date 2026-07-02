@@ -387,62 +387,62 @@
         <div class="glabel">memory / — what the graph holds</div>
         <p class="gwhy">Records with provenance, safe writes, and a time axis — memory you can audit.</p>
         <details class="f"><summary><span class="fname">Provenance on everything</span><span class="fhint">source, confidence, evidence — on every record</span><span class="fplus">+</span></summary>
-          <div class="fbody">Every record is tagged with where it came from and how sure Hunch is. A quick auto-guess stays advisory; only what you've confirmed is trusted enough to block.</div></details>
+          <div class="fbody">Every record shows where it came from and how much to trust it. Auto-captured guesses stay advisory; only what you've confirmed is trusted enough to block.</div></details>
         <details class="f"><summary><span class="fname">Git is the sync</span><span class="fhint">plain files beside your code, merge-clean</span><span class="fplus">+</span></summary>
-          <div class="fbody">The graph is plain files committed beside your code — reviewable in PRs, synced for free over push/pull. Teammates' edits merge cleanly with a record-id merge driver, no conflict markers.</div></details>
+          <div class="fbody">The graph lives in your repo and travels with it — reviewable in PRs, synced by push/pull. Teammates' edits merge cleanly, no conflict markers.</div></details>
         <details class="f"><summary><span class="fname">Atomic &amp; durable</span><span class="fhint">interrupted writes can't truncate the index</span><span class="fplus">+</span></summary>
-          <div class="fbody">Every write is temp-file + rename with a Windows-safe fallback. An interrupted write can't truncate the index; a corrupt index refuses to be flattened.</div></details>
+          <div class="fbody">An interrupted write can never corrupt the graph, and damaged state refuses to overwrite good data. Boring on purpose.</div></details>
         <details class="f"><summary><span class="fname">Time-travel memory</span><span class="fhint">query the graph as of any commit</span><span class="fplus">+</span></summary>
-          <div class="fbody">Decisions and invariants carry a git-anchored valid-time window. Query <code>--as-of</code> any commit or tag; supersession closes a window instead of deleting it, so history stays auditable.</div></details>
+          <div class="fbody">Ask what the team believed as of any commit or tag. History is closed, never deleted — superseded decisions stay auditable forever.</div></details>
         <details class="f"><summary><span class="fname">Private memory</span><span class="fhint">open-source the code, not the reasoning</span><span class="fplus">+</span></summary>
-          <div class="fbody"><code>hunch private</code> keeps sensitive decisions in a separate private repo, unioned into local queries — never committed here. The CI PR comment renders public-only by construction.</div></details>
+          <div class="fbody">Open-source the code without open-sourcing the reasoning. Sensitive decisions live in a separate private repo you control — your local queries see them, public outputs never can.</div></details>
         <details class="f"><summary><span class="fname">Decision-grounding</span><span class="fhint">doc≠graph drift, caught deterministically</span><span class="fplus">+</span></summary>
-          <div class="fbody">Anchor a decision to a <code>topic</code> and the pre-edit hook surfaces the file's live decision — follow the graph, not a stale doc — plus what it rejected. <code>/capture</code> grills a decision one question at a time before it's written; <code>hunch drift</code> gates CI on anchor-stale docs; one live decision per topic, never silently two.</div></details>
+          <div class="fbody">Docs drift; the graph doesn't. Your assistant is told which decision is current — including what was rejected — before it edits, and prose still describing a superseded decision is caught. CI can gate on it.</div></details>
       </div>
 
       <div class="fgroup">
         <div class="glabel">guards / — what it stops</div>
         <p class="gwhy">Deterministic checks over the graph. Advisory by default; blocking only on what you've confirmed.</p>
         <details class="f"><summary><span class="fname">Regression Guard</span><span class="fhint">stop re-adding what a decision retired</span><span class="fplus">+</span></summary>
-          <div class="fbody">Re-adding a symbol or dependency a decision deliberately retired gets flagged — warns always, fails a strict commit only when tied to a blocking invariant.</div></details>
+          <div class="fbody">Re-adding what a past decision deliberately removed gets flagged before it lands — the AI stops silently undoing intentional design.</div></details>
         <details class="f"><summary><span class="fname">Veto — Decision Guard</span><span class="fhint">stop re-introducing what you rejected</span><span class="fplus">+</span></summary>
-          <div class="fbody">Regression catches retired <em>code</em>; Veto catches rejected <em>approaches</em> — the alternative that never existed in code. Blocks the commit, CI, and the live edit with a cited receipt, and only on a reversal you've confirmed.</div></details>
+          <div class="fbody">Re-introducing an approach you rejected — even one that never existed in code — is caught with a receipt: what you rejected, what you chose instead, and why.</div></details>
         <details class="f"><summary><span class="fname">Redundancy Guard</span><span class="fhint">"this already exists, three modules over"</span><span class="fplus">+</span></summary>
-          <div class="fbody">Agents work from a local context window, so they re-implement helpers that already exist. Hunch sees the whole codebase and flags the duplicate with its existing location. Advisory — tuned quiet, so moved code isn't mistaken for a duplicate.</div></details>
+          <div class="fbody">The agent writes a helper that already exists three modules over; Hunch points at the original. Tuned quiet — a refactor that just moves code isn't mistaken for a duplicate.</div></details>
         <details class="f"><summary><span class="fname">CI Constraint Guard</span><span class="fhint">memory that blocks a merge</span><span class="fplus">+</span></summary>
-          <div class="fbody">A GitHub Action comments the invariants and decisions a PR touches (with <code>con_</code>/<code>dec_</code> ids) and fails the check on a direct, high-confidence, non-stale blocking invariant.</div></details>
+          <div class="fbody">Every PR gets a comment naming the invariants and decisions it touches — and the check fails when a confirmed blocking rule is actually broken.</div></details>
         <details class="f"><summary><span class="fname">Causal Merge Verdict</span><span class="fhint">BLOCK / WARN / PASS, with the why</span><span class="fplus">+</span></summary>
-          <div class="fbody"><code>hunch_merge_verdict</code> replays a diff against the graph and returns a cited verdict — the decision behind each guard and the bug whose root cause spawned it. It catches a change that re-opens a closed bug; a diff-only reviewer can't.</div></details>
+          <div class="fbody">One verdict per diff — BLOCK / WARN / PASS — with each rule cited back to the decision behind it and the bug it prevents reopening. Catches what a diff-only reviewer can't.</div></details>
         <details class="f"><summary><span class="fname">Intent-conformance</span><span class="fhint">does pay still reach verifySession?</span><span class="fplus">+</span></summary>
-          <div class="fbody">Every other guard asks "did this diff touch a guarded file?". <code>hunch conform</code> asks whether the code still <em>satisfies</em> each recorded decision — layering, must-reach, dependency direction — flagged even with no diff in scope.</div></details>
+          <div class="fbody">Beyond "did the diff touch a guarded file": does the code still honor the recorded design — layering, must-reach, dependency direction? Drift is flagged even when nothing in scope changed.</div></details>
         <details class="f"><summary><span class="fname">Never Twice</span><span class="fhint">correct the agent once, it holds forever</span><span class="fplus">+</span></summary>
-          <div class="fbody">"No — never call X here" once, and <code>hunch_record_correction</code> mints a scoped, human-confirmed invariant the pre-edit hook and CI guard hold every assistant to. The same mistake can't recur next session.</div></details>
+          <div class="fbody">Correct the agent once — "no, never call X here" — and it becomes an enforced rule every assistant is held to, in every future session.</div></details>
       </div>
 
       <div class="fgroup">
         <div class="glabel">retrieval / — how the why comes back</div>
         <p class="gwhy">Grounding that reaches the agent at reasoning time, with citations.</p>
         <details class="f"><summary><span class="fname">MCP-native, two-way</span><span class="fhint">query the why; write decisions back</span><span class="fplus">+</span></summary>
-          <div class="fbody">Assistants query the why behind a file, the blast radius of a change, a bug's lineage, and the invariants in scope — and record new decisions back into the graph as you work.</div></details>
+          <div class="fbody">Assistants ask why a file is shaped the way it is, what breaks if it changes, and whether a bug has happened before — and record new decisions back as you work.</div></details>
         <details class="f"><summary><span class="fname">Graph-augmented retrieval</span><span class="fhint">+41.7pt recall@10 over plain search</span><span class="fplus">+</span></summary>
-          <div class="fbody"><code>hunch_query</code> uses your code's own connections to surface the cross-file evidence a "why" question needs. Measured +41.7pt recall@10 on a cross-file benchmark — and it works without embeddings.</div></details>
+          <div class="fbody">Answers pull in the cross-file evidence plain search misses — measured +41.7pt recall@10 on a cross-file benchmark, no embeddings required.</div></details>
         <details class="f"><summary><span class="fname">Runbook memory</span><span class="fhint">the proven steps for recurring tasks</span><span class="fplus">+</span></summary>
-          <div class="fbody">The <em>how</em> layer beside the why. <code>hunch runbook</code> distills a reusable procedure from a commit range; <code>hunch_runbook(task)</code> returns it — kind-scoped, so "how do I add an MCP tool?" finds the runbook, not the whole graph.</div></details>
+          <div class="fbody">The <em>how</em> beside the why: proven procedures for recurring tasks, distilled from real work and returned on demand — so an agent reuses the procedure instead of re-deriving it.</div></details>
         <details class="f"><summary><span class="fname">Fragility report</span><span class="fhint">the riskiest code, with its bug history</span><span class="fplus">+</span></summary>
-          <div class="fbody">Rank the riskiest code in your repo — churn, bug lineage, fan-in — and get the real history behind it, not a generic lecture.</div></details>
+          <div class="fbody">The riskiest code in your repo, ranked — with the real bug history behind each entry, not a generic lecture.</div></details>
         <details class="f"><summary><span class="fname">Deep Synthesis</span><span class="fhint">several takes, reconciled, fact-checked</span><span class="fplus">+</span></summary>
-          <div class="fbody"><code>--deep</code> gathers independent takes on a change and reconciles them into one note — trusting it more when they agree — then fact-checks it against the commit. Always advisory; billed to your subscription.</div></details>
+          <div class="fbody">Several independent readings of a change, reconciled into one note that's trusted only where they agree. Always advisory.</div></details>
       </div>
 
       <div class="fgroup">
         <div class="glabel">team / — sharing and judging</div>
         <p class="gwhy">One source of truth across branches, worktrees, teammates, and agents.</p>
         <details class="f"><summary><span class="fname">Works offline, $0 SaaS</span><span class="fhint">subscription-billed synthesis, heuristic fallback</span><span class="fplus">+</span></summary>
-          <div class="fbody">Synthesis runs on your Claude subscription via the CLI — never the pay-per-token API. No <code>claude</code> on the machine? A deterministic heuristic keeps the loop alive.</div></details>
+          <div class="fbody">No SaaS, no API key. Learning bills to the coding subscription you already pay for — and without one, a deterministic fallback keeps the loop alive.</div></details>
         <details class="f"><summary><span class="fname">Shared team memory</span><span class="fhint">one store; fresh clones auto-connect</span><span class="fplus">+</span></summary>
-          <div class="fbody"><code>hunch shared --repo</code> routes every capture to one store across branches, worktrees, teammates, and agents. A committed <code>team.json</code> lets a fresh clone wire itself on <code>hunch init</code> — behind a strict URL allowlist.</div></details>
+          <div class="fbody">One memory across branches, worktrees, teammates, and agents — and a fresh clone connects itself to the team's store on init.</div></details>
         <details class="f"><summary><span class="fname">Multi-candidate verdict</span><span class="fhint">rank 5 agent solutions in 10 minutes</span><span class="fplus">+</span></summary>
-          <div class="fbody"><code>hunch compare</code> ranks N candidate branches by architectural fit: fewest invariant hits, no reversed decisions, least sprawl. The "evaluate five solutions" check.</div></details>
+          <div class="fbody">Five agent-generated solutions to one task? Ranked by architectural fit in one command — the best-behaved candidate wins.</div></details>
       </div>
     </div>
   </div>
