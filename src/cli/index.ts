@@ -38,7 +38,7 @@ import { renderText, renderMarkdown, reportFailsStrict, type CheckReport } from 
 import { partitionReview, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { ensureSharedOverlayPointer } from "../integrations/worktree.js";
-import { flushPrivate } from "../integrations/sync.js";
+import { flushCapture } from "../integrations/sync.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS } from "../integrations/gitignore.js";
 import { writeCiWorkflow } from "../integrations/ciAction.js";
@@ -88,8 +88,8 @@ program
   .option("--firmness <level>", "agent-hook firmness: off | advisory | firm | strict")
   .option("--private-sync", "post-commit synthesis writes captured decisions into the overlay repo (HUNCH_PRIVATE_DIR), never the public store")
   .option("--shared-sync", "alias of --private-sync (for teams using one shared overlay repo for any code repo)")
-  .option("--auto-commit", "opt-in: the post-commit hook also git add+commit+pushes the captured decision (the repo it landed in)")
-  .action((opts: { index: boolean; enforce: boolean; enforceStrict?: boolean; providers: boolean; agentHooks: boolean; firmness?: string; privateSync?: boolean; sharedSync?: boolean; autoCommit?: boolean }) => {
+  .option("--no-auto-commit", "DON'T auto-commit captures (default: ON in every mode — the overlay repo is committed+pushed; the public .hunch/ is committed only and rides your next push)")
+  .action((opts: { index: boolean; enforce: boolean; enforceStrict?: boolean; providers: boolean; agentHooks: boolean; firmness?: string; privateSync?: boolean; sharedSync?: boolean; autoCommit: boolean }) => {
     // Validate --firmness up front, before any side effects (indexing, git hooks,
     // .mcp.json) or opening the store — a bad value must not leave a half-init.
     if (opts.firmness !== undefined && !isFirmness(opts.firmness)) {
@@ -118,10 +118,20 @@ program
       if (res.skipped) console.log(`  ⚠ ${res.skipped} file(s) could not be parsed (skipped)`);
     }
 
+    // Auto-commit is ON by default in every mode; --no-auto-commit persists the opt-out in
+    // the gitignored local.json (merge — never clobber an existing overlay pointer).
+    if (opts.autoCommit === false) {
+      const localFile = join(paths.hunch, "local.json");
+      let existing: Record<string, unknown> = {};
+      try { existing = JSON.parse(readFileSync(localFile, "utf8")) as Record<string, unknown>; } catch { /* absent/invalid → fresh */ }
+      writeFileAtomic(localFile, JSON.stringify({ ...existing, autoCommit: false }, null, 2) + "\n");
+      console.log("  ✓ auto-commit OFF (captures stay uncommitted; commit .hunch/ yourself)");
+    }
+
     if (isGitRepo(root)) {
       const syncToOverlay = !!(opts.privateSync || opts.sharedSync);
       const h = installPostCommitHook(root, inv.shell, { private: syncToOverlay, commit: opts.autoCommit });
-      console.log(`  ✓ post-commit hook ${h.action} (learning loop)${syncToOverlay ? " — syncs to the shared overlay" : ""}${opts.autoCommit ? " — auto-commit+push on" : ""}`);
+      console.log(`  ✓ post-commit hook ${h.action} (learning loop)${syncToOverlay ? " — syncs to the shared overlay" : ""}${opts.autoCommit ? " — auto-commit on" : ""}`);
       const m = installMergeDriver(root, inv.shell);
       console.log(`  ✓ team merge driver ${m.action}`);
       // Auto-install the pre-commit guard by default (advisory: flags invariants
@@ -280,7 +290,8 @@ program
   .option("--force", "re-synthesize even if a decision already exists for the commit")
   .option("--private", "write the synthesized decision into the configured overlay (HUNCH_PRIVATE_DIR), not the public store")
   .option("--overlay", "alias of --private")
-  .option("--commit", "after a capture, also git add+commit+push the repo the decision landed in (opt-in; best-effort) — the private store under --private, else this repo")
+  .option("--commit", "after a capture, also git add+commit the repo the decision landed in (default: follows auto-commit, ON unless opted out) — the overlay is also pushed; the public .hunch/ rides your next push")
+  .option("--no-commit", "skip the auto-commit for this capture even when auto-commit is on")
   .option("--deep", "Deep Synthesis: ensemble every available subscription CLI and reconcile their drafts (agreement-weighted, advisory). Slower; subscription-only")
   .option("--verify", "Critic pass: audit the draft against its commit, prune unsupported alternatives/consequences, down-weight weak grounding (extra subscription call; advisory)")
   .option("--samples <n>", "self-consistency depth when only one CLI is installed: sample it n times and reconcile (default 2 under --deep)")
@@ -300,15 +311,19 @@ program
         const healed = refreshExistingGrounding(root, store);
         if (healed.length && !opts.quiet) console.log(`  ↳ grounding refreshed: ${healed.join(", ")}`);
       }
-      // Opt-in: persist the captured decision in the repo it landed in (private store
-      // under --private, else this repo). Best-effort — a non-repo dir / offline push
+      // Persist the captured decision in the repo it landed in (private store under
+      // --private, else this repo). ON by default (follows auto-commit; --no-commit or
+      // `--no-auto-commit` at setup opts out). Best-effort — a non-repo dir / offline push
       // just no-ops. Stage ONLY the hunch dir (never sweep unrelated working-tree
       // changes), and set HUNCH_SYNC=1 so the commit we create can't re-trigger this
-      // hook (no recursion, including on a manual `hunch sync --commit`).
-      const commitTarget = opts.commit ? (toOverlay ? store.privateDir : hunchPaths(root).hunch) : undefined;
+      // hook (no recursion). The overlay is pushed; the public .hunch/ is committed
+      // WITHOUT pushing — auto-pushing the user's code branch would publish their
+      // unpushed commits (bug_overlay_clobber lineage).
+      const doCommit = opts.commit ?? store.autoCommit;
+      const commitTarget = doCommit ? (toOverlay ? store.privateDir : hunchPaths(root).hunch) : undefined;
       if (commitTarget) {
-        commitAndPushHunch(commitTarget, `hunch: capture ${r.decision?.id ?? "decision"}`);
-        if (!opts.quiet) console.log(`  ↳ committed + pushed ${r.decision?.id} (${commitTarget})`);
+        commitAndPushHunch(commitTarget, `hunch: capture ${r.decision?.id ?? "decision"}`, { push: toOverlay });
+        if (!opts.quiet) console.log(`  ↳ committed ${toOverlay ? "+ pushed " : ""}${r.decision?.id} (${commitTarget}${toOverlay ? "" : " — rides your next push"})`);
       }
       if (!opts.quiet) console.log(`✓ captured decision ${r.decision?.id} via ${r.provider}: "${r.decision?.title}"`);
     } else if (!opts.quiet) {
@@ -718,7 +733,7 @@ program
       }
     }
     store.reindex();
-    if (opts.private && (dec || con)) flushPrivate(store, `hunch: capture ${dec + con} inline intent(s)`);
+    if (dec || con) flushCapture(store, hunchPaths(root).hunch, !!opts.private, `hunch: capture ${dec + con} inline intent(s)`);
     if (!intents.length) console.log("No `hunch-why:` / `hunch-rule:` comments found.");
     else console.log(`✓ captured ${dec} decision(s) + ${con} constraint(s) from inline comments${opts.private ? " [private overlay]" : ""}`);
     store.close();

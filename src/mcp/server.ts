@@ -16,7 +16,8 @@ import { decisionId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
-import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, commitAndPushHunch, pullHunch } from "../extractors/git.js";
+import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, pullHunch } from "../extractors/git.js";
+import { flushCapture } from "../integrations/sync.js";
 import { formatContext } from "../core/format.js";
 import type { Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
@@ -470,13 +471,12 @@ export function buildServer(root: string): McpServer {
           ? (decision.private ? store.supersedePrivate(decision.supersedes, rec) : store.supersede(decision.supersedes, rec))
           : null;
         store.reindex();
-        // Auto-flush the private repo when configured (hunch private --auto-commit), so a
-        // record made via MCP between public commits is committed+pushed immediately.
-        let flushed = "";
-        if (decision.private && store.privateAutoCommit && store.privateDir) {
-          commitAndPushHunch(store.privateDir, `hunch: capture ${id}`);
-          flushed = " (committed + pushed to the private repo)";
-        }
+        // Auto-flush the store the record landed in (on by default in every mode): a private
+        // record commits+pushes its overlay repo; a public one commits .hunch/ in THIS repo
+        // (commit only — it rides the user's next push, never auto-pushing their code branch).
+        const flush = flushCapture(store, hunchPaths(root).hunch, !!decision.private, `hunch: capture ${id}`);
+        const flushed = flush === "pushed" ? " (committed + pushed to the private repo)"
+          : flush === "committed" ? " (auto-committed to .hunch/ — rides your next push)" : "";
         // Capture-session gate (staged deprecation, §9.3): a token proves an interview
         // preceded the write. No token still writes (non-breaking), but returns a nudge
         // toward /capture so the un-interviewed bypass is visible, not silent. A token
@@ -489,7 +489,7 @@ export function buildServer(root: string): McpServer {
             : "\n\n⚠ Recorded WITHOUT a capture interview. Prefer /capture (hunch_capture_decision), which grills the decision to a resolved state before writing — the graph should hold a well-examined decision, not a guess. (A future major version will require a capture token here.)";
         const supNote = superseded ? ` Superseded ${superseded.id} (window closed at ${rec.valid_from}).` : "";
         const note = decision.commit && !fullSha ? ` (note: commit "${decision.commit}" could not be resolved — recorded as a standalone decision, not linked to a commit)` : "";
-        const where = decision.private ? ` [PRIVATE overlay — not committed to this repo]${flushed}` : "";
+        const where = decision.private ? ` [PRIVATE overlay — not committed to this repo]${flushed}` : flushed;
         return ok(`Recorded decision ${id}: "${rec.title}" (status ${rec.status}, ${source}).${where}${supNote}${note}${captureNote}`);
       } catch (e) {
         return err(`Failed to record decision: ${(e as Error).message}`);
@@ -530,15 +530,13 @@ export function buildServer(root: string): McpServer {
         // by all of them. Public only — a private rule must never render into committed
         // grounding. Refresh-only: it never scaffolds a doc the project opted out of.
         if (!input.private) refreshExistingGrounding(root, store);
-        let flushed = "";
-        if (input.private && store.privateAutoCommit && store.privateDir) {
-          commitAndPushHunch(store.privateDir, `hunch: capture ${rec.id}`);
-          flushed = " (committed + pushed to the private repo)";
-        }
+        const flush = flushCapture(store, hunchPaths(root).hunch, !!input.private, `hunch: capture ${rec.id}`);
+        const flushed = flush === "pushed" ? " (committed + pushed to the private repo)"
+          : flush === "committed" ? " (auto-committed to .hunch/ — rides your next push)" : "";
         const enforce = rec.severity === "blocking"
           ? "blocks a DIRECT edit to its scope at strict firmness, and fails a PR whose diff touches that scope (CI guard); blast-radius hits and lower firmness stay advisory"
           : "flags violating edits and PRs (advisory)";
-        const where = input.private ? ` [PRIVATE overlay — not committed to this repo]${flushed}` : "";
+        const where = input.private ? ` [PRIVATE overlay — not committed to this repo]${flushed}` : flushed;
         return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}).${where} It now ${enforce}.`);
       } catch (e) {
         return err(`Failed to record correction: ${(e as Error).message}`);

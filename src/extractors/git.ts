@@ -38,8 +38,12 @@ export function isGitRepo(cwd: string): boolean {
  *  the post-commit auto-commit (CLI sync --commit), MCP private writes, and `hunch private
  *  --sync`. HUNCH_SYNC=1 stops the created commit from re-triggering the post-commit hook
  *  (no recursion). Stages with a pathspec scoped to `hunchDir`, so it never sweeps unrelated
- *  working-tree changes. Never throws — a non-repo dir / offline push just no-ops. */
-export function commitAndPushHunch(hunchDir: string, message: string): void {
+ *  working-tree changes. Never throws — a non-repo dir / offline push just no-ops.
+ *  `push: false` commits WITHOUT merging or pushing — required when hunchDir is the PUBLIC
+ *  .hunch/ inside the user's code repo: an automatic pull/push there would merge the remote
+ *  into their working branch and publish their unpushed code commits. The memory commit
+ *  simply rides the user's next push. */
+export function commitAndPushHunch(hunchDir: string, message: string, opts: { push?: boolean } = {}): void {
   // Serialize across worktrees: several worktrees auto-committing the SAME overlay repo
   // at once would race git's index.lock. An atomic-mkdir lock lets one proceed; the others
   // skip — safe because each record is already written to disk, so `git add .` here sweeps
@@ -61,7 +65,13 @@ export function commitAndPushHunch(hunchDir: string, message: string): void {
     // code (we shipped exactly this). Refuse hard: unstage and bail without committing or pushing.
     if (!stagedIsMemoryOnly(hunchDir, env)) {
       try { execFileSync("git", ["-C", hunchDir, "reset", "-q", "--", "."], { stdio: "ignore", env }); } catch { /* best-effort unstage */ }
-      console.error(`hunch: refusing to auto-commit memory at "${hunchDir}" — the staged change includes deletions or non-memory files, so this is not a clean overlay repo. Nothing was committed or pushed. (Use \`hunch shared --repo <url>\` so the overlay is its OWN git repo.)`);
+      // Public-store commits (push:false) skip QUIETLY: a non-memory staged set there is
+      // usually just the user's own staged work, not a misconfigured overlay — the record
+      // stays on disk and the next flush's `git add .` sweeps it up. The overlay path
+      // stays loud: there it signals the escaped-to-project-repo misconfiguration.
+      if (opts.push !== false) {
+        console.error(`hunch: refusing to auto-commit memory at "${hunchDir}" — the staged change includes deletions or non-memory files, so this is not a clean overlay repo. Nothing was committed or pushed. (Use \`hunch shared --repo <url>\` so the overlay is its OWN git repo.)`);
+      }
       return;
     }
     // Only sync+push when a memory commit was actually created — never run pull/push against the
@@ -70,7 +80,7 @@ export function commitAndPushHunch(hunchDir: string, message: string): void {
     // by id. On conflict/offline, mergeRemote aborts to a clean tree and we skip the push.
     let committed = false;
     try { execFileSync("git", ["-C", hunchDir, "commit", "-m", message], { stdio: "ignore", env }); committed = true; } catch { /* nothing staged / not a repo */ }
-    if (committed && mergeRemote(hunchDir, env)) run(["push"]);
+    if (committed && opts.push !== false && mergeRemote(hunchDir, env)) run(["push"]);
   } finally {
     try { rmSync(lock, { recursive: true, force: true }); } catch { /* released best-effort */ }
   }

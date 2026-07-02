@@ -62,8 +62,13 @@ export class HunchStore {
   /** The resolved private-overlay hunch dir (from env or .hunch/local.json), or undefined
    *  when no overlay is configured. Surfaced so `hunch doctor` reflects the true state. */
   readonly privateDir?: string;
-  /** Whether private writes should auto commit+push the private repo (from local.json
-   *  `autoCommit`, set by `hunch private --auto-commit`). Read by the MCP write tools. */
+  /** Whether captures auto-commit the store they land in — ON by default in EVERY mode;
+   *  `--no-auto-commit` (hunch init/private/shared) persists `autoCommit: false` in
+   *  local.json to opt out. Read by the MCP write tools and `hunch sync`. */
+  readonly autoCommit: boolean;
+  /** autoCommit AND a private overlay is configured: private writes auto commit+push the
+   *  overlay repo. (Public writes auto-commit the repo-tracked .hunch/ WITHOUT pushing —
+   *  see commitAndPushHunch push:false / bug_overlay_clobber.) */
   readonly privateAutoCommit: boolean;
   /** When true, recs() ignores the private overlay (public-only). Set transiently by
    *  buildCheckReport({publicOnly}) so any PUBLICLY-POSTED report (the CI PR comment)
@@ -83,18 +88,22 @@ export class HunchStore {
       this.privateDir = resolve(this.paths.root, priv);
       this.privateJson = new JsonStore(hunchPathsForDir(this.privateDir));
     }
-    this.privateAutoCommit = !!(priv && local.autoCommit);
+    // Auto-commit is ON unless explicitly opted out (`autoCommit: false` in local.json).
+    // An absent local.json (plain `hunch init`, or an env-configured overlay) defaults ON.
+    this.autoCommit = local.autoCommit !== false;
+    this.privateAutoCommit = !!(priv && this.autoCommit);
   }
 
   /** The private-overlay config from the gitignored `.hunch/local.json` (per-machine,
-   *  never committed). Tolerant: returns {} on missing/invalid so reads never crash. */
+   *  never committed). Tolerant: returns {} on missing/invalid so reads never crash.
+   *  `autoCommit` is tri-state: true/false when the file says so, undefined when unset. */
   private localConfig(): { privateDir?: string; autoCommit?: boolean } {
     const read = (file: string): { privateDir?: string; autoCommit?: boolean } => {
       try {
         if (!existsSync(file)) return {};
         const v = JSON.parse(readFileSync(file, "utf8")) as { privateDir?: unknown; autoCommit?: unknown };
         const privateDir = typeof v.privateDir === "string" && v.privateDir.trim() ? v.privateDir.trim() : undefined;
-        return { privateDir, autoCommit: v.autoCommit === true };
+        return { privateDir, autoCommit: typeof v.autoCommit === "boolean" ? v.autoCommit : undefined };
       } catch {
         return {};
       }
@@ -109,7 +118,9 @@ export class HunchStore {
     const common = gitCommonDir(this.paths.root);
     if (common) {
       const shared = read(join(common, "hunch", "local.json"));
-      if (shared.privateDir) return shared;
+      // A per-worktree `autoCommit: false` (hunch init --no-auto-commit) is an explicit
+      // local opt-out — it must survive the fall-through to the shared overlay pointer.
+      if (shared.privateDir) return { ...shared, autoCommit: perWorktree.autoCommit ?? shared.autoCommit };
     }
     return perWorktree;
   }

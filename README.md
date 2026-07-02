@@ -250,8 +250,12 @@ Windows / macOS / Linux teammates share one memory with no per-machine fixups.
 Memory follows you across every branch and **git worktree**, with no per-worktree setup — a
 fresh `git worktree add` on any branch sees the same decisions, bugs, and invariants. Create one
 already wired in with **`hunch worktree <path> [-b <branch>]`**, or just run `hunch init` / `hunch
-private` once and every worktree picks it up. Parallel worktrees never corrupt or lose memory, and
+shared` (or `hunch private`) once and every worktree picks it up. Parallel worktrees never corrupt or lose memory, and
 `hunch doctor` confirms a worktree is sharing.
+
+Need one **single source of truth** for memory in any repo (private or public)?
+Use **`hunch shared --repo <url>`**. It writes to one shared overlay repo and, by default,
+auto-commits + pushes captures so teammates/other worktrees stay in sync automatically.
 
 ## Private memory (public repo, private context)
 
@@ -263,8 +267,10 @@ env var, no shell-profile edit** (and `HUNCH_PRIVATE_DIR` still overrides per-sh
 default-off** (no config → fully inert), and **leak-safe by construction**: committed files and
 the CI PR comment render *public-only*, so a private record can't reach a public surface. Record
 sensitive items with `private: true` (`hunch_record_decision` / `hunch_record_correction`);
-post-commit synthesis can route there too, and `hunch private --auto-commit` (opt-in)
-auto-commits + pushes each capture to the private repo — recursion-safe, staging only `.hunch/`.
+post-commit synthesis can route there too. Every capture is **auto-committed by default** to the
+store it lands in — the private repo is committed + pushed; a public capture is committed to
+`.hunch/` only and rides your next push (Hunch never pushes or merges your code branch) —
+recursion-safe, staging only `.hunch/`. Opt out with `--no-auto-commit`.
 
 Already published a repo *with* its `.hunch/` memory and want it private after the fact?
 `hunch private --repo <url> --migrate` does it in one shot: it **moves** your existing public
