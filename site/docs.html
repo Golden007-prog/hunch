@@ -216,6 +216,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
       <a href="#graph">The reasoning graph</a>
       <a href="#provenance">Provenance &amp; confidence</a>
       <a href="#time-travel">Time-travel</a>
+      <a href="#grounding">Decision-grounding</a>
     </div>
     <div class="nav-group">
       <h4>Using Hunch</h4>
@@ -381,6 +382,24 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
       <p>The <code>hunch_why</code> and <code>hunch_context</code> MCP tools take the same optional <code>as_of</code> ref.</p>
     </section>
 
+    <section id="grounding">
+      <h2>Decision-grounding<a class="anchor" href="#grounding">#</a></h2>
+      <p>Architectural Conformance keeps the <em>code</em> honest to the graph; decision-grounding keeps your <em>docs</em> honest to it. A decision can be anchored to a <strong>topic</strong> (e.g. <code>auth.session</code>), and a topic always has one live answer — the <strong>current</strong> decision, its <strong>history</strong>, and what was <strong>rejected</strong> along the way.</p>
+      <p><strong>Capture with <code>/capture</code>.</strong> It interviews the decision to a resolved state — topic, rationale, rejected alternatives — before anything is written, and the graph refuses to hold two live decisions on one topic. A git merge is the one thing that can create two; <code>hunch reconcile-topics</code> catches it for human resolution.</p>
+      <h3>Markdown topic anchors — AGENTS.md as a drift surface</h3>
+      <p>Anchor a section of <code>AGENTS.md</code>, <code>CLAUDE.md</code>, or any repo markdown to a topic with an HTML comment:</p>
+      <div class="code" data-lang="markdown"><div class="code-head"><span class="lbl">AGENTS.md</span><button class="copy">Copy</button></div><pre><span class="c">&lt;!-- hunch:topic auth.session --&gt;</span>                 <span class="c"># grounds only</span>
+<span class="c">&lt;!-- hunch:topic auth.session dec_a1b2c3d4e5 --&gt;</span>  <span class="c"># pinned: prose written against that decision</span></pre></div>
+      <ul>
+        <li><strong>Grounding:</strong> whenever an assistant edits the file, the pre-edit hook injects each declared topic's <em>current</em> decision and what it rejected — follow the graph, not the stale prose being edited.</li>
+        <li><strong>Drift:</strong> a <em>pinned</em> marker whose decision has been superseded fires <code>doc-anchor-stale</code>; a pin to a missing decision fires <code>doc-anchor-dangling</code>. Only an explicit pin can fire — never a semantic guess. Unpinned markers ground but never drift.</li>
+        <li><strong>Heal:</strong> <code>hunch heal</code> lists each drifted section with the decision to reconcile toward, then you update the pin. Read-only — it never rewrites your prose.</li>
+      </ul>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> drift             <span class="c"># ⛔ exits non-zero on any anchor-stale drift or topic collision — wire into CI</span>
+<span class="k">hunch</span> heal              <span class="c"># what to reconcile, and toward which decision</span>
+<span class="k">hunch</span> reconcile-topics  <span class="c"># &gt;1 live decision on a topic (post-merge) — exits non-zero</span></pre></div>
+    </section>
+
     <section id="mcp-tools">
       <h2>MCP tools<a class="anchor" href="#mcp-tools">#</a></h2>
       <p>The tools your assistant calls under the hood. Read tools answer “why / what-must-not-break / blast radius”; write tools persist new memory.</p>
@@ -392,6 +411,8 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
           <tr><td><code>hunch_check_constraints</code></td><td>Invariants whose scope matches a path/glob — call before editing.</td></tr>
           <tr><td><code>hunch_get_dependents</code></td><td>Transitive dependents of a symbol — the blast radius.</td></tr>
           <tr><td><code>hunch_blast_radius</code></td><td>Dependent files + near-violations a change could break indirectly.</td></tr>
+          <tr><td><code>hunch_pr_impact</code></td><td>The impact surface of a change (staged / branch / commit): dependent files reached, invariants direct &amp; near, decisions concerned. Advisory — the gate stays <code>hunch_merge_verdict</code>.</td></tr>
+          <tr><td><code>hunch_path</code></td><td>Shortest dependency chain between two symbols/files/components, either direction — "how does A reach B?".</td></tr>
           <tr><td><code>hunch_bug_lineage</code></td><td>Bugs matching a symptom/symbol with their introduced→fixed→recurred lineage.</td></tr>
           <tr><td><code>hunch_context</code></td><td>The minimal relevant slice for a task — invariants, why, bug history, blast radius.</td></tr>
           <tr><td><code>hunch_timeline</code></td><td>A target’s decision history over time, with valid-time windows.</td></tr>
@@ -509,7 +530,9 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
           <tr><td><code>fragile</code></td><td>Ranked fragility report with evidence.</td></tr>
           <tr><td><code>check</code></td><td>Flag changes that touch a do-not-break invariant (local + CI guard); also flags (advisory) symbols you add that already exist elsewhere.</td></tr>
           <tr><td><code>veto</code></td><td>Decision Guard — flag changes that reverse a rejected alternative.</td></tr>
-          <tr><td><code>drift</code></td><td>Flag doc≠graph drift — a file anchored to a <em>superseded</em> decision while a current one exists for its <b>topic</b> (<code>anchor-stale</code>), plus topic collisions. Deterministic; exits non-zero for CI.</td></tr>
+          <tr><td><code>impact</code></td><td>The impact surface of a change — dependents reached, invariants, decisions concerned. <code>hunch impact origin/main</code>, <code>--commit &lt;sha&gt;</code>, or staged by default. Advisory.</td></tr>
+          <tr><td><code>path</code></td><td>Shortest dependency chain between two points: <code>hunch path chargeUser verifySession</code>.</td></tr>
+          <tr><td><code>drift</code></td><td>Flag doc≠graph drift — a file anchored to a <em>superseded</em> decision (<code>anchor-stale</code>), a markdown pin to a superseded/missing decision (<a class="link" href="#grounding">topic anchors</a>), plus topic collisions. Deterministic; exits non-zero for CI.</td></tr>
           <tr><td><code>reconcile-topics</code></td><td>Scan for &gt;1 live decision per <b>topic</b> (an invariant a git merge can violate) and exit non-zero. Wire into a post-merge hook / CI.</td></tr>
           <tr><td><code>heal</code></td><td>Read-only doc↔graph reconciliation — report where prose and the graph disagree; never rewrites docs silently.</td></tr>
           <tr><td><code>ci</code></td><td>Scaffold the CI Constraint Guard (GitHub Action).</td></tr>
