@@ -1,0 +1,23 @@
+{
+  "name": "hunch",
+  "owner": {
+    "name": "Dave Sheffer",
+    "email": "dave.sheffer1@gmail.com"
+  },
+  "description": "Hunch — Engineering Memory OS: a git-native reasoning graph of decisions, bugs, and invariants, enforced at reasoning time.",
+  "plugins": [
+    {
+      "name": "hunch",
+      "source": "./plugin",
+      "description": "The hunch_* MCP tools (why, constraints, blast radius, merge verdict, capture) plus /hunch:capture, /hunch:heal, /hunch:why, /hunch:fix, /hunch:fragile. Requires Node 22.13+; runs `npx @davesheffer/hunch mcp` per project.",
+      "author": {
+        "name": "Dave Sheffer",
+        "email": "dave.sheffer1@gmail.com"
+      },
+      "homepage": "https://hunch-pi.vercel.app",
+      "repository": "https://github.com/davesheffer/hunch",
+      "license": "Apache-2.0",
+      "keywords": ["engineering-memory", "architectural-conformance", "decisions", "invariants", "mcp"]
+    }
+  ]
+}

@@ -133,6 +133,15 @@ hunch backfill --since 90d          # cold start: seed decisions from recent git
 hunch why src/auth/session.ts       # …then ask your assistant: "why is X built this way?"
 ```
 
+**Claude Code users — one-step plugin install** (MCP tools + `/hunch:capture`, `/hunch:heal`, `/hunch:why`, `/hunch:fix`, `/hunch:fragile`):
+
+```text
+/plugin marketplace add davesheffer/hunch
+/plugin install hunch@hunch
+```
+
+Then `hunch init` in each repo you want remembered (the plugin brings the tools; init builds the graph + hooks).
+
 `hunch init` scaffolds `.hunch/`, indexes the repo, installs the git hooks,
 writes `.mcp.json` + slash commands + an auto-maintained `CLAUDE.md`, and wires up **every
 detected assistant** (Claude Code, Cursor, VS Code/Copilot, Windsurf, Codex, Google Antigravity) to the same
