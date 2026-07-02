@@ -694,6 +694,7 @@ program
     const { store, root } = storeFor();
     // Lookup mode: scoped runbook retrieval (search within runbooks, not the whole graph).
     if (opts.find) {
+      store.reindex(); // reflect out-of-band JSON edits before searching (mirrors `hunch query`)
       const emb = opts.semantic ? await selectEmbedder() : undefined;
       const hits = await store.searchRunbooks(opts.find, 5, { embedder: emb });
       if (!hits.length) console.log(`No runbook matches "${opts.find}".`);
