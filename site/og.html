@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Hunch — social card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,400..500&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --paper:#f5f3ee; --paper-2:#efece4; --surface:#fffdfa;
+    --ink:#16150f; --ink-soft:#403d33; --muted:#8a877b;
+    --line:rgba(22,21,15,.10); --line-2:rgba(22,21,15,.06);
+    --accent:#2742ff; --accent-deep:#1a2fcf; --warn:#ff543d; --ok:#1f9d68;
+    --serif:"Fraunces",Georgia,serif; --sans:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1200px;height:630px}
+  body{
+    font-family:var(--sans);background:var(--paper);color:var(--ink);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    position:relative;overflow:hidden;
+  }
+  /* warm atmosphere — single intentional light source, no grid decoration */
+  body::before{
+    content:"";position:absolute;inset:0;pointer-events:none;z-index:1;opacity:1;
+    background:
+      radial-gradient(80% 120% at 100% -20%, rgba(39,66,255,.08), transparent 46%),
+      radial-gradient(70% 90% at -8% 120%, rgba(255,84,61,.05), transparent 50%);
+    mix-blend-mode:multiply;
+  }
+  .card{position:relative;z-index:2;width:100%;height:100%;padding:60px 68px;display:flex;flex-direction:column;justify-content:space-between}
+
+  /* ── header ─────────────────────────────────────────── */
+  .top{display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:15px}
+  .mark{
+    width:60px;height:60px;border-radius:17px;background:var(--ink);
+    display:grid;place-items:center;box-shadow:0 12px 28px -12px rgba(22,21,15,.6);
+  }
+  .wordmark{font-weight:600;letter-spacing:-.025em;font-size:31px}
+  .eyebrow{
+    display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:14px;font-weight:500;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);
+  }
+  .eyebrow .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(39,66,255,.15)}
+
+  /* ── body: thesis left, memory ledger right ─────────── */
+  .mid{display:grid;grid-template-columns:1.32fr 1fr;gap:46px;align-items:center;flex:1;padding:6px 0}
+
+  h1{font-family:var(--serif);font-weight:380;letter-spacing:-.02em;line-height:1.08;font-size:53px;font-optical-sizing:auto}
+  h1 .l1{display:block;color:var(--muted);font-weight:350;white-space:nowrap}
+  h1 .l2{display:block;color:var(--ink);margin-top:5px;white-space:nowrap}
+  h1 em{font-style:italic;color:var(--accent)}
+  /* the one structural device: Hunch's contribution — the "why" — is underscored */
+  h1 .l2 .why{position:relative}
+  h1 .l2 .why::after{content:"";position:absolute;left:0;right:0;bottom:.06em;height:3px;background:var(--accent);border-radius:3px;opacity:.9}
+  .sub{
+    margin-top:26px;font-size:20px;line-height:1.5;color:var(--ink-soft);font-weight:430;max-width:520px;
+  }
+  .sub b{color:var(--ink);font-weight:600}
+
+  /* memory ledger — the records Hunch actually stores */
+  .ledger{display:flex;flex-direction:column;gap:13px}
+  .ledger-cap{font-family:var(--mono);font-size:12.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:1px;display:flex;align-items:center;gap:8px}
+  .ledger-cap::after{content:"";flex:1;height:1px;background:var(--line)}
+  .rec{
+    position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:14px 17px 13px 19px;box-shadow:0 1px 2px rgba(22,21,15,.04),0 18px 36px -28px rgba(22,21,15,.4);
+    overflow:hidden;
+  }
+  .rec::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px}
+  .rec.dec::before{background:var(--accent)}
+  .rec.bug::before{background:var(--warn)}
+  .rec.inv::before{background:var(--ok)}
+  .rec .rhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+  .rec .type{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .rec.dec .type{color:var(--accent-deep)}
+  .rec.bug .type{color:var(--warn)}
+  .rec.inv .type{color:var(--ok)}
+  .rec .prov{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .rec .why{font-size:16px;line-height:1.4;color:var(--ink);font-weight:480}
+  .rec .why code{font-family:var(--mono);font-size:14.5px;background:var(--paper-2);padding:1px 5px;border-radius:5px;color:var(--accent-deep)}
+
+  /* ── footer ─────────────────────────────────────────── */
+  .bot{display:flex;align-items:center;justify-content:space-between;padding-top:4px}
+  .install{
+    font-family:var(--mono);font-size:19px;font-weight:500;color:var(--ink);
+    display:flex;align-items:center;gap:11px
+  }
+  .install .pr{color:var(--accent);font-weight:700}
+  .install .pkg{color:var(--ink)}
+  .creed{font-family:var(--mono);font-size:14.5px;letter-spacing:.02em;color:var(--muted)}
+  .creed b{color:var(--ink-soft);font-weight:600}
+</style>
+</head>
+<body>
+  <div class="card">
+
+    <div class="top">
+      <div class="brand">
+        <div class="mark">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+            <path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-2 5.2A3 3 0 0 0 6 16a3 3 0 0 0 3 3 3 3 0 0 0 3-1.5V4.5A3 3 0 0 0 9 3z" stroke="#2742ff" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M15 3a3 3 0 0 1 3 3 3 3 0 0 1 2 5.2A3 3 0 0 1 18 16a3 3 0 0 1-3 3 3 3 0 0 1-3-1.5V4.5A3 3 0 0 1 15 3z" stroke="#2742ff" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="wordmark">hunch</div>
+      </div>
+      <div class="eyebrow"><span class="dot"></span>Engineering Memory OS</div>
+    </div>
+
+    <div class="mid">
+      <div class="copy">
+        <h1>
+          <span class="l1">Git remembers the <em>what</em>.</span>
+          <span class="l2">Hunch remembers the <em class="why">why</em>.</span>
+        </h1>
+        <p class="sub">A persistent, git-native <b>reasoning graph</b> over your codebase — surfaced to Claude Code at the moment it reasons, so your AI stops re-deriving what your team already knows.</p>
+      </div>
+
+      <div class="ledger">
+        <div class="ledger-cap">what it remembers</div>
+
+        <div class="rec dec">
+          <div class="rhead"><span class="type">Decision</span><span class="prov">a91f3c · conf 0.93</span></div>
+          <div class="why">Token expiry is boundary-inclusive — <code>&lt;=</code>, never <code>&lt;</code>.</div>
+        </div>
+
+        <div class="rec bug">
+          <div class="rhead"><span class="type">Bug lineage</span><span class="prov">root cause · ×2</span></div>
+          <div class="why">Off-by-one logout regressed twice — same strict compare.</div>
+        </div>
+
+        <div class="rec inv">
+          <div class="rhead"><span class="type">Invariant</span><span class="prov">enforced · check</span></div>
+          <div class="why">SQLite is a derived index — never the source of truth.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bot">
+      <div class="install"><span class="pr">$</span> npm i -g <span class="pkg">@davesheffer/hunch</span></div>
+      <div class="creed"><b>Local-first</b> · 0 SaaS · MCP-native</div>
+    </div>
+
+  </div>
+</body>
+</html>
