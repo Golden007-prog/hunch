@@ -13,8 +13,9 @@ import { join, extname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { toPosixTarget } from "./paths.js";
 import { currentForTopic, isLive } from "./topics.js";
+import { parseDocAnchors } from "./docanchors.js";
 
-export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale";
+export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling";
 
 export interface DriftFinding {
   kind: DriftKind;
@@ -87,15 +88,40 @@ export function computeDrift(store: HunchStore, root: string): DriftReport {
     }
   }
 
-  // 3. DOC-STALE — a doc that still advertises "proposed / not implemented" while
-  //    referencing code that exists. Heuristic + advisory; scoped to the repo's own
-  //    markdown (node_modules and sub-projects skipped).
+  // One markdown pass feeds both prose checks (3 + 5): read each doc once.
   for (const doc of markdownDocs(root)) {
     const text = safeRead(doc.path);
-    if (!STALE_MARKER.test(text.slice(0, 1500))) continue;
-    const existing = (text.match(SRC_REF) ?? []).find((r) => existsSync(join(root, r)));
-    if (existing) {
-      findings.push({ kind: "doc-stale", id: doc.rel, detail: `marked proposed/not-implemented but references shipped code (${existing})` });
+
+    // 3. DOC-STALE — a doc that still advertises "proposed / not implemented" while
+    //    referencing code that exists. Heuristic + advisory; scoped to the repo's own
+    //    markdown (node_modules and sub-projects skipped).
+    if (STALE_MARKER.test(text.slice(0, 1500))) {
+      const existing = (text.match(SRC_REF) ?? []).find((r) => existsSync(join(root, r)));
+      if (existing) {
+        findings.push({ kind: "doc-stale", id: doc.rel, detail: `marked proposed/not-implemented but references shipped code (${existing})` });
+      }
+    }
+
+    // 5. DOC-ANCHORS (prose≠graph, decision-grounding for markdown) — a section
+    //    PINNED via `<!-- hunch:topic <topic> <dec_id> -->` to a decision that has
+    //    been superseded (doc-anchor-stale, the CI-gateable one) or that doesn't
+    //    exist (doc-anchor-dangling). Unpinned markers only ground the pre-edit
+    //    hook — an explicit pin is the ONLY thing that can fire drift here.
+    for (const a of parseDocAnchors(text)) {
+      if (!a.pin) continue;
+      const pinned = byId.get(a.pin);
+      if (!pinned) {
+        findings.push({ kind: "doc-anchor-dangling", id: doc.rel, detail: `line ${a.line}: pinned to ${a.pin} (topic "${a.topic}"), which does not exist` });
+        continue;
+      }
+      const current = currentForTopic(decisions, a.topic);
+      if ((pinned.status === "superseded" || pinned.superseded_by) && current && current.id !== a.pin) {
+        findings.push({
+          kind: "doc-anchor-stale",
+          id: doc.rel,
+          detail: `line ${a.line}: prose pinned to superseded ${a.pin} (topic "${a.topic}"); the current decision is ${current.id} — "${current.title}". Reconcile the prose with it, then re-pin.`,
+        });
+      }
     }
   }
 

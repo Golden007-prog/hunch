@@ -54,6 +54,7 @@ import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { computeDrift } from "../core/drift.js";
 import { topicCollisions, renderGrounding } from "../core/topics.js";
+import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
@@ -1502,13 +1503,22 @@ program
       }
 
       // advisory / firm / strict(non-blocking): inject the relevant Hunch slice.
+      // Decision-grounding for PROSE (doc≠graph): a markdown target that declares
+      // <!-- hunch:topic … --> anchors gets each topic's CURRENT decision — the
+      // graph outranks the prose being edited, and a stale pin is called out inline.
+      let docGround = "";
+      if (/\.(md|mdx)$/i.test(target)) {
+        try {
+          docGround = renderDocGrounding(parseDocAnchors(readFileSync(abs, "utf8")), store.recs("decisions"));
+        } catch { /* unreadable / not yet created — no doc grounding */ }
+      }
       const ctx = store.assembleContext(target);
       // Regression Guard (edit-time grounding): what an in-force decision retired
       // from this file. No diff exists yet, so this is context — "don't re-add X" —
       // not a block; the commit-time `hunch check` does the actual gating.
       const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
       const hasContent =
-        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length || retired.length;
+        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length || retired.length || docGround;
       if (!hasContent) return; // no noise on files Hunch hasn't learned yet
       let text = formatContext(ctx).trim();
       if (firmness !== "advisory" && ctx.constraints.length) {
@@ -1523,6 +1533,7 @@ program
       // the current decision assertively (graph over any stale doc) + what it rejected.
       const grounding = renderGrounding(ctx.decisions);
       if (grounding) text += `\n\n${grounding}`;
+      if (docGround) text += `\n\n${docGround}`;
       emitContext("PreToolUse", text);
     } catch {
       // swallow — never block an edit on a hook failure
@@ -1688,7 +1699,7 @@ program
 // ---- drift (doc≠graph detector; advisory + CI-gateable) -------------------
 program
   .command("drift")
-  .description("Detect memory drift: dead refs, dangling supersedes, stale 'proposed' docs, and doc≠graph anchor-stale (a file still anchored to a superseded decision). Exits non-zero on any anchor-stale drift or topic collision — the doc≠graph gate.")
+  .description("Detect memory drift: dead refs, dangling supersedes, stale 'proposed' docs, doc≠graph anchor-stale (a file still anchored to a superseded decision), and markdown sections whose <!-- hunch:topic … dec_id --> pin points at a superseded or missing decision (AGENTS.md/CLAUDE.md as a drift surface). Exits non-zero on any anchor-stale drift or topic collision — the doc≠graph gate.")
   .action(() => {
     const { store, root } = storeFor();
     try {
@@ -1700,7 +1711,7 @@ program
       }
       for (const f of findings.slice(0, 50)) console.log(`· [${f.kind}] ${f.id} — ${f.detail}`);
       for (const [topic, decs] of collisions) console.log(`· [topic-collision] "${topic}" has ${decs.length} live decisions: ${decs.map((d) => d.id).join(", ")} — run \`hunch reconcile-topics\``);
-      const anchor = findings.filter((f) => f.kind === "anchor-stale").length;
+      const anchor = findings.filter((f) => f.kind === "anchor-stale" || f.kind === "doc-anchor-stale").length;
       console.log(`\n${findings.length} finding(s)${anchor ? `, ${anchor} doc≠graph (anchor-stale)` : ""}${collisions.size ? `, ${collisions.size} topic-collision(s)` : ""}.`);
       if (anchor || collisions.size) process.exitCode = 1;
     } finally {
@@ -1790,6 +1801,12 @@ program
         for (const f of anchor) console.log(`· ${f.detail}`);
         console.log(`\nHeal A (doc stale): edit each file to match its CURRENT decision — a prose fix.`);
         console.log(`Heal B (decision stale): only if the DECISION is wrong now, run /capture (hunch_capture_decision) to supersede it, then re-derive the doc.\n`);
+      }
+      const docAnchor = [...kind("doc-anchor-stale"), ...kind("doc-anchor-dangling")];
+      if (docAnchor.length) {
+        console.log(`${docAnchor.length} markdown section(s) drifted from the graph (prose≠graph):\n`);
+        for (const f of docAnchor) console.log(`· ${f.id} — ${f.detail}`);
+        console.log(`\nHeal: edit the prose to match the CURRENT decision, then update the pin in the <!-- hunch:topic … --> marker to its id. If the DECISION is what's wrong, run /capture to supersede it first.\n`);
       }
       const dead = kind("dead-ref");
       if (dead.length) {
