@@ -14,6 +14,8 @@ dist/
 # `npm run dev -- init`. (End users who `npm i -g @davesheffer/hunch` get a
 # package-named, OS-agnostic config that IS safe to commit; see resolveInvocation.)
 .mcp.json
+# ...but the PLUGIN's MCP config is the shipped artifact, not a per-clone scaffold
+!plugin/.mcp.json
 .cursor/mcp.json
 .vscode/mcp.json
 .windsurf/mcp_config.json
