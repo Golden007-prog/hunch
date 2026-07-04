@@ -34,8 +34,9 @@ test("commitAndPushHunch REFUSES a deleting / non-memory change — never commit
 
     // simulate the catastrophe: a staged DELETION of the source reaches commitAndPushHunch
     git("rm", "-q", "app.ts");
-    commitAndPushHunch(root, "hunch: capture dec_x");
+    const r = commitAndPushHunch(root, "hunch: capture dec_x");
 
+    assert.equal(r, null, "the refusal is reported, not claimed as a commit");
     assert.equal(git("rev-list", "--count", "HEAD"), before, "no new commit — the guard refused the deletion");
     assert.match(git("ls-tree", "-r", "--name-only", "HEAD"), /app\.ts/, "app.ts is still in history, not clobbered");
   } finally { cleanup(); }
@@ -46,8 +47,9 @@ test("commitAndPushHunch DOES commit a clean memory-only (JSON) change", () => {
   try {
     mkdirSync(join(root, ".hunch", "decisions"), { recursive: true });
     writeFileSync(join(root, ".hunch", "decisions", "dec_1.json"), JSON.stringify({ id: "dec_1", title: "x" }));
-    commitAndPushHunch(join(root, ".hunch"), "hunch: capture dec_1");
+    const r = commitAndPushHunch(join(root, ".hunch"), "hunch: capture dec_1");
 
+    assert.equal(r, "committed", "commit created; no upstream → not overclaimed as pushed");
     assert.equal(git("rev-list", "--count", "HEAD"), "1", "a memory commit was created");
     assert.match(git("ls-tree", "-r", "--name-only", "HEAD"), /decisions\/dec_1\.json/, "the JSON record was committed");
   } finally { cleanup(); }

@@ -112,7 +112,8 @@ test("flushCapture public path skips QUIETLY (no commit) when the user has non-m
       g(root, "add", "app.ts"); // the user's own staged work
       writeFileSync(join(root, ".hunch", "decisions", "dec_wip.json"), "{}\n");
       const store = new HunchStore(hunchPaths(root));
-      flushCapture(store, hunchPaths(root).hunch, false, "hunch: capture dec_wip");
+      const skipped = flushCapture(store, hunchPaths(root).hunch, false, "hunch: capture dec_wip");
+      assert.equal(skipped, null); // reports the skip honestly — never claims "committed"
       assert.doesNotMatch(g(root, "log", "-1", "--format=%s"), /capture dec_wip/); // backstop refused
       assert.match(g(root, "diff", "--cached", "--name-only"), /app\.ts/); // user's stage intact
 

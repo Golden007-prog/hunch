@@ -34,6 +34,17 @@ type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: bo
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });
 const err = (text: string): ToolResult => ({ content: [{ type: "text", text }], isError: true });
 
+/** Honest auto-commit suffix: reports only what flushCapture ACTUALLY did. A skipped
+ *  commit (backstop/lock/nothing staged) says nothing — the record is on disk and the
+ *  next flush sweeps it up; claiming "auto-committed" there would be a lie. */
+const flushNote = (flush: "pushed" | "committed" | null, home: "public" | "private", mode: string): string =>
+  flush === "pushed" ? ` (committed + pushed to the ${mode === "shared" ? "shared team store" : "private repo"})`
+    : flush === "committed"
+      ? home === "private"
+        ? " (committed to the overlay repo — push deferred: offline, no upstream, or merge conflict; the next capture or `hunch private --sync` retries)"
+        : " (auto-committed to .hunch/ — rides your next push)"
+      : "";
+
 // Read-side token budgets: every tool result is injected into a Claude Code
 // session, so an uncapped list pollutes the context window. Cap each list to its
 // highest-signal head (records are pre-sorted by severity/confidence) and tell the
@@ -482,8 +493,7 @@ export function buildServer(root: string): McpServer {
         // record commits+pushes its overlay repo; a public one commits .hunch/ in THIS repo
         // (commit only — it rides the user's next push, never auto-pushing their code branch).
         const flush = flushCapture(store, hunchPaths(root).hunch, !!decision.private, `hunch: capture ${id}`);
-        const flushed = flush === "pushed" ? ` (committed + pushed to the ${store.mode === "shared" ? "shared team store" : "private repo"})`
-          : flush === "committed" ? " (auto-committed to .hunch/ — rides your next push)" : "";
+        const flushed = flushNote(flush, home, store.mode);
         // Capture-session gate (staged deprecation, §9.3): a token proves an interview
         // preceded the write. No token still writes (non-breaking), but returns a nudge
         // toward /capture so the un-interviewed bypass is visible, not silent. A token
@@ -541,8 +551,7 @@ export function buildServer(root: string): McpServer {
         // grounding. Refresh-only: it never scaffolds a doc the project opted out of.
         if (home === "public") refreshExistingGrounding(root, store); // overlay rules never render into committed grounding
         const flush = flushCapture(store, hunchPaths(root).hunch, !!input.private, `hunch: capture ${rec.id}`);
-        const flushed = flush === "pushed" ? ` (committed + pushed to the ${store.mode === "shared" ? "shared team store" : "private repo"})`
-          : flush === "committed" ? " (auto-committed to .hunch/ — rides your next push)" : "";
+        const flushed = flushNote(flush, home, store.mode);
         const enforce = rec.severity === "blocking"
           ? "blocks a DIRECT edit to its scope at strict firmness, and fails a PR whose diff touches that scope (CI guard); blast-radius hits and lower firmness stay advisory"
           : "flags violating edits and PRs (advisory)";

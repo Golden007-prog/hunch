@@ -54,14 +54,18 @@ export function mainWorktreeRoot(root: string): string {
  *  `push: false` commits WITHOUT merging or pushing — required when hunchDir is the PUBLIC
  *  .hunch/ inside the user's code repo: an automatic pull/push there would merge the remote
  *  into their working branch and publish their unpushed code commits. The memory commit
- *  simply rides the user's next push. */
-export function commitAndPushHunch(hunchDir: string, message: string, opts: { push?: boolean } = {}): void {
+ *  simply rides the user's next push.
+ *  Returns what ACTUALLY happened, so callers never report a commit that was skipped:
+ *  "pushed" (commit created and pushed), "committed" (commit created; push not requested,
+ *  or the merge/push failed — retry rides the next flush), null (nothing committed: lock
+ *  held, backstop refusal, nothing staged, or not a repo). */
+export function commitAndPushHunch(hunchDir: string, message: string, opts: { push?: boolean } = {}): "pushed" | "committed" | null {
   // Serialize across worktrees: several worktrees auto-committing the SAME overlay repo
   // at once would race git's index.lock. An atomic-mkdir lock lets one proceed; the others
   // skip — safe because each record is already written to disk, so `git add .` here sweeps
   // up anything a skipped run left pending (eventually-consistent, never lost).
   const lock = join(hunchDir, ".hunch-commit.lock");
-  if (!acquireCommitLock(lock)) return;
+  if (!acquireCommitLock(lock)) return null;
   try {
     const env = { ...process.env, HUNCH_SYNC: "1" };
     const run = (args: string[]): void => {
@@ -84,7 +88,7 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: { pu
       if (opts.push !== false) {
         console.error(`hunch: refusing to auto-commit memory at "${hunchDir}" — the staged change includes deletions or non-memory files, so this is not a clean overlay repo. Nothing was committed or pushed. (Use \`hunch shared --repo <url>\` so the overlay is its OWN git repo.)`);
       }
-      return;
+      return null;
     }
     // Only sync+push when a memory commit was actually created — never run pull/push against the
     // enclosing repo on an empty stage. Two-way sync: MERGE the remote BEFORE pushing so a push
@@ -92,7 +96,13 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: { pu
     // by id. On conflict/offline, mergeRemote aborts to a clean tree and we skip the push.
     let committed = false;
     try { execFileSync("git", ["-C", hunchDir, "commit", "-m", message], { stdio: "ignore", env }); committed = true; } catch { /* nothing staged / not a repo */ }
-    if (committed && opts.push !== false && mergeRemote(hunchDir, env)) run(["push"]);
+    if (!committed) return null;
+    if (opts.push !== false && mergeRemote(hunchDir, env)) {
+      // Push tracked (not via run): a no-upstream/offline/rejected push must report
+      // "committed", not overclaim "pushed" — the next flush's merge+push retries.
+      try { execFileSync("git", ["-C", hunchDir, "push"], { stdio: "ignore", env }); return "pushed"; } catch { /* offline / no upstream */ }
+    }
+    return "committed";
   } finally {
     try { rmSync(lock, { recursive: true, force: true }); } catch { /* released best-effort */ }
   }

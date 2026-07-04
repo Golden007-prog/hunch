@@ -16,9 +16,12 @@ export function flushPrivate(store: HunchStore, message: string): void {
   if (store.privateAutoCommit && store.privateDir) commitAndPushHunch(store.privateDir, message);
 }
 
-/** Auto-commit the store a capture landed in. Returns what happened so callers can report it:
- *  "pushed" (private overlay, committed + pushed), "committed" (public .hunch/, commit only —
- *  rides the next push), or null (auto-commit off / no overlay for a private record). */
+/** Auto-commit the store a capture landed in. Returns what ACTUALLY happened so callers
+ *  never report a commit that was skipped: "pushed" (overlay committed + pushed),
+ *  "committed" (commit created but not pushed — public .hunch/ rides the next push; an
+ *  overlay commit whose merge/push failed retries on the next flush), or null (auto-commit
+ *  off, no overlay for a private record, or the commit was skipped — lock held, safety
+ *  backstop, nothing staged; the record stays on disk and the next flush sweeps it up). */
 export function flushCapture(
   store: HunchStore,
   publicHunchDir: string,
@@ -28,13 +31,9 @@ export function flushCapture(
   // Follow the same routing as HunchStore.captureHome: unified ("shared") mode homes
   // EVERY capture in the overlay, so the flush must go there too — one source of truth.
   if (store.captureHome(isPrivate) === "private") {
-    if (store.privateAutoCommit && store.privateDir) {
-      commitAndPushHunch(store.privateDir, message);
-      return "pushed";
-    }
+    if (store.privateAutoCommit && store.privateDir) return commitAndPushHunch(store.privateDir, message);
     return null;
   }
   if (!store.autoCommit) return null;
-  commitAndPushHunch(publicHunchDir, message, { push: false });
-  return "committed";
+  return commitAndPushHunch(publicHunchDir, message, { push: false });
 }
