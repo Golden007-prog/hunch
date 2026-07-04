@@ -1,0 +1,21 @@
+{
+  "id": "cmp_159b78999e",
+  "kind": "module",
+  "name": "Wiki",
+  "responsibility": "",
+  "paths": [
+    "src/wiki/**"
+  ],
+  "status": "active",
+  "owners": [],
+  "fragility": 0,
+  "provenance": {
+    "source": "inferred",
+    "confidence": 0.5,
+    "evidence": [
+      "src/wiki"
+    ]
+  },
+  "created_at": "2026-07-04T03:39:02.856Z",
+  "updated_at": "2026-07-04T03:39:02.856Z"
+}
