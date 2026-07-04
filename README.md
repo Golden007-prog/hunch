@@ -44,6 +44,8 @@ guards, troubleshooting. This README is the tour. Jump to:
 [CLI reference](https://hunch-pi.vercel.app/docs#cli) ·
 [Troubleshooting](https://hunch-pi.vercel.app/docs#doctor)
 
+> 🆕 **v1.2.2** — the [component wiki + specs ledger](https://hunch-pi.vercel.app/docs#wiki): Hunch takes over your stale docs — graded deterministically, adopted into a graph-healed wiki copy, never rewriting your originals — with staleness drift-gated in CI. Plus honest auto-commit reporting, a friendly Node < 22.13 gate, and churn-free reindexing. [Full changelog →](https://hunch-pi.vercel.app/changelog)
+
 ## The problem
 
 Every AI coding session starts from zero. The model re-reads your code, re-guesses the

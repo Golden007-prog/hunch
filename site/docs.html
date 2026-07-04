@@ -217,6 +217,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
       <a href="#provenance">Provenance &amp; confidence</a>
       <a href="#time-travel">Time-travel</a>
       <a href="#grounding">Decision-grounding</a>
+      <a href="#wiki">The component wiki</a>
     </div>
     <div class="nav-group">
       <h4>Using Hunch</h4>
@@ -400,6 +401,18 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
 <span class="k">hunch</span> reconcile-topics  <span class="c"># &gt;1 live decision on a topic (post-merge) — exits non-zero</span></pre></div>
     </section>
 
+    <section id="wiki">
+      <h2>The component wiki &amp; specs ledger<a class="anchor" href="#wiki">#</a></h2>
+      <p><code>hunch wiki</code> renders a component wiki <em>from</em> the graph — one page per component (why it's shaped this way, invariants, structure, bug history, relations) plus a <strong>specs ledger</strong> that grades every markdown doc in your repo deterministically: <strong>✅ grounded</strong> (anchored to current decisions — safe to trust), <strong>⚠ stale</strong> (pinned to a superseded decision, says "proposed" about shipped code, or references only deleted files), <strong>◻ unverified</strong> (no anchors — Hunch can't vouch either way). No LLM in any grade.</p>
+      <p><strong>Stale docs get adopted.</strong> The wiki copies a stale doc into <code>wiki/docs/</code> as a wiki-managed page healed against the graph — every stale pin re-pinned to the current decision with a 🧭 correction inline quoting what changed and what was rejected. Your <em>original file is never touched</em>; heal it (or delete it) and the copy retires automatically. The ledger routes readers to the trustworthy version either way.</p>
+      <p><strong>Freshness is drift, not a cron job.</strong> Each page's graph inputs are content-hashed into a manifest; when the graph moves, <code>hunch drift</code> names exactly which pages went stale and <code>hunch wiki --heal</code> regenerates only those. Hand-editing a generated page trips the same wire (the graph is the source of truth — edit records, not pages).</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> wiki            <span class="c"># generate/refresh wiki/ + the specs ledger</span>
+<span class="k">hunch</span> wiki --check    <span class="c"># CI gate: non-zero if any page is stale (green no-op if never adopted)</span>
+<span class="k">hunch</span> wiki --heal     <span class="c"># regenerate ONLY the stale pages; retire orphans</span>
+<span class="k">hunch</span> wiki --private  <span class="c"># render the FULL graph (private overlay included) into the OVERLAY repo</span></pre></div>
+      <p>With a <a class="link" href="#private">private overlay</a>, the public wiki is built from the committed store only — a private record can never reach a committed page, by construction. <code>--private</code> writes the full-graph wiki into the overlay repo instead; nothing lands here.</p>
+    </section>
+
     <section id="mcp-tools">
       <h2>MCP tools<a class="anchor" href="#mcp-tools">#</a></h2>
       <p>The tools your assistant calls under the hood. Read tools answer “why / what-must-not-break / blast radius”; write tools persist new memory.</p>
@@ -537,6 +550,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
           <tr><td><code>drift</code></td><td>Flag doc≠graph drift — a file anchored to a <em>superseded</em> decision (<code>anchor-stale</code>), a markdown pin to a superseded/missing decision (<a class="link" href="#grounding">topic anchors</a>), plus topic collisions. Deterministic; exits non-zero for CI.</td></tr>
           <tr><td><code>reconcile-topics</code></td><td>Scan for &gt;1 live decision per <b>topic</b> (an invariant a git merge can violate) and exit non-zero. Wire into a post-merge hook / CI.</td></tr>
           <tr><td><code>heal</code></td><td>Read-only doc↔graph reconciliation — report where prose and the graph disagree; never rewrites docs silently.</td></tr>
+          <tr><td><code>wiki</code></td><td>Generate the <a class="link" href="#wiki">component wiki + specs ledger</a> from the graph. <code>--check</code> CI gate, <code>--heal</code> regenerates only stale pages, <code>--private</code> renders the full graph into the overlay repo.</td></tr>
           <tr><td><code>ci</code></td><td>Scaffold the CI Constraint Guard (GitHub Action).</td></tr>
           <tr><td><code>record-constraint</code></td><td>Record an invariant the codebase must not break.</td></tr>
           <tr><td><code>record-bug</code></td><td>Capture a Bug from a failing test (symptom + suspects).</td></tr>
@@ -848,6 +862,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
     {q:"What languages does it support?", kw:["language","languages","python","typescript","javascript","java","golang","rust","support code","ruby","understand","understands","code structure","understand my code","php","laravel","kotlin","swift","scala","perl","go lang"], a:`The code-structure part understands TypeScript and JavaScript today. The "why" part — decisions, bugs, rules — works for <b>any</b> language, since it reads your commits and diffs. → <a href="#graph">The graph</a>`},
     {q:"Does it work offline?", kw:["offline","no internet","without internet","disconnected","airplane","no network","network access","need internet","everything local","air gapped","without network","local only"], a:`Yes — everything is local. Without an AI assistant available it falls back to a simpler built-in method for notes, still fully offline. → <a href="#synthesis">Synthesis</a>`},
     {q:"How is it different from Copilot or Cursor memory?", kw:["different","different from","different from copilot","different from cursor","copilot memory","cursor memory","versus","compare","competitor","better than","vs","wiki","adr","adrs","just a wiki","documentation","confluence","notion","cody","sourcegraph","just comments","commit messages","readme","replace"], a:`Those search your code at edit time. Hunch captures the <b>why</b> at commit/PR/bug time and curates it into a lasting graph — a teammate who remembers the history, not just a fast reader of the current code. → <a href="#overview">Overview</a>`},
+    {q:"Can it generate documentation?", kw:["generate docs","generate documentation","wiki","component wiki","specs","spec","stale docs","docs go stale","outdated docs","doc rot","adopt","ledger","auto docs","keep docs updated","maintain docs"], a:`Yes — <code>hunch wiki</code> renders a component wiki straight from the graph, and a <b>specs ledger</b> grades every markdown doc in your repo (grounded / stale / unverified). Stale docs get a wiki-managed, graph-healed copy; your originals are never rewritten. Staleness is drift-gated, not scheduled. → <a href="#wiki">The component wiki</a>`},
     {q:"Who is this for?", kw:["who is this for","who should","for me","beginner","solo","big team","right for"], a:`Anyone working with an AI coding assistant — solo or in a team — who's tired of it forgetting context or repeating old mistakes. Especially valuable on long-lived codebases.`},
     {q:"Is it open source?", kw:["open source","license","apache","mit","source code","free software","github repo"], a:`Yes — open source under Apache-2.0; you can read every line on GitHub. → <a href="#develop">Develop & contribute</a>`},
     {q:"Just tell me how to start in a minute.", kw:["quick start","quickstart","one minute","fastest","tldr","just start","get going","steps","60 second"], a:`1) <code>npm i -g @davesheffer/hunch</code> &nbsp;2) <code>hunch init</code> in your repo &nbsp;3) reload your AI assistant. Done — it now captures and surfaces memory automatically. → <a href="#install">Install</a>`},
