@@ -3,6 +3,44 @@
    global so it works on a static host with no build step. */
 window.POSTS = [
   {
+    slug: "agent-audits-its-own-memory",
+    title: "We let the AI audit its own memory tool. It was using 4 of 19 tools.",
+    dek: "Two weeks of an agent doing real feature work inside Hunch, then an honest self-audit: where did it fall back to grep, and why? The findings shipped as v1.3.0 — Recall@10 90→100% on a committed golden set, grounding cost cut ~100× on repeats.",
+    date: "2026-07-05", tag: "Dogfood", read: "6 min", pinned: false,
+    body: `
+<p class="lead">Hunch's whole pitch is that an assistant grounded in your decision graph makes better changes. So we asked the uncomfortable question: is the assistant actually <em>using</em> the graph? We put an agent inside Hunch for two weeks of real feature work, then asked it to audit its own experience — honestly. The answer shipped as v1.3.0.</p>
+
+<h2>The audit nobody runs</h2>
+<p>Every memory product measures recall benchmarks. Almost nobody measures the thing that decides whether memory matters at all: <strong>does the agent reach for the right tool at the right moment, or does it fall back to grep?</strong></p>
+<p>After two weeks of an agent building real features in this repo — the wiki, the specs ledger, doc adoption — we asked it to review its own tool usage. The honest count: <strong>4 of 19 <code>hunch_*</code> tools used.</strong> Not because the data was missing. The graph had the answers. The entry points whiffed at the moment of decision.</p>
+
+<h2>What it filed — every finding has a decision id in the committed graph</h2>
+<p><strong>1. The grounding tax.</strong> The pre-edit hook injects the relevant decisions before every file edit — the best grounding the agent had worked with, its words — and it injected the <em>same</em> 10–16KB block on every edit to the same file. Twenty-plus times per session. The cost of being grounded was competing with the work (<code>dec_7cce5bcd8a</code>).</p>
+<p><strong>2. The task-shaped entry point shrugged at task-shaped input.</strong> <code>hunch_context("improve retrieval ranking")</code> returned <em>empty</em> — while the graph held a decision literally titled that, one search away (<code>dec_39bc7c8bee</code>).</p>
+<p><strong>3. Ranking lost to keyword luck.</strong> A runbook written minutes earlier ranked below an old one for its own trigger phrase. When ranking misses, agents grep — the exact failure the graph exists to prevent (<code>dec_e622668785</code>).</p>
+<p><strong>4. The gate blocked its own honest edits.</strong> Scope-only blocking rules denied <em>every</em> edit in guarded directories, including invariant-preserving ones (<code>dec_57e3dcca52</code>, <code>dec_5141920439</code>).</p>
+
+<h2>What shipped, with numbers</h2>
+<ul>
+<li><strong>Injections dedupe per session</strong> — full context once, a one-line delta on identical repeats (≈100× smaller). Any record change re-sends the full block; the deny path never dedupes. Sessions now <em>open</em> with an orientation: recent decisions, live roadmap.</li>
+<li><strong><code>hunch_context</code> falls back to search</strong> on task phrases, and the tool list agents see is grouped by <em>moment</em> (orient → design → edit → commit → after) — the full surface, not 9 of 19.</li>
+<li><strong>Retrieval ranks by what the graph knows</strong> — live beats superseded, human-vouched beats drafted, recent beats ancient, with bounded floors so history dims but never vanishes. A query that only matches a <em>superseded</em> decision surfaces the topic's <strong>current</strong> decision right above it. Measured on a committed golden set: <strong>Recall@10 90% → 100%, MRR +14%</strong> — and that eval now gates every retrieval change in CI. No model in the ranking path.</li>
+<li><strong>Every blocking rule is content-matched</strong> — the gate denies the edit that actually re-introduces the violation, not every edit near it. The flow-shaped invariant that resists text matching became conformance predicates: <code>hunch conform</code> <em>proves</em> the JSON store never reads through SQLite, on every run.</li>
+<li><strong>Duplicate drafts die before the LLM is called.</strong> Record a decision, commit the code — the post-commit hook used to re-draft the same content as review-queue noise (7 of 14 queued drafts, measured). Now a recent human-confirmed decision covering the commit's files skips the draft, with a named receipt.</li>
+</ul>
+
+<h2>The part we didn't expect</h2>
+<p>Halfway through, the eval gate flagged a regression — in <em>our own golden set</em>. A test case expected a decision we had <strong>superseded that same day</strong>. Golden sets rot exactly like docs do. The fix was the discipline the product preaches: expectations follow the supersession chain, and topic-chain promotion means even a stale query surfaces the current truth.</p>
+<p>Every finding was recorded as a <em>proposed</em> decision — which put it on the roadmap (<code>hunch now</code> renders live proposed decisions; ship one and it leaves by itself). Two weeks later the roadmap had emptied itself through supersessions. The v1.3.0 changelog is the first we've written where <strong>every claim resolves to a decision id</strong> in the committed graph.</p>
+
+<h2>Try the loop</h2>
+<pre><code>npm i -g @davesheffer/hunch
+cd your-repo && hunch init   # advisory by default — nothing blocks until you say so
+hunch now                    # what happened + what's next, from the graph</code></pre>
+<p>The audit prompt that started this is one your own assistant can answer today: <em>"what's missing for you to work from the graph instead of grepping?"</em> Ask it. Record what it says as proposed decisions. Watch your roadmap write itself.</p>
+`,
+  },
+  {
     slug: "ai-ignores-your-architecture",
     title: "AI ignores your architecture rules — even at the frontier. We measured it.",
     dek: "An AI will rewrite your controller to query the database directly. It passes Semgrep, SonarQube and ESLint — all green. So we benchmarked the obvious fix: does telling the model the rule actually stop it?",
