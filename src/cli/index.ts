@@ -1338,12 +1338,28 @@ program
   .argument("<target>", "file path or symbol")
   .option("--budget <n>", "rough token budget", "1500")
   .option("--as-of <ref>", "time-travel: assemble the slice as it stood at a commit/tag/branch")
-  .action((target: string, opts: { budget: string; asOf?: string }) => {
+  .action(async (target: string, opts: { budget: string; asOf?: string }) => {
     const { store, root } = storeFor();
     const asOf = opts.asOf ? asOfDate(opts.asOf, root) : undefined;
     if (opts.asOf && !asOf) return fail(`could not resolve --as-of "${opts.asOf}" to a commit`);
     store.reindex(); // reflect any out-of-band JSON edits before assembling
-    process.stdout.write(formatContext(store.assembleContext(target, Number(opts.budget), { asOf })));
+    const ctx = store.assembleContext(target, Number(opts.budget), { asOf });
+    // A task PHRASE ("improve retrieval ranking") resolves no file/symbol target and
+    // used to come back empty while the graph held the answer one FTS query away —
+    // the task-shaped entry point must not whiff on task-shaped input. Fall back to
+    // search so the caller always leaves with the closest graph matches.
+    const empty = !ctx.constraints.length && !ctx.decisions.length && !ctx.bugs.length && !ctx.blast_radius.length;
+    if (empty && !asOf) {
+      const hits = store.search(target, 8);
+      if (hits.length) {
+        console.log(`No file/symbol resolves for "${target}" — closest graph matches instead:\n`);
+        for (const h of hits) console.log(`• ${h.ref} — ${h.title}\n    ${h.snippet}`);
+        console.log(`\n(For a file/symbol brief use a concrete target; for free-text this is what \`hunch query\` returns.)`);
+        store.close();
+        return;
+      }
+    }
+    process.stdout.write(formatContext(ctx));
     store.close();
   });
 
@@ -1476,6 +1492,34 @@ program
         // different content, so it always comes through (dec_244397d920).
         if (injectionMode(evt.session_id, "prompt-reminder", text) === "delta") return;
         emitContext("UserPromptSubmit", text);
+        return;
+      }
+      if (evt.hook_event_name === "SessionStart") {
+        // Orientation at the moment it matters: what just happened + what's next,
+        // straight from the graph — the agent sits down already knowing where it
+        // is instead of pulling (or worse, grepping) for it. Cheap reads only
+        // (no reindex, no drift walk); public store only — session transcripts
+        // travel further than a terminal. Union view: `hunch now --private`.
+        const s = new HunchStore(paths);
+        try {
+          const decisions = s.json.loadAll("decisions");
+          const { recent, roadmap, pendingReview } = nowData(decisions, 3);
+          if (!decisions.length) return;
+          const L: string[] = [];
+          L.push(`🧠 Hunch orientation — ${decisions.length} decision(s) in the graph.`);
+          if (recent.length) {
+            L.push("Recent:");
+            for (const r of recent) L.push(`  ${r.date} [${r.status}] ${r.title} (${r.id})`);
+          }
+          if (roadmap.length) {
+            L.push(`Roadmap (${roadmap.length} live proposed): ${roadmap.slice(0, 3).map((r) => r.title).join(" · ")}${roadmap.length > 3 ? " · …" : ""}`);
+          }
+          if (pendingReview > 0) L.push(`${pendingReview} auto-draft(s) awaiting \`hunch review\`.`);
+          L.push("Orient further: hunch_context(task) · hunch_structure() · `hunch now`.");
+          emitContext("SessionStart", L.join("\n"));
+        } finally {
+          s.close();
+        }
         return;
       }
       if (evt.hook_event_name !== "PreToolUse") return;
@@ -2223,7 +2267,7 @@ function toRepoRel(root: string, abs: string): string {
   return relative(realpathNorm(root), realpathNorm(abs)).split("\\").join("/");
 }
 
-function emitContext(event: "PreToolUse" | "UserPromptSubmit", text: string): void {
+function emitContext(event: "PreToolUse" | "UserPromptSubmit" | "SessionStart", text: string): void {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } }));
 }
 function emitDeny(reason: string): void {

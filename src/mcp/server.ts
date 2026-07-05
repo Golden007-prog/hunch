@@ -302,9 +302,9 @@ export function buildServer(root: string): McpServer {
     {
       title: "Assemble the minimal relevant Hunch slice for a task",
       description:
-        "Given a file or symbol you're about to work on, return the MINIMAL relevant memory — invariants to preserve, decisions explaining the design, bug history not to reintroduce, and the blast radius — as a compact brief. Call this FIRST when starting work on something.",
+        "Given a file, symbol, or task phrase you're about to work on, return the MINIMAL relevant memory — invariants to preserve, decisions explaining the design, bug history not to reintroduce, and the blast radius — as a compact brief. Call this FIRST when starting work on something. A task phrase that resolves to no file/symbol falls back to the closest graph matches.",
       inputSchema: {
-        target: z.string().describe("A file path or symbol you're about to edit."),
+        target: z.string().describe("A file path, symbol, or task phrase you're about to work on."),
         budget_tokens: z.number().optional().describe("Rough token budget for the brief (default 1500)."),
         as_of: z.string().optional().describe("Time-travel ref (commit/tag/branch): assemble the slice as it stood then."),
       },
@@ -312,7 +312,21 @@ export function buildServer(root: string): McpServer {
     async ({ target, budget_tokens, as_of }): Promise<ToolResult> => {
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return err(`Could not resolve as_of "${as_of}" to a commit.`);
-      return ok(formatContext(store.assembleContext(target, budget_tokens ?? 1500, { asOf })));
+      const ctx = store.assembleContext(target, budget_tokens ?? 1500, { asOf });
+      // Task-phrase input ("improve retrieval ranking") resolves no file/symbol and
+      // used to return an empty brief while the graph held the answer — fall back to
+      // FTS so the assistant always leaves with the closest matches, not a shrug.
+      const empty = !ctx.constraints.length && !ctx.decisions.length && !ctx.bugs.length && !ctx.blast_radius.length;
+      if (empty && !asOf) {
+        const hits = store.search(target, 8);
+        if (hits.length) {
+          const lines = hits.map((h) => `• ${h.ref} — ${h.title}\n    ${h.snippet}`);
+          return ok(
+            `No file/symbol resolves for "${target}" — closest graph matches instead:\n\n${lines.join("\n")}\n\n(For a file/symbol brief pass a concrete target; free-text goes through the same search as hunch_query.)`,
+          );
+        }
+      }
+      return ok(formatContext(ctx));
     },
   );
 
@@ -503,7 +517,7 @@ export function buildServer(root: string): McpServer {
           ? " [via capture front door]"
           : capture_token
             ? ""
-            : "\n\n⚠ Recorded WITHOUT a capture interview. Prefer /capture (hunch_capture_decision), which grills the decision to a resolved state before writing — the graph should hold a well-examined decision, not a guess. (A future major version will require a capture token here.)";
+            : `\n\n⚠ Recorded WITHOUT a capture interview — the record stands, but harden it NOW in one exchange instead of switching flows: answer the first grilling question directly — "What alternative did you seriously consider and reject for '${rec.title.slice(0, 60)}', and what breaks if a future session re-introduces it?" — then fold the answer into alternatives_rejected via hunch_record_decision(supersedes: ${id}) or start the full interview with hunch_capture_decision. (A future major version will require a capture token here.)`;
         const supNote = superseded ? ` Superseded ${superseded.id} (window closed at ${rec.valid_from}).` : "";
         const note = decision.commit && !fullSha ? ` (note: commit "${decision.commit}" could not be resolved — recorded as a standalone decision, not linked to a commit)` : "";
         const where = decision.private

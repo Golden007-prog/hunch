@@ -155,6 +155,12 @@ export function installClaudeHooks(root: string, hookCmd: string): ClaudeHookIns
     ...keep(json.hooks.UserPromptSubmit),
     { hooks: [{ type: "command", command: hookCmd }] },
   ];
+  // Orientation at session start: recent decisions + the live roadmap, injected
+  // once, so the agent begins already knowing where the work stands.
+  json.hooks.SessionStart = [
+    ...keep(json.hooks.SessionStart),
+    { hooks: [{ type: "command", command: hookCmd }] },
+  ];
 
   const next = JSON.stringify(json, null, 2) + "\n";
   if (existed && before === next) return { path: file, action: "unchanged" };
