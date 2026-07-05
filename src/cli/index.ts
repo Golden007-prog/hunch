@@ -54,7 +54,7 @@ import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpol
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { computeDrift } from "../core/drift.js";
-import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, type WikiPack } from "../wiki/wiki.js";
+import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
 import { topicCollisions, renderGrounding } from "../core/topics.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
 import { compareCandidates } from "../core/compare.js";
@@ -1896,6 +1896,29 @@ program
       // Committed grounding docs advertise the PUBLIC wiki only — they must not
       // reveal that (or what) a private overlay wiki exists.
       if (home.kind === "public") refreshExistingGrounding(root, store);
+    } finally {
+      store.close();
+    }
+  });
+
+// ---- now (the hot view: recent activity + roadmap) --------------------------
+program
+  .command("now")
+  .description("The hot view — last decisions recorded (any status) and the ROADMAP: every live PROPOSED decision. Record what's next as a proposed decision; shipping it (accept/supersede) removes it here automatically. Same data as the wiki's now.md page. Read-only.")
+  .option("--private", "include the private overlay (union) — local terminal output only")
+  .option("--recent <n>", "how many recent decisions to show", "10")
+  .action((opts: { private?: boolean; recent: string }) => {
+    const { store } = storeFor();
+    try {
+      if (opts.private && !store.hasPrivate) return fail("no private overlay configured — run `hunch private` (or `hunch shared`) first.");
+      const decisions = opts.private ? store.recs("decisions") : store.json.loadAll("decisions");
+      const { recent, roadmap, pendingReview } = nowData(decisions, Number(opts.recent) || 10);
+      console.log(`🔥 Recent (${recent.length})${opts.private ? " — union incl. private overlay; do not paste publicly" : ""}:`);
+      for (const r of recent) console.log(`  ${r.date}  [${r.status}] ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""})`);
+      console.log(`\n🗺 Roadmap — live proposed decisions (${roadmap.length}):`);
+      if (!roadmap.length) console.log("  (empty — record what's next as a PROPOSED decision via /capture and it appears here)");
+      for (const r of roadmap) console.log(`  • ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
+      if (pendingReview > 0) console.log(`\n  (${pendingReview} auto-drafted proposal(s) awaiting review — \`hunch review\`)`);
     } finally {
       store.close();
     }

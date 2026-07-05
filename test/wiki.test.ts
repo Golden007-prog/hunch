@@ -212,7 +212,7 @@ test("generateWiki: writes pages + README + manifest; regen with unchanged graph
   const home = publicHome(root, "wiki");
 
   const first = await generateWiki(store, root, home, { now: NOW, only: "all" });
-  assert.deepEqual(first.written, ["wiki/store-layer.md", "wiki/specs.md", "wiki/README.md"]);
+  assert.deepEqual(first.written, ["wiki/store-layer.md", "wiki/specs.md", "wiki/now.md", "wiki/README.md"]);
   assert.ok(existsSync(join(root, "wiki", "store-layer.md")));
   assert.ok(existsSync(join(root, "wiki", "specs.md")));
   assert.ok(existsSync(join(root, "wiki", "README.md")));
@@ -226,7 +226,7 @@ test("generateWiki: writes pages + README + manifest; regen with unchanged graph
   assert.equal(readWikiManifestAt(home.manifestPath)?.pages["wiki/store-layer.md"]?.generated, NOW, "fresh manifest entries keep their generation time");
 
   const all = await generateWiki(store, root, home, { now: "2026-07-03T00:00:00Z", only: "all" });
-  assert.equal(all.written.length, 3);
+  assert.equal(all.written.length, 4);
   assert.equal(readFileSync(join(root, "wiki", "store-layer.md"), "utf8"), pageBefore, "identical graph → byte-identical page");
 });
 
@@ -238,7 +238,7 @@ test("generateWiki: prose failure degrades to a template page, never fails gener
     now: NOW, only: "all",
     prose: async () => { throw new Error("CLI exploded"); },
   });
-  assert.equal(res.written.length, 3); // component page + specs ledger + index
+  assert.equal(res.written.length, 4); // component page + specs ledger + now + index
   assert.doesNotMatch(readFileSync(join(root, "wiki", "store-layer.md"), "utf8"), /## Overview/);
 });
 
@@ -271,7 +271,7 @@ test("private home: pages + manifest land in the OVERLAY repo, render the union,
   assert.equal(home!.source, "all");
 
   const res = await generateWiki(store, pub, home!, { now: NOW, only: "all" });
-  assert.equal(res.written.length, 4, "public + private components + specs ledger + index all get pages");
+  assert.equal(res.written.length, 5, "public + private components + specs + now + index all get pages");
   const page = readFileSync(join(overlayRoot, "wiki", "store-layer.md"), "utf8");
   assert.match(page, /dec_priv/, "private wiki renders overlay records");
   assert.match(readFileSync(join(overlayRoot, "wiki", "README.md"), "utf8"), /PRIVATE/, "index carries the do-not-publish banner");
@@ -607,4 +607,40 @@ test("wiki pages ground the doc≠graph loop: superseding a pinned decision fire
   assert.equal(onPage.length, 1, "the generated page's pin goes stale like any prose pin");
   assert.match(onPage[0]!.detail, /dec_fsync/);
   assert.ok(findings.some((f) => f.kind === "wiki-stale"), "and the hash moved too — heal regenerates + re-pins");
+});
+
+test("now page: recent ledger + roadmap from proposed decisions; recording/accepting intent moves the page through drift", async (t) => {
+  const { store, root, cleanup } = tempStore();
+  t.after(cleanup);
+  seed(store);
+  const home = publicHome(root, "wiki");
+  await generateWiki(store, root, home, { now: NOW, only: "all" });
+  const page = readFileSync(join(root, "wiki", "now.md"), "utf8");
+  assert.ok(page.startsWith("<!-- hunch:wiki _now"), "reserved generated artifact");
+  assert.match(page, /## 🔥 Recent[\s\S]*Atomic JSON writes/);
+  assert.match(page, /## 🗺 Roadmap[\s\S]*_Empty\./, "no proposed decisions → empty roadmap with guidance");
+  assert.equal(computeWikiDrift(store, root).length, 0);
+
+  // Record intent: a HUMAN-VOUCHED proposed decision → now-page stale → heal
+  // renders it on the roadmap. An auto-drafted proposal (extracted/llm_draft)
+  // is review-queue business: counted, never listed.
+  store.json.put("decisions", DEC({ id: "dec_next", title: "Add cursor pagination", status: "proposed", context: "Deep pages time out.", valid_from: "2026-07-05T00:00:00Z", date: "2026-07-05T00:00:00Z", provenance: { source: "human_confirmed", confidence: 1, evidence: [] } }) as never);
+  store.json.put("decisions", DEC({ id: "dec_draft", title: "Auto-drafted from a commit", status: "proposed", valid_from: "2026-07-05T00:00:00Z", date: "2026-07-05T00:00:00Z" }) as never);
+  let findings = computeWikiDrift(store, root);
+  assert.ok(findings.some((f) => f.id === "wiki/now.md" && /activity ledger \/ roadmap moved/.test(f.detail)));
+  await generateWiki(store, root, home, { now: NOW, only: "stale" });
+  const mid = readFileSync(join(root, "wiki", "now.md"), "utf8");
+  assert.match(mid, /## 🗺 Roadmap[\s\S]*Add cursor pagination[\s\S]*Deep pages time out/);
+  assert.doesNotMatch(mid, /🗺[\s\S]*Auto-drafted from a commit/, "un-vouched drafts stay off the roadmap");
+  assert.match(mid, /1 auto-drafted proposed decision\(s\) awaiting review/);
+  assert.equal(computeWikiDrift(store, root).length, 0);
+  store.json.delete("decisions", "dec_draft");
+
+  // Ship it: proposed → accepted leaves the roadmap (and lands in Recent) automatically.
+  store.json.put("decisions", DEC({ id: "dec_next", title: "Add cursor pagination", status: "accepted", valid_from: "2026-07-05T00:00:00Z", date: "2026-07-05T00:00:00Z" }) as never);
+  await generateWiki(store, root, home, { now: NOW, only: "stale" });
+  const after = readFileSync(join(root, "wiki", "now.md"), "utf8");
+  assert.match(after, /## 🗺 Roadmap[\s\S]*_Empty\./, "accepted item left the roadmap by itself");
+  assert.match(after, /## 🔥 Recent[\s\S]*Add cursor pagination/);
+  assert.equal(readWikiManifestAt(home.manifestPath)?.pages["wiki/now.md"]?.component, "_now");
 });

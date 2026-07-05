@@ -231,7 +231,7 @@ export function slugFor(name: string, id: string, taken: Set<string>): string {
   let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || id;
   // "readme" and "specs" are reserved page names (index + specs ledger); the
   // id-suffix itself can collide with a literal name, so loop until unique.
-  if (slug === "readme" || slug === "specs" || taken.has(slug)) slug = `${slug}-${id.replace(/^cmp_/, "").slice(0, 6)}`;
+  if (slug === "readme" || slug === "specs" || slug === "now" || taken.has(slug)) slug = `${slug}-${id.replace(/^cmp_/, "").slice(0, 6)}`;
   while (taken.has(slug)) slug = `${slug}-x`;
   taken.add(slug);
   return slug;
@@ -325,6 +325,7 @@ export function renderIndex(entries: Array<{ pack: WikiPack; slug: string }>, re
     const n = (s: string) => docs.filter((d) => d.status === s).length;
     L.push("", `📄 [Specs & docs ledger](specs.md) — ${docs.length} repo doc(s): ${n("grounded")} grounded, ${n("stale")} stale, ${n("unverified")} unverified.`);
   }
+  L.push("", "🔥 [Now — recent activity & roadmap](now.md)");
   if (repoWide.length) {
     L.push("", "## Repo-wide invariants", "");
     for (const k of repoWide) L.push(`- **[${k.severity}]** ${clip(k.statement, 300)} _(${k.id})_`);
@@ -433,8 +434,64 @@ export interface WikiEntry {
 const SPECS_ID = "_specs";
 /** Reserved manifest component id for the README index page. */
 const INDEX_ID = "_index";
+/** Reserved manifest component id for the NOW page (activity ledger + roadmap). */
+const NOW_ID = "_now";
 /** Manifest component-id prefix for adopted (wiki-managed) doc copies. */
 const ADOPTED_PREFIX = "doc:";
+
+/** One row of the NOW page — a decision reduced to its ledger-relevant surface.
+ *  Everything here participates in the page's freshness hash. */
+export interface NowItem {
+  id: string;
+  topic: string | null;
+  title: string;
+  status: string;
+  date: string;
+  /** decision text for recent items; CONTEXT (the why-it's-planned) for roadmap items. */
+  note: string;
+}
+
+/** The hot view's inputs: last `recentLimit` decisions by date (any status — a
+ *  supersession IS activity), and every live PROPOSED decision (the roadmap:
+ *  record intent as a proposed decision; accepting or superseding it removes it
+ *  from the roadmap with zero file maintenance). Home-scoped like every read. */
+export function nowData(decisions: readonly Decision[], recentLimit = 10): { recent: NowItem[]; roadmap: NowItem[]; pendingReview: number } {
+  const clip1 = (s: string): string => (s.length > 220 ? s.slice(0, 219).trimEnd() + "…" : s).replace(/\s*\n\s*/g, " ");
+  const byDateDesc = (a: Decision, b: Decision) => (b.valid_from ?? b.date).localeCompare(a.valid_from ?? a.date) || a.id.localeCompare(b.id);
+  const recent = [...decisions].sort(byDateDesc).slice(0, recentLimit)
+    .map((d) => ({ id: d.id, topic: d.topic, title: d.title, status: d.status, date: (d.valid_from ?? d.date).slice(0, 10), note: clip1(d.decision) }));
+  // Roadmap = INTENT the human vouched for. Auto-synthesized drafts are also
+  // status "proposed", but they describe work already done and belong to the
+  // review queue (`hunch review`) — surfacing them here would bury real plans.
+  const live = decisions.filter((d) => d.status === "proposed" && !d.superseded_by && !d.valid_to);
+  const vouched = live.filter((d) => d.provenance.source.includes("human_confirmed"));
+  const roadmap = vouched
+    .sort(byDateDesc)
+    .map((d) => ({ id: d.id, topic: d.topic, title: d.title, status: d.status, date: (d.valid_from ?? d.date).slice(0, 10), note: clip1(d.context || d.decision) }));
+  return { recent, roadmap, pendingReview: live.length - vouched.length };
+}
+
+/** The hot file — a DERIVED view like every other page: what just happened
+ *  (last N decisions) and what's next (live proposed decisions). No topic pins
+ *  by design: ledger entries going stale is history, not drift — the freshness
+ *  hash alone re-renders the page when the graph moves. */
+export function renderNowPage(recent: readonly NowItem[], roadmap: readonly NowItem[], home: Pick<WikiHome, "kind">, pendingReview = 0): string {
+  const L: string[] = [];
+  L.push("<!-- hunch:wiki _now — GENERATED activity ledger + roadmap by `hunch wiki`; do not edit by hand. Roadmap items are PROPOSED decisions — record intent with /capture (status: proposed); shipping it (accept/supersede) removes it here automatically. -->");
+  L.push("# Now — recent activity & roadmap", "");
+  if (home.kind === "private") L.push("> ⚠ **PRIVATE** — includes overlay records; do not publish.", "");
+  L.push("## 🔥 Recent", "");
+  if (!recent.length) L.push("_No decisions recorded yet._", "");
+  for (const r of recent) L.push(`- ${r.date} · **${r.title}** — ${r.note || "(no decision text)"} _(${r.id}${r.topic ? `, topic \`${r.topic}\`` : ""}, ${r.status})_`);
+  if (recent.length) L.push("");
+  L.push("## 🗺 Roadmap — live proposed decisions", "");
+  if (!roadmap.length) L.push("_Empty. Record what's next as a PROPOSED decision (`/capture`, status: proposed) and it appears here._", "");
+  for (const r of roadmap) L.push(`- **${r.title}** — ${r.note || "(no context)"} _(${r.id}${r.topic ? `, topic \`${r.topic}\`` : ""}, since ${r.date})_`);
+  if (roadmap.length) L.push("");
+  if (pendingReview > 0) L.push(`_${pendingReview} auto-drafted proposed decision(s) awaiting review are not shown — triage with \`hunch review\`._`, "");
+  L.push("---", "", "_Derived from the decision graph — regen: `hunch wiki --heal`. Ship a roadmap item by accepting/superseding its decision; never edit this page._", "");
+  return L.join("\n");
+}
 
 /** A stale doc the wiki takes over: a healed, wiki-managed copy under <dir>/docs/. */
 export interface WikiAdoption {
@@ -462,6 +519,8 @@ export interface WikiStatus {
   specs: { page: string; hash: string; state: WikiEntry["state"] };
   /** The README index page's freshness (hashed over rows + repo-wide invariants). */
   index: { page: string; hash: string; state: WikiEntry["state"] };
+  /** The NOW page (activity ledger + roadmap) — hashed over its item snapshot. */
+  now: { page: string; hash: string; state: WikiEntry["state"]; recent: NowItem[]; roadmap: NowItem[]; pendingReview: number };
   /** Repo-wide (scope []) constraints — rendered on the index, hashed into it. */
   repoWide: Constraint[];
   /** Manifest pages no current artifact claims (deleted/renamed components, an
@@ -558,18 +617,24 @@ export function wikiStatus(store: HunchStore, home: WikiHome, srcRoot: string): 
   })));
   const index = { page: indexPage, hash: indexHash, state: pageState(home, indexPage, INDEX_ID, indexHash, manifest?.pages[indexPage]).state };
 
+  // The NOW page: recent activity + live proposed decisions (the roadmap).
+  const { recent, roadmap, pendingReview } = nowData(decisions);
+  const nowPage = `${home.dir}/now.md`;
+  const nowHash = sha16(JSON.stringify(canonical({ recent, roadmap, pendingReview })));
+  const now = { page: nowPage, hash: nowHash, state: pageState(home, nowPage, NOW_ID, nowHash, manifest?.pages[nowPage]).state, recent, roadmap, pendingReview };
+
   // Orphans by PAGE KEY, not component id: anything the manifest tracks that no
   // current artifact claims (deleted component, renamed component whose slug
   // moved, a retired adoption) gets removed on heal — nothing generated is ever
   // stranded on disk while the manifest forgets it.
-  const expected = new Set<string>([...entries.map((e) => e.page), ...adoptions.map((a) => a.page), specsPage, indexPage]);
+  const expected = new Set<string>([...entries.map((e) => e.page), ...adoptions.map((a) => a.page), specsPage, indexPage, nowPage]);
   const orphans: string[] = [];
   const adoptionOrphans: string[] = [];
   for (const [page, p] of Object.entries(manifest?.pages ?? {})) {
     if (expected.has(page)) continue;
     (p.component.startsWith(ADOPTED_PREFIX) ? adoptionOrphans : orphans).push(page);
   }
-  return { home, entries, docs, adoptions, adoptionOrphans, decisions, specs, index, repoWide, orphans };
+  return { home, entries, docs, adoptions, adoptionOrphans, decisions, specs, index, now, repoWide, orphans };
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +688,7 @@ export async function generateWiki(
   const targets = status.entries.filter((e) => opts.only === "all" || e.state !== "fresh");
   const specsTarget = opts.only === "all" || status.specs.state !== "fresh";
   const indexTarget = opts.only === "all" || status.index.state !== "fresh";
+  const nowTarget = opts.only === "all" || status.now.state !== "fresh";
   const log = opts.log ?? (() => {});
 
   const slugById = new Map(status.entries.map((e) => [e.pack.component.id, e.slug] as const));
@@ -663,6 +729,11 @@ export async function generateWiki(
     log(`  ✚ ${a.page}${a.state === "fresh" ? "" : ` (${a.state})`} [adopted from ${a.doc.rel}]`);
   }
 
+  if (nowTarget) {
+    put(status.now.page, renderNowPage(status.now.recent, status.now.roadmap, home, status.now.pendingReview));
+    log(`  ✎ ${status.now.page}${status.now.state === "fresh" ? "" : ` (${status.now.state})`} [${status.now.recent.length} recent, ${status.now.roadmap.length} roadmap]`);
+  }
+
   if (indexTarget) {
     put(status.index.page, renderIndex(status.entries.map((e) => ({ pack: e.pack, slug: e.slug })), status.repoWide, home, status.docs));
     log(`  ✎ ${status.index.page}${status.index.state === "fresh" ? "" : ` (${status.index.state})`}`);
@@ -694,6 +765,7 @@ export async function generateWiki(
     for (const a of status.adoptions) entry(a.page, `${ADOPTED_PREFIX}${a.doc.rel}`, a.hash, a.state);
     entry(status.specs.page, SPECS_ID, status.specs.hash, status.specs.state);
     entry(status.index.page, INDEX_ID, status.index.hash, status.index.state);
+    entry(status.now.page, NOW_ID, status.now.hash, status.now.state);
     writeWikiManifestAt(home.manifestPath, { version: 1, dir: home.dir, pages });
   }
 
@@ -738,6 +810,13 @@ export function computeWikiDrift(store: HunchStore, root: string): DriftFinding[
         kind: "wiki-stale",
         id: status.index.page,
         detail: `the index's inputs moved (component set/names, repo-wide invariants, or doc counts) — regenerate with \`${heal}\`${where}`,
+      });
+    }
+    if (status.now.state !== "fresh") {
+      findings.push({
+        kind: "wiki-stale",
+        id: status.now.page,
+        detail: `the activity ledger / roadmap moved (a decision was recorded, accepted, or superseded) — regenerate with \`${heal}\`${where}`,
       });
     }
     for (const a of status.adoptions) {
