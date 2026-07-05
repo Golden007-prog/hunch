@@ -44,7 +44,7 @@ guards, troubleshooting. This README is the tour. Jump to:
 [CLI reference](https://hunch-pi.vercel.app/docs#cli) ·
 [Troubleshooting](https://hunch-pi.vercel.app/docs#doctor)
 
-> 🆕 **v1.2.2** — the [component wiki + specs ledger](https://hunch-pi.vercel.app/docs#wiki): Hunch takes over your stale docs — graded deterministically, adopted into a graph-healed wiki copy, never rewriting your originals — with staleness drift-gated in CI. Plus honest auto-commit reporting, a friendly Node < 22.13 gate, and churn-free reindexing. [Full changelog →](https://hunch-pi.vercel.app/changelog)
+> 🆕 **v1.3.0** — retrieval that follows the graph: live decisions outrank superseded ones, human-vouched outrank drafts, and a query that hits history surfaces the topic's *current* decision (Recall@10 90→100% on the committed golden set). Plus `hunch now` + the roadmap-as-proposed-decisions, session-deduped hook grounding (~100× smaller on repeats), content-matched blocking gates, and duplicate auto-drafts skipped before the LLM is called. [Full changelog →](https://hunch-pi.vercel.app/changelog)
 
 ## The problem
 
