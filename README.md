@@ -7,30 +7,34 @@
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-2742ff)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-native-2742ff)](https://modelcontextprotocol.io)
 
-> **A linter checks whether code matches a *pattern*. Hunch checks whether code still matches your *architecture*** —
-> and blocks the AI change that breaks it, citing the decision and the past bug it would reopen.
-> The semantic invariants pattern-SAST can't express (layering, must-reach, dependency direction),
-> enforced deterministically over a **git-native** graph of *why* — across any MCP assistant.
+> **Your repo remembers *what* changed. Hunch makes it remember *why*** — the decisions, the
+> trade-offs, the bugs you already paid for — and keeps every AI coding session consistent with them.
+> When a change would quietly undo something you decided on purpose, Hunch notices and shows the
+> receipt: which decision, and which past bug it protects you from. A linter checks *patterns*;
+> Hunch understands your *architecture* (layering, must-reach, dependency direction) — deterministically,
+> from a **git-native** graph, across any MCP assistant.
 
 ```bash
 npm i -g @davesheffer/hunch
-cd your-repo && hunch init
+cd your-repo && hunch init    # 2 minutes; advisory by default — nothing blocks until you say so
 
-# record an architectural invariant — the kind Semgrep/SonarQube structurally can't express
+# teach it one architectural rule, in plain words — with the why
 hunch conform --add "controllers never reach the DB directly — go through the service layer" \
-  --assert not-calls --subject listOrders --object dbQuery --why "the Mar-2025 N+1 meltdown"
+  --assert not-calls --subject listOrders --object dbQuery --why "the Mar-2025 N+1 incident"
 
-hunch conform --strict     # ✅/⛔ deterministic gate — wire into CI; runs on every AI change
+hunch conform     # ✅ deterministic check — and when you're ready, --strict wires it into CI
 ```
 
-> An AI "optimizes" the controller to query the DB directly. **Semgrep: green. SonarQube: green.**
-> (it's a legitimate internal import — no bad pattern.) **Hunch: ⛔ BLOCKED** — *"listOrders now reaches
-> dbQuery — VIOLATED · why: the Mar-2025 N+1 meltdown · prevents recurrence of bug_0317."* See
+> Here's the moment it earns its keep: an AI "optimizes" your controller to query the DB directly.
+> Pattern tools stay **green** — it's a legitimate internal import, no bad pattern to match.
+> Hunch quietly flags it: *"listOrders now reaches dbQuery · why this matters: the Mar-2025 N+1
+> incident · protects against a repeat of bug_0317."* You decide what happens next — advisory
+> shows the note, **strict** (opt-in) holds the change. Watch the whole loop in 15 seconds:
 > [`demo/architectural-conformance.sh`](demo/architectural-conformance.sh).
 
-**It works both ways — prevent *and* catch — and you need both:**
-- **Prevent** — in a reproducible benchmark ([`bench/`](bench/architectural-conformance.md): n=90, Haiku/Sonnet/Opus, 3 invariant classes), the recorded invariant in context cut architectural violations **58% → 16%** overall (Sonnet **67% → 0%**). But prevention is *necessary, not sufficient*: **even Opus ignored a layering rule 60% of the time when told.** Each violation passes a linter clean.
-- **Catch** — which is exactly why the deterministic gate exists. `hunch check --strict` (the pre-commit hook + the [`hunch ci`](https://hunch-pi.vercel.app/docs#ci) PR gate) **blocks** what the model ignores — with the receipt, **no model in the gate**. Injection helps; the gate is the guarantee.
+**It helps twice — before the change, and after:**
+- **Before** — the recorded rule rides into the AI's context. In a reproducible benchmark ([`bench/`](bench/architectural-conformance.md): n=90, three models, 3 invariant classes), that alone cut architectural drift **58% → 16%** (one model: **67% → 0%**).
+- **After** — reminders help, but models still drift even when told (the same benchmark measured it). So a deterministic check — [`hunch check`](https://hunch-pi.vercel.app/docs#ci) on commit or in your PR gate — catches what reminders miss, always with the receipt, **no model in the loop**. Advisory first; you choose the [firmness](https://hunch-pi.vercel.app/docs#firmness).
 
 <sub>Works with **Claude Code, Cursor, Copilot, Windsurf & Google Antigravity** from one shared, git-native graph.</sub>
 
