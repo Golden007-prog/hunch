@@ -17,5 +17,15 @@
     "confidence": 1,
     "evidence": [],
     "last_verified": "2026-06-16T10:29:10.398Z"
+  },
+  "forbids": {
+    "deps": [
+      "@anthropic-ai/sdk"
+    ],
+    "symbols": [],
+    "patterns": [
+      "api\\.anthropic\\.com",
+      "new Anthropic\\("
+    ]
   }
 }
