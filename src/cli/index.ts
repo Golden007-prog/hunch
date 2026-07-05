@@ -51,6 +51,7 @@ import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatStructure } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
+import { injectionMode } from "../core/hookcache.js";
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { computeDrift } from "../core/drift.js";
@@ -1456,6 +1457,7 @@ program
     try {
       const evt = JSON.parse(await readStdin()) as {
         hook_event_name?: string;
+        session_id?: string;
         tool_input?: { file_path?: string; new_string?: string; content?: string; edits?: Array<{ new_string?: string }> };
         prompt?: string;
       };
@@ -1469,6 +1471,10 @@ program
         // nudge the agent to PERSIST it as an enforced constraint (Never Twice) —
         // not just obey it this once and forget it next session.
         const text = looksLikeCorrection(evt.prompt) ? `${HOOK_REMINDER}\n\n${CORRECTION_NUDGE}` : HOOK_REMINDER;
+        // Once per session is enough for the availability reminder — repeating it
+        // every prompt burns context for zero information. A correction nudge has
+        // different content, so it always comes through (dec_244397d920).
+        if (injectionMode(evt.session_id, "prompt-reminder", text) === "delta") return;
         emitContext("UserPromptSubmit", text);
         return;
       }
@@ -1542,6 +1548,16 @@ program
       const grounding = renderGrounding(ctx.decisions);
       if (grounding) text += `\n\n${grounding}`;
       if (docGround) text += `\n\n${docGround}`;
+      // Identical grounding already shown this session → one-line delta instead of
+      // the full 10-16KB block. Any record change re-sends the full text; the
+      // strict-gate deny path above never routes through this (dec_244397d920).
+      if (injectionMode(evt.session_id, `pre:${target}`, text) === "delta") {
+        emitContext(
+          "PreToolUse",
+          `Hunch grounding for ${target}: unchanged this session (${ctx.decisions.length} decision(s), ${ctx.constraints.length} invariant(s) shown earlier — still current; hunch_why("${target}") to re-expand).`,
+        );
+        return;
+      }
       emitContext("PreToolUse", text);
     } catch {
       // swallow — never block an edit on a hook failure
