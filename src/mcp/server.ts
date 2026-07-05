@@ -24,6 +24,7 @@ import type { Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
 import { renderMarkdown, renderImpact, verdict } from "../core/checkreport.js";
+import { nowData, wikiStatus, publicHome, readWikiManifestAt } from "../wiki/wiki.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import type { Decision, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
@@ -327,6 +328,58 @@ export function buildServer(root: string): McpServer {
         }
       }
       return ok(formatContext(ctx));
+    },
+  );
+
+  // -- hunch_now (the hot view: recent activity + roadmap) --------------------
+  // PUBLIC store only, per dec_29eff08c69's jurisdiction rule: an assistant may
+  // paste this anywhere, so it must be publishable by construction. Union view
+  // stays behind `hunch now --private` on the local terminal.
+  server.registerTool(
+    "hunch_now",
+    {
+      title: "Recent activity + the roadmap (the hot view)",
+      description:
+        "What just happened and what's next, straight from the graph: the last N decisions (any status — a supersession IS activity) and the ROADMAP (every live human-vouched PROPOSED decision). Call at session start to orient, or before planning what to work on. Same data as the wiki's now.md. Public store only.",
+      inputSchema: {
+        recent_limit: z.number().optional().describe("How many recent decisions to include (default 10)."),
+      },
+    },
+    async ({ recent_limit }): Promise<ToolResult> => {
+      const { recent, roadmap, pendingReview } = nowData(store.json.loadAll("decisions"), recent_limit ?? 10);
+      const L: string[] = [`🔥 Recent (${recent.length}):`];
+      for (const r of recent) L.push(`  ${r.date} [${r.status}] ${r.title} (${r.id}${r.topic ? `, ${r.topic}` : ""})`);
+      L.push("", `🗺 Roadmap — live proposed decisions (${roadmap.length}):`);
+      if (!roadmap.length) L.push("  (empty — record intent as a PROPOSED decision and it appears here)");
+      for (const r of roadmap) L.push(`  • ${r.title} (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
+      if (pendingReview > 0) L.push("", `${pendingReview} auto-drafted proposal(s) awaiting review — \`hunch review\`.`);
+      return ok(L.join("\n"));
+    },
+  );
+
+  // -- hunch_wiki_status (generated-wiki freshness) ---------------------------
+  server.registerTool(
+    "hunch_wiki_status",
+    {
+      title: "Freshness of the generated wiki (public home)",
+      description:
+        "Which generated wiki pages are fresh vs stale (graph moved, source doc changed, hand-edited), plus the specs ledger's doc grades. Call before trusting wiki pages or when deciding whether `hunch wiki --heal` is needed. Public home only — the private overlay wiki is a local concern.",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      const home = publicHome(root);
+      if (!readWikiManifestAt(home.manifestPath)) return ok("No wiki adopted in this repo (no wiki manifest). Generate one with `hunch wiki`.");
+      const s = wikiStatus(store, home, root);
+      const stale = [...s.entries.filter((e) => e.state !== "fresh").map((e) => `${e.page} — ${e.reason || e.state}`),
+        ...(s.specs.state !== "fresh" ? [`${s.specs.page} — doc grade snapshot moved`] : []),
+        ...(s.now.state !== "fresh" ? [`${s.now.page} — activity/roadmap moved`] : []),
+        ...(s.index.state !== "fresh" ? [`${s.index.page} — index inputs moved`] : []),
+        ...s.adoptions.filter((a) => a.state !== "fresh").map((a) => `${a.page} — adopted copy of ${a.doc.rel} (${a.state})`)];
+      const grades = { grounded: s.docs.filter((d) => d.status === "grounded").length, stale: s.docs.filter((d) => d.status === "stale").length, unverified: s.docs.filter((d) => d.status === "unverified").length };
+      const head = `Wiki "${home.dir}/": ${s.entries.length} component page(s), ${s.adoptions.length} adopted doc(s). Docs graded: ${grades.grounded} grounded / ${grades.stale} stale / ${grades.unverified} unverified.`;
+      if (!stale.length && !s.orphans.length && !s.adoptionOrphans.length) return ok(`${head}\n✓ Everything fresh.`);
+      const orphans = [...s.orphans, ...s.adoptionOrphans].map((p) => `${p} — orphaned (heal removes it)`);
+      return ok(`${head}\n${[...stale, ...orphans].map((l) => `· ${l}`).join("\n")}\nHeal: \`hunch wiki --heal\`.`);
     },
   );
 

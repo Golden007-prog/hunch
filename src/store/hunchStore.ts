@@ -20,6 +20,7 @@ import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
 import { gitCommonDir } from "../extractors/git.js";
 import { pathMatchesGlob } from "../core/glob.js";
+import { currentForTopic } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
@@ -424,6 +425,89 @@ export class HunchStore {
     return { embedded, skipped: docs.length - todo.length, total: docs.length };
   }
 
+  /** Post-fusion rerank by graph PRIORS (dec_25e277f479): relevance ordering, not
+   *  just reachability. Rank-based blend — blended(i) = 1/(60+i) × liveness ×
+   *  provenance × recency — so bm25's negative scale never leaks in. Priors are
+   *  BOUNDED (a superseded or ancient record dims, never disappears): liveness 0.6
+   *  for superseded/retired/rejected, provenance 1.0 / 0.85 / 0.75 for
+   *  human_confirmed / llm_draft / extracted-inferred, recency 0.7 + 0.3·½^(age/90d).
+   *  Runbook trigger phrases matching the query boost ×1.5 (exact intent beats
+   *  keyword luck). Structural refs (symbols/components/edges) stay neutral.
+   *  Deterministic; ties keep fused order (stable sort). */
+  private rerankByPriors(hits: SearchHit[], limit: number, query?: string): SearchHit[] {
+    if (!hits.length) return hits; // a SINGLE hit still runs — topic-chain promotion must fire for the lone stale match
+    const now = Date.now();
+    const q = query?.toLowerCase();
+    // Topic-chain promotion: for every superseded decision in the pool whose topic
+    // has a live successor NOT already in the pool, inject the successor at the
+    // predecessor's rank — the reader asked about the topic, and the graph's one
+    // live answer must be reachable even when only history matches lexically.
+    const present = new Set(hits.map((h) => h.ref));
+    // Each candidate carries its BASE rank position; an injected successor
+    // inherits its predecessor's position (× a hair under, so an exact-match
+    // live record already in the pool is never displaced by an injection).
+    const pool = hits.map((h, i) => ({ h, base: 1 / (60 + i) }));
+    for (const [i, h] of hits.entries()) {
+      if (h.kind !== "decisions") continue;
+      const d = this.recs("decisions").find((x) => x.id === h.ref);
+      if (!d?.topic || !(d.status === "superseded" || d.superseded_by)) continue;
+      const cur = currentForTopic(this.recs("decisions"), d.topic);
+      if (!cur || cur.id === h.ref || present.has(cur.id)) continue;
+      present.add(cur.id);
+      pool.push({
+        h: { ref: cur.id, kind: "decisions", title: cur.title, snippet: `current for topic "${d.topic}" (supersedes ${h.ref})`, score: h.score },
+        base: (1 / (60 + i)) * 0.98,
+      });
+    }
+    const scored = pool.map(({ h, base }) => {
+      const m = this.priorMeta(h.ref, h.kind);
+      let w = 1;
+      if (m) {
+        if (m.dead) w *= 0.6;
+        w *= m.provenance.includes("human_confirmed") ? 1 : m.provenance.includes("llm_draft") ? 0.85 : 0.75;
+        if (m.at) {
+          const ageDays = Math.max(0, now - Date.parse(m.at)) / 86400000;
+          if (Number.isFinite(ageDays)) w *= 0.7 + 0.3 * Math.pow(0.5, ageDays / 90);
+        }
+        if (q && m.triggers?.some((tr) => q.includes(tr) || tr.includes(q))) w *= 1.5;
+      }
+      return { h, s: base * w };
+    });
+    scored.sort((a, b) => b.s - a.s);
+    return scored.slice(0, limit).map((x) => x.h);
+  }
+
+  /** The prior-bearing metadata for a hit: liveness, provenance, effective date,
+   *  and (runbooks) trigger phrases. null = structural ref, neutral prior. */
+  private priorMeta(ref: string, kind: string): { dead: boolean; provenance: string; at?: string; triggers?: string[] } | null {
+    if (kind === "decisions") {
+      const d = this.recs("decisions").find((x) => x.id === ref);
+      if (!d) return null;
+      return {
+        dead: d.status === "superseded" || d.status === "rejected" || !!d.superseded_by || !!d.valid_to,
+        provenance: d.provenance.source,
+        at: d.valid_from ?? d.date,
+      };
+    }
+    if (kind === "runbooks") {
+      const r = this.recs("runbooks").find((x) => x.id === ref);
+      if (!r) return null;
+      return { dead: !!r.valid_to, provenance: r.provenance.source, at: r.valid_from ?? r.date, triggers: r.trigger.map((x) => x.toLowerCase()) };
+    }
+    if (kind === "constraints") {
+      const c = this.recs("constraints").find((x) => x.id === ref);
+      if (!c) return null;
+      return { dead: c.status === "retired" || !!c.valid_to, provenance: c.provenance.source, at: c.valid_from };
+    }
+    if (kind === "bugs") {
+      const b = this.recs("bugs").find((x) => x.id === ref);
+      if (!b) return null;
+      // A fixed bug is not "dead" — lineage is the point of keeping it findable.
+      return { dead: false, provenance: b.provenance.source };
+    }
+    return null;
+  }
+
   /** Hybrid search (hunch_query / `hunch query --semantic`): FTS bm25 fused with
    *  cosine over stored embeddings via Reciprocal Rank Fusion. Degrades to pure
    *  sync FTS (zero added latency) when there's no embedder or no vectors yet, so
@@ -452,8 +536,9 @@ export class HunchStore {
     // install. With neither semantic nor graph signal, return pure FTS so the
     // zero-fusion-overhead fast path is preserved.
     const graph = this.graphExpand([...fts, ...sem], 50, gw);
-    if (!sem.length && !graph.length) return fts.slice(0, limit);
-    return this.rrfFuse(fts, sem, graph, limit, gw);
+    if (!sem.length && !graph.length) return this.rerankByPriors(fts, limit, query);
+    // Fuse with headroom so the prior rerank can promote from below the cut line.
+    return this.rerankByPriors(this.rrfFuse(fts, sem, graph, Math.max(limit, 24), gw), limit, query);
   }
 
   /** Runbook-scoped retrieval (roadmap #5): the same FTS+graph(+semantic) fusion,
@@ -480,8 +565,8 @@ export class HunchStore {
         if (qvec) sem = this.cosineRank(qvec, embedder.id, Math.max(limit, 20), kind);
       } catch { sem = []; }
     }
-    if (!sem.length) return fts.slice(0, limit);
-    return this.rrfFuse(fts, sem, [], limit);
+    if (!sem.length) return this.rerankByPriors(fts, limit, query);
+    return this.rerankByPriors(this.rrfFuse(fts, sem, [], Math.max(limit, 20)), limit, query);
   }
 
   /** FTS bm25 over a single kind (the `kind` column is UNINDEXED, so a plain `=`
