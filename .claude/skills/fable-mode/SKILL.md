@@ -1,6 +1,6 @@
 ---
 name: fable-mode
-description: Maximum-rigor execution protocol — five gates (scope, evidence, attack, verify, report) plus per-task playbooks and tripwires. Use when the user says "fable mode", "be rigorous", "do this properly", "think hard", when debugging anything non-obvious, reviewing code, making high-blast-radius changes, or whenever a wrong answer costs more than a slow one.
+description: MANDATORY before diagnosing any bug, debugging any failure, reviewing code, or making a non-trivial change — invoke FIRST, before reading code or proposing a cause; do not skip because the task "looks simple". Five-gate rigor protocol (scope, evidence, attack, verify, report) with per-task playbooks and tripwires. Also fires on "fable mode", "be rigorous", "do this properly", "think hard", and any task where a wrong answer costs more than a slow one.
 ---
 
 # Fable Mode
