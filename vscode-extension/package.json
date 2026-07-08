@@ -56,6 +56,7 @@
       { "command": "hunch.context", "title": "Assemble context for this file", "category": "Hunch", "icon": "$(list-tree)" },
       { "command": "hunch.search", "title": "Search memory", "category": "Hunch", "icon": "$(search)" },
       { "command": "hunch.graph", "title": "Component Graph", "category": "Hunch", "icon": "$(type-hierarchy)" },
+      { "command": "hunch.review", "title": "Review Queue (triage drafts)", "category": "Hunch", "icon": "$(inbox)" },
       { "command": "hunch.recordConstraint", "title": "Record Invariant…", "category": "Hunch" },
       { "command": "hunch.recordBug", "title": "Record Bug…", "category": "Hunch" },
       { "command": "hunch.revealScope", "title": "Reveal Invariant Scope", "category": "Hunch" },
@@ -67,9 +68,10 @@
         { "command": "hunch.whySymbol", "when": "editorIsOpen" }
       ],
       "view/title": [
-        { "command": "hunch.search", "when": "view == hunch.tree", "group": "navigation@1" },
-        { "command": "hunch.graph", "when": "view == hunch.tree", "group": "navigation@2" },
-        { "command": "hunch.refresh", "when": "view == hunch.tree", "group": "navigation@3" }
+        { "command": "hunch.review", "when": "view == hunch.tree", "group": "navigation@1" },
+        { "command": "hunch.search", "when": "view == hunch.tree", "group": "navigation@2" },
+        { "command": "hunch.graph", "when": "view == hunch.tree", "group": "navigation@3" },
+        { "command": "hunch.refresh", "when": "view == hunch.tree", "group": "navigation@4" }
       ],
       "editor/title": [
         { "command": "hunch.why", "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact|python|go|rust/", "group": "navigation" }

@@ -24,6 +24,7 @@ import { HunchCodeLensProvider, HunchHoverProvider } from "./providers.js";
 import { HunchDiagnostics } from "./diagnostics.js";
 import { HunchDecorations } from "./decorations.js";
 import { showGraph, refreshGraph } from "./graph.js";
+import { showReview, refreshReview } from "./review.js";
 import { runSearch } from "./search.js";
 
 function workspaceRoot(): string | undefined {
@@ -301,6 +302,28 @@ function cliCommand(): string {
   return vscode.workspace.getConfiguration("hunch").get("cliPath", "hunch");
 }
 
+/** Run `hunch <args>` at the repo root under a progress toast. Resolves once the
+ *  CLI exits; surfaces stderr on failure. The single choke-point for every
+ *  extension write — the extension itself never touches .hunch/ JSON. */
+function runHunch(root: string, args: string[], title: string, onDone: () => void): Thenable<void> {
+  const q = (s: string) => (/^[\w.\-/=]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`);
+  const cmd = `${cliCommand()} ${args.map(q).join(" ")}`;
+  return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, () =>
+    new Promise<void>((resolve) => {
+      cp.exec(cmd, { cwd: root }, (err, stdout, stderr) => {
+        if (err) {
+          vscode.window.showErrorMessage(`Hunch CLI failed (${cliCommand()}). ${stderr || err.message}. Set "hunch.cliPath" if the CLI is elsewhere.`);
+        } else {
+          const last = stdout.trim().split("\n").filter(Boolean).pop();
+          if (last) vscode.window.showInformationMessage(last);
+          onDone();
+        }
+        resolve();
+      });
+    }),
+  );
+}
+
 async function recordConstraint(root: string, cache: HunchCache, onDone: () => void): Promise<void> {
   const activeFile = vscode.window.activeTextEditor ? relPath(vscode.window.activeTextEditor.document.uri.fsPath) : "";
   const statement = await vscode.window.showInputBox({ title: "Record invariant", prompt: "The invariant the codebase must not break", placeHolder: "vectors are derived, never the source of truth" });
@@ -412,7 +435,7 @@ export function activate(context: vscode.ExtensionContext): void {
     codeLens.refresh();
     refreshActive();
     const h = cache.get();
-    if (h) refreshGraph(h);
+    if (h) { refreshGraph(h); refreshReview(h); }
   };
 
   const activeFile = (): string | undefined => vscode.window.activeTextEditor?.document.uri.fsPath;
@@ -459,6 +482,13 @@ export function activate(context: vscode.ExtensionContext): void {
       const h = cache.get();
       if (!h || !root) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found.");
       showGraph(h, root);
+    }),
+    vscode.commands.registerCommand("hunch.review", () => {
+      const h = cache.get();
+      if (!h || !root) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found.");
+      // Every accept/reject delegates to `hunch review …`; refreshAll re-reads the
+      // graph and re-renders the panel from the new .hunch/ state.
+      showReview(h, root, (args) => runHunch(root, ["review", ...args], "Hunch: applying review…", refreshAll));
     }),
     vscode.commands.registerCommand("hunch.revealScope", (scopes: string[]) => {
       if (root) void revealScope(root, scopes ?? []);
