@@ -3,6 +3,62 @@
    global so it works on a static host with no build step. */
 window.POSTS = [
   {
+    slug: "skills-are-never-read",
+    title: "We installed an agent skill in 20 sessions. It was read zero times.",
+    dek: "A benchmark on real zod bugs found our carefully-written rigor skill had no effect — because no model ever opened it. Forcing delivery flipped hard bugs from FAIL to PASS. So we moved delivery into hooks the model can't ignore, and the gate promptly blocked its own author.",
+    date: "2026-07-08", tag: "Benchmark", read: "9 min", pinned: false,
+    body: `
+<p class="lead">We wrote a five-gate rigor protocol as an agent skill — evidence before edits, verify before claiming, attack your own conclusion. Then we benchmarked it on real bugs from zod's history and got the most boring result possible: <strong>zero effect</strong>. Pass rates identical with and without the skill, 21 of 21 pairs. The interesting part is why.</p>
+
+<h2>The setup</h2>
+<p>Eight real bugs mined from zod's git history, each checked out at the commit the bug lived at. The agent gets the issue text only — no failing test handed over (the maintainers' regression tests are applied at <em>scoring</em> time; the agent never sees them). One headless session per cell, across Haiku, Sonnet, Opus and Fable, with and without the skill installed. PASS means the agent's fix makes the maintainers' own held-out tests pass, without touching test files.</p>
+
+<h2>The null result, explained by transcripts</h2>
+<p>The skill arm matched the bare arm exactly on every completed pair. Before concluding "skills don't help," we grepped the session transcripts for actual <code>Skill</code> invocations:</p>
+<p><strong>0 of 20 sessions ever read the skill.</strong> Not "read it and ignored it" — never opened it. The description was polite prose ("guidance for rigorous execution…"), and models under-trigger skills exactly the way Anthropic's own authoring docs warn. We hadn't benchmarked the skill's content. We'd benchmarked a closed book on a shelf.</p>
+
+<h2>Forcing delivery: the content works</h2>
+<p>Same skill, one new line in the prompt: <em>"First invoke the fable-mode skill and follow it strictly."</em> Then we re-ran only the cells where the bare model <strong>failed</strong>:</p>
+<table>
+<thead><tr><th>cell (task zod-5937)</th><th>skill read?</th><th>result</th></tr></thead>
+<tbody>
+<tr><td>Opus, bare</td><td>—</td><td>FAIL</td></tr>
+<tr><td>Opus, skill installed</td><td>no</td><td>FAIL</td></tr>
+<tr><td>Opus, skill forced</td><td><strong>yes</strong></td><td><strong>PASS</strong></td></tr>
+<tr><td>Haiku, bare</td><td>—</td><td>FAIL</td></tr>
+<tr><td>Haiku, skill forced</td><td><strong>yes</strong></td><td><strong>PASS</strong></td></tr>
+</tbody>
+</table>
+<p>Every pass in the experiment has a transcript-verified skill read; every fail has none. Haiku with the skill solved a bug that bare Opus couldn't — the content is worth roughly a model tier on hard diagnosis. <strong>Delivery, not content, was the whole problem.</strong></p>
+
+<h2>Two fixes, one lesson</h2>
+<p>Fix one: rewrite the skill's description from polite to pushy — "MANDATORY before diagnosing any bug — invoke FIRST, do not skip because the task looks simple." That alone got Opus to read it organically and pass. <strong>Haiku still ignored it.</strong> Weaker models don't take hints; they need delivery they can't decline.</p>
+<p>Fix two is the product conclusion: move delivery into hooks. The operating loop is injected at session start, a <code>PostToolUse</code> hook records observable facts — which product files were edited, whether a verify-shaped command ran afterwards — and a <code>Stop</code> hook refuses to end the turn while edits stay unverified. Facts, not claims: the gate never asks the model whether it verified; it checks whether a verifying command actually ran. Max two blocks per turn, so a broken gate degrades to advisory instead of trapping anyone. Shipped in Hunch v1.4.</p>
+
+<h2>The gate blocked its own author, twice</h2>
+<p>Within hours of wiring it up, the stop-gate blocked the very session that built it — correctly the first time (site edits with no check run), and <em>incorrectly</em> the second: it didn't recognize a bespoke <code>node -e</code> assertion as verification and nagged verified work. That false-negative class is how gates die — users disable what annoys them. v1.4.1 widens credit: generic runners count, and any command that names an edited file counts as checking the thing that changed.</p>
+
+<h2>The task nobody could pass — until one session looked up</h2>
+<p>One task failed for every model, every arm — eleven attempts. Root-cause diagnosis was correct <em>every time</em>; the fixes just chose different semantics than the maintainers did (throw on both operands vs. throw on the receiver and preserve the incoming schema's refinements). We'd written it off as spec-guessing.</p>
+<p>Then the strongest model, running with the pipeline, passed it on attempt twelve — by doing what the loop's evidence gate demands and nobody else did: it went looking, found the upstream issue and the merged PR, and replicated the maintainers' exact fix. The information was public all along. Eleven sessions stopped at the local code and guessed; one treated "has upstream already resolved this?" as evidence-gathering. (Fair caveat: in a historical benchmark the answer key is public by construction — a <code>--no-web</code> arm would measure pure diagnosis. In real work, checking the upstream tracker is precisely what you want your agent to do.)</p>
+<p>Also honest: the pipeline did <em>not</em> lift Opus past that task. Rigor scaffolding compounds with model capability; it doesn't substitute for it.</p>
+
+<h2>What we'd tell anyone shipping agent skills</h2>
+<ul>
+<li><strong>Check delivery before content.</strong> Grep transcripts for actual invocations. "Installed" and "read" are different universes.</li>
+<li><strong>Write pushy descriptions.</strong> Trigger conditions, imperatives, "do not skip." Works on Opus-class; measured insufficient for Haiku-class.</li>
+<li><strong>For guarantees, use hooks.</strong> Skills fire on model judgment; hooks fire on events. Anything that must happen belongs in a hook.</li>
+<li><strong>Gate on observable facts.</strong> Commands that ran, files that changed, exit codes. Never on the model's own account of its diligence.</li>
+<li><strong>Budget the gate's false negatives.</strong> An enforcement mechanism that nags verified work gets disabled — credit every legitimate form of checking.</li>
+</ul>
+
+<h2>Try it</h2>
+<pre><code>npm i -g @davesheffer/hunch
+cd your-repo && hunch init   # advisory by default — nothing blocks until you say so</code></pre>
+<p>The bench harnesses are in the repo (<code>bench/</code>) — mine your own task set, and check your transcripts before trusting any arm labeled "with skill."</p>
+`,
+  },
+  {
     slug: "agent-audits-its-own-memory",
     title: "We let the AI audit its own memory tool. It was using 4 of 19 tools.",
     dek: "Two weeks of an agent doing real feature work inside Hunch, then an honest self-audit: where did it fall back to grep, and why? The findings shipped as v1.3.0 — Recall@10 90→100% on a committed golden set, grounding cost cut ~100× on repeats.",
