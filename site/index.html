@@ -299,10 +299,6 @@
     <span>plain files in your repo</span><span>advisory by default</span><span>no SaaS, $0</span><span>works offline</span><span>Apache-2.0</span>
   </div>
 
-  <div class="term rise d4" aria-label="Terminal demo: hunch answers why">
-    <div class="term-bar"><i></i><i></i><i></i>&nbsp; your-repo — hunch</div>
-    <pre id="demo" aria-live="off"></pre>
-  </div>
 </header>
 
 <!-- ─────────────────────────── problem ─────────────────────────── -->
@@ -853,39 +849,6 @@
 </script>
 
 <script>
-  // hero terminal: one calm, slow typing pass. reduced-motion → instant.
-  const LINES = [
-    ['c-cmd', '$ hunch why src/auth/session.ts'],
-    ['', ''],
-    ['c-id',  'dec_017 · Store sessions in Redis, not JWT-only'],
-    ['c-key', '  why       revocation must work server-side'],
-    ['c-key', '  rejected  stateless JWT — bug_009: token usable after reset'],
-    ['c-warn','  guard     con_004 · blocking · src/auth/**'],
-    ['c-key', '  evidence  commit a1b2c3d · auth.revocation.spec.ts'],
-  ];
-  const pre = document.getElementById('demo');
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-  function render(upTo, chars) {
-    let html = '';
-    LINES.slice(0, upTo).forEach(([cls, text]) => { html += cls ? `<span class="${cls}">${esc(text)}</span>\n` : '\n'; });
-    if (chars != null && upTo < LINES.length) {
-      const [cls, text] = LINES[upTo];
-      html += `<span class="${cls}">${esc(text.slice(0, chars))}</span><span class="caret"></span>`;
-    }
-    pre.innerHTML = html;
-  }
-  if (reduced) { render(LINES.length, null); }
-  else {
-    let line = 0, ch = 0;
-    (function tick() {
-      if (line >= LINES.length) { render(LINES.length, null); return; }
-      const text = LINES[line][1];
-      if (ch <= text.length) { render(line, ch); ch += 1; setTimeout(tick, line === 0 ? 34 : 10); }
-      else { line += 1; ch = 0; setTimeout(tick, line === 1 ? 420 : 90); }
-    })();
-  }
-
   // decision chips: click toggles (touch); hover handled by CSS. Keep the pop
   // inside the viewport — a chip near the right edge would push it off-screen.
   function clampPop(note) {
