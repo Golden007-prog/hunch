@@ -35,6 +35,7 @@ import {
   selectProvider,
   SYNTH_PREFERENCES,
   writeSynthesisPreference,
+  normalizeProviderName,
   type SynthPreference,
 } from "../synthesis/provider.js";
 import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges } from "../extractors/git.js";
@@ -2586,7 +2587,7 @@ program
   .action(async (value: string | undefined) => {
     const root = findRoot();
     if (value != null) {
-      const preference = value.trim();
+      const preference = normalizeProviderName(value.trim()) ?? value.trim();
       if (!(SYNTH_PREFERENCES as readonly string[]).includes(preference)) {
         return fail(`provider must be one of: ${SYNTH_PREFERENCES.join(", ")}`);
       }
@@ -2599,7 +2600,7 @@ program
     }
 
     const resolution = await resolveSynthesisProvider({ root });
-    const envValue = process.env.HUNCH_SYNTH_PROVIDER?.trim();
+    const envValue = normalizeProviderName(process.env.HUNCH_SYNTH_PROVIDER?.trim());
     const local = readSynthesisPreference(root);
     const hasValidEnv = !!envValue && (SYNTH_PREFERENCES as readonly string[]).includes(envValue);
     console.log(`selected:    ${resolution.provider.name} (${resolution.source})`);
