@@ -15,7 +15,7 @@ export interface Provenance {
 export interface Component { id: string; name: string; responsibility?: string; paths?: string[]; fragility?: number; provenance?: Provenance; }
 export interface Edge { id: string; from: string; to: string; type: string; }
 export interface Sym { id: string; file: string; name: string; kind: string; metrics?: { churn_90d?: number; bug_count?: number; fan_in?: number }; }
-export interface Decision { id: string; title: string; status?: string; decision?: string; related_files?: string[]; related_components?: string[]; provenance?: Provenance; }
+export interface Decision { id: string; title: string; status?: string; decision?: string; topic?: string | null; alternatives_rejected?: string[]; related_files?: string[]; related_components?: string[]; provenance?: Provenance; }
 export interface BugLineage { introduced_commit?: string | null; detected?: string | null; fixed_commit?: string | null; recurrence_of?: string | null; spawned_decision?: string | null; spawned_constraint?: string | null; }
 export interface Bug { id: string; title: string; symptom?: string; root_cause?: string; severity?: string; status?: string; affected_files?: string[]; affected_symbols?: string[]; lineage?: BugLineage; provenance?: Provenance; }
 export interface Constraint { id: string; statement: string; scope?: string[]; severity?: string; rationale?: string; provenance?: Provenance; }
@@ -275,6 +275,72 @@ export function staleRecords(hunch: Hunch, lastChange: (f: string) => number): S
   for (const d of hunch.decisions) if (isStale(d, lastChange)) out.push({ kind: "decision", id: d.id, label: `[${d.status ?? "?"}] ${d.title}`, file: (d.related_files ?? [])[0] });
   for (const b of hunch.bugs) if (isStale({ provenance: b.provenance, related_files: b.affected_files }, lastChange)) out.push({ kind: "bug", id: b.id, label: b.title, file: (b.affected_files ?? [])[0] });
   return out;
+}
+
+// ---- review queue (draft triage) -------------------------------------------
+// Mirrors src/core/reviewqueue.ts so the extension segments drafts exactly like
+// `hunch review` does — no divergence between the CLI and the GUI. Pure over the
+// committed JSON; the extension never writes .hunch/ itself (it delegates the
+// accept/reject to the CLI, per the "pure reader" invariant).
+
+/** Parsed view of the `synth:` telemetry line syncCommit parks in evidence. */
+export interface SynthInfo { provider?: string; grounded?: number; samples?: number; agreement?: number; pruned?: number; verify?: string; raw?: string; }
+
+export function parseSynth(evidence: string[] | undefined): SynthInfo {
+  const line = (evidence ?? []).find((e) => e.startsWith("synth:"));
+  if (!line) return {};
+  const body = line.slice("synth:".length).trim();
+  const num = (k: string): number | undefined => { const m = new RegExp(`\\b${k}=(-?[0-9]*\\.?[0-9]+)`).exec(body); return m ? Number(m[1]) : undefined; };
+  const str = (k: string): string | undefined => { const m = new RegExp(`\\b${k}=([A-Za-z0-9_.\\-]+)`).exec(body); return m ? m[1] : undefined; };
+  return { raw: body, provider: str("provider"), grounded: num("grounded"), samples: num("samples"), agreement: num("agreement"), pruned: num("pruned"), verify: str("verify") };
+}
+
+/** Grounded-ness at/above which a Critic-verified draft is a "quick yes". */
+export const READY_MIN_GROUNDED = 0.7;
+
+export interface ReviewItem {
+  d: Decision;
+  synth: SynthInfo;
+  verified: boolean;
+  /** already human-vouched (roadmap intent / confirmed) rather than an unvetted auto-draft. */
+  vouched: boolean;
+  confidence: number;
+}
+export interface ReviewQueue { ready: ReviewItem[]; scrutiny: ReviewItem[]; }
+
+function srcIncludes(d: Decision, needle: string): boolean {
+  return (d.provenance?.source ?? "").includes(needle);
+}
+
+/** A draft is "ready to confirm" only when the Critic actually audited it AND
+ *  judged it well-grounded — a high confidence number alone is not enough. */
+export function isReady(d: Decision, synth: SynthInfo, minGrounded: number = READY_MIN_GROUNDED): boolean {
+  return srcIncludes(d, "verified") && (synth.grounded ?? 0) >= minGrounded;
+}
+
+/** The same set `hunch review` / `hunch status` triage: proposed OR low-confidence. */
+export function reviewDrafts(hunch: Hunch): Decision[] {
+  return hunch.decisions.filter((d) => d.status === "proposed" || (d.provenance?.confidence ?? 1) < 0.6);
+}
+
+/** Split drafts into ready-to-confirm (best-grounded first) and needs-scrutiny
+ *  (lowest-confidence first) — the GUI analog of partitionReview. */
+export function reviewQueue(hunch: Hunch, minGrounded: number = READY_MIN_GROUNDED): ReviewQueue {
+  const items: ReviewItem[] = reviewDrafts(hunch).map((d) => ({
+    d,
+    synth: parseSynth(d.provenance?.evidence),
+    verified: srcIncludes(d, "verified"),
+    vouched: srcIncludes(d, "human_confirmed") || (d.provenance?.source === "derived"),
+    confidence: d.provenance?.confidence ?? 0,
+  }));
+  const ready = items.filter((it) => isReady(it.d, it.synth, minGrounded)).sort((a, b) => (b.synth.grounded ?? 0) - (a.synth.grounded ?? 0));
+  const scrutiny = items.filter((it) => !isReady(it.d, it.synth, minGrounded)).sort((a, b) => a.confidence - b.confidence);
+  return { ready, scrutiny };
+}
+
+/** Absolute path to a decision's JSON file (for opening the draft to edit). */
+export function decisionFilePath(root: string, id: string): string {
+  return path.join(root, ".hunch", "decisions", `${id}.json`);
 }
 
 // ---- bug lineage chains ----------------------------------------------------
