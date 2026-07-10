@@ -442,6 +442,16 @@ export function safeTimeout(v: string | undefined, fallback: number): number {
   return v && Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// max_tokens caps OUTPUT length (never a shell argv token, unlike safeModel's
+// model id) — same failure modes as a timeout, so validate the same way: fall
+// back to a safe default rather than propagate garbage into the request body
+// (issue #11; orthogonal to the context-window/truncation problem that issue
+// is mainly about — this only bounds how much the model is allowed to WRITE).
+export function safeMaxTokens(v: string | undefined, fallback: number): number {
+  const n = Number(v);
+  return v && Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 // --------------------------------------------------------------------------
 // Provider A: headless `claude -p` CLI — billed to the user's Claude subscription
 // --------------------------------------------------------------------------
@@ -602,6 +612,7 @@ export class OpenAICompatProvider extends PromptSynthProvider {
           messages: [{ role: "user", content: prompt }],
           response_format: { type: "json_object" },
           stream: false,
+          max_tokens: safeMaxTokens(process.env.HUNCH_SYNTH_MAX_TOKENS, 2048),
         }),
         signal: controller.signal,
       });
@@ -615,6 +626,34 @@ export class OpenAICompatProvider extends PromptSynthProvider {
     } finally {
       clearTimeout(timer);
     }
+  }
+}
+
+/** Best-effort: does the configured openai-compat endpoint look like Ollama with
+ *  an UNSET num_ctx (silently defaulting to 4096 tokens, per issue #11)? Returns
+ *  an advisory warning string when so, or null when the endpoint isn't reachable,
+ *  doesn't look like Ollama's /api/show shape, or already has num_ctx set — this
+ *  is diagnostics only, never thrown, never blocking. Deliberately does NOT try to
+ *  report the model's actual default context length (Ollama's model_info keys are
+ *  architecture-specific and not a stable parse target) — only whether the user
+ *  has explicitly configured num_ctx via a Modelfile, which is the one stable,
+ *  actionable signal (and the exact fix the issue's own author applied). */
+export async function probeOllamaNumCtx(baseUrl: string, model: string): Promise<string | null> {
+  try {
+    const root = baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+    const res = await fetch(`${root}/api/show`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: model }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { parameters?: unknown };
+    if (typeof body.parameters !== "string") return null;
+    if (/^num_ctx\s+\d+/m.test(body.parameters)) return null; // already configured — nothing to warn about
+    return "⚠ Ollama's default context is 4096 tokens — long commit diffs get silently truncated. See https://hunch-pi.vercel.app/cookbook for how to raise it (num_ctx via a custom Modelfile).";
+  } catch {
+    return null; // not Ollama, unreachable, or an unexpected response shape — advisory only, never throw
   }
 }
 
