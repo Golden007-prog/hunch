@@ -36,6 +36,7 @@ dist/
 !.hunch/decisions/
 !.hunch/constraints/
 !.hunch/components/
+!.hunch/evidence/
 !.hunch/policies/
 !.hunch/proofs/
 !.hunch/runbooks/

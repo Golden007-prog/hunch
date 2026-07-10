@@ -13,6 +13,7 @@ import { canonicalJson, policySemanticHash } from "../src/constitution/canonical
 import { approvePolicy } from "../src/constitution/lifecycle.js";
 import { movePolicyArtifactsToPrivate } from "../src/constitution/repository.js";
 import { evaluatePolicyOnSnapshot, graphSnapshot, mutateSnapshotForPolicy } from "../src/constitution/evaluator.js";
+import { clampCandidateLimit } from "../src/constitution/bootstrap.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -88,6 +89,7 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.equal(proved.proof.current.satisfied, 1);
     assert.equal(proved.proof.mutations.violated, 1);
     assert.equal(proved.policy.state, "proposed");
+    assert.equal(service.compile("dec_layer", { through: "fetchOrders", now: NOW }).state, "proposed", "recompile preserves incumbent lifecycle state");
 
     assert.throws(
       () => service.approve(compiled.id, "blocking", "machine:agent", { now: "2026-07-10T10:02:00.000Z" }),
@@ -259,7 +261,7 @@ test("private migration moves policy/proof artifacts only after validation", () 
       fixture.cleanup();
     }
     const moved = movePolicyArtifactsToPrivate(publicHome, privateHome);
-    assert.deepEqual(moved, { policies: 1, proofs: 1 });
+    assert.deepEqual(moved, { policies: 1, proofs: 1, evidence: 0 });
     assert.equal(existsSync(join(publicHome, "policies")), false);
     assert.ok(existsSync(join(privateHome, "policies")));
     assert.ok(existsSync(join(privateHome, "proofs")));
@@ -280,6 +282,135 @@ test("private migration preserves the public source when any policy artifact is 
     assert.equal(readFileSync(corrupt, "utf8"), "{ corrupt", "source survives a refused migration");
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Phase 2A bootstrap deterministically caps the open review queue at three and is idempotent", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    for (let i = 1; i <= 4; i++) {
+      store.json.put("decisions", {
+        ...decision(`dec_boot_${i}`),
+        title: `Boundary decision ${i}`,
+        date: `2026-07-0${i}T10:00:00.000Z`,
+        valid_from: `2026-07-0${i}T10:00:00.000Z`,
+      });
+    }
+    store.json.put("decisions", { ...decision("dec_ignored"), status: "proposed" });
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const first = service.bootstrap({ maxCandidates: 99, since: "90d", publicOnly: true, now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(clampCandidateLimit(99), 3);
+    assert.equal(first.scanned, 5);
+    assert.equal(first.eligible, 4);
+    assert.equal(first.compiled.length, 3, "hard maximum is three even when caller asks for 99");
+    assert.equal(first.deferred, 1);
+    assert.ok(first.compiled.every((c) => c.policy.state === "compiled" && c.policy.authority === null));
+    assert.deepEqual(first.compiled.map((c) => c.policy.statement), ["Boundary decision 4", "Boundary decision 3", "Boundary decision 2"], "newest attributable evidence wins deterministically");
+    assert.equal(service.repository.listEvidence({ publicOnly: true }).length, 4, "eligible evidence is normalized even when candidate is deferred");
+
+    const policyIds = service.list({ publicOnly: true }).map((p) => p.id).sort();
+    const eventJson = canonicalJson(service.repository.listEvidence({ publicOnly: true }));
+    const second = service.bootstrap({ maxCandidates: 3, since: "90d", publicOnly: true, now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(second.compiled.length, 0, "three open candidates consume the bounded review queue");
+    assert.equal(second.covered, 3);
+    assert.equal(second.deferred, 1);
+    assert.deepEqual(service.list({ publicOnly: true }).map((p) => p.id).sort(), policyIds, "rerun creates no duplicate/downgrade");
+    assert.equal(canonicalJson(service.repository.listEvidence({ publicOnly: true })), eventJson, "rerun leaves evidence byte-semantics stable");
+
+    const retired = first.compiled[0]!.policy;
+    service.repository.putPolicy({
+      ...retired,
+      state: "retired",
+      updated_at: "2026-07-10T12:01:00.000Z",
+      audit: [...retired.audit, {
+        action: "retired",
+        actor_kind: "human",
+        actor: "human:test-owner",
+        at: "2026-07-10T12:01:00.000Z",
+        reason: "Close one review slot for the recovery-path test.",
+        proof: null,
+      }],
+    });
+    const recovered = service.bootstrap({ maxCandidates: 3, since: "90d", publicOnly: true, now: "2026-07-10T12:02:00.000Z" });
+    assert.equal(recovered.compiled.length, 1, "a deferred eligible event compiles when a bounded review slot opens");
+    assert.equal(recovered.compiled[0]!.policy.statement, "Boundary decision 1");
+    assert.equal(recovered.compiled[0]!.evidence.compiler?.status, "compiled");
+    assert.equal(service.get(retired.id, { publicOnly: true }).state, "retired", "bootstrap preserves closed lifecycle state");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Phase 2A bootstrap inherits private taint and public-only reads reveal nothing", () => {
+  const { root, store: initial, cleanup } = layeredRepo();
+  initial.close();
+  const privateRoot = join(root, "private-bootstrap/.hunch");
+  mkdirSync(privateRoot, { recursive: true });
+  writeFileSync(join(root, ".hunch/local.json"), JSON.stringify({ privateDir: privateRoot, autoCommit: false, mode: "private" }));
+  const store = new HunchStore(hunchPaths(root));
+  try {
+    store.putPrivate("decisions", decision("dec_private_bootstrap", { private: true }));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const report = service.bootstrap({ privateOnly: true, maxCandidates: 3, since: "90d", now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(report.compiled.length, 1);
+    const candidate = report.compiled[0]!;
+    assert.equal(candidate.policy.data_class, "private");
+    assert.equal(candidate.evidence.data_class, "private");
+    assert.ok(existsSync(join(privateRoot, "evidence", `${candidate.evidence.id}.json`)));
+    assert.ok(existsSync(join(privateRoot, "policies", `${candidate.policy.id}.json`)));
+    assert.equal(service.repository.listEvidence({ publicOnly: true }).length, 0);
+    assert.equal(service.list({ publicOnly: true }).length, 0);
+  } finally {
+    store.close();
+    cleanup();
+  }
+});
+
+test("Phase 2A home selection cannot substitute a same-id private decision into public bootstrap", () => {
+  const { root, store: initial, cleanup } = layeredRepo();
+  initial.close();
+  const privateRoot = join(root, "private-collision/.hunch");
+  mkdirSync(privateRoot, { recursive: true });
+  writeFileSync(join(root, ".hunch/local.json"), JSON.stringify({ privateDir: privateRoot, autoCommit: false, mode: "private" }));
+  const store = new HunchStore(hunchPaths(root));
+  try {
+    store.json.put("decisions", { ...decision("dec_collision"), title: "PUBLIC boundary evidence" });
+    store.putPrivate("decisions", { ...decision("dec_collision", { private: true }), title: "PRIVATE SECRET boundary evidence" });
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+
+    const publicReport = service.bootstrap({ publicOnly: true, since: "90d", now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(publicReport.compiled.length, 1);
+    assert.equal(publicReport.compiled[0]!.policy.statement, "PUBLIC boundary evidence");
+    assert.equal(publicReport.compiled[0]!.policy.data_class, "public");
+    assert.doesNotMatch(readFileSync(join(root, ".hunch/policies", `${publicReport.compiled[0]!.policy.id}.json`), "utf8"), /PRIVATE SECRET/);
+
+    const privateReport = service.bootstrap({ privateOnly: true, since: "90d", now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(privateReport.compiled.length, 1, "private review queue is independent of the public home");
+    assert.equal(privateReport.compiled[0]!.policy.statement, "PRIVATE SECRET boundary evidence");
+    assert.equal(privateReport.compiled[0]!.policy.data_class, "private");
+    const direct = service.compile("dec_collision", { private: false, now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(direct.statement, "PRIVATE SECRET boundary evidence", "direct compilation resolves the tainted source and its exact private home");
+    assert.equal(direct.data_class, "private");
+    assert.doesNotMatch(canonicalJson(service.list({ publicOnly: true })), /PRIVATE SECRET/);
+  } finally {
+    store.close();
+    cleanup();
+  }
+});
+
+test("Phase 2A bootstrap rejects invalid windows and has no synthesis dependency", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    store.json.put("decisions", decision("dec_window"));
+    const service = new ConstitutionService(store, root);
+    assert.throws(() => service.bootstrap({ since: "forever", now: "2026-07-10T12:00:00.000Z" }), /--since/);
+    const source = readFileSync(join(process.cwd(), "src/constitution/bootstrap.ts"), "utf8");
+    assert.doesNotMatch(source, /synthesis\/|selectProvider|SynthesisProvider/);
+  } finally {
+    cleanup();
   }
 });
 

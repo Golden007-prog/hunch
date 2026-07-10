@@ -6,7 +6,7 @@ alwaysApply: true
 <!-- HUNCH:START — auto-generated, do not edit by hand -->
 ## 🧠 Hunch (Engineering Memory)
 
-This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **81 decisions, 1 bugs, 8 constraints, 15 components, 1 policies**.
+This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **81 decisions, 1 bugs, 8 constraints, 15 components, 2 policies**.
 
 **Consult Hunch via the `hunch_*` MCP tools — pick by MOMENT, not from memory:**
 
@@ -30,6 +30,9 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 - `hunch_conformance()` — does the code still SATISFY recorded intent? Run before and after a refactor.
 - `hunch_policy_evaluate(policy_id?, active_only?)` / `hunch_policy_proof(policy_id)` — evaluate the canonical Constitution policy and inspect the evidence that authorized it.
 - `hunch_pr_impact(base?)` / `hunch_merge_verdict(...)` — a change's memory surface; would it re-open a closed bug?
+
+**Build the Constitution review queue:**
+- `hunch constitution bootstrap --since 90d --max-candidates 3` (CLI) — normalize recent structured human evidence into at most three non-active policy candidates; it never grants authority.
 
 **After deciding / when corrected:**
 - `hunch_capture_decision(topic?)` → `hunch_record_decision(...)` — interview first, then write; status `proposed` = roadmap intent (shows in `hunch now`).

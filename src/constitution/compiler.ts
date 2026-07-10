@@ -44,25 +44,20 @@ export interface CompilePolicyOptions {
   now?: string;
 }
 
-/** Deterministic compatibility compiler: one structured legacy conformance
- * predicate becomes one Policy IR candidate. It never interprets prose into a
- * nearest available rule. */
-export function compileDecisionPolicy(
+export function compileDecisionRecord(
   store: HunchStore,
-  decisionId: string,
-  opts: CompilePolicyOptions = {},
+  source: Decision,
+  isPrivate: boolean,
+  opts: Omit<CompilePolicyOptions, "private"> = {},
 ): { policy: PolicySpec; private: boolean; source: Decision } {
-  const source = store.getRec("decisions", decisionId);
-  if (!source) throw new Error(`decision ${decisionId} not found`);
   if (source.status === "rejected" || source.status === "superseded" || source.superseded_by) {
-    throw new Error(`decision ${decisionId} is not in force`);
+    throw new Error(`decision ${source.id} is not in force`);
   }
   if (source.conformance?.length !== 1) {
-    throw new Error(`Gate G1 compiles exactly one structured conformance predicate; ${decisionId} has ${source.conformance?.length ?? 0}`);
+    throw new Error(`Gate G1 compiles exactly one structured conformance predicate; ${source.id} has ${source.conformance?.length ?? 0}`);
   }
   const assertion = compileAssertion(source.conformance[0]!, opts.through);
-  const isPrivate = opts.private ?? !!store.getPrivateRec("decisions", decisionId);
-  if (isPrivate && !store.hasPrivate) throw new Error("--private needs a configured Hunch private overlay");
+  if (isPrivate && !store.hasPrivate) throw new Error("private compilation needs a configured Hunch private overlay");
   const now = opts.now ?? new Date().toISOString();
   const id = policyId({ source: source.id, assertion });
   const policy = PolicySpecSchema.parse({
@@ -102,4 +97,22 @@ export function compileDecisionPolicy(
     provenance: { source: "derived", confidence: 1, evidence: [source.id], last_verified: now },
   });
   return { policy, private: isPrivate, source };
+}
+
+/** Deterministic compatibility compiler: one structured legacy conformance
+ * predicate becomes one Policy IR candidate. It never interprets prose into a
+ * nearest available rule. */
+export function compileDecisionPolicy(
+  store: HunchStore,
+  decisionId: string,
+  opts: CompilePolicyOptions = {},
+): { policy: PolicySpec; private: boolean; source: Decision } {
+  const source = store.getRec("decisions", decisionId);
+  if (!source) throw new Error(`decision ${decisionId} not found`);
+  // A private source always taints its compiled artifact. `--private` can
+  // promote a public source into the overlay, but an omitted/false CLI flag
+  // must never declassify a same-id private overlay record into the public
+  // repository.
+  const isPrivate = !!opts.private || !!store.getPrivateRec("decisions", decisionId);
+  return compileDecisionRecord(store, source, isPrivate, { through: opts.through, now: opts.now });
 }

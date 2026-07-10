@@ -5,6 +5,8 @@ import { writeFileAtomic } from "../core/io.js";
 import {
   PolicyProofSchema,
   PolicySpecSchema,
+  EvidenceEventSchema,
+  type EvidenceEvent,
   type PolicyProof,
   type PolicySpec,
 } from "./schema.js";
@@ -38,7 +40,7 @@ export class PolicyRepository {
     this.privateHome = store.privateDir;
   }
 
-  private dir(home: "public" | "private", kind: "policies" | "proofs"): string {
+  private dir(home: "public" | "private", kind: "policies" | "proofs" | "evidence"): string {
     const base = home === "private" ? this.privateHome : this.publicHome;
     if (!base) throw new Error("No private Hunch overlay is configured; refusing to write a private policy.");
     return join(base, kind);
@@ -54,13 +56,20 @@ export class PolicyRepository {
     return loadRecords(this.dir(home, "proofs"), (v) => PolicyProofSchema.parse(v), "proofs");
   }
 
-  listPolicies(opts: { publicOnly?: boolean } = {}): PolicySpec[] {
+  private evidenceIn(home: "public" | "private"): EvidenceEvent[] {
+    if (home === "private" && !this.privateHome) return [];
+    return loadRecords(this.dir(home, "evidence"), (v) => EvidenceEventSchema.parse(v), "evidence");
+  }
+
+  listPolicies(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicySpec[] {
+    if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
+    if (opts.privateOnly) return this.policiesIn("private").sort((a, b) => a.id.localeCompare(b.id));
     const byId = new Map(this.policiesIn("public").map((p) => [p.id, p]));
     if (!opts.publicOnly) for (const p of this.policiesIn("private")) byId.set(p.id, p);
     return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  getPolicy(id: string, opts: { publicOnly?: boolean } = {}): PolicySpec | undefined {
+  getPolicy(id: string, opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicySpec | undefined {
     return this.listPolicies(opts).find((p) => p.id === id);
   }
 
@@ -68,6 +77,18 @@ export class PolicyRepository {
     const byId = new Map(this.proofsIn("public").map((p) => [p.id, p]));
     if (!opts.publicOnly) for (const p of this.proofsIn("private")) byId.set(p.id, p);
     return byId.get(id);
+  }
+
+  listEvidence(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): EvidenceEvent[] {
+    if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
+    if (opts.privateOnly) return this.evidenceIn("private").sort((a, b) => a.id.localeCompare(b.id));
+    const byId = new Map(this.evidenceIn("public").map((e) => [e.id, e]));
+    if (!opts.publicOnly) for (const e of this.evidenceIn("private")) byId.set(e.id, e);
+    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  getEvidence(id: string, opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): EvidenceEvent | undefined {
+    return this.listEvidence(opts).find((e) => e.id === id);
   }
 
   homeOfPolicy(id: string): "public" | "private" | undefined {
@@ -79,10 +100,10 @@ export class PolicyRepository {
   putPolicy(policy: PolicySpec, opts: { private?: boolean } = {}): PolicySpec {
     const parsed = PolicySpecSchema.parse(policy);
     const existing = this.homeOfPolicy(parsed.id);
-    if (existing === "public" && parsed.data_class !== "public") {
+    if (existing === "public" && parsed.data_class !== "public" && !opts.private) {
       throw new Error(`refusing to write ${parsed.data_class} policy ${parsed.id} into its existing public home; migrate it to the private overlay first`);
     }
-    const home = existing ?? (opts.private || parsed.data_class !== "public" || this.store.unified ? "private" : "public");
+    const home = opts.private ? "private" : existing ?? (parsed.data_class !== "public" || this.store.unified ? "private" : "public");
     const dir = this.dir(home, "policies");
     mkdirSync(dir, { recursive: true });
     writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
@@ -97,15 +118,24 @@ export class PolicyRepository {
     writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
     return parsed;
   }
+
+  putEvidence(event: EvidenceEvent, opts: { private?: boolean } = {}): EvidenceEvent {
+    const parsed = EvidenceEventSchema.parse(event);
+    const home = opts.private || parsed.data_class !== "public" || this.store.unified ? "private" : "public";
+    const dir = this.dir(home, "evidence");
+    mkdirSync(dir, { recursive: true });
+    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    return parsed;
+  }
 }
 
 /** One-time private migration for the Constitution's standalone Git-native
  * records. Copy/validate everything before deleting the public directories;
  * private records win on an id collision. */
-export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunchDir: string): { policies: number; proofs: number } {
-  const counts = { policies: 0, proofs: 0 };
+export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunchDir: string): { policies: number; proofs: number; evidence: number } {
+  const counts = { policies: 0, proofs: 0, evidence: 0 };
   const move = <T extends { id: string }>(
-    kind: "policies" | "proofs",
+    kind: "policies" | "proofs" | "evidence",
     parse: (raw: unknown) => T,
   ): number => {
     const from = join(publicHunchDir, kind);
@@ -122,5 +152,6 @@ export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunc
   };
   counts.policies = move("policies", (v) => PolicySpecSchema.parse(v));
   counts.proofs = move("proofs", (v) => PolicyProofSchema.parse(v));
+  counts.evidence = move("evidence", (v) => EvidenceEventSchema.parse(v));
   return counts;
 }

@@ -7,6 +7,29 @@ export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.0.0" }
 export const DataClassSchema = z.enum(["public", "private", "secret"]);
 export type DataClass = z.infer<typeof DataClassSchema>;
 
+export const EvidenceEventSchema = z.object({
+  id: z.string().regex(/^ev_[a-f0-9]{10}$/),
+  kind: z.enum(["correction", "review", "incident", "decision", "revert", "bug_fix", "test_failure", "instruction", "commit"]),
+  occurred_at: z.string().datetime({ offset: true }),
+  actor: z.string().optional(),
+  repository: z.string().min(1),
+  commit: z.string().optional(),
+  files: z.array(z.string()).default([]),
+  symbols: z.array(z.string()).default([]),
+  text_ref: z.string().optional(),
+  diff_ref: z.string().optional(),
+  related_records: z.array(z.string()).default([]),
+  data_class: DataClassSchema,
+  content_hash: z.string(),
+  compiler: z.object({
+    status: z.enum(["eligible", "compiled", "covered", "uncompilable"]),
+    policy: z.string().nullable().default(null),
+    reason: z.string().default(""),
+  }).optional(),
+  provenance: ProvenanceSchema,
+}).passthrough();
+export type EvidenceEvent = z.infer<typeof EvidenceEventSchema>;
+
 export const PolicyStateSchema = z.enum([
   "observed",
   "drafted",

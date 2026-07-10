@@ -5,6 +5,7 @@ import { approvePolicy, blockingProofError, demotePolicy, proposeProvedPolicy } 
 import { provePolicy } from "./proof.js";
 import { PolicyRepository } from "./repository.js";
 import type { PolicyEvaluation, PolicyProof, PolicySpec } from "./schema.js";
+import { bootstrapPolicies, type BootstrapOptions, type BootstrapReport } from "./bootstrap.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -40,7 +41,16 @@ export class ConstitutionService {
 
   compile(decisionId: string, opts: CompilePolicyOptions = {}): PolicySpec {
     const compiled = compileDecisionPolicy(this.store, decisionId, opts);
+    const home = compiled.private || this.store.unified
+      ? { privateOnly: true }
+      : { publicOnly: true };
+    const existing = this.repository.getPolicy(compiled.policy.id, home);
+    if (existing) return existing;
     return this.repository.putPolicy(compiled.policy, { private: compiled.private });
+  }
+
+  bootstrap(opts: BootstrapOptions = {}): BootstrapReport {
+    return bootstrapPolicies(this.store, this.root, this.repository, opts);
   }
 
   prove(id: string, opts: { now?: string } = {}): { policy: PolicySpec; proof: PolicyProof } {

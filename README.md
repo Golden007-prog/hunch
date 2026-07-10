@@ -99,18 +99,25 @@ hunch check --staged --strict
 hunch conform --strict
 ```
 
-### Hunch Constitution — experimental Gate G1
+### Hunch Constitution — experimental Gate G1 + evidence bootstrap
 
 Hunch can now lift one structured architectural decision into versioned Policy IR, prove its
 deterministic behavior with a clean baseline plus a mutation, and require an explicit human event
 before it becomes enforceable:
 
 ```bash
+hunch constitution bootstrap --public-only --since 90d --max-candidates 3
 hunch policy compile dec_service_boundary --through OrderService
 hunch policy prove pol_…
 hunch policy accept pol_… --blocking --actor github:your-name
 hunch policy evaluate pol_… --json
 ```
+
+The model-free bootstrap considers only current, accepted, human-confirmed decisions carrying
+exactly one structured `conformance` predicate. It normalizes auditable evidence and keeps a bounded
+queue of at most three unreviewed candidates. Re-running is idempotent, private evidence inherits
+private storage, and every candidate starts with `authority: null`—bootstrap can never activate or
+block on its own.
 
 The first Level-1 evaluator is `must-pass-through`: every statically discovered path from A to C
 must contain B. CLI, MCP (`hunch_policy_evaluate`), and strict CI share the exact canonical receipt.

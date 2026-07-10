@@ -58,6 +58,9 @@ export function renderHunchSection(store: HunchStore, root?: string): string {
   lines.push("- `hunch_policy_evaluate(policy_id?, active_only?)` / `hunch_policy_proof(policy_id)` — evaluate the canonical Constitution policy and inspect the evidence that authorized it.");
   lines.push("- `hunch_pr_impact(base?)` / `hunch_merge_verdict(...)` — a change's memory surface; would it re-open a closed bug?");
   lines.push("");
+  lines.push("**Build the Constitution review queue:**");
+  lines.push("- `hunch constitution bootstrap --since 90d --max-candidates 3` (CLI) — normalize recent structured human evidence into at most three non-active policy candidates; it never grants authority.");
+  lines.push("");
   lines.push("**After deciding / when corrected:**");
   lines.push("- `hunch_capture_decision(topic?)` → `hunch_record_decision(...)` — interview first, then write; status `proposed` = roadmap intent (shows in `hunch now`).");
   lines.push("- `hunch_record_correction(...)` — a human correction becomes an ENFORCED rule (Never Twice), not a one-session memory.");

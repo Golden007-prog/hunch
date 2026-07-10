@@ -524,6 +524,7 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
     const breakdownParts = Object.entries(res.moved).map(([k, n]) => `${n} ${k}`);
     if (constitutionMoved.policies) breakdownParts.push(`${constitutionMoved.policies} policies`);
     if (constitutionMoved.proofs) breakdownParts.push(`${constitutionMoved.proofs} proofs`);
+    if (constitutionMoved.evidence) breakdownParts.push(`${constitutionMoved.evidence} evidence events`);
     const breakdown = breakdownParts.join(", ") || "0 records";
     migrateNote =
       `  ✓ migrated public memory → overlay (${breakdown}); public store emptied\n` +
@@ -1082,6 +1083,43 @@ function renderPolicyEvaluations(results: PolicyEvaluationSet[]): string[] {
   }
   return out;
 }
+
+// ---- constitution (deterministic evidence -> candidate bootstrap) --------
+const constitutionCmd = program
+  .command("constitution")
+  .description("Bootstrap Hunch Constitution candidates from attributable structured evidence.");
+
+constitutionCmd
+  .command("bootstrap")
+  .description("Normalize eligible decisions into evidence events and compile at most three non-active Policy IR candidates.")
+  .option("--since <duration>", "evidence window, e.g. 90d or 12w", "90d")
+  .option("--max-candidates <n>", "maximum surfaced candidates (hard-capped at 3)", "3")
+  .option("--public-only", "read/write only public evidence and policies")
+  .option("--private", "read/write only the configured private overlay")
+  .action((opts: { since: string; maxCandidates: string; publicOnly?: boolean; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const requested = Number(opts.maxCandidates);
+      if (!Number.isFinite(requested) || requested <= 0) throw new Error("--max-candidates must be a positive number");
+      const report = new ConstitutionService(store, root).bootstrap({
+        since: opts.since,
+        maxCandidates: requested,
+        publicOnly: opts.publicOnly,
+        privateOnly: opts.private,
+      });
+      console.log(`Constitution bootstrap: scanned ${report.scanned} decision(s), ${report.eligible} eligible`);
+      for (const candidate of report.compiled) {
+        console.log(`  + ${candidate.policy.id} [${candidate.policy.state}] ${candidate.policy.statement}`);
+        console.log(`    evidence: ${candidate.evidence.id} · ${candidate.policy.assertion.kind} · authority: none`);
+      }
+      console.log(`  ${report.compiled.length} compiled · ${report.covered} already covered · ${report.deferred} deferred by max-three cap · ${report.uncompilable} uncompilable`);
+      if (!report.compiled.length) console.log("  No new candidates; existing policy lifecycle states were left untouched.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
 
 // ---- compare (rank N candidate solutions by architectural fit) ------------
 program
