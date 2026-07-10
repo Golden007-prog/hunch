@@ -971,9 +971,9 @@ policyCmd
 
 policyCmd
   .command("corpus")
-  .description("Import or inspect a policy-bound known-good/known-bad commit corpus. Imported refs are resolved to immutable SHAs.")
+  .description("Import or inspect a policy-bound known-good/known-bad commit corpus. Known-good fixtures may carry a human attestation; imported refs resolve to immutable SHAs.")
   .argument("<id>", "policy id")
-  .option("--import <file>", "JSON file with known_bad/known_good ref and label arrays")
+  .option("--import <file>", "JSON file with known_bad/known_good ref and label arrays; known_good may include attestation { actor, reason }")
   .option("--public-only", "exclude private-overlay policy/corpus records when inspecting")
   .action((id: string, opts: { import?: string; publicOnly?: boolean }) => {
     const { store, root } = storeFor();
@@ -983,7 +983,8 @@ policyCmd
         if (opts.publicOnly) throw new Error("--public-only cannot be combined with --import");
         const file = resolve(root, opts.import);
         const corpus = service.importCorpus(id, JSON.parse(readFileSync(file, "utf8")));
-        console.log(`✓ imported ${corpus.id} for ${corpus.policy_id}: ${corpus.known_bad.length} known bad, ${corpus.known_good.length} known good`);
+        const attestedGood = corpus.known_good.filter((fixture) => !!fixture.attestation).length;
+        console.log(`✓ imported ${corpus.id} for ${corpus.policy_id}: ${corpus.known_bad.length} known bad, ${corpus.known_good.length} known good (${attestedGood} human-attested)`);
         console.log(`  hash: ${corpus.content_hash} · home follows policy data class (${corpus.data_class})`);
       } else {
         console.log(JSON.stringify(service.corpus(id, { publicOnly: opts.publicOnly }), null, 2));

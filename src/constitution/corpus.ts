@@ -13,13 +13,19 @@ import {
 
 function resolveFixture(
   root: string,
-  fixture: ProofCorpusInput["known_bad"][number],
+  fixture: ProofCorpusInput["known_good"][number],
   expected: "violated" | "satisfied",
 ): ProofFixtureRef {
   if (!revExists(fixture.ref, root)) throw new Error(`corpus fixture ref ${fixture.ref} does not resolve to a commit`);
   const ref = revParse(`${fixture.ref}^{commit}`, root);
   if (!/^[a-f0-9]{40}$/.test(ref)) throw new Error(`corpus fixture ref ${fixture.ref} did not resolve to a full commit SHA`);
-  return { kind: "commit", ref, label: fixture.label, expected };
+  return {
+    kind: "commit",
+    ref,
+    label: fixture.label,
+    expected,
+    ...(fixture.attestation ? { attestation: fixture.attestation } : {}),
+  };
 }
 
 function sorted(fixtures: ProofFixtureRef[]): ProofFixtureRef[] {

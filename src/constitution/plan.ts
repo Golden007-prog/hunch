@@ -105,6 +105,7 @@ export function createProofPlan(
     corpus?.known_good ?? [],
     [{ kind: "commit", ref: head, label: "current accepted baseline", expected: "satisfied" }],
   ]);
+  const attestedKnownGood = knownGood.filter((fixture) => !!fixture.attestation);
   const maxCommits = clamp(opts.maxCommits, 20, 0, 500);
   const maxMutations = clamp(opts.maxMutations, 3, 0, 100);
   const operator = mutationOperatorForPolicy(policy);
@@ -135,7 +136,10 @@ export function createProofPlan(
         to: head,
         first_parent: true,
         max_commits: maxCommits,
-        exclude: knownBad.map((fixture) => fixture.ref),
+        exclude: [...new Set([
+          ...knownBad.map((fixture) => fixture.ref),
+          ...attestedKnownGood.map((fixture) => fixture.ref),
+        ])].sort(),
       },
       known_bad: knownBad,
       known_good: knownGood,
@@ -157,6 +161,9 @@ export function createProofPlan(
     limitations: [
       "ProofPlan generation does not execute accepted-history replay or project tests.",
       "Known-bad commits are included only when an attributable fix/revert delta identifies the first parent.",
+      ...(attestedKnownGood.length
+        ? ["Human-attested known-good fixtures are replayed as explicit corpus evidence and excluded from accepted-history sampling; attestation cannot waive a policy or grant authority."]
+        : []),
       ...policy.limitations,
     ],
   };

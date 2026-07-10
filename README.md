@@ -177,7 +177,11 @@ known-good/known-bad corpus, deterministic mutation operators, expectations, and
 `policy corpus --import` accepts bounded labeled `known_bad`/`known_good` Git refs, resolves them
 once to full immutable commit SHAs, stores the manifest in the policy's public/private home, and
 hash-binds it into every resulting plan. A commit cannot be labeled both good and bad, and stale
-policy-bound corpora must be re-imported after semantic policy changes.
+policy-bound corpora must be re-imported after semantic policy changes. A `known_good` fixture may
+also carry an explicit human attestation—`{ "actor": "github:your-name", "reason": "…" }`—to
+document why that accepted variant belongs in the corpus. Attested fixtures are replayed once as
+named corpus evidence and excluded from accepted-history sampling; the attestation cannot waive a
+policy result or create authority.
 Planning runs no replay, test, model, or activation; `policy prove` binds its receipt to that plan.
 Proof execution checks out each unique immutable commit into a disposable worktree with hooks,
 user-global Git configuration, private-overlay discovery, and provider selection disabled. It

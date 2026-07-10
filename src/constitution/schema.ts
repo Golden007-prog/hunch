@@ -251,11 +251,17 @@ export const PolicyEvaluationResultSchema = z.enum([
 ]);
 export type PolicyEvaluationResult = z.infer<typeof PolicyEvaluationResultSchema>;
 
+const HumanFixtureAttestationSchema = z.object({
+  actor: z.string().regex(/^(human|github|git):[^\s]+$/i, "fixture attestation requires an explicit human actor (human:, github:, or git:)"),
+  reason: z.string().min(1).max(2000),
+}).strict();
+
 export const ProofFixtureRefSchema = z.object({
   kind: z.enum(["commit", "fixture", "event", "mutation"]),
   ref: z.string().min(1),
   label: z.string().min(1),
   expected: PolicyEvaluationResultSchema,
+  attestation: HumanFixtureAttestationSchema.optional(),
 });
 export type ProofFixtureRef = z.infer<typeof ProofFixtureRefSchema>;
 
@@ -264,9 +270,15 @@ const CorpusInputFixtureSchema = z.object({
   label: z.string().min(1).max(500),
 }).strict();
 
+const KnownGoodCorpusInputFixtureSchema = z.object({
+  ref: z.string().min(1).max(1024),
+  label: z.string().min(1).max(500),
+  attestation: HumanFixtureAttestationSchema.optional(),
+}).strict();
+
 export const ProofCorpusInputSchema = z.object({
   known_bad: z.array(CorpusInputFixtureSchema).max(50).default([]),
-  known_good: z.array(CorpusInputFixtureSchema).max(50).default([]),
+  known_good: z.array(KnownGoodCorpusInputFixtureSchema).max(50).default([]),
 }).strict().refine((value) => value.known_bad.length + value.known_good.length > 0, {
   message: "corpus import must declare at least one known-good or known-bad fixture",
 });
@@ -279,6 +291,14 @@ const CorpusCommitFixtureSchema = z.object({
   expected: PolicyEvaluationResultSchema,
 }).strict();
 
+const KnownGoodCorpusCommitFixtureSchema = z.object({
+  kind: z.literal("commit"),
+  ref: z.string().regex(/^[a-f0-9]{40}$/),
+  label: z.string().min(1).max(500),
+  expected: z.literal("satisfied"),
+  attestation: HumanFixtureAttestationSchema.optional(),
+}).strict();
+
 export const ProofCorpusSchema = z.object({
   id: z.string().regex(/^corpus_[a-f0-9]{10}$/),
   content_hash: z.string().min(1),
@@ -287,7 +307,7 @@ export const ProofCorpusSchema = z.object({
   repository: z.string().min(1),
   data_class: DataClassSchema,
   known_bad: z.array(CorpusCommitFixtureSchema.extend({ expected: z.literal("violated") })).max(50).default([]),
-  known_good: z.array(CorpusCommitFixtureSchema.extend({ expected: z.literal("satisfied") })).max(50).default([]),
+  known_good: z.array(KnownGoodCorpusCommitFixtureSchema).max(50).default([]),
   created_at: z.string().datetime({ offset: true }),
 }).strict();
 export type ProofCorpus = z.infer<typeof ProofCorpusSchema>;

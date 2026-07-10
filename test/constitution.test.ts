@@ -402,14 +402,26 @@ test("Phase 3F imports immutable known-good/bad fixtures and hash-binds them int
     const policy = service.compile("dec_imported_corpus", { through: "fetchOrders", now: NOW });
     const imported = service.importCorpus(policy.id, {
       known_bad: [{ ref: knownBad.slice(0, 12), label: "confirmed controller bypass" }],
-      known_good: [{ ref: initialGood, label: "earlier accepted service path" }],
+      known_good: [{
+        ref: initialGood,
+        label: "earlier accepted service path",
+        attestation: { actor: "github:reviewer", reason: "Reviewed legacy service-only path before the regression." },
+      }],
     }, { now: "2026-07-10T10:00:30.000Z" });
     assert.deepEqual(imported.known_bad.map((fixture) => fixture.ref), [knownBad]);
     assert.deepEqual(imported.known_good.map((fixture) => fixture.ref), [initialGood]);
+    assert.deepEqual(imported.known_good[0]!.attestation, {
+      actor: "github:reviewer",
+      reason: "Reviewed legacy service-only path before the regression.",
+    });
     assert.ok(existsSync(join(root, ".hunch/corpora", `${policy.id}.json`)));
     const importedAgain = service.importCorpus(policy.id, {
       known_bad: [{ ref: knownBad, label: "confirmed controller bypass" }],
-      known_good: [{ ref: initialGood, label: "earlier accepted service path" }],
+      known_good: [{
+        ref: initialGood,
+        label: "earlier accepted service path",
+        attestation: { actor: "github:reviewer", reason: "Reviewed legacy service-only path before the regression." },
+      }],
     }, { now: "2026-07-10T10:00:59.000Z" });
     assert.deepEqual(importedAgain, imported, "same canonical corpus import is byte-stable and keeps its original timestamp");
     assert.throws(() => service.importCorpus(policy.id, {
@@ -422,6 +434,16 @@ test("Phase 3F imports immutable known-good/bad fixtures and hash-binds them int
     assert.deepEqual(plan.corpus_manifest, { id: imported.id, content_hash: imported.content_hash });
     assert.deepEqual(plan.corpus.known_bad.map((fixture) => fixture.ref), [knownBad]);
     assert.deepEqual(plan.corpus.known_good.map((fixture) => fixture.ref).sort(), [currentGood, initialGood].sort());
+    assert.deepEqual(plan.corpus.known_good.find((fixture) => fixture.ref === initialGood)?.attestation, imported.known_good[0]!.attestation);
+    assert.ok(plan.corpus.accepted_history.exclude.includes(initialGood), "human-attested corpus evidence is not double-counted as accepted history");
+    assert.match(plan.limitations.join("\n"), /attestation cannot waive a policy or grant authority/);
+    assert.throws(() => service.importCorpus(policy.id, {
+      known_good: [{
+        ref: initialGood,
+        label: "model-attested path",
+        attestation: { actor: "model:hunch", reason: "not a human reviewer" },
+      }],
+    }), /fixture attestation requires an explicit human actor/);
     const { proof } = service.prove(policy.id, { now: "2026-07-10T10:02:00.000Z" });
     assert.equal(proof.proof_class, "P3");
     assert.equal(proof.known_bad.violated, 1);
