@@ -133,6 +133,10 @@ export function compileStructuralPolicy(store: HunchStore, input: StructuralPoli
   const isPrivate = input.dataClass !== "public";
   if (isPrivate && !store.hasPrivate) throw new Error("private structural compilation needs a configured Hunch private overlay");
   const now = input.now ?? new Date().toISOString();
+  const externalImport = input.assertion.kind === "not-reaches"
+    && input.assertion.relation.edges.length === 1
+    && input.assertion.relation.edges[0] === "imports"
+    && input.assertion.object.selector.startsWith("external:");
   const id = policyId({ assertion: input.assertion, scope: input.scope, data_class: input.dataClass });
   const policy = PolicySpecSchema.parse({
     id,
@@ -157,8 +161,12 @@ export function compileStructuralPolicy(store: HunchStore, input: StructuralPoli
     data_class: input.dataClass,
     limitations: [
       "Inferred from one exact first-parent Git structural delta; replay coverage is established only by a later plan-bound proof.",
-      "Scope is intentionally limited to the changed caller or introduced-symbol file.",
-      "TypeScript/JavaScript static calls only; dynamic calls and runtime dependency injection are not covered.",
+      externalImport
+        ? "Scope is intentionally limited to the changed file and anchored to one stable symbol in that file."
+        : "Scope is intentionally limited to the changed caller or introduced-symbol file.",
+      externalImport
+        ? "TypeScript/JavaScript static ESM import/export specifiers only; require(), dynamic import(), package aliases, and runtime loading are not covered."
+        : "TypeScript/JavaScript static calls only; dynamic calls and runtime dependency injection are not covered.",
     ],
     legacy_refs: [input.source.id],
     audit: [{

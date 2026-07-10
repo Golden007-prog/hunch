@@ -1,4 +1,5 @@
 import { shortHash } from "../core/ids.js";
+import { externalPackage } from "../core/externalImports.js";
 import type { Symbol } from "../core/types.js";
 import { parseSource } from "../extractors/parse.js";
 import { canonicalHash, canonicalJson, policySemanticHash, proofEvaluationHash } from "./canonical.js";
@@ -49,6 +50,14 @@ function symbolForSelector(snapshot: GraphSnapshot, selector: PolicySelector): S
     ? snapshot.symbols.filter((symbol) => symbol.name === target.slice(split + 1) && (symbol.file === target.slice(0, split) || symbol.file.endsWith(`/${target.slice(0, split)}`)))
     : snapshot.symbols.filter((symbol) => symbol.name === target);
   return matches.length === 1 ? matches[0]! : null;
+}
+
+function nameForSelector(snapshot: GraphSnapshot, selector: PolicySelector): string | null {
+  const symbol = symbolForSelector(snapshot, selector);
+  if (symbol) return symbol.name;
+  return selector.selector.startsWith("external:")
+    ? externalPackage(selector.selector.slice("external:".length))
+    : null;
 }
 
 function graphDiff(base: GraphSnapshot, mutated: GraphSnapshot): MutationReceipt["graph_diff"] {
@@ -178,7 +187,7 @@ function commentStringControl(
 ): MutationReceipt {
   const baseline = evaluatePolicyOnSnapshot(policy, base);
   const targets = [...new Set(policySelectors(policy)
-    .map((selector) => symbolForSelector(base, selector)?.name)
+    .map((selector) => nameForSelector(base, selector))
     .filter((name): name is string => !!name))].sort();
   if (!targets.length) return errorReceipt(policy, base, planned, "control", "control-selector-unresolved");
   const marker = targets.map((name) => `${name}()`).join(" ");
@@ -219,9 +228,9 @@ function sameNameControl(
   base: GraphSnapshot,
   planned: PlannedMutation,
 ): MutationReceipt {
-  const selected = policySelectors(policy).map((selector) => symbolForSelector(base, selector));
-  if (selected.some((symbol) => !symbol)) return errorReceipt(policy, base, planned, "control", "control-selector-unresolved");
-  const unique = [...new Map(selected.map((symbol) => [symbol!.id, symbol!])).values()];
+  const selected = policySelectors(policy).map((selector) => symbolForSelector(base, selector)).filter((symbol): symbol is Symbol => !!symbol);
+  if (!selected.length) return errorReceipt(policy, base, planned, "control", "control-selector-unresolved");
+  const unique = [...new Map(selected.map((symbol) => [symbol.id, symbol])).values()];
   const clones = unique.map((symbol, index): Symbol => ({
     ...symbol,
     id: `${symbol.id}_mutation_control_${index + 1}`,

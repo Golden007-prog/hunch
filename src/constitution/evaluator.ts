@@ -1,5 +1,6 @@
 import type { Edge, Symbol } from "../core/types.js";
 import { basename } from "node:path";
+import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { headSha } from "../extractors/git.js";
 import { canonicalHash } from "./canonical.js";
@@ -46,6 +47,13 @@ export function graphSnapshot(store: HunchStore, root: string, opts: { publicOnl
 
 function resolveSelector(snapshot: GraphSnapshot, selector: PolicySelector): Binding {
   const raw = selector.selector;
+  if (raw.startsWith("external:")) {
+    const dependency = externalPackage(raw.slice("external:".length));
+    const id = externalImportNodeId(raw.slice("external:".length));
+    return dependency && id
+      ? { resolution: "exact", ids: [id], explanation: `${raw} resolved to canonical external package ${dependency}` }
+      : { resolution: "unsupported", ids: [], explanation: `${raw} is not a supported external package selector` };
+  }
   if (raw.startsWith("symbol-id:")) {
     const id = raw.slice("symbol-id:".length);
     const found = snapshot.symbols.some((s) => s.id === id);
@@ -108,7 +116,11 @@ function findPath(
 
 function matchFor(snapshot: GraphSnapshot, id: string, relationPath?: string[]): PolicyEvaluation["matches"][number] {
   const sym = snapshot.symbols.find((s) => s.id === id);
-  return { file: sym?.file ?? "", symbol: sym?.name ?? id, ...(relationPath ? { relation_path: relationPath } : {}) };
+  if (sym) return { file: sym.file, symbol: sym.name, ...(relationPath ? { relation_path: relationPath } : {}) };
+  const edge = snapshot.edges.find((candidate) => candidate.from === id || candidate.to === id);
+  const evidence = edge?.provenance.evidence.find((item) => item.includes(":imports:"));
+  const file = evidence?.slice(0, evidence.indexOf(":imports:")) ?? "";
+  return { file, symbol: id, ...(relationPath ? { relation_path: relationPath } : {}) };
 }
 
 function unfinished(policy: PolicySpec, snapshot: GraphSnapshot, result: "unknown" | "error", explanation: string): PolicyEvaluation {
@@ -233,6 +245,9 @@ export function mutationOperatorForPolicy(policy: PolicySpec): string {
   if (policy.assertion.kind === "exists") return "delete-required-symbol";
   if (policy.assertion.kind === "reaches") return "remove-required-path";
   if (policy.assertion.kind === "must-pass-through") return "add-bypass-edge";
+  if (policy.assertion.relation.edges.length === 1
+    && policy.assertion.relation.edges[0] === "imports"
+    && policy.assertion.object.selector.startsWith("external:")) return "add-forbidden-import";
   return "add-forbidden-edge";
 }
 

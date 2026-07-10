@@ -91,7 +91,7 @@ export function createProofPlan(
   const sourceRef = sourceEvent?.commit ?? decision?.commit ?? (policyCommit || head);
   if (!revExists(sourceRef, root)) throw new Error(`proof-plan source commit ${sourceRef} does not resolve in this repository`);
   const sourceCommit = revParse(sourceRef, root);
-  const structural = events.find((event) => event.structural_delta && (event.kind === "bug_fix" || event.kind === "revert"));
+  const structural = events.find((event) => event.structural_delta && (event.kind === "bug_fix" || event.kind === "revert" || event.kind === "decision"));
   const structuralKnownBad = structural?.structural_delta
     ? [{
         kind: "commit" as const,

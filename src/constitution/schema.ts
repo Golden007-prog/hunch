@@ -2,8 +2,8 @@ import { z } from "zod";
 import { ProvenanceSchema } from "../core/types.js";
 
 export const POLICY_IR_VERSION = 1;
-export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.0.0" } as const;
-export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "2" } as const;
+export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.1.0" } as const;
+export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "3" } as const;
 
 export const DataClassSchema = z.enum(["public", "private", "secret"]);
 export type DataClass = z.infer<typeof DataClassSchema>;

@@ -127,11 +127,20 @@ private storage, and every candidate starts with `authority: null`—bootstrap c
 block on its own.
 
 The opt-in history path reads the exact blobs for a human-confirmed fix/revert commit and its first
-parent—without checking out code or running hooks. It enumerates only assertions the current graph
-can bind exactly and whose symbol/call identifiers the human judgment explicitly names. One
+parent—without checking out code or running hooks. It also admits an architectural replacement
+when a human-confirmed decision carries an explicit `retired.deps` entry that exactly matches a
+removed external package. It enumerates only assertions the current graph can bind exactly and
+whose symbol/call/package identifiers the human judgment explicitly names. One
 supported meaning may become a compiled candidate; zero, multiple, missing,
 or ambiguous meanings are stored as `uncompilable`, never silently approximated. `constitution
 delta` previews that evidence and candidate set without writing policy state.
+
+The first external-import slice is deliberately narrow: removing a human-named static ESM package
+specifier can compile into a file-scoped `not-reaches(..., external:<package>)` boundary. Package
+subpaths canonicalize to their package root, the anchor must exist before and after the change, and
+an explicitly retired dependency filters unrelated call/symbol facts from the same replacement
+commit. Relative imports, import-map aliases, `require()`, dynamic `import()`, runtime loading, and
+positive “must import” rules remain visibly unsupported.
 
 Local correction, incident, and test-failure records can be normalized with `constitution ingest`.
 The adapter stores references and hashes, inherits private storage, and creates no policy authority.
@@ -175,8 +184,9 @@ known-bad/accepted-history receipts, then removes every checkout and transient g
 and cache statistics never enter proof hashes. Project code, builds, and tests are never executed.
 Timeouts, worker failures, unresolved refs, unknowns, and errors remain explicit.
 
-The first Level-1 evaluator is `must-pass-through`: every statically discovered path from A to C
-must contain B. CLI, MCP (`hunch_policy_evaluate`), and strict CI share the exact canonical receipt.
+Level-1 evaluators include `must-pass-through` (every statically discovered path from A to C must
+contain B) and the exact external-import boundary above. CLI, MCP (`hunch_policy_evaluate`), and
+strict CI share the exact canonical receipt.
 Models do not participate in evaluation or activation. Plan-bound proofs cover the committed current
 baseline, known-good/known-bad fixtures, bounded accepted history, and a canonical mutation
 manifest. The primary mutation is applied to an immutable disposable source checkout, must remain

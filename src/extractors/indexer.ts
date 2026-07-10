@@ -12,6 +12,7 @@ import { join, relative, dirname, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { parseSource, attributeCalls } from "./parse.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
+import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import { extracted, inferred, type Symbol, type Edge, type Component } from "../core/types.js";
 import { isGitRepo, trackedFiles, fileGitMetrics } from "./git.js";
 
@@ -158,15 +159,29 @@ export function indexRepo(store: HunchStore, root: string, opts: { churn?: boole
     if (!fromCmp) continue;
     for (const spec of imports) {
       const target = resolveImport(file, spec, fileSymbols);
-      if (!target) continue;
-      const toCmp = fileToComponent.get(target);
-      if (!toCmp || toCmp === fromCmp) continue;
-      addEdge({
-        id: edgeId(fromCmp, toCmp, "depends_on"),
-        from: fromCmp, to: toCmp, type: "depends_on",
-        reason: `${file} imports ${target}`, strength: 0.6,
-        provenance: extracted(0.9, [`${file}:imports:${spec}`]),
-      });
+      if (target) {
+        const toCmp = fileToComponent.get(target);
+        if (!toCmp || toCmp === fromCmp) continue;
+        addEdge({
+          id: edgeId(fromCmp, toCmp, "depends_on"),
+          from: fromCmp, to: toCmp, type: "depends_on",
+          reason: `${file} imports ${target}`, strength: 0.6,
+          provenance: extracted(0.9, [`${file}:imports:${spec}`]),
+        });
+        continue;
+      }
+      const dependency = externalPackage(spec);
+      const external = externalImportNodeId(spec);
+      const anchors = [...(fileSymbols.get(file) ?? [])].sort();
+      if (!dependency || !external || !anchors.length) continue;
+      for (const anchor of anchors) {
+        addEdge({
+          id: edgeId(anchor, external, "imports"),
+          from: anchor, to: external, type: "imports",
+          reason: `${file} imports external package ${dependency}`, strength: 1,
+          provenance: extracted(1, [`${file}:imports:${spec}`]),
+        });
+      }
     }
   }
 

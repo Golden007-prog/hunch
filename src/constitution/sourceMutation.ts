@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { hunchPathsForDir } from "../core/paths.js";
 import { symbolId } from "../core/ids.js";
+import { externalPackage } from "../core/externalImports.js";
 import type { Symbol } from "../core/types.js";
 import { indexRepo } from "../extractors/indexer.js";
 import { parseSource, type ParsedFile, type ParsedSymbol } from "../extractors/parse.js";
@@ -102,6 +103,22 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, source: string): 
 
   if (assertion.kind === "exists") {
     return { file: subject.file, source: spliceBytes(source, [{ start: definition.startByte, end: definition.endByte, text: "" }]) };
+  }
+
+  if (assertion.kind === "not-reaches"
+    && assertion.relation.edges.length === 1
+    && assertion.relation.edges[0] === "imports"
+    && assertion.object.selector.startsWith("external:")) {
+    const dependency = externalPackage(assertion.object.selector.slice("external:".length));
+    if (!dependency) return { error: "mutation-external-import-unsupported" };
+    if (parsed.imports.some((specifier) => externalPackage(specifier) === dependency)) {
+      return { error: "mutation-forbidden-import-already-present" };
+    }
+    const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
+    return {
+      file: subject.file,
+      source: spliceBytes(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(dependency)}; // hunch deterministic source mutation\n` }]),
+    };
   }
 
   const object = symbolForSelector(base, assertion.object);

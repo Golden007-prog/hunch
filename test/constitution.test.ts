@@ -20,6 +20,7 @@ import { replayProofPlan } from "../src/constitution/replay.js";
 import { loadReplaySnapshot, replayCacheFile } from "../src/constitution/replayCache.js";
 import { ProofPlanSchema } from "../src/constitution/schema.js";
 import { shortHash } from "../src/core/ids.js";
+import { externalImportNodeId, externalPackage } from "../src/core/externalImports.js";
 import { buildProofCard, renderProofCard } from "../src/constitution/card.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -155,7 +156,7 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.ok(plan);
     assert.equal(proved.proof.plan_hash, plan.content_hash, "proof binds the persisted canonical plan");
     assert.equal(plan.corpus.current_baseline.expected, "satisfied");
-    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "2" });
+    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "3" });
     assert.equal(plan.mutations[0]?.operator, "add-bypass-edge");
     assert.deepEqual(plan.mutations.map((mutation) => mutation.operator), ["add-bypass-edge", "comment-string-control", "same-name-ambiguity-control"]);
     assert.ok(existsSync(join(root, ".hunch/plans", `${plan.id}.json`)), "ProofPlan is Git-native JSON");
@@ -824,8 +825,8 @@ test("Phase 3 replays current, known-bad, known-good, and bounded accepted histo
     assert.equal(rebuilt.cache_stats.rebuilds, 1);
     assert.deepEqual(rebuilt.replay_receipts, first.proof.replay_receipts, "corrupt derived cache rebuild cannot perturb proof semantics");
     assert.doesNotThrow(() => JSON.parse(readFileSync(currentCache, "utf8")));
-    assert.notEqual(currentCache, replayCacheFile(root, replayPlan.corpus.current_baseline.ref, "public", "2"), "engine version changes invalidate by key");
-    assert.equal(loadReplaySnapshot(root, replayPlan.corpus.current_baseline.ref, "public", "2").status, "miss");
+    assert.notEqual(currentCache, replayCacheFile(root, replayPlan.corpus.current_baseline.ref, "public", "3"), "engine version changes invalidate by key");
+    assert.equal(loadReplaySnapshot(root, replayPlan.corpus.current_baseline.ref, "public", "3").status, "miss");
 
     const second = service.prove(policy.id, { now: "2026-07-11T12:01:00.000Z" });
     assert.equal(canonicalJson(second.proof), canonicalJson(first.proof), "same plan and evaluator produce byte-equivalent replay proof");
@@ -1006,6 +1007,79 @@ test("Phase 2B unsupported import-only judgment is never substituted into anothe
   } finally {
     cleanup();
   }
+});
+
+test("Phase 2E compiles a human-named removed external import and proves it with replay plus source mutation", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    const file = "src/services/orders.ts";
+    const clean = readFileSync(join(root, file), "utf8");
+    writeFileSync(join(root, file), `import axios from "axios";\n${clean}`);
+    commitFiles(root, [file], "fixture: legacy orders axios dependency");
+    const fixed = `${clean}export function withTxMarker(){ return true; }\n`;
+    writeFileSync(join(root, file), fixed);
+    const fix = commitFiles(root, [file], "refactor: replace axios in the orders service");
+    indexRepo(store, root, { churn: false });
+    store.json.put("decisions", historyDecision("dec_external_import", fix, {
+      title: "The orders service must not import axios",
+      context: "The axios dependency crossed the service boundary; the replacement also introduced withTxMarker.",
+      decision: "Keep axios out of src/services/orders.ts.",
+      related_files: [file],
+      caused_by_bug: null,
+      retired: { symbols: [], deps: ["axios"] },
+    }));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+
+    const inspection = service.inspectStructural("dec_external_import", { publicOnly: true });
+    assert.equal(inspection.kind, "decision", "explicit retired.deps admits an architectural replacement without pretending it is a bug fix");
+    assert.deepEqual(inspection.delta.imports.removed, [{ file, specifier: "axios" }]);
+    assert.deepEqual(inspection.delta.symbols.added.map((symbol) => symbol.name), ["withTxMarker"]);
+    assert.equal(inspection.candidates.length, 1);
+    assert.equal(inspection.candidates[0]?.basis, "removed-import");
+    assert.ok(inspection.unsupported.some((reason) => /call\/symbol candidate\(s\) excluded/.test(reason)));
+    assert.deepEqual(inspection.candidates[0]?.assertion, {
+      kind: "not-reaches",
+      subject: inspection.candidates[0]!.assertion.subject,
+      relation: { edges: ["imports"], transitive: false, max_depth: 1 },
+      object: { selector: "external:axios" },
+    });
+
+    const report = service.bootstrap({ history: true, publicOnly: true, since: "90d", now: "2026-07-11T12:00:00.000Z" });
+    assert.equal(report.compiled.length, 1);
+    const policy = report.compiled[0]!.policy;
+    assert.equal(policy.authority, null);
+    assert.equal(service.evaluate({ id: policy.id, publicOnly: true })[0]?.evaluation.result, "satisfied");
+    const plan = service.plan(policy.id, { publicOnly: true, now: "2026-07-11T12:01:00.000Z" });
+    assert.equal(plan.mutations[0]?.operator, "add-forbidden-import");
+    const proved = service.prove(policy.id, { now: "2026-07-11T12:02:00.000Z" });
+    assert.equal(proved.proof.current.satisfied, 1);
+    assert.equal(proved.proof.known_bad.violated, 1);
+    assert.equal(proved.proof.proof_class, "P3");
+    const primary = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "add-forbidden-import");
+    assert.equal(primary.result, "violated");
+    assert.equal(primary.passed, true);
+    assert.equal(primary.parseability, "parseable");
+    assert.deepEqual(primary.source_patch?.files, [file]);
+    assert.match(primary.source_patch?.diff ?? "", /import "axios"; \/\/ hunch deterministic source mutation/);
+    assert.equal(proved.proof.mutation_controls.passed, 2);
+    assert.equal(proved.policy.authority, null, "replay and source mutation prove sensitivity but never grant authority");
+    assert.equal(readFileSync(join(root, file), "utf8"), fixed, "isolated proof never mutates the active worktree");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Phase 2E canonicalizes package subpaths while refusing relative, import-map, URL, and malformed scoped specifiers", () => {
+  assert.equal(externalPackage("lodash/groupBy"), "lodash");
+  assert.equal(externalPackage("@scope/pkg/subpath"), "@scope/pkg");
+  assert.equal(externalPackage("node:fs/promises"), "node:fs/promises");
+  assert.equal(externalPackage("../local.js"), null);
+  assert.equal(externalPackage("#internal"), null);
+  assert.equal(externalPackage("https://example.com/mod.js"), null);
+  assert.equal(externalPackage("@scope"), null);
+  assert.equal(externalImportNodeId("lodash/groupBy"), externalImportNodeId("lodash/map"));
 });
 
 test("Phase 2B exact-home history compilation cannot leak a same-id private judgment", () => {

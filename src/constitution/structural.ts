@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import { pathMatchesGlob } from "../core/glob.js";
 import { shortHash } from "../core/ids.js";
 import type { Decision, Edge, Symbol } from "../core/types.js";
@@ -24,14 +25,14 @@ export interface StructuralCandidate {
   id: string;
   assertion: PolicyAssertion;
   scope: PolicySpec["scope"];
-  basis: "added-call" | "removed-call" | "added-symbol";
+  basis: "added-call" | "removed-call" | "added-symbol" | "removed-import";
   reason: string;
 }
 
 export interface StructuralInspection {
   decision: string;
   commit: string;
-  kind: "revert" | "bug_fix";
+  kind: "revert" | "bug_fix" | "decision";
   delta: StructuralDelta;
   candidates: StructuralCandidate[];
   unsupported: string[];
@@ -79,7 +80,7 @@ function judgmentNames(source: Decision | undefined, identifier: string): boolea
 export function enumerateStructuralCandidates(
   store: HunchStore,
   delta: StructuralDelta,
-  opts: { publicOnly?: boolean; judgment?: Decision } = {},
+  opts: { publicOnly?: boolean; judgment?: Decision; retiredDependenciesOnly?: boolean } = {},
 ): Enumerated {
   const symbols = opts.publicOnly ? store.json.loadAll("symbols") : store.recs("symbols");
   const edges = opts.publicOnly ? store.json.loadAll("edges") : store.recs("edges");
@@ -99,6 +100,15 @@ export function enumerateStructuralCandidates(
       return null;
     }
     return matches[0]!;
+  };
+
+  const anchorForFile = (file: string): Symbol | null => {
+    const added = new Set(delta.symbols.added.map((symbol) => `${symbol.file}\0${symbol.kind}\0${symbol.name}`));
+    const matches = symbols
+      .filter((symbol) => symbol.file === file && !added.has(`${symbol.file}\0${symbol.kind}\0${symbol.name}`))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (!matches.length) unsupported.push(`${file} has no symbol present before and after the delta to anchor a file-scoped import policy`);
+    return matches[0] ?? null;
   };
 
   const addCallCandidate = (call: StructuralCallRef, basis: "added-call" | "removed-call"): void => {
@@ -164,10 +174,49 @@ export function enumerateStructuralCandidates(
 
   for (const removed of delta.symbols.removed) unsupported.push(`removed symbol ${removed.file}:${removed.name} has no enforceable current binding`);
   for (const moved of delta.symbols.moved) unsupported.push(`moved symbol ${moved.from}:${moved.name} -> ${moved.to} needs repair semantics, not a new policy`);
-  for (const added of delta.imports.added) unsupported.push(`added import ${added.file}:${added.specifier} awaits an import assertion evaluator`);
-  for (const removed of delta.imports.removed) unsupported.push(`removed import ${removed.file}:${removed.specifier} awaits an import assertion evaluator`);
+  for (const added of delta.imports.added) unsupported.push(`added import ${added.file}:${added.specifier} awaits an import assertion evaluator for positive requirements`);
+  for (const removed of delta.imports.removed) {
+    const dependency = externalPackage(removed.specifier);
+    const external = externalImportNodeId(removed.specifier);
+    if (!dependency || !external) {
+      unsupported.push(`removed import ${removed.file}:${removed.specifier} is relative/internal and not an external dependency boundary`);
+      continue;
+    }
+    if (!judgmentNames(opts.judgment, dependency) && !judgmentNames(opts.judgment, removed.specifier)) {
+      unsupported.push(`removed external import ${removed.file}:${dependency} is not explicitly named by the human judgment`);
+      continue;
+    }
+    if (opts.judgment?.retired.deps.length
+      && !opts.judgment.retired.deps.some((specifier) => externalPackage(specifier) === dependency)) {
+      unsupported.push(`removed external import ${removed.file}:${dependency} is not listed in the human judgment's retired dependencies`);
+      continue;
+    }
+    const subject = anchorForFile(removed.file);
+    if (!subject) continue;
+    if (edges.some((edge) => edge.type === "imports" && edge.from === subject.id && edge.to === external)) {
+      unsupported.push(`removed external import ${removed.file}:${dependency} remains present through another package subpath`);
+      continue;
+    }
+    const assertion: PolicyAssertion = {
+      kind: "not-reaches",
+      subject: exactSelector(subject),
+      relation: { edges: ["imports"], transitive: false, max_depth: 1 },
+      object: { selector: `external:${dependency}` },
+    };
+    const scope = scopeFor(store, removed.file, !!opts.publicOnly);
+    candidates.push({
+      id: candidateId(assertion, scope), assertion, scope, basis: "removed-import",
+      reason: `fix/revert removed human-named external package ${dependency} from ${removed.file}`,
+    });
+  }
 
-  const unique = new Map(candidates.map((c) => [canonicalHash({ assertion: c.assertion, scope: c.scope }), c]));
+  const eligibleCandidates = opts.retiredDependenciesOnly
+    ? candidates.filter((candidate) => candidate.basis === "removed-import")
+    : candidates;
+  if (opts.retiredDependenciesOnly && eligibleCandidates.length !== candidates.length) {
+    unsupported.push(`${candidates.length - eligibleCandidates.length} call/symbol candidate(s) excluded because the human judgment's structured signal is dependency retirement`);
+  }
+  const unique = new Map(eligibleCandidates.map((c) => [canonicalHash({ assertion: c.assertion, scope: c.scope }), c]));
   return {
     candidates: [...unique.values()].sort((a, b) => a.id.localeCompare(b.id)),
     unsupported: [...new Set(unsupported)].sort(),
@@ -196,10 +245,11 @@ function sourceInHome(
   return { source, private: !!store.getPrivateRec("decisions", decisionId) };
 }
 
-function historyKind(source: Decision, meta: CommitMeta): "revert" | "bug_fix" | null {
+function historyKind(source: Decision, meta: CommitMeta): "revert" | "bug_fix" | "decision" | null {
   const text = `${meta.subject}\n${meta.body}`;
   if (/^revert\b/i.test(meta.subject.trim())) return "revert";
   if (source.caused_by_bug || /\b(fix(?:e[ds]|ing)?|bug(?:fix)?|hotfix|regression|restore[ds]?)\b/i.test(text)) return "bug_fix";
+  if (source.retired.deps.length > 0) return "decision";
   return null;
 }
 
@@ -216,7 +266,11 @@ export function inspectStructuralDecision(
   const kind = historyKind(source, meta);
   if (!kind) throw new Error(`decision ${decisionId} is not linked to a fixing or revert commit`);
   const delta = extractStructuralDelta(root, meta.sha);
-  const enumerated = enumerateStructuralCandidates(store, delta, { publicOnly: opts.publicOnly, judgment: source });
+  const enumerated = enumerateStructuralCandidates(store, delta, {
+    publicOnly: opts.publicOnly,
+    judgment: source,
+    retiredDependenciesOnly: kind === "decision",
+  });
   return { decision: source.id, commit: meta.sha, kind, delta, ...enumerated, private: isPrivate };
 }
 
@@ -224,7 +278,7 @@ function eventFor(
   root: string,
   source: Decision,
   meta: CommitMeta,
-  kind: "revert" | "bug_fix",
+  kind: "revert" | "bug_fix" | "decision",
   isPrivate: boolean,
   delta?: StructuralDelta,
 ): EvidenceEvent {
@@ -251,7 +305,7 @@ function eventFor(
     data_class: isPrivate ? "private" : "public",
     content_hash: contentHash,
     ...(delta ? { structural_delta: delta } : {}),
-    compiler: { status: "eligible", policy: null, reason: "Human-confirmed fixing/revert decision with an exact first-parent structural delta." },
+    compiler: { status: "eligible", policy: null, reason: "Human-confirmed fix/revert or explicit dependency-retirement decision with an exact first-parent structural delta." },
     provenance: {
       source: "derived",
       confidence: 1,
@@ -266,7 +320,8 @@ function canReclassify(event: EvidenceEvent | undefined): boolean {
   return !event || status === "eligible" || status === "uncompilable";
 }
 
-/** Phase-2B opt-in bootstrap: only human-confirmed fix/revert decisions, exact
+/** Phase-2B opt-in bootstrap: only human-confirmed fix/revert or explicit
+ * dependency-retirement decisions, exact
  * first-parent deltas, and exactly one bindable candidate may compile. */
 export function bootstrapStructuralPolicies(
   store: HunchStore,
@@ -305,13 +360,17 @@ export function bootstrapStructuralPolicies(
     const prior = repository.getEvidence(baseEvent.id, homeView);
     try {
       const delta = extractStructuralDelta(root, meta.sha);
-      const enumerated = enumerateStructuralCandidates(store, delta, { publicOnly: opts.publicOnly, judgment: source });
+      const enumerated = enumerateStructuralCandidates(store, delta, {
+        publicOnly: opts.publicOnly,
+        judgment: source,
+        retiredDependenciesOnly: kind === "decision",
+      });
       baseEvent = eventFor(root, source, meta, kind, isPrivate, delta);
       if (enumerated.candidates.length !== 1) {
         report.uncompilable++;
         const reason = enumerated.candidates.length > 1
           ? `Ambiguous structural delta enumerated ${enumerated.candidates.length} exact supported candidates; Hunch refused to choose semantics.`
-          : `No exact supported structural assertion. ${enumerated.unsupported.slice(0, 4).join("; ") || "The delta contains no supported call/symbol fact."}`;
+          : `No exact supported structural assertion. ${enumerated.unsupported.slice(0, 4).join("; ") || "The delta contains no supported call/symbol/import fact."}`;
         if (canReclassify(prior) && (prior?.compiler?.status !== "uncompilable" || prior.compiler.reason !== reason)) {
           repository.putEvidence({ ...baseEvent, compiler: { status: "uncompilable", policy: null, reason } }, { private: isPrivate });
         }
