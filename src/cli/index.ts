@@ -1148,6 +1148,23 @@ policyCmd
   });
 
 policyCmd
+  .command("relations")
+  .description("Inspect explicit exception-parent links without evaluating, composing, activating, or enforcing policy.")
+  .argument("<id>", "policy id")
+  .option("--public-only", "exclude private-overlay policy records")
+  .action((id: string, opts: { publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const relations = new ConstitutionService(store, root).relations(id, { publicOnly: opts.publicOnly });
+      console.log(JSON.stringify(relations, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
   .command("evaluate")
   .description("Evaluate one or all policies with the neutral deterministic result algebra.")
   .argument("[id]", "optional policy id")

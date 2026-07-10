@@ -116,6 +116,7 @@ hunch policy corpus pol_… --import corpus.json
 hunch policy plan pol_… --history 20 --mutations 3
 hunch policy prove pol_…
 hunch policy card pol_…
+hunch policy relations pol_…
 hunch policy accept pol_… --blocking --actor github:your-name
 hunch policy evaluate pol_… --json
 ```
@@ -182,6 +183,9 @@ also carry an explicit human attestation—`{ "actor": "github:your-name", "reas
 document why that accepted variant belongs in the corpus. Attested fixtures are replayed once as
 named corpus evidence and excluded from accepted-history sampling; the attestation cannot waive a
 policy result or create authority.
+`policy relations` is a read-only view of those explicit exception-parent links. It shows the
+selected policy, its parent if any, linked narrower exceptions, and a visible missing-parent marker
+for a manually damaged record; it never evaluates or composes exception semantics.
 Planning runs no replay, test, model, or activation; `policy prove` binds its receipt to that plan.
 Proof execution checks out each unique immutable commit into a disposable worktree with hooks,
 user-global Git configuration, private-overlay discovery, and provider selection disabled. It

@@ -359,6 +359,51 @@ test("Phase 2H human-linked exceptions are exact, narrower, proof-invalidating, 
   }
 });
 
+test("Phase 2J exception relations are read-only, reverse-indexed, and surface a missing parent", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    store.json.put("decisions", decision("dec_exception_relations"));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const base = service.compile("dec_exception_relations", { now: NOW });
+    assert.notEqual(base.assertion.kind, "exists");
+    const parent = PolicySpecSchema.parse({
+      ...base,
+      id: "pol_eeeeeeeeee",
+      scope: { repos: [], paths: ["src/api/**"], components: [] },
+      assertion: base.assertion.kind === "exists" ? base.assertion : { ...base.assertion, kind: "not-reaches" },
+    });
+    const child = PolicySpecSchema.parse({
+      ...parent,
+      id: "pol_fffffffff0",
+      scope: { repos: [], paths: ["src/api/legacy.ts"], components: [] },
+      assertion: parent.assertion.kind === "exists" ? parent.assertion : { ...parent.assertion, kind: "reaches" },
+      exception_of: null,
+    });
+    service.repository.putPolicy(parent);
+    service.repository.putPolicy(child);
+    const linked = service.linkException(child.id, parent.id, "github:architect", "Legacy migration endpoint is intentionally narrow.", { now: "2026-07-10T11:00:00.000Z" });
+    const parentRelations = service.relations(parent.id, { publicOnly: true });
+    assert.equal(parentRelations.policy.id, parent.id);
+    assert.equal(parentRelations.exception_parent, null);
+    assert.equal(parentRelations.missing_exception_parent, null);
+    assert.deepEqual(parentRelations.exceptions.map((exception) => exception.id), [linked.id]);
+    assert.equal(parentRelations.exceptions[0]!.exception_of, parent.id);
+    const childRelations = service.relations(linked.id, { publicOnly: true });
+    assert.equal(childRelations.exception_parent?.id, parent.id);
+    assert.deepEqual(childRelations.exceptions, []);
+
+    const damaged = PolicySpecSchema.parse({ ...linked, id: "pol_fffffffff1", exception_of: "pol_aaaaaaaaaa" });
+    service.repository.putPolicy(damaged);
+    const damagedRelations = service.relations(damaged.id, { publicOnly: true });
+    assert.equal(damagedRelations.exception_parent, null);
+    assert.equal(damagedRelations.missing_exception_parent, "pol_aaaaaaaaaa");
+    assert.equal(service.get(linked.id, { publicOnly: true }).exception_of, parent.id, "inspection never mutates linked policy state");
+  } finally {
+    cleanup();
+  }
+});
+
 test("Phase 3E applies an exists mutation to isolated source and persists a parseable deletion diff", () => {
   const { root, store, cleanup } = layeredRepo();
   try {

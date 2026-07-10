@@ -21,6 +21,35 @@ export interface PolicyEvaluationSet {
   gate_error?: string;
 }
 
+export interface PolicyRelationSummary {
+  id: string;
+  statement: string;
+  state: PolicySpec["state"];
+  severity: PolicySpec["severity"];
+  data_class: PolicySpec["data_class"];
+  scope: PolicySpec["scope"];
+  exception_of: string | null;
+}
+
+export interface PolicyExceptionRelations {
+  policy: PolicyRelationSummary;
+  exception_parent: PolicyRelationSummary | null;
+  missing_exception_parent: string | null;
+  exceptions: PolicyRelationSummary[];
+}
+
+function relationSummary(policy: PolicySpec): PolicyRelationSummary {
+  return {
+    id: policy.id,
+    statement: policy.statement,
+    state: policy.state,
+    severity: policy.severity,
+    data_class: policy.data_class,
+    scope: policy.scope,
+    exception_of: policy.exception_of,
+  };
+}
+
 export class ConstitutionService {
   readonly repository: PolicyRepository;
 
@@ -28,7 +57,7 @@ export class ConstitutionService {
     this.repository = new PolicyRepository(root, store);
   }
 
-  list(opts: { publicOnly?: boolean; state?: string } = {}): PolicySpec[] {
+  list(opts: { publicOnly?: boolean; privateOnly?: boolean; state?: string } = {}): PolicySpec[] {
     const all = this.repository.listPolicies(opts);
     return opts.state ? all.filter((p) => p.state === opts.state) : all;
   }
@@ -131,6 +160,22 @@ export class ConstitutionService {
     if (childHome !== parentHome) throw new Error("exception and parent must live in the same public/private policy home");
     const linked = linkPolicyException(child, parent, actor, reason, opts.now ?? new Date().toISOString());
     return this.repository.putPolicy(linked, { private: childHome === "private" });
+  }
+
+  relations(id: string, opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicyExceptionRelations {
+    const policy = this.get(id, opts);
+    const policies = this.list(opts);
+    const parent = policy.exception_of
+      ? policies.find((candidate) => candidate.id === policy.exception_of)
+      : undefined;
+    return {
+      policy: relationSummary(policy),
+      exception_parent: parent ? relationSummary(parent) : null,
+      missing_exception_parent: policy.exception_of && !parent ? policy.exception_of : null,
+      exceptions: policies
+        .filter((candidate) => candidate.exception_of === policy.id)
+        .map(relationSummary),
+    };
   }
 
   evaluate(opts: { id?: string; activeOnly?: boolean; publicOnly?: boolean } = {}): PolicyEvaluationSet[] {
