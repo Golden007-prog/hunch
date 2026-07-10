@@ -19,6 +19,7 @@ import {
   type PolicySpec,
   type ProofPlan,
 } from "./schema.js";
+import { runSourceMutation } from "./sourceMutation.js";
 
 type PlannedMutation = ProofPlan["mutations"][number];
 
@@ -93,6 +94,7 @@ function errorReceipt(
   planned: PlannedMutation,
   kind: "primary" | "control",
   code: string,
+  parseability: MutationReceipt["parseability"] = "not_applicable",
 ): MutationReceipt {
   return receipt(policy, base, {
     kind,
@@ -101,13 +103,14 @@ function errorReceipt(
     expected: planned.expected,
     result: "error",
     passed: false,
-    parseability: "not_applicable",
+    parseability,
     graph_diff: { added_symbols: [], removed_symbols: [], added_edges: [], removed_edges: [] },
     error_code: code,
   });
 }
 
 function primaryMutation(
+  root: string,
   policy: PolicySpec,
   base: GraphSnapshot,
   planned: PlannedMutation,
@@ -115,6 +118,38 @@ function primaryMutation(
   const expectedOperator = mutationOperatorForPolicy(policy);
   if (planned.operator !== expectedOperator) {
     throw new Error(`proof plan mutation ${planned.operator} does not match evaluator operator ${expectedOperator}`);
+  }
+  if (/^[a-f0-9]{40}$/.test(base.head)) {
+    const source = runSourceMutation(root, policy, base);
+    if (!source.snapshot || !source.evaluation || !source.source_patch) {
+      const code = source.error_code ?? "source-mutation-failed";
+      return {
+        receipt: errorReceipt(
+          policy,
+          base,
+          planned,
+          "primary",
+          code,
+          code === "mutation-source-unparseable" ? "unparseable" : "not_applicable",
+        ),
+      };
+    }
+    return {
+      evaluation: source.evaluation,
+      receipt: receipt(policy, base, {
+        kind: "primary",
+        operator: planned.operator,
+        required: planned.required,
+        mutated_graph_hash: source.snapshot.graph_hash,
+        expected: planned.expected,
+        result: source.evaluation.result,
+        passed: source.evaluation.result === planned.expected,
+        parseability: "parseable",
+        graph_diff: graphDiff(base, source.snapshot),
+        source_patch: source.source_patch,
+        evaluation_hash: proofEvaluationHash(source.evaluation),
+      }),
+    };
   }
   const mutation = mutateSnapshotForPolicy(policy, base);
   if (!mutation) return { receipt: errorReceipt(policy, base, planned, "primary", "mutation-unavailable") };
@@ -215,6 +250,7 @@ function sameNameControl(
 /** Execute only canonical evaluator/parser mutations. Project scripts, builds,
  * tests, models, and providers are deliberately outside this evidence path. */
 export function runMutationHarness(
+  root: string,
   policy: PolicySpec,
   base: GraphSnapshot,
   planned: PlannedMutation[],
@@ -225,7 +261,7 @@ export function runMutationHarness(
     if (mutation.operator === "comment-string-control") receipts.push(commentStringControl(policy, base, mutation));
     else if (mutation.operator === "same-name-ambiguity-control") receipts.push(sameNameControl(policy, base, mutation));
     else {
-      const primary = primaryMutation(policy, base, mutation);
+      const primary = primaryMutation(root, policy, base, mutation);
       receipts.push(primary.receipt);
       if (primary.evaluation) primaryEvaluations.push(primary.evaluation);
     }

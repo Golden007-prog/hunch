@@ -112,9 +112,7 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.equal(service.evaluate({ id: compiled.id })[0]!.evaluation.deterministic_hash, before.evaluation.deterministic_hash, "same graph yields byte-stable receipt hash");
 
     const proved = service.prove(compiled.id, { now: "2026-07-10T10:01:00.000Z" });
-    assert.equal(proved.proof.proof_class, "P3", "clean baseline + caught bypass mutation earns P3");
     assert.equal(proved.proof.current.satisfied, 1);
-    assert.equal(proved.proof.mutations.violated, 1);
     assert.equal(proved.proof.mutation_receipts.length, 3);
     assert.deepEqual(proved.proof.mutation_controls, {
       total: 2,
@@ -123,8 +121,15 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
       receipt_hashes: proved.proof.mutation_controls.receipt_hashes,
     });
     const primaryMutation = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primaryMutation.error_code, undefined, JSON.stringify(primaryMutation));
     assert.equal(primaryMutation.passed, true);
+    assert.equal(proved.proof.mutations.violated, 1);
+    assert.equal(proved.proof.proof_class, "P3", "clean baseline + caught bypass mutation earns P3");
     assert.equal(primaryMutation.graph_diff.added_edges.length, 1, "primary graph diff is persisted in the proof");
+    assert.equal(primaryMutation.parseability, "parseable");
+    assert.deepEqual(primaryMutation.source_patch?.files, ["src/api/orders.ts"]);
+    assert.match(primaryMutation.source_patch?.diff ?? "", /hunch deterministic source mutation/);
+    assert.ok(primaryMutation.source_patch?.diff_hash.startsWith("sha1:"));
     const commentControl = proved.proof.mutation_receipts.find((receipt) => receipt.operator === "comment-string-control")!;
     assert.equal(commentControl.parseability, "parseable");
     assert.deepEqual(commentControl.parser_control?.observed_target_calls, []);
@@ -150,7 +155,7 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.ok(plan);
     assert.equal(proved.proof.plan_hash, plan.content_hash, "proof binds the persisted canonical plan");
     assert.equal(plan.corpus.current_baseline.expected, "satisfied");
-    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "1" });
+    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "2" });
     assert.equal(plan.mutations[0]?.operator, "add-bypass-edge");
     assert.deepEqual(plan.mutations.map((mutation) => mutation.operator), ["add-bypass-edge", "comment-string-control", "same-name-ambiguity-control"]);
     assert.ok(existsSync(join(root, ".hunch/plans", `${plan.id}.json`)), "ProofPlan is Git-native JSON");
@@ -306,6 +311,35 @@ test("neutral result algebra keeps not_applicable, unknown, and error distinct",
     const mutation = mutateSnapshotForPolicy(policy, snapshot);
     assert.ok(mutation);
     assert.equal(evaluatePolicyOnSnapshot(policy, mutation.snapshot).result, "violated");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Phase 3E applies an exists mutation to isolated source and persists a parseable deletion diff", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    store.json.put("decisions", {
+      ...decision("dec_exists_source_mutation"),
+      title: "The order service entrypoint must exist",
+      conformance: [{ assert: "exists", subject: "fetchOrders", transitive: false }],
+    });
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const policy = service.compile("dec_exists_source_mutation", { now: NOW });
+    const sourceFile = join(root, "src/services/orders.ts");
+    const before = readFileSync(sourceFile, "utf8");
+    const proved = service.prove(policy.id, { now: "2026-07-10T10:01:00.000Z" });
+    const primary = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "delete-required-symbol");
+    assert.equal(primary.result, "violated");
+    assert.equal(primary.passed, true);
+    assert.equal(primary.parseability, "parseable");
+    assert.deepEqual(primary.source_patch?.files, ["src/services/orders.ts"]);
+    assert.match(primary.source_patch?.diff ?? "", /-export function fetchOrders/);
+    assert.equal(primary.graph_diff.removed_symbols.length, 1);
+    assert.equal(readFileSync(sourceFile, "utf8"), before, "source mutation never changes the active checkout");
+    assert.deepEqual(readdirSync(join(root, ".hunch-cache/mutations")), []);
   } finally {
     cleanup();
   }
@@ -570,7 +604,7 @@ test("Phase 2A bootstrap rejects invalid windows and has no synthesis dependency
     store.json.put("decisions", decision("dec_window"));
     const service = new ConstitutionService(store, root);
     assert.throws(() => service.bootstrap({ since: "forever", now: "2026-07-10T12:00:00.000Z" }), /--since/);
-    for (const file of ["bootstrap.ts", "structural.ts", "delta.ts", "adapters.ts", "plan.ts", "replay.ts", "replayWorker.ts", "replayCache.ts", "mutation.ts", "card.ts"]) {
+    for (const file of ["bootstrap.ts", "structural.ts", "delta.ts", "adapters.ts", "plan.ts", "replay.ts", "replayWorker.ts", "replayCache.ts", "mutation.ts", "sourceMutation.ts", "card.ts"]) {
       const source = readFileSync(join(process.cwd(), "src/constitution", file), "utf8");
       assert.doesNotMatch(source, /synthesis\/|selectProvider|SynthesisProvider/, `${file} has no model/provider dependency`);
     }
@@ -679,6 +713,10 @@ test("Phase 3 replays current, known-bad, known-good, and bounded accepted histo
     const exactAmbiguityControl = first.proof.mutation_receipts.find((receipt) => receipt.operator === "same-name-ambiguity-control")!;
     assert.equal(exactAmbiguityControl.expected, "satisfied");
     assert.equal(exactAmbiguityControl.result, "satisfied", "file-qualified selectors ignore unrelated same-name symbols");
+    const sourceMutation = first.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(sourceMutation.parseability, "parseable");
+    assert.deepEqual(sourceMutation.source_patch?.files, ["src/payments/charge.ts"]);
+    assert.match(sourceMutation.source_patch?.diff ?? "", /hunchMutationRemovedCall/);
     assert.equal(first.proof.replay_receipts.find((receipt) => receipt.leg === "accepted_history")?.commit, accepted);
     assert.ok(first.proof.artifact_hashes.replay_manifest);
     assert.equal(first.policy.authority, null);
@@ -711,6 +749,7 @@ test("Phase 3 replays current, known-bad, known-good, and bounded accepted histo
     assert.equal(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" }), worktreesBefore);
     assert.equal(existsSync(sentinel), false, "repository post-checkout hook is disabled for replay worktrees");
     assert.deepEqual(readdirSync(join(root, ".hunch-cache/worktrees")), [], "every disposable checkout and graph is removed");
+    assert.deepEqual(readdirSync(join(root, ".hunch-cache/mutations")), [], "every disposable source-mutation checkout and graph is removed");
   } finally {
     cleanup();
   }

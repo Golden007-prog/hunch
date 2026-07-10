@@ -77,7 +77,7 @@ export function provePolicy(
     expected: "violated" as const,
     required: true,
   }];
-  const mutationHarness = runMutationHarness(policy, mutationBase, plannedMutations);
+  const mutationHarness = runMutationHarness(root, policy, mutationBase, plannedMutations);
   const mutationSummary = summary(mutationHarness.primary_evaluations);
   if (replay) mutationSummary.receipt_hashes = mutationHarness.primary_evaluations.map(proofEvaluationHash);
   const primaryMutationReceipts = mutationHarness.receipts.filter((receipt) => receipt.kind === "primary");
@@ -140,7 +140,7 @@ export function provePolicy(
           : "Accepted-history selector resolved to zero non-baseline commits.",
         ...(historyHits ? [`Accepted-history contains ${historyHits} unclassified violation hit(s); no false-positive claim or blocking approval is allowed until classification.`] : []),
         ...(replayProblems ? [`Accepted-history contains ${replayProblems} unknown/error result(s); they remain visible and prevent blocking approval.`] : []),
-        "Mutation controls cover graph sensitivity, comment/string parser exclusion, and same-name ambiguity; source-patch mutation and project build/test outcomes remain separate follow-on evidence.",
+        "Primary mutation applies to an immutable disposable source checkout and must remain parseable; comment/string and same-name controls are separate, while project build/test outcomes remain non-authoritative follow-on evidence.",
         "Shadow outcomes remain pending.",
       ] : ["Gate G1 proof covers the current graph and one deterministic mutation; historical replay and shadow outcomes are not available without a ProofPlan."]),
     ],

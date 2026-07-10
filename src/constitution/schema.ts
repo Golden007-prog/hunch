@@ -3,7 +3,7 @@ import { ProvenanceSchema } from "../core/types.js";
 
 export const POLICY_IR_VERSION = 1;
 export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.0.0" } as const;
-export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "1" } as const;
+export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "2" } as const;
 
 export const DataClassSchema = z.enum(["public", "private", "secret"]);
 export type DataClass = z.infer<typeof DataClassSchema>;
@@ -323,6 +323,11 @@ export const MutationReceiptSchema = z.object({
     source_hash: z.string().min(1),
     observed_target_calls: z.array(z.string()).default([]),
     observed_target_imports: z.array(z.string()).default([]),
+  }).strict().optional(),
+  source_patch: z.object({
+    files: z.array(z.string()).min(1),
+    diff: z.string().min(1).max(65536),
+    diff_hash: z.string().min(1),
   }).strict().optional(),
   evaluation_hash: z.string().min(1).optional(),
   error_code: z.string().min(1).optional(),

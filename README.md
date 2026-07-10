@@ -148,9 +148,11 @@ The first Level-1 evaluator is `must-pass-through`: every statically discovered 
 must contain B. CLI, MCP (`hunch_policy_evaluate`), and strict CI share the exact canonical receipt.
 Models do not participate in evaluation or activation. Plan-bound proofs cover the committed current
 baseline, known-good/known-bad fixtures, bounded accepted history, and a canonical mutation
-manifest. The manifest records the primary graph diff plus comment/string parser and same-name
-ambiguity controls; a failed required control prevents blocking review. Optional project build/test
-status is reported separately and is never required for evaluator sensitivity. Historical hits are
+manifest. The primary mutation is applied to an immutable disposable source checkout, must remain
+parseable, and persists its exact Git diff plus resulting graph diff. Comment/string parser and
+same-name ambiguity controls remain separate; any failed required receipt prevents blocking review.
+Optional project build/test status is reported separately and is never required for evaluator
+sensitivity. Historical hits are
 not called false positives until classified, and unclassified hits or replay errors prevent
 blocking approval. Shadow evidence and broader compiler inference remain follow-on work and are
 reported as limitations in the proof artifact.

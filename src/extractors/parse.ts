@@ -26,6 +26,7 @@ export interface ParsedSymbol {
 export interface ParsedCall {
   callee: string;
   atByte: number;
+  endByte: number;
   /** true for `x.foo()` (property access), false for a direct `foo()` call. */
   member: boolean;
 }
@@ -141,10 +142,10 @@ export function parseSource(file: string, source: string): ParsedFile | null {
     } else if (cname === "import.src") {
       imports.push(node.text.replace(STR_QUOTES, ""));
     } else if (cname === "call.id") {
-      calls.push({ callee: node.text, atByte: node.startIndex, member: false });
+      calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: false });
     } else if (cname === "call.member") {
       // skip builtin method names to avoid false edges to similarly-named symbols
-      if (!BUILTIN_METHODS.has(node.text)) calls.push({ callee: node.text, atByte: node.startIndex, member: true });
+      if (!BUILTIN_METHODS.has(node.text)) calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: true });
     }
   }
 
