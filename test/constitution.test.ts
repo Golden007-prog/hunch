@@ -115,26 +115,58 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.equal(proved.proof.proof_class, "P3", "clean baseline + caught bypass mutation earns P3");
     assert.equal(proved.proof.current.satisfied, 1);
     assert.equal(proved.proof.mutations.violated, 1);
+    assert.equal(proved.proof.mutation_receipts.length, 3);
+    assert.deepEqual(proved.proof.mutation_controls, {
+      total: 2,
+      passed: 2,
+      failed: 0,
+      receipt_hashes: proved.proof.mutation_controls.receipt_hashes,
+    });
+    const primaryMutation = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primaryMutation.passed, true);
+    assert.equal(primaryMutation.graph_diff.added_edges.length, 1, "primary graph diff is persisted in the proof");
+    const commentControl = proved.proof.mutation_receipts.find((receipt) => receipt.operator === "comment-string-control")!;
+    assert.equal(commentControl.parseability, "parseable");
+    assert.deepEqual(commentControl.parser_control?.observed_target_calls, []);
+    assert.deepEqual(commentControl.parser_control?.observed_target_imports, []);
+    const ambiguityControl = proved.proof.mutation_receipts.find((receipt) => receipt.operator === "same-name-ambiguity-control")!;
+    assert.equal(ambiguityControl.expected, "unknown");
+    assert.equal(ambiguityControl.result, "unknown", "bare-name selectors fail safely when same-named symbols are introduced");
+    assert.equal(ambiguityControl.passed, true);
+    assert.deepEqual(proved.proof.project_checks, { build: "not_run", test: "not_run", required_for_evaluator_sensitivity: false });
+    assert.ok(proved.proof.artifact_hashes.mutation_manifest);
     assert.equal(proved.proof.replay_receipts.some((receipt) => receipt.leg === "current_baseline"), true);
     const card = service.card(compiled.id);
     assert.equal(card.policy.id, compiled.id);
     assert.equal(card.authority.eligible_for_human_blocking_approval, true);
     assert.equal(card.authority.can_block_now, false, "proof readiness never substitutes for explicit authority");
+    assert.equal(card.evidence_vector.mutation_controls.passed, 2);
     assert.equal(buildProofCard(proved.policy, proved.proof).card_hash, card.card_hash);
     assert.match(renderProofCard(card), /proof cannot activate policy/);
+    assert.match(renderProofCard(card), /mutation controls: 2\/2 passed/);
+    assert.match(renderProofCard(card), /project checks: build not_run · test not_run/);
     assert.doesNotMatch(renderProofCard(card), /confidence/i, "proof card reports a vector, never an opaque confidence score");
     const plan = service.repository.listPlans({ publicOnly: true })[0]!;
     assert.ok(plan);
     assert.equal(proved.proof.plan_hash, plan.content_hash, "proof binds the persisted canonical plan");
     assert.equal(plan.corpus.current_baseline.expected, "satisfied");
+    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "1" });
     assert.equal(plan.mutations[0]?.operator, "add-bypass-edge");
+    assert.deepEqual(plan.mutations.map((mutation) => mutation.operator), ["add-bypass-edge", "comment-string-control", "same-name-ambiguity-control"]);
     assert.ok(existsSync(join(root, ".hunch/plans", `${plan.id}.json`)), "ProofPlan is Git-native JSON");
     const planJson = canonicalJson(plan);
     assert.equal(canonicalJson(service.plan(compiled.id, { publicOnly: true, now: "2026-07-10T10:05:00.000Z" })), planJson, "same immutable inputs reuse the byte-stable plan");
+    assert.throws(
+      () => provePolicy(store, root, compiled, { publicOnly: true, now: NOW, plan: { ...plan, mutation_engine: undefined } }),
+      /requires regeneration for mutation engine/,
+      "a plan without the current mutation-engine identity cannot reuse proof authority",
+    );
     const boundedPlan = service.plan(compiled.id, { publicOnly: true, maxCommits: 0, maxMutations: 0, now: "2026-07-10T10:05:00.000Z" });
     const boundedProof = provePolicy(store, root, compiled, { publicOnly: true, now: "2026-07-10T10:05:00.000Z", plan: boundedPlan });
     assert.equal(boundedProof.accepted_history.total, 0);
     assert.equal(boundedProof.mutations.total, 0, "a zero-mutation ProofPlan executes no implicit mutation outside its budget");
+    assert.equal(boundedProof.mutation_receipts.length, 0);
+    assert.equal(boundedProof.mutation_controls.total, 0);
     assert.equal(boundedProof.proof_class, "P2", "clean baseline plus completed zero-commit history earns P2 without inventing P3 sensitivity");
     assert.equal(proved.policy.state, "proposed");
     assert.equal(service.compile("dec_layer", { through: "fetchOrders", now: NOW }).state, "proposed", "recompile preserves incumbent lifecycle state");
@@ -155,6 +187,24 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
       () => approvePolicy(proved.policy, unclassified, "blocking", "human:test-owner", "2026-07-10T10:01:30.000Z"),
       /unclassified accepted-history/,
       "a historical hit cannot be silently treated as a false positive or approved for blocking",
+    );
+    const failedControl = {
+      ...proved.proof,
+      mutation_controls: { total: 2, passed: 1, failed: 1, receipt_hashes: proved.proof.mutation_controls.receipt_hashes },
+    };
+    assert.throws(
+      () => approvePolicy(proved.policy, failedControl, "blocking", "human:test-owner", "2026-07-10T10:01:31.000Z"),
+      /failed required mutation controls/,
+      "a failed required control refuses blocking approval",
+    );
+    const failedPrimary = {
+      ...proved.proof,
+      mutation_receipts: proved.proof.mutation_receipts.map((receipt, index) => index === 0 ? { ...receipt, passed: false } : receipt),
+    };
+    assert.throws(
+      () => approvePolicy(proved.policy, failedPrimary, "blocking", "human:test-owner", "2026-07-10T10:01:32.000Z"),
+      /failed required mutation receipt/,
+      "a failed required primary mutation cannot borrow P3 strength from another proof leg",
     );
     const unsafeCard = buildProofCard(proved.policy, unclassified);
     assert.equal(unsafeCard.authority.eligible_for_human_blocking_approval, false);
@@ -520,7 +570,7 @@ test("Phase 2A bootstrap rejects invalid windows and has no synthesis dependency
     store.json.put("decisions", decision("dec_window"));
     const service = new ConstitutionService(store, root);
     assert.throws(() => service.bootstrap({ since: "forever", now: "2026-07-10T12:00:00.000Z" }), /--since/);
-    for (const file of ["bootstrap.ts", "structural.ts", "delta.ts", "adapters.ts", "plan.ts", "replay.ts", "replayWorker.ts", "replayCache.ts", "card.ts"]) {
+    for (const file of ["bootstrap.ts", "structural.ts", "delta.ts", "adapters.ts", "plan.ts", "replay.ts", "replayWorker.ts", "replayCache.ts", "mutation.ts", "card.ts"]) {
       const source = readFileSync(join(process.cwd(), "src/constitution", file), "utf8");
       assert.doesNotMatch(source, /synthesis\/|selectProvider|SynthesisProvider/, `${file} has no model/provider dependency`);
     }
@@ -620,6 +670,15 @@ test("Phase 3 replays current, known-bad, known-good, and bounded accepted histo
     assert.equal(first.proof.accepted_history.total, 1, "HEAD is not duplicated inside accepted history");
     assert.equal(first.proof.accepted_history.satisfied, 1);
     assert.equal(first.proof.accepted_history.error, 0);
+    assert.deepEqual(first.proof.mutation_controls, {
+      total: 2,
+      passed: 2,
+      failed: 0,
+      receipt_hashes: first.proof.mutation_controls.receipt_hashes,
+    });
+    const exactAmbiguityControl = first.proof.mutation_receipts.find((receipt) => receipt.operator === "same-name-ambiguity-control")!;
+    assert.equal(exactAmbiguityControl.expected, "satisfied");
+    assert.equal(exactAmbiguityControl.result, "satisfied", "file-qualified selectors ignore unrelated same-name symbols");
     assert.equal(first.proof.replay_receipts.find((receipt) => receipt.leg === "accepted_history")?.commit, accepted);
     assert.ok(first.proof.artifact_hashes.replay_manifest);
     assert.equal(first.policy.authority, null);

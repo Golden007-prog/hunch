@@ -147,10 +147,13 @@ Timeouts, worker failures, unresolved refs, unknowns, and errors remain explicit
 The first Level-1 evaluator is `must-pass-through`: every statically discovered path from A to C
 must contain B. CLI, MCP (`hunch_policy_evaluate`), and strict CI share the exact canonical receipt.
 Models do not participate in evaluation or activation. Plan-bound proofs cover the committed current
-baseline, known-good/known-bad fixtures, bounded accepted history, and one deterministic mutation.
-Historical hits are not called false positives until classified, and unclassified hits or replay
-errors prevent blocking approval. Shadow evidence and broader compiler inference remain follow-on
-work and are reported as limitations in the proof artifact.
+baseline, known-good/known-bad fixtures, bounded accepted history, and a canonical mutation
+manifest. The manifest records the primary graph diff plus comment/string parser and same-name
+ambiguity controls; a failed required control prevents blocking review. Optional project build/test
+status is reported separately and is never required for evaluator sensitivity. Historical hits are
+not called false positives until classified, and unclassified hits or replay errors prevent
+blocking approval. Shadow evidence and broader compiler inference remain follow-on work and are
+reported as limitations in the proof artifact.
 
 `policy card` (also `hunch_policy_card` over MCP) renders the same deterministic review surface for
 every client: exact assertion and scope, raw evidence vector, unclassified hits, unknown/errors,

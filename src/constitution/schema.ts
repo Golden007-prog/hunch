@@ -3,6 +3,7 @@ import { ProvenanceSchema } from "../core/types.js";
 
 export const POLICY_IR_VERSION = 1;
 export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.0.0" } as const;
+export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "1" } as const;
 
 export const DataClassSchema = z.enum(["public", "private", "secret"]);
 export type DataClass = z.infer<typeof DataClassSchema>;
@@ -213,6 +214,7 @@ export const ProofPlanSchema = z.object({
   source_commit: z.string().min(1),
   valid_from_commit: z.string().min(1),
   evaluator: z.object({ name: z.string().min(1), version: z.string().min(1) }),
+  mutation_engine: z.object({ name: z.string().min(1), version: z.string().min(1) }).optional(),
   corpus: z.object({
     current_baseline: ProofFixtureRefSchema,
     accepted_history: z.object({
@@ -297,11 +299,56 @@ export const ReplayReceiptSchema = z.object({
 }).strict();
 export type ReplayReceipt = z.infer<typeof ReplayReceiptSchema>;
 
+export const MutationReceiptSchema = z.object({
+  id: z.string().regex(/^mut_[a-f0-9]{10}$/),
+  kind: z.enum(["primary", "control"]),
+  operator: z.string().min(1),
+  required: z.boolean(),
+  engine: z.object({ name: z.string().min(1), version: z.string().min(1) }),
+  policy_hash: z.string().min(1),
+  base_commit: z.string().min(1),
+  base_graph_hash: z.string().min(1),
+  mutated_graph_hash: z.string().min(1).optional(),
+  expected: PolicyEvaluationResultSchema,
+  result: PolicyEvaluationResultSchema,
+  passed: z.boolean(),
+  parseability: z.enum(["parseable", "unparseable", "not_applicable"]),
+  graph_diff: z.object({
+    added_symbols: z.array(z.string()).default([]),
+    removed_symbols: z.array(z.string()).default([]),
+    added_edges: z.array(z.string()).default([]),
+    removed_edges: z.array(z.string()).default([]),
+  }).strict(),
+  parser_control: z.object({
+    source_hash: z.string().min(1),
+    observed_target_calls: z.array(z.string()).default([]),
+    observed_target_imports: z.array(z.string()).default([]),
+  }).strict().optional(),
+  evaluation_hash: z.string().min(1).optional(),
+  error_code: z.string().min(1).optional(),
+  deterministic_hash: z.string().min(1),
+}).strict();
+export type MutationReceipt = z.infer<typeof MutationReceiptSchema>;
+
+const MutationControlSummarySchema = z.object({
+  total: z.number().int().min(0),
+  passed: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  receipt_hashes: z.array(z.string()).default([]),
+}).strict();
+
+const ProjectChecksSchema = z.object({
+  build: z.enum(["not_run", "passed", "failed", "error"]).default("not_run"),
+  test: z.enum(["not_run", "passed", "failed", "error"]).default("not_run"),
+  required_for_evaluator_sensitivity: z.literal(false).default(false),
+}).strict();
+
 export const PolicyProofSchema = z.object({
   id: z.string().regex(/^proof_[a-f0-9]{10}$/),
   plan_hash: z.string(),
   policy_hash: z.string(),
   evaluator: z.object({ name: z.string(), version: z.string() }),
+  mutation_engine: z.object({ name: z.string(), version: z.string() }).optional(),
   generated_at: z.string().datetime({ offset: true }),
   current: EvaluationSummarySchema,
   known_bad: EvaluationSummarySchema,
@@ -309,6 +356,9 @@ export const PolicyProofSchema = z.object({
   accepted_history: EvaluationSummarySchema.extend({ classified_hits: z.array(z.string()).default([]) }),
   mutations: EvaluationSummarySchema.extend({ operator_coverage: z.record(z.string(), z.number().int().min(0)).default({}) }),
   replay_receipts: z.array(ReplayReceiptSchema).default([]),
+  mutation_receipts: z.array(MutationReceiptSchema).default([]),
+  mutation_controls: MutationControlSummarySchema.default({ total: 0, passed: 0, failed: 0, receipt_hashes: [] }),
+  project_checks: ProjectChecksSchema.default({ build: "not_run", test: "not_run", required_for_evaluator_sensitivity: false }),
   limitations: z.array(z.string()).default([]),
   proof_class: ProofClassSchema,
   artifact_hashes: z.record(z.string(), z.string()).default({}),

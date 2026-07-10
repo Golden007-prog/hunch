@@ -23,7 +23,9 @@ export interface ProofCard {
     known_good: EvaluationSummary;
     accepted_history: PolicyProof["accepted_history"];
     mutations: PolicyProof["mutations"];
+    mutation_controls: PolicyProof["mutation_controls"];
   };
+  project_checks: PolicyProof["project_checks"];
   uncertainty: {
     unclassified_history_hits: number;
     unknown_results: number;
@@ -52,6 +54,7 @@ export function buildProofCard(policy: PolicySpec, proof: PolicyProof): ProofCar
   if (!semanticMatch) actions.push("Regenerate the plan and proof for the current policy semantics.");
   if (proof.accepted_history.violated > proof.accepted_history.classified_hits.length) actions.push("Classify every accepted-history violation before considering blocking approval.");
   if (unknownResults || errorResults) actions.push("Repair or explicitly resolve every unknown/error proof result.");
+  if (proof.mutation_controls.failed) actions.push("Repair every failed required mutation control before considering blocking approval.");
   if (eligible && !canBlock) actions.push("A human may review and explicitly activate blocking mode; the proof and any earlier advisory approval grant no blocking authority by themselves.");
   if (!eligible && actions.length === 0) actions.push("Strengthen the evidence vector before requesting blocking approval.");
   actions.push("Review the exact assertion, scope, evidence, and limitations before any lifecycle action.");
@@ -74,7 +77,9 @@ export function buildProofCard(policy: PolicySpec, proof: PolicyProof): ProofCar
       known_good: proof.known_good,
       accepted_history: proof.accepted_history,
       mutations: proof.mutations,
+      mutation_controls: proof.mutation_controls,
     },
+    project_checks: proof.project_checks,
     uncertainty: {
       unclassified_history_hits: Math.max(0, proof.accepted_history.violated - proof.accepted_history.classified_hits.length),
       unknown_results: unknownResults,
@@ -109,6 +114,8 @@ export function renderProofCard(card: ProofCard): string {
     `  ${line("known good", card.evidence_vector.known_good)}`,
     `  ${line("accepted history", card.evidence_vector.accepted_history)}`,
     `  ${line("mutations", card.evidence_vector.mutations)}`,
+    `  mutation controls: ${card.evidence_vector.mutation_controls.passed}/${card.evidence_vector.mutation_controls.total} passed · ${card.evidence_vector.mutation_controls.failed} failed`,
+    `  project checks: build ${card.project_checks.build} · test ${card.project_checks.test} · never required for evaluator sensitivity`,
     `  uncertainty: ${card.uncertainty.unclassified_history_hits} unclassified history hit · ${card.uncertainty.unknown_results} unknown · ${card.uncertainty.error_results} error`,
     `  blocking readiness: ${card.authority.eligible_for_human_blocking_approval ? "eligible for explicit human review" : `not eligible${card.authority.blocking_evidence_error ? ` — ${card.authority.blocking_evidence_error}` : ""}`}`,
     `  authority: ${card.authority.current?.kind === "human" ? card.authority.current.actor : "none — proof cannot activate policy"}`,

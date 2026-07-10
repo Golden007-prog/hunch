@@ -17,10 +17,16 @@ type Alias = string;
 
 test("parseSource extracts symbols, imports, calls", () => {
   const p = parseSource("src/auth/session.ts", SRC)!;
+  assert.equal(p.parseable, true);
   const names = p.symbols.map((s) => s.name).sort();
   assert.deepEqual(names, ["Alias", "Service", "Shape", "helper", "run", "verifySession"].sort());
   assert.deepEqual(p.imports.sort(), ["./jwt.js", "external"].sort());
   assert.ok(p.calls.some((c) => c.callee === "jwtDecode"));
+});
+
+test("parseSource reports syntax-error trees without inventing a clean parse", () => {
+  const parsed = parseSource("broken.ts", "export function broken( {")!;
+  assert.equal(parsed.parseable, false);
 });
 
 test("attributeCalls maps callee to enclosing symbol (keyed by stable byte offset)", () => {

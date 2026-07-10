@@ -6,6 +6,12 @@ function isHumanActor(actor: string): boolean {
 }
 
 export function blockingEvidenceError(proof: PolicyProof): string | null {
+  if (proof.mutation_receipts.some((receipt) => receipt.required && !receipt.passed)) {
+    return "blocking proof has a failed required mutation receipt";
+  }
+  if (proof.mutation_controls.failed > 0) {
+    return "blocking proof has failed required mutation controls";
+  }
   if (proof.known_bad.total > 0 && proof.known_bad.violated !== proof.known_bad.total) {
     return "blocking proof did not catch every declared known-bad fixture";
   }

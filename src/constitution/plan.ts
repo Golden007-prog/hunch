@@ -3,9 +3,11 @@ import { shortHash } from "../core/ids.js";
 import { firstCommitForFile, headSha, revExists, revParse } from "../extractors/git.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { canonicalHash, policySemanticHash } from "./canonical.js";
+import { mutationOperatorForPolicy } from "./evaluator.js";
 import type { PolicyRepository } from "./repository.js";
 import {
   POLICY_EVALUATOR,
+  MUTATION_ENGINE,
   ProofPlanSchema,
   type EvidenceEvent,
   type PolicySpec,
@@ -26,11 +28,10 @@ function clamp(value: number | undefined, fallback: number, min: number, max: nu
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
-function mutationOperator(policy: PolicySpec): string {
-  if (policy.assertion.kind === "exists") return "delete-required-symbol";
-  if (policy.assertion.kind === "reaches") return "remove-required-path";
-  if (policy.assertion.kind === "must-pass-through") return "add-bypass-edge";
-  return "add-forbidden-edge";
+function hasBareNameSelector(policy: PolicySpec): boolean {
+  const assertion = policy.assertion;
+  const selectors = [assertion.subject, ...(assertion.kind === "exists" ? [] : [assertion.object]), ...(assertion.kind === "must-pass-through" ? [assertion.via] : [])];
+  return selectors.some(({ selector }) => selector.startsWith("symbol:") && !selector.slice("symbol:".length).includes(":"));
 }
 
 function relevantEvents(repository: PolicyRepository, policy: PolicySpec, opts: ProofPlanOptions): EvidenceEvent[] {
@@ -78,7 +79,17 @@ export function createProofPlan(
     : [];
   const maxCommits = clamp(opts.maxCommits, 20, 0, 500);
   const maxMutations = clamp(opts.maxMutations, 3, 0, 100);
-  const operator = mutationOperator(policy);
+  const operator = mutationOperatorForPolicy(policy);
+  const plannedMutations = [
+    { operator, base: head, expected: "violated" as const, required: true },
+    { operator: "comment-string-control", base: head, expected: "satisfied" as const, required: true },
+    {
+      operator: "same-name-ambiguity-control",
+      base: head,
+      expected: hasBareNameSelector(policy) ? "unknown" as const : "satisfied" as const,
+      required: true,
+    },
+  ].slice(0, maxMutations);
   const body = {
     policy_id: policy.id,
     policy_candidate_hash: policySemanticHash(policy),
@@ -87,6 +98,7 @@ export function createProofPlan(
     source_commit: sourceCommit,
     valid_from_commit: sourceCommit,
     evaluator: { ...POLICY_EVALUATOR },
+    mutation_engine: { ...MUTATION_ENGINE },
     corpus: {
       current_baseline: { kind: "commit" as const, ref: head, label: "current repository baseline", expected: "satisfied" as const },
       accepted_history: {
@@ -99,9 +111,7 @@ export function createProofPlan(
       known_bad: knownBad,
       known_good: [{ kind: "commit" as const, ref: head, label: "current accepted baseline", expected: "satisfied" as const }],
     },
-    mutations: maxMutations > 0
-      ? [{ operator, base: head, expected: "violated" as const, required: true }]
-      : [],
+    mutations: plannedMutations,
     budgets: {
       max_commits: maxCommits,
       max_mutations: maxMutations,

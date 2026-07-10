@@ -229,6 +229,13 @@ export function policyBlocks(policy: PolicySpec, evaluation: PolicyEvaluation): 
     && evaluation.result === "violated";
 }
 
+export function mutationOperatorForPolicy(policy: PolicySpec): string {
+  if (policy.assertion.kind === "exists") return "delete-required-symbol";
+  if (policy.assertion.kind === "reaches") return "remove-required-path";
+  if (policy.assertion.kind === "must-pass-through") return "add-bypass-edge";
+  return "add-forbidden-edge";
+}
+
 export function mutateSnapshotForPolicy(
   policy: PolicySpec,
   snapshot: GraphSnapshot,
@@ -244,7 +251,7 @@ export function mutateSnapshotForPolicy(
   if (assertion.kind === "exists") {
     symbols = symbols.filter((s) => s.id !== subjectId);
     edges = edges.filter((e) => e.from !== subjectId && e.to !== subjectId);
-    operator = "delete-required-symbol";
+    operator = mutationOperatorForPolicy(policy);
   } else {
     const object = resolveSelector(snapshot, assertion.object);
     if (object.resolution !== "exact") return null;
@@ -252,7 +259,7 @@ export function mutateSnapshotForPolicy(
     if (assertion.kind === "reaches") {
       const allowed = new Set(assertion.relation.edges);
       edges = edges.filter((e) => e.from !== subjectId || !allowed.has(e.type as "calls" | "imports" | "depends_on"));
-      operator = "remove-required-path";
+      operator = mutationOperatorForPolicy(policy);
     } else {
       edges.push({
         id: `edge_policy_mutation_${policy.id}`,
@@ -263,7 +270,7 @@ export function mutateSnapshotForPolicy(
         strength: 1,
         provenance: { source: "derived", confidence: 1, evidence: [policy.id] },
       });
-      operator = assertion.kind === "must-pass-through" ? "add-bypass-edge" : "add-forbidden-edge";
+      operator = mutationOperatorForPolicy(policy);
     }
   }
 

@@ -1,8 +1,10 @@
 import { canonicalHash, proofEvaluationHash, policySemanticHash, proofId } from "./canonical.js";
-import { evaluatePolicyOnSnapshot, graphSnapshot, mutateSnapshotForPolicy } from "./evaluator.js";
+import { evaluatePolicyOnSnapshot, graphSnapshot, mutationOperatorForPolicy } from "./evaluator.js";
+import { runMutationHarness } from "./mutation.js";
 import { replayProofPlan } from "./replay.js";
 import {
   POLICY_EVALUATOR,
+  MUTATION_ENGINE,
   PolicyProofSchema,
   type EvaluationSummary,
   type PolicyEvaluation,
@@ -59,17 +61,27 @@ export function provePolicy(
   policy: PolicySpec,
   opts: { publicOnly?: boolean; now?: string; plan?: ProofPlan } = {},
 ): PolicyProof {
+  if (opts.plan && (
+    opts.plan.mutation_engine?.name !== MUTATION_ENGINE.name
+    || opts.plan.mutation_engine.version !== MUTATION_ENGINE.version
+  )) {
+    throw new Error(`proof plan ${opts.plan.id} requires regeneration for mutation engine ${MUTATION_ENGINE.name}@${MUTATION_ENGINE.version}`);
+  }
   const replay = opts.plan ? replayProofPlan(root, policy, opts.plan) : undefined;
   const snapshot = replay?.current_snapshot ?? graphSnapshot(store, root, opts);
   const fallbackCurrent = replay ? undefined : evaluatePolicyOnSnapshot(policy, snapshot);
   const mutationBase = replay?.current_snapshot ?? snapshot;
-  const mutation = !opts.plan || opts.plan.mutations.length > 0 ? mutateSnapshotForPolicy(policy, mutationBase) : null;
-  if (opts.plan?.mutations[0] && mutation && opts.plan.mutations[0].operator !== mutation.operator) {
-    throw new Error(`proof plan ${opts.plan.id} mutation ${opts.plan.mutations[0].operator} does not match evaluator operator ${mutation.operator}`);
-  }
-  const mutationResult = mutation ? evaluatePolicyOnSnapshot(policy, mutation.snapshot) : null;
-  const mutationSummary = summary(mutationResult ? [mutationResult] : []);
-  if (replay && mutationResult) mutationSummary.receipt_hashes = [proofEvaluationHash(mutationResult)];
+  const plannedMutations = opts.plan?.mutations ?? [{
+    operator: mutationOperatorForPolicy(policy),
+    base: mutationBase.head,
+    expected: "violated" as const,
+    required: true,
+  }];
+  const mutationHarness = runMutationHarness(policy, mutationBase, plannedMutations);
+  const mutationSummary = summary(mutationHarness.primary_evaluations);
+  if (replay) mutationSummary.receipt_hashes = mutationHarness.primary_evaluations.map(proofEvaluationHash);
+  const primaryMutationReceipts = mutationHarness.receipts.filter((receipt) => receipt.kind === "primary");
+  const controlReceipts = mutationHarness.receipts.filter((receipt) => receipt.kind === "control");
   const currentSummary = replay ? replaySummary([replay.current]) : summary(fallbackCurrent ? [fallbackCurrent] : []);
   const knownBadSummary = replay ? replaySummary(replay.known_bad) : emptySummary();
   const knownGoodSummary = replay ? replaySummary(replay.known_good) : summary(fallbackCurrent?.result === "satisfied" ? [fallbackCurrent] : []);
@@ -79,13 +91,15 @@ export function provePolicy(
   if (baselineSatisfied) proofClass = "P1";
   if (baselineSatisfied && replay?.history_complete) proofClass = "P2";
   const caughtKnownBad = replay?.known_bad.some((receipt) => receipt.expected === "violated" && receipt.result === "violated") ?? false;
-  if (baselineSatisfied && (caughtKnownBad || mutationResult?.result === "violated")) proofClass = "P3";
+  const caughtMutation = primaryMutationReceipts.some((receipt) => receipt.passed && receipt.result === "violated");
+  if (baselineSatisfied && (caughtKnownBad || caughtMutation)) proofClass = "P3";
   const policyHash = policySemanticHash(policy);
   const fallbackPlan = {
     policy_hash: policyHash,
     evaluator: POLICY_EVALUATOR,
+    mutation_engine: MUTATION_ENGINE,
     current_graph: snapshot.graph_hash,
-    mutation: mutation?.operator ?? "unavailable",
+    mutations: plannedMutations.map((mutation) => mutation.operator),
     budgets: { max_commits: 1, max_mutations: 1, max_minutes: 1 },
   };
   const planHash = opts.plan?.content_hash ?? canonicalHash(fallbackPlan);
@@ -98,6 +112,7 @@ export function provePolicy(
     plan_hash: planHash,
     policy_hash: policyHash,
     evaluator: { ...POLICY_EVALUATOR },
+    mutation_engine: { ...MUTATION_ENGINE },
     generated_at: now,
     current: currentSummary,
     known_bad: knownBadSummary,
@@ -105,9 +120,17 @@ export function provePolicy(
     accepted_history: { ...historySummary, classified_hits: [] },
     mutations: {
       ...mutationSummary,
-      operator_coverage: mutation ? { [mutation.operator]: mutationResult?.result === "violated" ? 1 : 0 } : {},
+      operator_coverage: Object.fromEntries(primaryMutationReceipts.map((receipt) => [receipt.operator, receipt.passed ? 1 : 0])),
     },
     replay_receipts: replay?.replay_receipts ?? [],
+    mutation_receipts: mutationHarness.receipts,
+    mutation_controls: {
+      total: controlReceipts.length,
+      passed: controlReceipts.filter((receipt) => receipt.passed).length,
+      failed: controlReceipts.filter((receipt) => !receipt.passed).length,
+      receipt_hashes: controlReceipts.map((receipt) => receipt.deterministic_hash),
+    },
+    project_checks: { build: "not_run", test: "not_run", required_for_evaluator_sensitivity: false },
     limitations: [
       ...policy.limitations,
       ...(replay ? [
@@ -117,6 +140,7 @@ export function provePolicy(
           : "Accepted-history selector resolved to zero non-baseline commits.",
         ...(historyHits ? [`Accepted-history contains ${historyHits} unclassified violation hit(s); no false-positive claim or blocking approval is allowed until classification.`] : []),
         ...(replayProblems ? [`Accepted-history contains ${replayProblems} unknown/error result(s); they remain visible and prevent blocking approval.`] : []),
+        "Mutation controls cover graph sensitivity, comment/string parser exclusion, and same-name ambiguity; source-patch mutation and project build/test outcomes remain separate follow-on evidence.",
         "Shadow outcomes remain pending.",
       ] : ["Gate G1 proof covers the current graph and one deterministic mutation; historical replay and shadow outcomes are not available without a ProofPlan."]),
     ],
@@ -127,7 +151,8 @@ export function provePolicy(
       ...(replay?.current.graph_hash ? { graph: replay.current.graph_hash } : { graph: snapshot.graph_hash }),
       ...(currentSummary.receipt_hashes[0] ? { current_receipt: currentSummary.receipt_hashes[0] } : {}),
       ...(replay ? { replay_manifest: canonicalHash(replay.replay_receipts) } : {}),
-      ...(mutationResult ? { mutation_receipt: replay ? proofEvaluationHash(mutationResult) : mutationResult.deterministic_hash } : {}),
+      ...(primaryMutationReceipts[0] ? { mutation_receipt: primaryMutationReceipts[0].deterministic_hash } : {}),
+      ...(mutationHarness.receipts.length ? { mutation_manifest: canonicalHash(mutationHarness.receipts) } : {}),
     },
     data_class: policy.data_class,
   });

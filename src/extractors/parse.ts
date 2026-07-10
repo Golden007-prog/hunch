@@ -49,6 +49,7 @@ export interface ParsedFile {
   symbols: ParsedSymbol[];
   imports: string[];
   calls: ParsedCall[];
+  parseable: boolean;
 }
 
 /** Tree-sitter query capturing every construct we care about in one pass. */
@@ -157,7 +158,7 @@ export function parseSource(file: string, source: string): ParsedFile | null {
     });
   }
   symbols.sort((a, b) => a.startByte - b.startByte);
-  return { symbols, imports, calls };
+  return { symbols, imports, calls, parseable: !tree.rootNode.hasError };
 }
 
 /** Walk up to the nearest node whose type is a definition we recognize. */
