@@ -7,6 +7,7 @@ import {
   type PolicyEvaluation,
   type PolicyProof,
   type PolicySpec,
+  type ProofPlan,
   type ProofClass,
 } from "./schema.js";
 import type { HunchStore } from "../store/hunchStore.js";
@@ -41,7 +42,7 @@ export function provePolicy(
   store: HunchStore,
   root: string,
   policy: PolicySpec,
-  opts: { publicOnly?: boolean; now?: string } = {},
+  opts: { publicOnly?: boolean; now?: string; plan?: ProofPlan } = {},
 ): PolicyProof {
   const snapshot = graphSnapshot(store, root, opts);
   const current = evaluatePolicyOnSnapshot(policy, snapshot);
@@ -51,14 +52,14 @@ export function provePolicy(
   if (current.result === "satisfied") proofClass = "P1";
   if (current.result === "satisfied" && mutationResult?.result === "violated") proofClass = "P3";
   const policyHash = policySemanticHash(policy);
-  const plan = {
+  const fallbackPlan = {
     policy_hash: policyHash,
     evaluator: POLICY_EVALUATOR,
     current_graph: snapshot.graph_hash,
     mutation: mutation?.operator ?? "unavailable",
     budgets: { max_commits: 1, max_mutations: 1, max_minutes: 1 },
   };
-  const planHash = canonicalHash(plan);
+  const planHash = opts.plan?.content_hash ?? canonicalHash(fallbackPlan);
   const id = proofId({ policy_hash: policyHash, plan_hash: planHash, evaluator: POLICY_EVALUATOR });
   const now = opts.now ?? new Date().toISOString();
   return PolicyProofSchema.parse({
@@ -77,11 +78,14 @@ export function provePolicy(
     },
     limitations: [
       ...policy.limitations,
-      "Gate G1 proof covers current baseline and one deterministic mutation; accepted-history replay and shadow outcomes are not yet implemented.",
+      opts.plan
+        ? "This proof executes the plan's current baseline and first deterministic mutation; accepted-history replay and shadow outcomes remain pending."
+        : "Gate G1 proof covers current baseline and one deterministic mutation; accepted-history replay and shadow outcomes are not yet implemented.",
     ],
     proof_class: proofClass,
     artifact_hashes: {
       policy: policyHash,
+      ...(opts.plan ? { plan: opts.plan.content_hash } : {}),
       graph: snapshot.graph_hash,
       current_receipt: current.deterministic_hash,
       ...(mutationResult ? { mutation_receipt: mutationResult.deterministic_hash } : {}),

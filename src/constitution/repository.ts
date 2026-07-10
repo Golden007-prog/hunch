@@ -2,12 +2,16 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:f
 import { join } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { writeFileAtomic } from "../core/io.js";
+import { shortHash } from "../core/ids.js";
+import { proofPlanContentHash } from "./canonical.js";
 import {
   PolicyProofSchema,
+  ProofPlanSchema,
   PolicySpecSchema,
   EvidenceEventSchema,
   type EvidenceEvent,
   type PolicyProof,
+  type ProofPlan,
   type PolicySpec,
 } from "./schema.js";
 
@@ -40,7 +44,7 @@ export class PolicyRepository {
     this.privateHome = store.privateDir;
   }
 
-  private dir(home: "public" | "private", kind: "policies" | "proofs" | "evidence"): string {
+  private dir(home: "public" | "private", kind: "policies" | "proofs" | "plans" | "evidence"): string {
     const base = home === "private" ? this.privateHome : this.publicHome;
     if (!base) throw new Error("No private Hunch overlay is configured; refusing to write a private policy.");
     return join(base, kind);
@@ -61,6 +65,11 @@ export class PolicyRepository {
     return loadRecords(this.dir(home, "evidence"), (v) => EvidenceEventSchema.parse(v), "evidence");
   }
 
+  private plansIn(home: "public" | "private"): ProofPlan[] {
+    if (home === "private" && !this.privateHome) return [];
+    return loadRecords(this.dir(home, "plans"), validatePlan, "plans");
+  }
+
   listPolicies(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicySpec[] {
     if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
     if (opts.privateOnly) return this.policiesIn("private").sort((a, b) => a.id.localeCompare(b.id));
@@ -77,6 +86,18 @@ export class PolicyRepository {
     const byId = new Map(this.proofsIn("public").map((p) => [p.id, p]));
     if (!opts.publicOnly) for (const p of this.proofsIn("private")) byId.set(p.id, p);
     return byId.get(id);
+  }
+
+  listPlans(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): ProofPlan[] {
+    if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
+    if (opts.privateOnly) return this.plansIn("private").sort((a, b) => a.id.localeCompare(b.id));
+    const byId = new Map(this.plansIn("public").map((p) => [p.id, p]));
+    if (!opts.publicOnly) for (const p of this.plansIn("private")) byId.set(p.id, p);
+    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  getPlan(id: string, opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): ProofPlan | undefined {
+    return this.listPlans(opts).find((p) => p.id === id);
   }
 
   listEvidence(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): EvidenceEvent[] {
@@ -119,6 +140,20 @@ export class PolicyRepository {
     return parsed;
   }
 
+  putPlan(plan: ProofPlan, policyId: string, opts: { private?: boolean; public?: boolean } = {}): ProofPlan {
+    const parsed = validatePlan(plan);
+    if (opts.private && opts.public) throw new Error("choose only one proof-plan home");
+    const home = opts.private
+      ? "private"
+      : opts.public
+        ? "public"
+        : this.homeOfPolicy(policyId) ?? (parsed.data_class === "public" && !this.store.unified ? "public" : "private");
+    const dir = this.dir(home, "plans");
+    mkdirSync(dir, { recursive: true });
+    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    return parsed;
+  }
+
   putEvidence(event: EvidenceEvent, opts: { private?: boolean } = {}): EvidenceEvent {
     const parsed = EvidenceEventSchema.parse(event);
     const home = opts.private || parsed.data_class !== "public" || this.store.unified ? "private" : "public";
@@ -129,13 +164,21 @@ export class PolicyRepository {
   }
 }
 
+function validatePlan(raw: unknown): ProofPlan {
+  const plan = ProofPlanSchema.parse(raw);
+  const hash = proofPlanContentHash(plan);
+  if (plan.content_hash !== hash) throw new Error(`proof plan ${plan.id} content hash mismatch`);
+  if (plan.id !== `plan_${shortHash(hash)}`) throw new Error(`proof plan ${plan.id} id does not match its canonical content`);
+  return plan;
+}
+
 /** One-time private migration for the Constitution's standalone Git-native
  * records. Copy/validate everything before deleting the public directories;
  * private records win on an id collision. */
-export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunchDir: string): { policies: number; proofs: number; evidence: number } {
-  const counts = { policies: 0, proofs: 0, evidence: 0 };
+export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunchDir: string): { policies: number; proofs: number; plans: number; evidence: number } {
+  const counts = { policies: 0, proofs: 0, plans: 0, evidence: 0 };
   const move = <T extends { id: string }>(
-    kind: "policies" | "proofs" | "evidence",
+    kind: "policies" | "proofs" | "plans" | "evidence",
     parse: (raw: unknown) => T,
   ): number => {
     const from = join(publicHunchDir, kind);
@@ -152,6 +195,7 @@ export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunc
   };
   counts.policies = move("policies", (v) => PolicySpecSchema.parse(v));
   counts.proofs = move("proofs", (v) => PolicyProofSchema.parse(v));
+  counts.plans = move("plans", validatePlan);
   counts.evidence = move("evidence", (v) => EvidenceEventSchema.parse(v));
   return counts;
 }

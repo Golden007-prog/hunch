@@ -28,11 +28,12 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 
 **Before committing / merging:**
 - `hunch_conformance()` — does the code still SATISFY recorded intent? Run before and after a refactor.
-- `hunch_policy_evaluate(policy_id?, active_only?)` / `hunch_policy_proof(policy_id)` — evaluate the canonical Constitution policy and inspect the evidence that authorized it.
+- `hunch_policy_evaluate(policy_id?, active_only?)` / `hunch_policy_plan(policy_id)` / `hunch_policy_proof(policy_id)` — evaluate canonical policy, inspect the planned evidence corpus, and inspect the proof that authorized it.
 - `hunch_pr_impact(base?)` / `hunch_merge_verdict(...)` — a change's memory surface; would it re-open a closed bug?
 
 **Build the Constitution review queue:**
 - `hunch constitution bootstrap --since 90d --max-candidates 3` (CLI) — normalize recent structured human evidence into at most three non-active policy candidates; add `--history` for exact, human-identifier-grounded fix/revert deltas. Coincidence/ambiguity stays uncompilable; neither path grants authority.
+- `hunch constitution ingest --since 90d` (CLI) — normalize attributable corrections, incidents, and test failures into Git-native evidence; unsupported intent remains uncompilable and no policy is minted.
 
 **After deciding / when corrected:**
 - `hunch_capture_decision(topic?)` → `hunch_record_decision(...)` — interview first, then write; status `proposed` = roadmap intent (shows in `hunch now`).

@@ -836,6 +836,26 @@ export function buildServer(root: string): McpServer {
   );
 
   server.registerTool(
+    "hunch_policy_plan",
+    {
+      title: "Generate or inspect a Constitution proof plan",
+      description:
+        "Return the canonical Git-native ProofPlan for a policy candidate: immutable source/current commits, known-good/bad corpus, mutation operators, expectations, and budgets. Planning executes no replay, model, test, or authority transition.",
+      inputSchema: {
+        policy_id: z.string().describe("Policy id (pol_*)."),
+        public_only: z.boolean().optional().describe("Exclude private-overlay policy and evidence records."),
+      },
+    },
+    async ({ policy_id, public_only }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).plan(policy_id, { publicOnly: public_only }), null, 2));
+      } catch (e) {
+        return err(`Failed to generate policy proof plan: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
     "hunch_policy_proof",
     {
       title: "Inspect a Constitution policy proof",

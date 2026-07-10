@@ -44,6 +44,7 @@ const MEM_ENTRIES = [
   ".hunch/evidence/",
   ".hunch/policies/",
   ".hunch/proofs/",
+  ".hunch/plans/",
   ".hunch/symbols/",
   ".hunch/edges/",
 ];

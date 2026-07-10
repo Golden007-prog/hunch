@@ -5,8 +5,11 @@ import { approvePolicy, blockingProofError, demotePolicy, proposeProvedPolicy } 
 import { provePolicy } from "./proof.js";
 import { PolicyRepository } from "./repository.js";
 import type { PolicyEvaluation, PolicyProof, PolicySpec } from "./schema.js";
+import type { ProofPlan } from "./schema.js";
 import { bootstrapPolicies, type BootstrapOptions, type BootstrapReport } from "./bootstrap.js";
 import { bootstrapStructuralPolicies, inspectStructuralDecision, type StructuralInspection } from "./structural.js";
+import { createProofPlan, type ProofPlanOptions } from "./plan.js";
+import { ingestLocalEvidence, type LocalEvidenceOptions, type LocalEvidenceReport } from "./adapters.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -28,7 +31,7 @@ export class ConstitutionService {
     return opts.state ? all.filter((p) => p.state === opts.state) : all;
   }
 
-  get(id: string, opts: { publicOnly?: boolean } = {}): PolicySpec {
+  get(id: string, opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicySpec {
     const policy = this.repository.getPolicy(id, opts);
     if (!policy) throw new Error(`policy ${id} not found`);
     return policy;
@@ -60,9 +63,24 @@ export class ConstitutionService {
     return inspectStructuralDecision(this.store, this.root, decisionId, opts);
   }
 
+  ingest(opts: LocalEvidenceOptions = {}): LocalEvidenceReport {
+    return ingestLocalEvidence(this.store, this.root, this.repository, opts);
+  }
+
+  plan(id: string, opts: ProofPlanOptions = {}): ProofPlan {
+    const policy = this.get(id, opts);
+    const home = opts.publicOnly ? "public" : opts.privateOnly ? "private" : this.repository.homeOfPolicy(id);
+    const homeOpts = home === "public" ? { publicOnly: true } : { privateOnly: true };
+    const generated = createProofPlan(this.store, this.root, this.repository, policy, { ...opts, ...homeOpts });
+    return this.repository.getPlan(generated.id, homeOpts)
+      ?? this.repository.putPlan(generated, policy.id, { private: home === "private", public: home === "public" });
+  }
+
   prove(id: string, opts: { now?: string } = {}): { policy: PolicySpec; proof: PolicyProof } {
     const policy = this.get(id);
-    const proof = provePolicy(this.store, this.root, policy, { publicOnly: policy.data_class === "public" && this.repository.homeOfPolicy(id) === "public", now: opts.now });
+    const publicOnly = policy.data_class === "public" && this.repository.homeOfPolicy(id) === "public";
+    const plan = this.plan(id, { publicOnly, now: opts.now });
+    const proof = provePolicy(this.store, this.root, policy, { publicOnly, now: opts.now, plan });
     this.repository.putProof(proof, policy.id);
     const proposed = proposeProvedPolicy(policy, proof, opts.now ?? proof.generated_at);
     return { policy: this.repository.putPolicy(proposed), proof };

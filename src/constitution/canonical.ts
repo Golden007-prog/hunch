@@ -1,5 +1,5 @@
 import { sha1, shortHash } from "../core/ids.js";
-import type { PolicySpec } from "./schema.js";
+import type { PolicySpec, ProofPlan } from "./schema.js";
 
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
@@ -35,6 +35,11 @@ export function policySemanticHash(policy: PolicySpec): string {
     assertion: policy.assertion,
     data_class: policy.data_class,
   });
+}
+
+export function proofPlanContentHash(plan: ProofPlan): string {
+  const { id: _id, content_hash: _contentHash, created_at: _createdAt, ...body } = plan;
+  return canonicalHash(body);
 }
 
 export function policyId(seed: unknown): string {

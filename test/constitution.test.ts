@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { indexRepo } from "../src/extractors/indexer.js";
-import type { Decision } from "../src/core/types.js";
+import type { Bug, Constraint, Decision } from "../src/core/types.js";
+import { buildCorrectionConstraint } from "../src/core/correction.js";
 import { ConstitutionService } from "../src/constitution/service.js";
 import { canonicalJson, policySemanticHash } from "../src/constitution/canonical.js";
 import { approvePolicy } from "../src/constitution/lifecycle.js";
@@ -108,6 +109,14 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.equal(proved.proof.proof_class, "P3", "clean baseline + caught bypass mutation earns P3");
     assert.equal(proved.proof.current.satisfied, 1);
     assert.equal(proved.proof.mutations.violated, 1);
+    const plan = service.repository.listPlans({ publicOnly: true })[0]!;
+    assert.ok(plan);
+    assert.equal(proved.proof.plan_hash, plan.content_hash, "proof binds the persisted canonical plan");
+    assert.equal(plan.corpus.current_baseline.expected, "satisfied");
+    assert.equal(plan.mutations[0]?.operator, "add-bypass-edge");
+    assert.ok(existsSync(join(root, ".hunch/plans", `${plan.id}.json`)), "ProofPlan is Git-native JSON");
+    const planJson = canonicalJson(plan);
+    assert.equal(canonicalJson(service.plan(compiled.id, { publicOnly: true, now: "2026-07-10T10:05:00.000Z" })), planJson, "same immutable inputs reuse the byte-stable plan");
     assert.equal(proved.policy.state, "proposed");
     assert.equal(service.compile("dec_layer", { through: "fetchOrders", now: NOW }).state, "proposed", "recompile preserves incumbent lifecycle state");
 
@@ -133,6 +142,8 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.equal(demoted.state, "active_advisory");
     assert.equal(service.evaluate({ id: active.id })[0]!.blocks, false, "demotion restores advisory behavior without deleting history");
     assert.deepEqual(demoted.audit.map((e) => e.action), ["compiled", "proved", "approved_blocking", "demoted"]);
+    writeFileSync(join(root, ".hunch/plans", `${plan.id}.json`), JSON.stringify({ ...plan, budgets: { ...plan.budgets, max_commits: 99 } }, null, 2));
+    assert.throws(() => service.repository.listPlans({ publicOnly: true }), /content hash mismatch/, "hand-edited plan cannot retain trusted identity");
   } finally {
     cleanup();
   }
@@ -211,7 +222,7 @@ test("a hand-edited blocking state without its P3 proof fails safe and cannot au
     store.reindex();
     const service = new ConstitutionService(store, root);
     const compiled = service.compile("dec_tamper", { through: "fetchOrders", now: NOW });
-    service.prove(compiled.id, { now: "2026-07-10T10:01:00.000Z" });
+    const proved = service.prove(compiled.id, { now: "2026-07-10T10:01:00.000Z" });
     const active = service.approve(compiled.id, "blocking", "human:test", { now: "2026-07-10T10:02:00.000Z" });
     service.repository.putPolicy({ ...active, proof: null });
     const result = service.evaluate({ id: active.id })[0]!;
@@ -231,6 +242,9 @@ test("corrupt policy JSON is a visible error, never a skipped false pass", () =>
     const service = new ConstitutionService(store, root);
     assert.throws(() => service.list(), /invalid policies\/pol_bad\.json/);
     assert.throws(() => service.evaluate({ activeOnly: true }), /invalid policies\/pol_bad\.json/);
+    mkdirSync(join(root, ".hunch/plans"), { recursive: true });
+    writeFileSync(join(root, ".hunch/plans/plan_bad.json"), "{ not json");
+    assert.throws(() => service.repository.listPlans(), /invalid plans\/plan_bad\.json/);
   } finally {
     cleanup();
   }
@@ -252,6 +266,10 @@ test("private evidence produces private policy/proof and public-only evaluation 
     assert.ok(existsSync(join(privateRoot, "policies", `${policy.id}.json`)));
     const proved = service.prove(policy.id, { now: "2026-07-10T10:01:00.000Z" });
     assert.ok(existsSync(join(privateRoot, "proofs", `${proved.proof.id}.json`)));
+    const plan = service.repository.listPlans({ privateOnly: true })[0]!;
+    assert.ok(plan);
+    assert.ok(existsSync(join(privateRoot, "plans", `${plan.id}.json`)));
+    assert.equal(service.repository.listPlans({ publicOnly: true }).length, 0);
     assert.equal(service.list({ publicOnly: true }).some((p) => p.id === policy.id), false);
     assert.deepEqual(service.evaluate({ activeOnly: false, publicOnly: true }), []);
     assert.doesNotMatch(canonicalJson(service.list({ publicOnly: true })), new RegExp(policy.id));
@@ -275,16 +293,20 @@ test("private migration moves policy/proof artifacts only after validation", () 
       const proved = service.prove(compiled.id, { now: "2026-07-10T10:01:00.000Z" });
       mkdirSync(join(publicHome, "policies"), { recursive: true });
       mkdirSync(join(publicHome, "proofs"), { recursive: true });
+      mkdirSync(join(publicHome, "plans"), { recursive: true });
       writeFileSync(join(publicHome, "policies", `${compiled.id}.json`), readFileSync(join(fixture.root, ".hunch/policies", `${compiled.id}.json`)));
       writeFileSync(join(publicHome, "proofs", `${proved.proof.id}.json`), readFileSync(join(fixture.root, ".hunch/proofs", `${proved.proof.id}.json`)));
+      const plan = service.repository.listPlans({ publicOnly: true })[0]!;
+      writeFileSync(join(publicHome, "plans", `${plan.id}.json`), readFileSync(join(fixture.root, ".hunch/plans", `${plan.id}.json`)));
     } finally {
       fixture.cleanup();
     }
     const moved = movePolicyArtifactsToPrivate(publicHome, privateHome);
-    assert.deepEqual(moved, { policies: 1, proofs: 1, evidence: 0 });
+    assert.deepEqual(moved, { policies: 1, proofs: 1, plans: 1, evidence: 0 });
     assert.equal(existsSync(join(publicHome, "policies")), false);
     assert.ok(existsSync(join(privateHome, "policies")));
     assert.ok(existsSync(join(privateHome, "proofs")));
+    assert.ok(existsSync(join(privateHome, "plans")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -414,6 +436,11 @@ test("Phase 2A home selection cannot substitute a same-id private decision into 
     const direct = service.compile("dec_collision", { private: false, now: "2026-07-10T12:00:00.000Z" });
     assert.equal(direct.statement, "PRIVATE SECRET boundary evidence", "direct compilation resolves the tainted source and its exact private home");
     assert.equal(direct.data_class, "private");
+    const publicPlan = service.plan(publicReport.compiled[0]!.policy.id, { publicOnly: true, now: "2026-07-10T12:01:00.000Z" });
+    const privatePlan = service.plan(privateReport.compiled[0]!.policy.id, { privateOnly: true, now: "2026-07-10T12:01:00.000Z" });
+    assert.notEqual(publicPlan.id, privatePlan.id);
+    assert.ok(existsSync(join(root, ".hunch/plans", `${publicPlan.id}.json`)));
+    assert.ok(existsSync(join(privateRoot, "plans", `${privatePlan.id}.json`)));
     assert.doesNotMatch(canonicalJson(service.list({ publicOnly: true })), /PRIVATE SECRET/);
   } finally {
     store.close();
@@ -427,7 +454,7 @@ test("Phase 2A bootstrap rejects invalid windows and has no synthesis dependency
     store.json.put("decisions", decision("dec_window"));
     const service = new ConstitutionService(store, root);
     assert.throws(() => service.bootstrap({ since: "forever", now: "2026-07-10T12:00:00.000Z" }), /--since/);
-    for (const file of ["bootstrap.ts", "structural.ts", "delta.ts"]) {
+    for (const file of ["bootstrap.ts", "structural.ts", "delta.ts", "adapters.ts", "plan.ts"]) {
       const source = readFileSync(join(process.cwd(), "src/constitution", file), "utf8");
       assert.doesNotMatch(source, /synthesis\/|selectProvider|SynthesisProvider/, `${file} has no model/provider dependency`);
     }
@@ -471,6 +498,12 @@ test("Phase 2B history bootstrap compiles one exact added call, deduplicates sem
     assert.equal(policy.state, "compiled");
     assert.equal(policy.authority, null);
     assert.equal(first.compiled[0]!.evidence.structural_delta?.after_commit, fix);
+    const plan = service.plan(policy.id, { publicOnly: true, now: "2026-07-11T12:00:00.000Z" });
+    const parent = execFileSync("git", ["rev-parse", `${fix}^`], { cwd: root, encoding: "utf8" }).trim();
+    assert.equal(plan.source_commit, fix);
+    assert.equal(plan.corpus.known_bad[0]?.ref, parent, "the exact first parent of an attributable fix is the known-bad replay leg");
+    assert.equal(plan.corpus.known_bad[0]?.expected, "violated");
+    assert.equal(plan.expected.find((e) => e.leg === "accepted_history")?.classification_required, true);
     assert.equal(readFileSync(join(root, "src/payments/charge.ts"), "utf8"), sourceBefore, "blob inspection never mutates the active worktree");
 
     const events = canonicalJson(service.repository.listEvidence({ publicOnly: true }));
@@ -641,6 +674,93 @@ test("Phase 2B exact-home history compilation cannot leak a same-id private judg
   }
 });
 
+test("Phase 2C local adapters normalize corrections, test failures, and incidents idempotently without minting policy", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    const correction = buildCorrectionConstraint({
+      rule: "never import the unsafe transport in payments",
+      scope_hint_file: "src/payments/charge.ts",
+      severity: "blocking",
+      rationale: "Human correction after review.",
+    }, NOW);
+    store.json.put("constraints", correction);
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    const linked: Bug = {
+      id: "bug_test_failure",
+      title: "payment validation test failed",
+      symptom: "expected validation",
+      root_cause: "unsafe transport bypassed validation",
+      severity: "high",
+      status: "fixed",
+      affected_files: ["src/payments/charge.ts"],
+      affected_symbols: ["charge"],
+      lineage: {
+        introduced_commit: null,
+        detected: "test:payments validates session",
+        fixed_commit: head,
+        recurrence_of: null,
+        spawned_decision: null,
+        spawned_constraint: correction.id,
+      },
+      provenance: { source: "test_failure+human_confirmed", confidence: 1, evidence: ["test:payments validates session"], last_verified: NOW },
+    };
+    const incident: Bug = {
+      ...linked,
+      id: "bug_incident_unlinked",
+      title: "unlinked payment incident",
+      lineage: { ...linked.lineage, detected: null, fixed_commit: null, spawned_constraint: null },
+      provenance: { source: "human_confirmed", confidence: 0.9, evidence: ["incident:431"], last_verified: NOW },
+    };
+    store.json.put("bugs", linked);
+    store.json.put("bugs", incident);
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const first = service.ingest({ publicOnly: true, since: "90d", maxEvents: 100, now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(first.scanned, 3);
+    assert.equal(first.eligible, 3);
+    assert.equal(first.normalized, 3);
+    assert.equal(first.covered, 2, "correction and its linked test failure already have legacy deterministic coverage");
+    assert.equal(first.uncompilable, 1, "unlinked incident remains honest instead of becoming a guessed policy");
+    assert.deepEqual(first.events.map((e) => e.kind).sort(), ["correction", "incident", "test_failure"]);
+    assert.equal(service.list({ publicOnly: true }).length, 0, "normalization alone never mints a policy");
+    const bytes = canonicalJson(service.repository.listEvidence({ publicOnly: true }));
+    const second = service.ingest({ publicOnly: true, since: "90d", maxEvents: 100, now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(second.normalized, 0);
+    assert.equal(second.existing, 3);
+    assert.equal(canonicalJson(service.repository.listEvidence({ publicOnly: true })), bytes);
+  } finally {
+    cleanup();
+  }
+});
+
+test("Phase 2C correction ingestion inherits private home and public reads reveal nothing", () => {
+  const { root, store: initial, cleanup } = layeredRepo();
+  initial.close();
+  const privateRoot = join(root, "private-adapter/.hunch");
+  mkdirSync(privateRoot, { recursive: true });
+  writeFileSync(join(root, ".hunch/local.json"), JSON.stringify({ privateDir: privateRoot, autoCommit: false, mode: "private" }));
+  const store = new HunchStore(hunchPaths(root));
+  try {
+    const correction = buildCorrectionConstraint({
+      rule: "never expose the private billing transport",
+      scope_hint_file: "src/private/SECRET-billing.ts",
+      severity: "blocking",
+    }, NOW);
+    store.putPrivate("constraints", correction);
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const report = service.ingest({ privateOnly: true, since: "90d", now: "2026-07-10T12:00:00.000Z" });
+    assert.equal(report.normalized, 1);
+    assert.equal(report.events[0]?.data_class, "private");
+    assert.ok(existsSync(join(privateRoot, "evidence", `${report.events[0]!.id}.json`)));
+    assert.equal(service.repository.listEvidence({ publicOnly: true }).length, 0);
+    assert.doesNotMatch(canonicalJson(service.repository.listEvidence({ publicOnly: true })), /SECRET-billing/);
+  } finally {
+    store.close();
+    cleanup();
+  }
+});
+
 test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical receipt", async () => {
   const fixture = layeredRepo();
   const projectRoot = process.cwd();
@@ -652,7 +772,7 @@ test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical rec
     fixture.store.reindex();
     const service = new ConstitutionService(fixture.store, fixture.root);
     const compiled = service.compile("dec_adapter", { through: "fetchOrders", now: NOW });
-    service.prove(compiled.id, { now: "2026-07-10T10:01:00.000Z" });
+    const proved = service.prove(compiled.id, { now: "2026-07-10T10:01:00.000Z" });
     service.approve(compiled.id, "blocking", "human:adapter-owner", { now: "2026-07-10T10:02:00.000Z" });
     fixture.store.close();
 
@@ -680,6 +800,9 @@ test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical rec
     const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: fixture.root, env });
     client = new Client({ name: "constitution-contract-test", version: "1.0.0" });
     await client.connect(transport);
+    const planCall = await client.callTool({ name: "hunch_policy_plan", arguments: { policy_id: compiled.id, public_only: true } });
+    const plan = JSON.parse((planCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
+    assert.equal(plan.content_hash, proved.proof.plan_hash, "MCP returns the same canonical plan that the proof binds");
     const mcp = await client.callTool({ name: "hunch_policy_evaluate", arguments: { policy_id: compiled.id, public_only: true } });
     const text = (mcp.content[0] as { type: "text"; text: string }).text;
     const mcpReceipts = JSON.parse(text) as Array<{ deterministic_hash: string; result: string }>;

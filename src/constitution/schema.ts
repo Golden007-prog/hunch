@@ -196,6 +196,57 @@ export const PolicyEvaluationResultSchema = z.enum([
 ]);
 export type PolicyEvaluationResult = z.infer<typeof PolicyEvaluationResultSchema>;
 
+export const ProofFixtureRefSchema = z.object({
+  kind: z.enum(["commit", "fixture", "event", "mutation"]),
+  ref: z.string().min(1),
+  label: z.string().min(1),
+  expected: PolicyEvaluationResultSchema,
+});
+
+export const ProofPlanSchema = z.object({
+  id: z.string().regex(/^plan_[a-f0-9]{10}$/),
+  content_hash: z.string().min(1),
+  policy_id: z.string().regex(/^pol_[a-f0-9]{10}$/),
+  policy_candidate_hash: z.string().min(1),
+  repository: z.string().min(1),
+  data_class: DataClassSchema,
+  source_commit: z.string().min(1),
+  valid_from_commit: z.string().min(1),
+  evaluator: z.object({ name: z.string().min(1), version: z.string().min(1) }),
+  corpus: z.object({
+    current_baseline: ProofFixtureRefSchema,
+    accepted_history: z.object({
+      from: z.string().min(1),
+      to: z.string().min(1),
+      first_parent: z.boolean().default(true),
+      max_commits: z.number().int().min(0).max(500),
+      exclude: z.array(z.string()).default([]),
+    }),
+    known_bad: z.array(ProofFixtureRefSchema).default([]),
+    known_good: z.array(ProofFixtureRefSchema).default([]),
+  }),
+  mutations: z.array(z.object({
+    operator: z.string().min(1),
+    base: z.string().min(1),
+    expected: PolicyEvaluationResultSchema,
+    required: z.boolean().default(true),
+  })).default([]),
+  budgets: z.object({
+    max_commits: z.number().int().min(0).max(500),
+    max_mutations: z.number().int().min(0).max(100),
+    max_minutes: z.number().int().min(1).max(120),
+  }),
+  expected: z.array(z.object({
+    leg: z.enum(["current_baseline", "known_bad", "known_good", "accepted_history", "mutations"]),
+    result: PolicyEvaluationResultSchema.optional(),
+    classification_required: z.boolean().default(false),
+  })).default([]),
+  evidence_refs: z.array(z.string()).default([]),
+  limitations: z.array(z.string()).default([]),
+  created_at: z.string().datetime({ offset: true }),
+}).strict();
+export type ProofPlan = z.infer<typeof ProofPlanSchema>;
+
 export const PolicyEvaluationSchema = z.object({
   policy_id: z.string(),
   policy_revision: z.number().int(),

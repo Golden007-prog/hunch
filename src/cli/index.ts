@@ -524,6 +524,7 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
     const breakdownParts = Object.entries(res.moved).map(([k, n]) => `${n} ${k}`);
     if (constitutionMoved.policies) breakdownParts.push(`${constitutionMoved.policies} policies`);
     if (constitutionMoved.proofs) breakdownParts.push(`${constitutionMoved.proofs} proofs`);
+    if (constitutionMoved.plans) breakdownParts.push(`${constitutionMoved.plans} proof plans`);
     if (constitutionMoved.evidence) breakdownParts.push(`${constitutionMoved.evidence} evidence events`);
     const breakdown = breakdownParts.join(", ") || "0 records";
     migrateNote =
@@ -986,6 +987,35 @@ policyCmd
   });
 
 policyCmd
+  .command("plan")
+  .description("Generate or inspect the canonical, non-executing ProofPlan for a Policy IR candidate.")
+  .argument("<id>", "policy id")
+  .option("--history <n>", "maximum accepted-history commits", "20")
+  .option("--mutations <n>", "maximum deterministic mutations", "3")
+  .option("--minutes <n>", "total future replay budget in minutes", "5")
+  .option("--public-only", "exclude private-overlay policy/evidence records")
+  .action((id: string, opts: { history: string; mutations: string; minutes: string; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const values = [opts.history, opts.mutations, opts.minutes].map(Number);
+      if (values.slice(0, 2).some((n) => !Number.isFinite(n) || n < 0) || !Number.isFinite(values[2]) || values[2]! <= 0) {
+        throw new Error("history/mutation budgets must be non-negative and minutes must be positive");
+      }
+      const plan = new ConstitutionService(store, root).plan(id, {
+        maxCommits: values[0],
+        maxMutations: values[1],
+        maxMinutes: values[2],
+        publicOnly: opts.publicOnly,
+      });
+      console.log(JSON.stringify(plan, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
   .command("prove")
   .description("Run the Gate-G1 inward proof: current baseline plus one deterministic mutation.")
   .argument("<id>", "policy id")
@@ -1088,6 +1118,37 @@ function renderPolicyEvaluations(results: PolicyEvaluationSet[]): string[] {
 const constitutionCmd = program
   .command("constitution")
   .description("Bootstrap Hunch Constitution candidates from attributable structured evidence.");
+
+constitutionCmd
+  .command("ingest")
+  .description("Normalize attributable local corrections, incidents, and test failures into Git-native EvidenceEvents; creates no policy authority.")
+  .option("--since <duration>", "evidence window, e.g. 90d or 12w", "90d")
+  .option("--max-events <n>", "maximum events normalized in one run (hard-capped at 200)", "100")
+  .option("--public-only", "read/write only public records")
+  .option("--private", "read/write only the configured private overlay")
+  .action((opts: { since: string; maxEvents: string; publicOnly?: boolean; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const maxEvents = Number(opts.maxEvents);
+      if (!Number.isFinite(maxEvents) || maxEvents <= 0) throw new Error("--max-events must be a positive number");
+      const report = new ConstitutionService(store, root).ingest({
+        since: opts.since,
+        maxEvents,
+        publicOnly: opts.publicOnly,
+        privateOnly: opts.private,
+      });
+      console.log(`Constitution evidence ingest: scanned ${report.scanned} record(s), ${report.eligible} eligible`);
+      console.log(`  ${report.normalized} normalized · ${report.existing} existing · ${report.covered} covered · ${report.uncompilable} uncompilable · ${report.excluded} excluded`);
+      for (const event of report.events) {
+        console.log(`  ${event.id} [${event.kind}/${event.compiler?.status ?? "normalized"}] ${event.text_ref ?? ""}`);
+      }
+      console.log("  authority: none; ingestion never proves, proposes, activates, or blocks.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
 
 constitutionCmd
   .command("delta")

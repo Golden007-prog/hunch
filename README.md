@@ -107,9 +107,11 @@ before it becomes enforceable:
 
 ```bash
 hunch constitution bootstrap --public-only --since 90d --max-candidates 3
+hunch constitution ingest --public-only --since 90d
 hunch constitution delta dec_fix_or_revert --public-only
 hunch constitution bootstrap --history --public-only --since 90d --max-candidates 3
 hunch policy compile dec_service_boundary --through OrderService
+hunch policy plan pol_… --history 20 --mutations 3
 hunch policy prove pol_…
 hunch policy accept pol_… --blocking --actor github:your-name
 hunch policy evaluate pol_… --json
@@ -127,6 +129,12 @@ can bind exactly and whose symbol/call identifiers the human judgment explicitly
 supported meaning may become a compiled candidate; zero, multiple, missing,
 or ambiguous meanings are stored as `uncompilable`, never silently approximated. `constitution
 delta` previews that evidence and candidate set without writing policy state.
+
+Local correction, incident, and test-failure records can be normalized with `constitution ingest`.
+The adapter stores references and hashes, inherits private storage, and creates no policy authority.
+`policy plan` then writes a content-addressed ProofPlan before execution: exact source/current commits,
+known-good/known-bad corpus, deterministic mutation operators, expectations, and resource budgets.
+Planning runs no replay, test, model, or activation; `policy prove` binds its receipt to that plan.
 
 The first Level-1 evaluator is `must-pass-through`: every statically discovered path from A to C
 must contain B. CLI, MCP (`hunch_policy_evaluate`), and strict CI share the exact canonical receipt.
