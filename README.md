@@ -135,12 +135,15 @@ supported meaning may become a compiled candidate; zero, multiple, missing,
 or ambiguous meanings are stored as `uncompilable`, never silently approximated. `constitution
 delta` previews that evidence and candidate set without writing policy state.
 
-The first external-import slice is deliberately narrow: removing a human-named static ESM package
+The external-import slice is deliberately narrow: removing a human-named static ESM package
 specifier can compile into a file-scoped `not-reaches(..., external:<package>)` boundary. Package
 subpaths canonicalize to their package root, the anchor must exist before and after the change, and
 an explicitly retired dependency filters unrelated call/symbol facts from the same replacement
-commit. Relative imports, import-map aliases, `require()`, dynamic `import()`, runtime loading, and
-positive “must import” rules remain visibly unsupported.
+commit. Exact relative JS/TS imports across two derived components can also compile to direct
+`reaches`/`not-reaches` policies over `depends_on` edges when both component meanings are explicitly
+human-grounded. Same-component imports, ambiguous/missing targets, import-map aliases, `require()`,
+dynamic `import()`, runtime loading, and positive external-package requirements remain visibly
+unsupported.
 
 Local correction, incident, and test-failure records can be normalized with `constitution ingest`.
 The adapter stores references and hashes, inherits private storage, and creates no policy authority.
@@ -185,8 +188,11 @@ and cache statistics never enter proof hashes. Project code, builds, and tests a
 Timeouts, worker failures, unresolved refs, unknowns, and errors remain explicit.
 
 Level-1 evaluators include `must-pass-through` (every statically discovered path from A to C must
-contain B) and the exact external-import boundary above. CLI, MCP (`hunch_policy_evaluate`), and
-strict CI share the exact canonical receipt.
+contain B), exact external-package boundaries, and component/component-id selectors over static
+`depends_on` edges. CLI, MCP (`hunch_policy_evaluate`), and strict CI share the exact canonical
+receipt. Direct `reaches`/`not-reaches` contradictions are stored as conflict evidence without
+minting a second policy or changing authority. Candidate records retain the exact alternatives,
+unsupported facts, incumbent, and conflict IDs for proof-card review.
 Models do not participate in evaluation or activation. Plan-bound proofs cover the committed current
 baseline, known-good/known-bad fixtures, bounded accepted history, and a canonical mutation
 manifest. The primary mutation is applied to an immutable disposable source checkout, must remain
@@ -202,6 +208,18 @@ reported as limitations in the proof artifact.
 every client: exact assertion and scope, raw evidence vector, unclassified hits, unknown/errors,
 blocking readiness, current authority, limitations, and next actions. It never averages evidence
 into a confidence score and never grants authority.
+
+The versioned 20-case EXP-03 compiler bank is recomputed with:
+
+```bash
+hunch constitution scorecard
+```
+
+The scorecard reports the raw numerator/denominator, the absolute difference from the preregistered
+70% threshold, a Wilson 95% interval, per-outcome counts, and silent semantic substitutions. One
+unsupported-to-assertion substitution fails the gate even when the aggregate rate remains above the
+threshold. This curated scorecard measures deterministic compiler classification, not real-user
+authoring speed or acceptance; those human-review arms remain a separate EXP-03 study.
 
 ## Private when the reasoning is sensitive
 

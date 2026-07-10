@@ -18,7 +18,8 @@ import { clampCandidateLimit } from "../src/constitution/bootstrap.js";
 import { provePolicy } from "../src/constitution/proof.js";
 import { replayProofPlan } from "../src/constitution/replay.js";
 import { loadReplaySnapshot, replayCacheFile } from "../src/constitution/replayCache.js";
-import { ProofPlanSchema } from "../src/constitution/schema.js";
+import { PolicySpecSchema, ProofPlanSchema } from "../src/constitution/schema.js";
+import { scoreCompilerCaseBank } from "../src/constitution/scorecard.js";
 import { shortHash } from "../src/core/ids.js";
 import { externalImportNodeId, externalPackage } from "../src/core/externalImports.js";
 import { buildProofCard, renderProofCard } from "../src/constitution/card.js";
@@ -156,7 +157,7 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     assert.ok(plan);
     assert.equal(proved.proof.plan_hash, plan.content_hash, "proof binds the persisted canonical plan");
     assert.equal(plan.corpus.current_baseline.expected, "satisfied");
-    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "3" });
+    assert.deepEqual(plan.mutation_engine, { name: "hunch-static-graph-controls", version: "4" });
     assert.equal(plan.mutations[0]?.operator, "add-bypass-edge");
     assert.deepEqual(plan.mutations.map((mutation) => mutation.operator), ["add-bypass-edge", "comment-string-control", "same-name-ambiguity-control"]);
     assert.ok(existsSync(join(root, ".hunch/plans", `${plan.id}.json`)), "ProofPlan is Git-native JSON");
@@ -721,7 +722,7 @@ test("Phase 2B history bootstrap compiles one exact added call, deduplicates sem
     assert.equal(inspection.delta.calls.removed.length, 0);
     assert.equal(inspection.candidates.length, 1);
     assert.equal(inspection.candidates[0]!.assertion.kind, "reaches");
-    assert.ok(inspection.unsupported.some((r) => r.includes("awaits an import assertion evaluator")), "unsupported import fact stays visible");
+    assert.ok(inspection.unsupported.some((r) => /relative import .* structural coincidence/.test(r)), "the ungrounded component interpretation stays visible instead of competing with the exact call");
 
     const sourceBefore = readFileSync(join(root, "src/payments/charge.ts"), "utf8");
     const first = service.bootstrap({ history: true, publicOnly: true, since: "90d", maxCandidates: 3, now: "2026-07-11T12:00:00.000Z" });
@@ -825,8 +826,8 @@ test("Phase 3 replays current, known-bad, known-good, and bounded accepted histo
     assert.equal(rebuilt.cache_stats.rebuilds, 1);
     assert.deepEqual(rebuilt.replay_receipts, first.proof.replay_receipts, "corrupt derived cache rebuild cannot perturb proof semantics");
     assert.doesNotThrow(() => JSON.parse(readFileSync(currentCache, "utf8")));
-    assert.notEqual(currentCache, replayCacheFile(root, replayPlan.corpus.current_baseline.ref, "public", "3"), "engine version changes invalidate by key");
-    assert.equal(loadReplaySnapshot(root, replayPlan.corpus.current_baseline.ref, "public", "3").status, "miss");
+    assert.notEqual(currentCache, replayCacheFile(root, replayPlan.corpus.current_baseline.ref, "public", "2"), "engine version changes invalidate by key");
+    assert.equal(loadReplaySnapshot(root, replayPlan.corpus.current_baseline.ref, "public", "2").status, "miss");
 
     const second = service.prove(policy.id, { now: "2026-07-11T12:01:00.000Z" });
     assert.equal(canonicalJson(second.proof), canonicalJson(first.proof), "same plan and evaluator produce byte-equivalent replay proof");
@@ -1080,6 +1081,132 @@ test("Phase 2E canonicalizes package subpaths while refusing relative, import-ma
   assert.equal(externalPackage("https://example.com/mod.js"), null);
   assert.equal(externalPackage("@scope"), null);
   assert.equal(externalImportNodeId("lodash/groupBy"), externalImportNodeId("lodash/map"));
+});
+
+test("Phase 2F compiles an exact relative-import component boundary and proves it end to end", () => {
+  const direct = 'import { dbQuery } from "../db/client.js";\nexport function listOrders(u){ return dbQuery(u); }\n';
+  const { root, store, cleanup } = layeredRepo(direct);
+  try {
+    const file = "src/api/orders.ts";
+    const corrected = 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n';
+    writeFileSync(join(root, file), corrected);
+    const fix = commitFiles(root, [file], "fix: remove the Api to Db dependency");
+    indexRepo(store, root, { churn: false });
+    store.json.put("decisions", historyDecision("dec_relative_component", fix, {
+      title: "Api must not depend directly on Db",
+      context: "The Api to Db component dependency bypassed the architecture boundary.",
+      decision: "Keep the direct Api to Db dependency removed.",
+      related_files: [file],
+    }));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const inspection = service.inspectStructural("dec_relative_component", { publicOnly: true });
+    assert.equal(inspection.candidates.length, 1, JSON.stringify(inspection.unsupported));
+    assert.equal(inspection.candidates[0]?.basis, "removed-relative-import");
+    assert.deepEqual(inspection.candidates[0]?.assertion, {
+      kind: "not-reaches",
+      subject: inspection.candidates[0]!.assertion.subject,
+      relation: { edges: ["depends_on"], transitive: false, max_depth: 1 },
+      object: inspection.candidates[0]!.assertion.kind === "exists" ? undefined : inspection.candidates[0]!.assertion.object,
+    });
+
+    const report = service.bootstrap({ history: true, publicOnly: true, since: "90d", now: "2026-07-11T12:00:00.000Z" });
+    assert.equal(report.compiled.length, 1);
+    assert.equal(report.conflicted, 0);
+    const policy = report.compiled[0]!.policy;
+    assert.equal(policy.candidate.alternatives[0]?.basis, "removed-relative-import");
+    assert.ok(policy.candidate.uncertainty.some((reason) => /structural coincidence/.test(reason)), "rejected coincident call/add-import meanings stay visible");
+    assert.equal(service.evaluate({ id: policy.id, publicOnly: true })[0]?.evaluation.result, "satisfied");
+    const proof = service.prove(policy.id, { now: "2026-07-11T12:01:00.000Z" }).proof;
+    assert.equal(proof.current.satisfied, 1);
+    assert.equal(proof.known_bad.violated, 1);
+    assert.equal(proof.mutations.violated, 1);
+    assert.equal(proof.mutation_controls.passed, 2);
+    assert.equal(proof.proof_class, "P3");
+    const primary = proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "add-forbidden-edge");
+    assert.match(primary.source_patch?.diff ?? "", /hunch deterministic component mutation/);
+    assert.equal(readFileSync(join(root, file), "utf8"), corrected, "component mutation stays inside its disposable worktree");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Phase 2F component selectors are exact and direct semantic contradictions are surfaced, never minted", () => {
+  const direct = 'import { dbQuery } from "../db/client.js";\nexport function listOrders(u){ return dbQuery(u); }\n';
+  const { root, store, cleanup } = layeredRepo(direct);
+  try {
+    const file = "src/api/orders.ts";
+    writeFileSync(join(root, file), 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n');
+    const fix = commitFiles(root, [file], "fix: remove the Api to Db dependency");
+    indexRepo(store, root, { churn: false });
+    store.json.put("decisions", historyDecision("dec_relative_conflict", fix, {
+      title: "Api must not depend directly on Db",
+      context: "Remove the Api to Db dependency.",
+      decision: "Keep Api and Db decoupled.",
+      related_files: [file],
+    }));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const candidate = service.inspectStructural("dec_relative_conflict", { publicOnly: true }).candidates[0]!;
+    assert.ok(candidate);
+    assert.equal(candidate.assertion.kind, "not-reaches");
+    const assertion = candidate.assertion.kind === "exists" ? candidate.assertion : { ...candidate.assertion, kind: "reaches" as const };
+    const incumbent = PolicySpecSchema.parse({
+      id: "pol_aaaaaaaaaa",
+      topic: "fixture.component-conflict",
+      ir_version: 1,
+      revision: 1,
+      state: "proposed",
+      statement: "Api must depend directly on Db",
+      scope: candidate.scope,
+      assertion,
+      severity: "warning",
+      surfaces: ["cli"],
+      authority: null,
+      evidence: ["fixture"],
+      proof: null,
+      data_class: "public",
+      created_at: NOW,
+      updated_at: NOW,
+      provenance: { source: "human_confirmed", confidence: 1, evidence: ["fixture"] },
+    });
+    service.repository.putPolicy(incumbent);
+    const snapshot = graphSnapshot(store, root, { publicOnly: true });
+    assert.equal(evaluatePolicyOnSnapshot(incumbent, snapshot).result, "violated", "component-id selectors resolve exactly against current graph components");
+
+    const report = service.bootstrap({ history: true, publicOnly: true, since: "90d", now: "2026-07-11T12:00:00.000Z" });
+    assert.equal(report.compiled.length, 0);
+    assert.equal(report.conflicted, 1);
+    const event = service.repository.listEvidence({ publicOnly: true }).find((item) => item.text_ref === "dec_relative_conflict")!;
+    assert.equal(event.compiler?.status, "conflicted");
+    assert.deepEqual(event.compiler?.conflicts, [incumbent.id]);
+    assert.equal(event.compiler?.policy, null);
+    assert.equal(service.list({ publicOnly: true }).length, 1, "only the human-authored incumbent remains live");
+  } finally {
+    cleanup();
+  }
+});
+
+test("EXP-03 scorecard validates 20 reviewed cases, raw denominators, uncertainty, and silent-substitution failure", () => {
+  const file = join(process.cwd(), "bench/constitution-exp03-v1.json");
+  const bank = JSON.parse(readFileSync(file, "utf8"));
+  const report = scoreCompilerCaseBank(bank);
+  assert.equal(report.denominator, 20);
+  assert.equal(report.numerator, 20);
+  assert.equal(report.rate, 1);
+  assert.ok(Math.abs(report.risk_difference_vs_threshold - 0.3) < Number.EPSILON);
+  assert.ok(report.wilson_95.low > 0.8 && report.wilson_95.high <= 1);
+  assert.equal(report.silent_semantic_substitutions, 0);
+  assert.equal(report.passed, true);
+
+  const unsafe = structuredClone(bank);
+  const prose = unsafe.cases.find((item: { id: string }) => item.id === "exp03_prose_only_instruction");
+  prose.actual = unsafe.cases[0].actual;
+  const failed = scoreCompilerCaseBank(unsafe);
+  assert.equal(failed.silent_semantic_substitutions, 1);
+  assert.equal(failed.passed, false, "one unsupported-to-assertion substitution fails the scorecard even above the aggregate threshold");
+  assert.notEqual(failed.deterministic_hash, report.deterministic_hash);
 });
 
 test("Phase 2B exact-home history compilation cannot leak a same-id private judgment", () => {

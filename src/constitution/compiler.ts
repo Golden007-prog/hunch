@@ -1,7 +1,7 @@
 import type { Decision, ConformancePredicate } from "../core/types.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { policyId } from "./canonical.js";
-import { POLICY_IR_VERSION, PolicySpecSchema, type DataClass, type PolicyAssertion, type PolicySelector, type PolicySpec } from "./schema.js";
+import { POLICY_IR_VERSION, PolicySpecSchema, type CandidateContext, type DataClass, type PolicyAssertion, type PolicySelector, type PolicySpec } from "./schema.js";
 
 function selector(ref: string): PolicySelector {
   if (ref.startsWith("symbol-id:") || ref.startsWith("symbol:")) return { selector: ref };
@@ -124,6 +124,7 @@ export interface StructuralPolicyInput {
   assertion: PolicyAssertion;
   scope: PolicySpec["scope"];
   dataClass: DataClass;
+  candidate?: CandidateContext;
   now?: string;
 }
 
@@ -137,6 +138,10 @@ export function compileStructuralPolicy(store: HunchStore, input: StructuralPoli
     && input.assertion.relation.edges.length === 1
     && input.assertion.relation.edges[0] === "imports"
     && input.assertion.object.selector.startsWith("external:");
+  const componentRelation = input.assertion.kind !== "exists"
+    && input.assertion.relation.edges.length === 1
+    && input.assertion.relation.edges[0] === "depends_on"
+    && input.assertion.subject.selector.startsWith("component");
   const id = policyId({ assertion: input.assertion, scope: input.scope, data_class: input.dataClass });
   const policy = PolicySpecSchema.parse({
     id,
@@ -163,11 +168,16 @@ export function compileStructuralPolicy(store: HunchStore, input: StructuralPoli
       "Inferred from one exact first-parent Git structural delta; replay coverage is established only by a later plan-bound proof.",
       externalImport
         ? "Scope is intentionally limited to the changed file and anchored to one stable symbol in that file."
+        : componentRelation
+          ? "Scope is intentionally limited to the exact source and target components resolved from one relative static import."
         : "Scope is intentionally limited to the changed caller or introduced-symbol file.",
       externalImport
         ? "TypeScript/JavaScript static ESM import/export specifiers only; require(), dynamic import(), package aliases, and runtime loading are not covered."
+        : componentRelation
+          ? "TypeScript/JavaScript static relative ESM import/export specifiers only; aliases, absolute paths, import maps, require(), dynamic import(), and runtime loading are not covered."
         : "TypeScript/JavaScript static calls only; dynamic calls and runtime dependency injection are not covered.",
     ],
+    candidate: input.candidate,
     legacy_refs: [input.source.id],
     audit: [{
       action: "compiled",

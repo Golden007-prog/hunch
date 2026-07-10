@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "experiment": "EXP-03",
+  "threshold": 0.7,
+  "preregistered_metric": "intended supported assertion or honest non-minting classification",
+  "cases": [
+    {
+      "id": "exp03_added_call",
+      "family": "direct review correction",
+      "evidence": "Human names charge and verifySession; the fix adds the exact call.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "reaches", "subject": { "selector": "symbol:src/payments/charge.ts:charge" }, "relation": { "edges": ["calls"], "transitive": false, "max_depth": 1 }, "object": { "selector": "symbol:src/auth/session.ts:verifySession" } }, "scope": { "repos": [], "paths": ["src/payments/charge.ts"], "components": ["cmp_payments"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "reaches", "subject": { "selector": "symbol:src/payments/charge.ts:charge" }, "relation": { "edges": ["calls"], "transitive": false, "max_depth": 1 }, "object": { "selector": "symbol:src/auth/session.ts:verifySession" } }, "scope": { "repos": [], "paths": ["src/payments/charge.ts"], "components": ["cmp_payments"] } }
+    },
+    {
+      "id": "exp03_removed_call",
+      "family": "revert",
+      "evidence": "Human names run and dangerous; revert removes the exact call.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "not-reaches", "subject": { "selector": "symbol:src/runtime/worker.ts:run" }, "relation": { "edges": ["calls"], "transitive": false, "max_depth": 1 }, "object": { "selector": "symbol:src/runtime/worker.ts:dangerous" } }, "scope": { "repos": [], "paths": ["src/runtime/worker.ts"], "components": ["cmp_runtime"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "not-reaches", "subject": { "selector": "symbol:src/runtime/worker.ts:run" }, "relation": { "edges": ["calls"], "transitive": false, "max_depth": 1 }, "object": { "selector": "symbol:src/runtime/worker.ts:dangerous" } }, "scope": { "repos": [], "paths": ["src/runtime/worker.ts"], "components": ["cmp_runtime"] } }
+    },
+    {
+      "id": "exp03_added_symbol",
+      "family": "incident fix",
+      "evidence": "Human judgment explicitly names the introduced guard symbol.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "exists", "subject": { "selector": "symbol:src/security/guard.ts:verifyOrigin" } }, "scope": { "repos": [], "paths": ["src/security/guard.ts"], "components": ["cmp_security"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "exists", "subject": { "selector": "symbol:src/security/guard.ts:verifyOrigin" } }, "scope": { "repos": [], "paths": ["src/security/guard.ts"], "components": ["cmp_security"] } }
+    },
+    {
+      "id": "exp03_external_retirement",
+      "family": "architectural dependency retirement",
+      "evidence": "Decision.retired.deps names axios and the stable file anchor remains.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "not-reaches", "subject": { "selector": "symbol:src/services/orders.ts:fetchOrders" }, "relation": { "edges": ["imports"], "transitive": false, "max_depth": 1 }, "object": { "selector": "external:axios" } }, "scope": { "repos": [], "paths": ["src/services/orders.ts"], "components": ["cmp_services"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "not-reaches", "subject": { "selector": "symbol:src/services/orders.ts:fetchOrders" }, "relation": { "edges": ["imports"], "transitive": false, "max_depth": 1 }, "object": { "selector": "external:axios" } }, "scope": { "repos": [], "paths": ["src/services/orders.ts"], "components": ["cmp_services"] } }
+    },
+    {
+      "id": "exp03_removed_relative_component",
+      "family": "component boundary removal",
+      "evidence": "Human names Api and Db; the relative import and component bindings are exact.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "not-reaches", "subject": { "selector": "component-id:cmp_api" }, "relation": { "edges": ["depends_on"], "transitive": false, "max_depth": 1 }, "object": { "selector": "component-id:cmp_db" } }, "scope": { "repos": [], "paths": ["src/api/orders.ts"], "components": ["cmp_api", "cmp_db"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "not-reaches", "subject": { "selector": "component-id:cmp_api" }, "relation": { "edges": ["depends_on"], "transitive": false, "max_depth": 1 }, "object": { "selector": "component-id:cmp_db" } }, "scope": { "repos": [], "paths": ["src/api/orders.ts"], "components": ["cmp_api", "cmp_db"] }, "uncertainty": ["Unrelated call facts were rejected as structural coincidence."] }
+    },
+    {
+      "id": "exp03_added_relative_component",
+      "family": "component dependency restoration",
+      "evidence": "Human names Api and Services; the current depends_on edge is exact.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "reaches", "subject": { "selector": "component-id:cmp_api" }, "relation": { "edges": ["depends_on"], "transitive": false, "max_depth": 1 }, "object": { "selector": "component-id:cmp_services" } }, "scope": { "repos": [], "paths": ["src/api/orders.ts"], "components": ["cmp_api", "cmp_services"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "reaches", "subject": { "selector": "component-id:cmp_api" }, "relation": { "edges": ["depends_on"], "transitive": false, "max_depth": 1 }, "object": { "selector": "component-id:cmp_services" } }, "scope": { "repos": [], "paths": ["src/api/orders.ts"], "components": ["cmp_api", "cmp_services"] } }
+    },
+    { "id": "exp03_ambiguous_two_calls", "family": "ambiguous before-after", "evidence": "One call is removed and another added; the human text does not select one meaning.", "expected": { "outcome": "uncompilable", "uncertainty": ["two exact alternatives"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["removed-call alternative", "added-call alternative"], "reason": "Hunch refused to choose between two exact supported candidates." } },
+    { "id": "exp03_duplicate_target", "family": "ambiguous symbol", "evidence": "The removed callee name resolves to two current symbols.", "expected": { "outcome": "uncompilable", "uncertainty": ["ambiguous target"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["removed-call target is ambiguous"], "reason": "No exact binding exists." } },
+    { "id": "exp03_human_unnamed", "family": "structural coincidence", "evidence": "The diff is exact but the human judgment names neither endpoint.", "expected": { "outcome": "uncompilable", "uncertainty": ["human grounding absent"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["structural coincidence not explicitly named"], "reason": "No exact supported structural assertion." } },
+    { "id": "exp03_removed_symbol", "family": "retired symbol", "evidence": "The historical symbol has no enforceable current binding.", "expected": { "outcome": "uncompilable", "uncertainty": ["missing current binding"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["removed symbol has no enforceable current binding"] } },
+    { "id": "exp03_moved_symbol", "family": "rename and move", "evidence": "A move requires repair semantics and cannot be recast as exists.", "expected": { "outcome": "uncompilable", "uncertainty": ["repair semantics required"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["moved symbol needs repair semantics"] } },
+    { "id": "exp03_positive_external", "family": "positive package requirement", "evidence": "Adding an external import does not prove that the package must remain required.", "expected": { "outcome": "uncompilable", "uncertainty": ["positive requirement unsupported"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["positive package requirement evaluator absent"] } },
+    { "id": "exp03_same_component_relative", "family": "internal relative import", "evidence": "Both files belong to one component; no component edge represents the file relation.", "expected": { "outcome": "uncompilable", "uncertainty": ["internal edge unsupported"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["component evaluator cannot represent an internal file edge"] } },
+    { "id": "exp03_import_map", "family": "import-map boundary", "evidence": "A # alias has no exact local target without project-specific resolution.", "expected": { "outcome": "uncompilable", "uncertainty": ["import map unsupported"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["relative target missing and external package refused"] } },
+    { "id": "exp03_missing_relative_target", "family": "missing binding", "evidence": "The relative target no longer exists in the current graph.", "expected": { "outcome": "uncompilable", "uncertainty": ["missing target"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["relative import target is missing"] } },
+    { "id": "exp03_direct_conflict", "family": "contradictory decision", "evidence": "A new not-reaches candidate directly opposes an incumbent reaches policy over the same scope.", "expected": { "outcome": "conflicted", "conflicts": ["pol_aaaaaaaaaa"] }, "actual": { "outcome": "conflicted", "conflicts": ["pol_aaaaaaaaaa"], "reason": "No policy minted and no authority changed." } },
+    { "id": "exp03_equivalent_incumbent", "family": "existing equivalent", "evidence": "Assertion, scope, and data class exactly match an incumbent.", "expected": { "outcome": "covered", "incumbent": "pol_bbbbbbbbbb" }, "actual": { "outcome": "covered", "incumbent": "pol_bbbbbbbbbb", "reason": "Incumbent lifecycle preserved and evidence linked." } },
+    {
+      "id": "exp03_private_exact",
+      "family": "private evidence",
+      "evidence": "A private human-confirmed fix yields the same exact assertion in the private home.",
+      "expected": { "outcome": "assertion", "assertion": { "kind": "reaches", "subject": { "selector": "symbol:src/payments/charge.ts:charge" }, "relation": { "edges": ["calls"], "transitive": false, "max_depth": 1 }, "object": { "selector": "symbol:src/auth/session.ts:verifySession" } }, "scope": { "repos": [], "paths": ["src/payments/charge.ts"], "components": ["cmp_payments"] } },
+      "actual": { "outcome": "assertion", "assertion": { "kind": "reaches", "subject": { "selector": "symbol:src/payments/charge.ts:charge" }, "relation": { "edges": ["calls"], "transitive": false, "max_depth": 1 }, "object": { "selector": "symbol:src/auth/session.ts:verifySession" } }, "scope": { "repos": [], "paths": ["src/payments/charge.ts"], "components": ["cmp_payments"] } }
+    },
+    { "id": "exp03_prose_only_instruction", "family": "prose-only judgment", "evidence": "The instruction contains no supported structured predicate or attributable delta.", "expected": { "outcome": "uncompilable", "uncertainty": ["no deterministic evaluator"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["normalized instruction is evidence-only"] } },
+    { "id": "exp03_multi_family_delta", "family": "mixed large fix", "evidence": "The fix yields exact call, symbol, and import candidates with no human-selected meaning.", "expected": { "outcome": "uncompilable", "uncertainty": ["multiple meanings"] }, "actual": { "outcome": "uncompilable", "uncertainty": ["call alternative", "symbol alternative", "import alternative"] } }
+  ]
+}

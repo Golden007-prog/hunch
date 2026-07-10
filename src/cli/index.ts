@@ -78,6 +78,7 @@ import type { RelevanceVerdict, ExistingDecisionRef } from "../synthesis/provide
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { computeDrift } from "../core/drift.js";
+import { renderCompilerScorecard, scoreCompilerCaseBank } from "../constitution/scorecard.js";
 import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, renderGrounding } from "../core/topics.js";
@@ -1168,6 +1169,21 @@ const constitutionCmd = program
   .description("Bootstrap Hunch Constitution candidates from attributable structured evidence.");
 
 constitutionCmd
+  .command("scorecard")
+  .description("Validate and score a versioned EXP-03 Intent Compiler case bank; writes nothing.")
+  .argument("[file]", "path to a version-1 EXP-03 JSON case bank", join(dirname(fileURLToPath(import.meta.url)), "../../bench/constitution-exp03-v1.json"))
+  .option("--json", "emit the canonical scorecard as JSON")
+  .action((file: string, opts: { json?: boolean }) => {
+    try {
+      const scorecard = scoreCompilerCaseBank(JSON.parse(readFileSync(resolve(file), "utf8")));
+      console.log(opts.json ? JSON.stringify(scorecard, null, 2) : renderCompilerScorecard(scorecard));
+      if (!scorecard.passed) process.exitCode = 1;
+    } catch (e) {
+      fail((e as Error).message);
+    }
+  });
+
+constitutionCmd
   .command("ingest")
   .description("Normalize local corrections/failures, committed instructions/ADRs, and local review/PR exports into Git-native EvidenceEvents; creates no policy authority.")
   .option("--since <duration>", "evidence window, e.g. 90d or 12w", "90d")
@@ -1252,7 +1268,7 @@ constitutionCmd
         console.log(`  + ${candidate.policy.id} [${candidate.policy.state}] ${candidate.policy.statement}`);
         console.log(`    evidence: ${candidate.evidence.id} · ${candidate.policy.assertion.kind} · authority: none`);
       }
-      console.log(`  ${report.compiled.length} compiled · ${report.covered} already covered · ${report.deferred} deferred by max-three cap · ${report.uncompilable} uncompilable`);
+      console.log(`  ${report.compiled.length} compiled · ${report.covered} already covered · ${report.conflicted} conflicted · ${report.deferred} deferred by max-three cap · ${report.uncompilable} uncompilable`);
       if (!report.compiled.length) console.log("  No new candidates; existing policy lifecycle states were left untouched.");
     } catch (e) {
       fail((e as Error).message);

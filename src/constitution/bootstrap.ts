@@ -19,6 +19,7 @@ export interface BootstrapReport {
   covered: number;
   deferred: number;
   uncompilable: number;
+  conflicted: number;
 }
 
 export interface BootstrapOptions {
@@ -118,7 +119,7 @@ export function bootstrapPolicies(
   const homeView = { publicOnly: opts.publicOnly, privateOnly: opts.privateOnly };
   const openCandidates = repository.listPolicies(homeView).filter((p) => p.state === "compiled" || p.state === "validating" || p.state === "proposed").length;
   const available = Math.max(0, maxCandidates - Math.min(maxCandidates, openCandidates));
-  const report: BootstrapReport = { scanned: decisions.length, eligible: candidates.length, compiled: [], covered: 0, deferred: 0, uncompilable: 0 };
+  const report: BootstrapReport = { scanned: decisions.length, eligible: candidates.length, compiled: [], covered: 0, deferred: 0, uncompilable: 0, conflicted: 0 };
 
   for (const decision of candidates) {
     const isPrivate = opts.privateOnly ? true : opts.publicOnly ? false : !!store.getPrivateRec("decisions", decision.id);

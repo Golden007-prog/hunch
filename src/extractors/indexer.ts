@@ -8,11 +8,12 @@
  * then runs HunchStore.reindex() to refresh the SQLite index.
  */
 import { readFileSync, statSync, readdirSync } from "node:fs";
-import { join, relative, dirname, posix } from "node:path";
+import { join, relative, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { parseSource, attributeCalls } from "./parse.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
 import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
+import { resolveRelativeImport } from "../core/relativeImports.js";
 import { extracted, inferred, type Symbol, type Edge, type Component } from "../core/types.js";
 import { isGitRepo, trackedFiles, fileGitMetrics } from "./git.js";
 
@@ -259,24 +260,7 @@ function resolveName(
 
 /** Resolve a relative import specifier to a concrete tracked file path. */
 function resolveImport(fromFile: string, spec: string, fileSymbols: Map<string, string[]>): string | null {
-  if (!spec.startsWith(".")) return null; // external package
-  const base = toPosix(join(dirname(fromFile), spec));
-  // Prefer TS source rewrites over the literal `.js` specifier: in a TS repo an
-  // import of "./db.js" resolves to db.ts. Only fall back to the literal path.
-  const candidates = [
-    base.replace(/\.js$/, ".ts"),
-    base.replace(/\.js$/, ".tsx"),
-    base.replace(/\.jsx$/, ".tsx"),
-    base + ".ts",
-    base + ".tsx",
-    base,
-    base + ".js",
-    toPosix(join(base, "index.ts")),
-    toPosix(join(base, "index.tsx")),
-    toPosix(join(base, "index.js")),
-  ];
-  for (const c of candidates) if (fileSymbols.has(c)) return c;
-  return null;
+  return resolveRelativeImport(fromFile, spec, fileSymbols.keys()).path;
 }
 
 interface ComponentDraft extends Component {

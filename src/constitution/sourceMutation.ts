@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, posix, relative } from "node:path";
 import { hunchPathsForDir } from "../core/paths.js";
 import { symbolId } from "../core/ids.js";
 import { externalPackage } from "../core/externalImports.js";
-import type { Symbol } from "../core/types.js";
+import { pathMatchesGlob } from "../core/glob.js";
+import { resolveRelativeImport } from "../core/relativeImports.js";
+import type { Component, Symbol } from "../core/types.js";
 import { indexRepo } from "../extractors/indexer.js";
 import { parseSource, type ParsedFile, type ParsedSymbol } from "../extractors/parse.js";
 import { HunchStore } from "../store/hunchStore.js";
@@ -74,6 +76,27 @@ function symbolForSelector(snapshot: GraphSnapshot, selector: PolicySelector): S
   return matches.length === 1 ? matches[0]! : null;
 }
 
+function componentForSelector(snapshot: GraphSnapshot, selector: PolicySelector): Component | null {
+  const raw = selector.selector;
+  if (raw.startsWith("component-id:")) return snapshot.components.find((component) => component.id === raw.slice("component-id:".length)) ?? null;
+  if (!raw.startsWith("component:")) return null;
+  const name = raw.slice("component:".length);
+  const matches = snapshot.components.filter((component) => component.name === name);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function componentFiles(snapshot: GraphSnapshot, component: Component): string[] {
+  return [...new Set(snapshot.symbols
+    .map((symbol) => symbol.file)
+    .filter((file) => component.paths.some((glob) => pathMatchesGlob(file, glob))))].sort();
+}
+
+function relativeSpecifier(fromFile: string, toFile: string): string {
+  let specifier = relative(dirname(fromFile), toFile).split(/[\\/]/).join(posix.sep);
+  specifier = specifier.replace(/\.(?:tsx?|jsx?)$/, ".js");
+  return specifier.startsWith(".") ? specifier : `./${specifier}`;
+}
+
 function parsedSymbolFor(graphSymbol: Symbol, parsed: ParsedFile): ParsedSymbol | null {
   const matches = parsed.symbols.filter((symbol) => symbol.name === graphSymbol.name && symbol.kind === graphSymbol.kind);
   const base = symbolId(graphSymbol.file, graphSymbol.name, graphSymbol.kind);
@@ -92,8 +115,43 @@ function spliceBytes(source: string, replacements: Array<{ start: number; end: n
   return bytes.toString("utf8");
 }
 
-function mutateSource(policy: PolicySpec, base: GraphSnapshot, source: string): { file: string; source: string } | { error: string } {
+function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: string, source: string): { file: string; source: string } | { error: string } {
   const assertion = policy.assertion;
+  if (assertion.kind !== "exists"
+    && assertion.relation.edges.length === 1
+    && assertion.relation.edges[0] === "depends_on") {
+    const subjectComponent = componentForSelector(base, assertion.subject);
+    const objectComponent = componentForSelector(base, assertion.object);
+    if (!subjectComponent) return { error: "mutation-subject-component-unresolved" };
+    if (!objectComponent) return { error: "mutation-object-component-unresolved" };
+    const targetFile = componentFiles(base, objectComponent)[0];
+    if (!targetFile) return { error: "mutation-object-component-empty" };
+    const parsed = parseSource(sourceFile, source);
+    if (!parsed?.parseable) return { error: "mutation-source-unparseable" };
+    if (assertion.kind === "reaches") {
+      const available = base.symbols.map((symbol) => symbol.file);
+      const targets = new Set(componentFiles(base, objectComponent));
+      const matching = new Set(parsed.imports.filter((specifier) => {
+        const resolved = resolveRelativeImport(sourceFile, specifier, available).path;
+        return !!resolved && targets.has(resolved);
+      }));
+      if (!matching.size) return { error: "mutation-required-component-import-unresolved" };
+      const lines = source.split(/(?<=\n)/);
+      const next = lines.filter((line) => {
+        if (!/^\s*(?:import|export)\b/.test(line)) return true;
+        return ![...matching].some((specifier) => line.includes(JSON.stringify(specifier)) || line.includes(`'${specifier}'`));
+      }).join("");
+      if (next === source) return { error: "mutation-required-component-import-unresolved" };
+      return { file: sourceFile, source: next };
+    }
+    const specifier = relativeSpecifier(sourceFile, targetFile);
+    if (parsed.imports.some((candidate) => candidate === specifier)) return { error: "mutation-component-import-already-present" };
+    const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
+    return {
+      file: sourceFile,
+      source: spliceBytes(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(specifier)}; // hunch deterministic component mutation\n` }]),
+    };
+  }
   const subject = symbolForSelector(base, assertion.subject);
   if (!subject) return { error: "mutation-subject-unresolved" };
   const parsed = parseSource(subject.file, source);
@@ -187,9 +245,11 @@ export function runSourceMutation(root: string, policy: PolicySpec, base: GraphS
     });
     added = true;
     const subject = symbolForSelector(base, policy.assertion.subject);
-    if (!subject) throw new Error("mutation-subject-unresolved");
-    const file = join(checkout, subject.file);
-    const mutation = mutateSource(policy, base, readFileSync(file, "utf8"));
+    const subjectComponent = componentForSelector(base, policy.assertion.subject);
+    const sourceFile = subject?.file ?? (subjectComponent ? componentFiles(base, subjectComponent)[0] : undefined);
+    if (!sourceFile) throw new Error("mutation-subject-unresolved");
+    const file = join(checkout, sourceFile);
+    const mutation = mutateSource(policy, base, sourceFile, readFileSync(file, "utf8"));
     if ("error" in mutation) throw new Error(mutation.error);
     const parsed = parseSource(mutation.file, mutation.source);
     if (!parsed?.parseable) throw new Error("mutation-source-unparseable");

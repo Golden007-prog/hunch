@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
-import { EdgeSchema, SymbolSchema } from "../core/types.js";
+import { ComponentSchema, EdgeSchema, SymbolSchema } from "../core/types.js";
 import { writeFileAtomic } from "../core/io.js";
 import { canonicalHash } from "./canonical.js";
 import { graphSnapshotFromRecords, type GraphSnapshot } from "./evaluator.js";
 import { DataClassSchema, POLICY_EVALUATOR, type DataClass } from "./schema.js";
 
-export const REPLAY_CACHE_ENGINE = { name: "hunch-tsjs-static-index", version: "2" } as const;
+export const REPLAY_CACHE_ENGINE = { name: "hunch-tsjs-static-index", version: "3" } as const;
 
 const ReplayGraphCacheSchema = z.object({
   version: z.literal(1),
@@ -19,6 +19,7 @@ const ReplayGraphCacheSchema = z.object({
   graph_hash: z.string().min(1),
   symbols: z.array(SymbolSchema),
   edges: z.array(EdgeSchema),
+  components: z.array(ComponentSchema),
   content_hash: z.string().min(1),
 }).strict();
 
@@ -36,6 +37,7 @@ function cacheBody(snapshot: GraphSnapshot, dataClass: DataClass, engineVersion:
     graph_hash: snapshot.graph_hash,
     symbols: snapshot.symbols,
     edges: snapshot.edges,
+    components: snapshot.components,
   };
 }
 
@@ -69,7 +71,7 @@ export function loadReplaySnapshot(
     if (cached.repository !== basename(root)) throw new Error("cache repository mismatch");
     if (cached.engine.name !== REPLAY_CACHE_ENGINE.name || cached.engine.version !== engineVersion) throw new Error("cache engine mismatch");
     if (cached.evaluator.name !== POLICY_EVALUATOR.name || cached.evaluator.version !== POLICY_EVALUATOR.version) throw new Error("cache evaluator mismatch");
-    const snapshot = graphSnapshotFromRecords(root, commit, cached.symbols, cached.edges);
+    const snapshot = graphSnapshotFromRecords(root, commit, cached.symbols, cached.edges, cached.components);
     if (snapshot.graph_hash !== cached.graph_hash) throw new Error("graph hash mismatch");
     return { status: "hit", snapshot };
   } catch {

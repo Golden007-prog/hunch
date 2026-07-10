@@ -15,6 +15,7 @@ export interface ProofCard {
     assertion: PolicySpec["assertion"];
     scope: PolicySpec["scope"];
     evidence: string[];
+    candidate: PolicySpec["candidate"];
   };
   proof: { id: string; proof_class: ProofClass; plan_hash: string; generated_at: string };
   evidence_vector: {
@@ -31,6 +32,8 @@ export interface ProofCard {
     unknown_results: number;
     error_results: number;
     limitations: string[];
+    compiler_uncertainty: string[];
+    candidate_conflicts: string[];
   };
   authority: {
     current: PolicySpec["authority"];
@@ -55,6 +58,7 @@ export function buildProofCard(policy: PolicySpec, proof: PolicyProof): ProofCar
   if (proof.accepted_history.violated > proof.accepted_history.classified_hits.length) actions.push("Classify every accepted-history violation before considering blocking approval.");
   if (unknownResults || errorResults) actions.push("Repair or explicitly resolve every unknown/error proof result.");
   if (proof.mutation_controls.failed) actions.push("Repair every failed required mutation control before considering blocking approval.");
+  if (policy.candidate.conflicts.length) actions.push("Resolve every direct candidate conflict with a human disposition before lifecycle promotion.");
   if (eligible && !canBlock) actions.push("A human may review and explicitly activate blocking mode; the proof and any earlier advisory approval grant no blocking authority by themselves.");
   if (!eligible && actions.length === 0) actions.push("Strengthen the evidence vector before requesting blocking approval.");
   actions.push("Review the exact assertion, scope, evidence, and limitations before any lifecycle action.");
@@ -69,6 +73,7 @@ export function buildProofCard(policy: PolicySpec, proof: PolicyProof): ProofCar
       assertion: policy.assertion,
       scope: policy.scope,
       evidence: [...policy.evidence],
+      candidate: policy.candidate,
     },
     proof: { id: proof.id, proof_class: proof.proof_class, plan_hash: proof.plan_hash, generated_at: proof.generated_at },
     evidence_vector: {
@@ -85,6 +90,8 @@ export function buildProofCard(policy: PolicySpec, proof: PolicyProof): ProofCar
       unknown_results: unknownResults,
       error_results: errorResults,
       limitations: [...proof.limitations],
+      compiler_uncertainty: [...policy.candidate.uncertainty],
+      candidate_conflicts: [...policy.candidate.conflicts],
     },
     authority: {
       current: policy.authority,
@@ -109,6 +116,7 @@ export function renderProofCard(card: ProofCard): string {
     `  assertion: ${JSON.stringify(card.policy.assertion)}`,
     `  scope: ${JSON.stringify(card.policy.scope)}`,
     `  evidence: ${card.policy.evidence.join(", ") || "none"}`,
+    `  candidate alternatives: ${card.policy.candidate.alternatives.length} · conflicts: ${card.policy.candidate.conflicts.length} · incumbent: ${card.policy.candidate.incumbent ?? "none"}`,
     `  ${line("current", card.evidence_vector.current)}`,
     `  ${line("known bad", card.evidence_vector.known_bad)}`,
     `  ${line("known good", card.evidence_vector.known_good)}`,
@@ -120,6 +128,8 @@ export function renderProofCard(card: ProofCard): string {
     `  blocking readiness: ${card.authority.eligible_for_human_blocking_approval ? "eligible for explicit human review" : `not eligible${card.authority.blocking_evidence_error ? ` — ${card.authority.blocking_evidence_error}` : ""}`}`,
     `  authority: ${card.authority.current?.kind === "human" ? card.authority.current.actor : "none — proof cannot activate policy"}`,
     ...card.uncertainty.limitations.map((limitation) => `  limitation: ${limitation}`),
+    ...card.uncertainty.compiler_uncertainty.map((uncertainty) => `  compiler uncertainty: ${uncertainty}`),
+    ...card.uncertainty.candidate_conflicts.map((conflict) => `  candidate conflict: ${conflict}`),
     ...card.actions.map((action) => `  action: ${action}`),
     `  card: ${card.card_hash}`,
   ].join("\n");

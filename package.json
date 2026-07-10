@@ -18,6 +18,7 @@
   },
   "files": [
     "dist/**/*.js",
+    "bench/constitution-exp03-v1.json",
     "LICENSE",
     "NOTICE"
   ],

@@ -1,4 +1,4 @@
-import type { Edge, Symbol } from "../core/types.js";
+import type { Component, Edge, Symbol } from "../core/types.js";
 import { basename } from "node:path";
 import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import type { HunchStore } from "../store/hunchStore.js";
@@ -19,6 +19,7 @@ export interface GraphSnapshot {
   head: string;
   symbols: Symbol[];
   edges: Edge[];
+  components: Component[];
   graph_hash: string;
 }
 
@@ -28,21 +29,23 @@ interface Binding {
   explanation: string;
 }
 
-function snapshotHash(symbols: Symbol[], edges: Edge[]): string {
+function snapshotHash(symbols: Symbol[], edges: Edge[], components: Component[]): string {
   return canonicalHash({
     symbols: symbols.map((s) => ({ id: s.id, file: s.file, name: s.name, kind: s.kind })).sort((a, b) => a.id.localeCompare(b.id)),
     edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, type: e.type })).sort((a, b) => a.id.localeCompare(b.id)),
+    components: components.map((c) => ({ id: c.id, name: c.name, kind: c.kind, paths: [...c.paths].sort(), status: c.status })).sort((a, b) => a.id.localeCompare(b.id)),
   });
 }
 
-export function graphSnapshotFromRecords(root: string, head: string, symbols: Symbol[], edges: Edge[]): GraphSnapshot {
-  return { root, head, symbols, edges, graph_hash: snapshotHash(symbols, edges) };
+export function graphSnapshotFromRecords(root: string, head: string, symbols: Symbol[], edges: Edge[], components: Component[] = []): GraphSnapshot {
+  return { root, head, symbols, edges, components, graph_hash: snapshotHash(symbols, edges, components) };
 }
 
 export function graphSnapshot(store: HunchStore, root: string, opts: { publicOnly?: boolean; head?: string } = {}): GraphSnapshot {
   const symbols = opts.publicOnly ? store.json.loadAll("symbols") : store.recs("symbols");
   const edges = opts.publicOnly ? store.json.loadAll("edges") : store.recs("edges");
-  return graphSnapshotFromRecords(root, opts.head ?? (headSha(root) || "working-tree"), symbols, edges);
+  const components = opts.publicOnly ? store.json.loadAll("components") : store.recs("components");
+  return graphSnapshotFromRecords(root, opts.head ?? (headSha(root) || "working-tree"), symbols, edges, components);
 }
 
 function resolveSelector(snapshot: GraphSnapshot, selector: PolicySelector): Binding {
@@ -70,6 +73,20 @@ function resolveSelector(snapshot: GraphSnapshot, selector: PolicySelector): Bin
     if (matches.length === 1) return { resolution: "exact", ids: [matches[0]!.id], explanation: `${raw} resolved exactly` };
     if (matches.length > 1) return { resolution: "ambiguous", ids: matches.map((s) => s.id).sort(), explanation: `${raw} resolves to ${matches.length} symbols` };
     return { resolution: "missing", ids: [], explanation: `${raw} does not exist in the graph` };
+  }
+  if (raw.startsWith("component-id:")) {
+    const id = raw.slice("component-id:".length);
+    const found = snapshot.components.some((component) => component.id === id);
+    return found
+      ? { resolution: "exact", ids: [id], explanation: `${raw} resolved exactly` }
+      : { resolution: "missing", ids: [], explanation: `${raw} does not exist in the component graph` };
+  }
+  if (raw.startsWith("component:")) {
+    const name = raw.slice("component:".length);
+    const matches = snapshot.components.filter((component) => component.name === name);
+    if (matches.length === 1) return { resolution: "exact", ids: [matches[0]!.id], explanation: `${raw} resolved exactly` };
+    if (matches.length > 1) return { resolution: "ambiguous", ids: matches.map((component) => component.id).sort(), explanation: `${raw} resolves to ${matches.length} components` };
+    return { resolution: "missing", ids: [], explanation: `${raw} does not exist in the component graph` };
   }
   return { resolution: "unsupported", ids: [], explanation: `selector form "${raw}" is not supported by evaluator ${POLICY_EVALUATOR.version}` };
 }
@@ -117,6 +134,8 @@ function findPath(
 function matchFor(snapshot: GraphSnapshot, id: string, relationPath?: string[]): PolicyEvaluation["matches"][number] {
   const sym = snapshot.symbols.find((s) => s.id === id);
   if (sym) return { file: sym.file, symbol: sym.name, ...(relationPath ? { relation_path: relationPath } : {}) };
+  const component = snapshot.components.find((candidate) => candidate.id === id);
+  if (component) return { file: component.paths[0] ?? "", symbol: component.name, ...(relationPath ? { relation_path: relationPath } : {}) };
   const edge = snapshot.edges.find((candidate) => candidate.from === id || candidate.to === id);
   const evidence = edge?.provenance.evidence.find((item) => item.includes(":imports:"));
   const file = evidence?.slice(0, evidence.indexOf(":imports:")) ?? "";
@@ -295,7 +314,8 @@ export function mutateSnapshotForPolicy(
       ...snapshot,
       symbols,
       edges,
-      graph_hash: snapshotHash(symbols, edges),
+      graph_hash: snapshotHash(symbols, edges, snapshot.components),
+      components: snapshot.components,
     },
   };
 }

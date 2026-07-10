@@ -1,6 +1,6 @@
 import { shortHash } from "../core/ids.js";
 import { externalPackage } from "../core/externalImports.js";
-import type { Symbol } from "../core/types.js";
+import type { Component, Symbol } from "../core/types.js";
 import { parseSource } from "../extractors/parse.js";
 import { canonicalHash, canonicalJson, policySemanticHash, proofEvaluationHash } from "./canonical.js";
 import {
@@ -55,9 +55,20 @@ function symbolForSelector(snapshot: GraphSnapshot, selector: PolicySelector): S
 function nameForSelector(snapshot: GraphSnapshot, selector: PolicySelector): string | null {
   const symbol = symbolForSelector(snapshot, selector);
   if (symbol) return symbol.name;
+  const component = componentForSelector(snapshot, selector);
+  if (component) return component.name;
   return selector.selector.startsWith("external:")
     ? externalPackage(selector.selector.slice("external:".length))
     : null;
+}
+
+function componentForSelector(snapshot: GraphSnapshot, selector: PolicySelector): Component | null {
+  const raw = selector.selector;
+  if (raw.startsWith("component-id:")) return snapshot.components.find((component) => component.id === raw.slice("component-id:".length)) ?? null;
+  if (!raw.startsWith("component:")) return null;
+  const name = raw.slice("component:".length);
+  const matches = snapshot.components.filter((component) => component.name === name);
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 function graphDiff(base: GraphSnapshot, mutated: GraphSnapshot): MutationReceipt["graph_diff"] {
@@ -229,7 +240,29 @@ function sameNameControl(
   planned: PlannedMutation,
 ): MutationReceipt {
   const selected = policySelectors(policy).map((selector) => symbolForSelector(base, selector)).filter((symbol): symbol is Symbol => !!symbol);
-  if (!selected.length) return errorReceipt(policy, base, planned, "control", "control-selector-unresolved");
+  if (!selected.length) {
+    const selectedComponents = policySelectors(policy).map((selector) => componentForSelector(base, selector)).filter((component): component is Component => !!component);
+    if (!selectedComponents.length) return errorReceipt(policy, base, planned, "control", "control-selector-unresolved");
+    const clones = [...new Map(selectedComponents.map((component) => [component.id, component])).values()].map((component, index): Component => ({
+      ...component,
+      id: `${component.id}_mutation_control_${index + 1}`,
+      paths: [`__hunch_controls__/same-name-component-${index + 1}/**`],
+    }));
+    const controlled = graphSnapshotFromRecords(base.root, base.head, base.symbols, base.edges, [...base.components, ...clones]);
+    const evaluation = evaluatePolicyOnSnapshot(policy, controlled);
+    return receipt(policy, base, {
+      kind: "control",
+      operator: planned.operator,
+      required: planned.required,
+      mutated_graph_hash: controlled.graph_hash,
+      expected: planned.expected,
+      result: evaluation.result,
+      passed: evaluation.result === planned.expected,
+      parseability: "not_applicable",
+      graph_diff: graphDiff(base, controlled),
+      evaluation_hash: proofEvaluationHash(evaluation),
+    });
+  }
   const unique = [...new Map(selected.map((symbol) => [symbol.id, symbol])).values()];
   const clones = unique.map((symbol, index): Symbol => ({
     ...symbol,
@@ -240,7 +273,7 @@ function sameNameControl(
     metrics: { ...symbol.metrics, fan_in: 0, fan_out: 0, churn_90d: 0, bug_count: 0 },
     last_changed: "",
   }));
-  const controlled = graphSnapshotFromRecords(base.root, base.head, [...base.symbols, ...clones], base.edges);
+  const controlled = graphSnapshotFromRecords(base.root, base.head, [...base.symbols, ...clones], base.edges, base.components);
   const evaluation = evaluatePolicyOnSnapshot(policy, controlled);
   return receipt(policy, base, {
     kind: "control",

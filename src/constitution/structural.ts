@@ -2,7 +2,8 @@ import { basename } from "node:path";
 import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import { pathMatchesGlob } from "../core/glob.js";
 import { shortHash } from "../core/ids.js";
-import type { Decision, Edge, Symbol } from "../core/types.js";
+import { resolveRelativeImport } from "../core/relativeImports.js";
+import type { Component, Decision, Edge, Symbol } from "../core/types.js";
 import { commitMeta, type CommitMeta } from "../extractors/git.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { canonicalHash } from "./canonical.js";
@@ -13,6 +14,8 @@ import type { PolicyRepository } from "./repository.js";
 import {
   EvidenceEventSchema,
   type DataClass,
+  type CandidateContext,
+  type CandidateAlternative,
   type EvidenceEvent,
   type PolicyAssertion,
   type PolicySpec,
@@ -25,7 +28,7 @@ export interface StructuralCandidate {
   id: string;
   assertion: PolicyAssertion;
   scope: PolicySpec["scope"];
-  basis: "added-call" | "removed-call" | "added-symbol" | "removed-import";
+  basis: "added-call" | "removed-call" | "added-symbol" | "removed-import" | "added-relative-import" | "removed-relative-import";
   reason: string;
 }
 
@@ -58,8 +61,48 @@ function candidateId(assertion: PolicyAssertion, scope: PolicySpec["scope"]): st
   return `cand_${shortHash(canonicalHash({ assertion, scope }))}`;
 }
 
+function alternativeFor(candidate: StructuralCandidate): CandidateAlternative {
+  return {
+    id: candidate.id,
+    basis: candidate.basis,
+    reason: candidate.reason,
+    assertion_hash: canonicalHash(candidate.assertion),
+  };
+}
+
+function candidateContext(enumerated: Enumerated, selected?: StructuralCandidate, conflicts: string[] = [], incumbent: string | null = null): CandidateContext {
+  const alternatives = enumerated.candidates.map(alternativeFor).sort((left, right) => {
+    if (selected && left.id === selected.id) return -1;
+    if (selected && right.id === selected.id) return 1;
+    return left.id.localeCompare(right.id);
+  });
+  return {
+    alternatives,
+    uncertainty: [...new Set(enumerated.unsupported)].sort(),
+    conflicts: [...new Set(conflicts)].sort(),
+    incumbent,
+  };
+}
+
 function structuralKey(policy: Pick<PolicySpec, "assertion" | "scope" | "data_class">): string {
   return canonicalHash({ assertion: policy.assertion, scope: policy.scope, data_class: policy.data_class });
+}
+
+function scopesOverlap(left: PolicySpec["scope"], right: PolicySpec["scope"]): boolean {
+  const repoOverlap = !left.repos.length || !right.repos.length || left.repos.some((repo) => right.repos.includes(repo));
+  const pathOverlap = !left.paths.length || !right.paths.length || left.paths.some((path) => right.paths.includes(path));
+  const componentOverlap = !left.components.length || !right.components.length || left.components.some((component) => right.components.includes(component));
+  return repoOverlap && pathOverlap && componentOverlap;
+}
+
+function directConflict(candidate: PolicySpec, incumbent: PolicySpec): boolean {
+  const left = candidate.assertion;
+  const right = incumbent.assertion;
+  if (!((left.kind === "reaches" && right.kind === "not-reaches") || (left.kind === "not-reaches" && right.kind === "reaches"))) return false;
+  return left.subject.selector === right.subject.selector
+    && left.object.selector === right.object.selector
+    && canonicalHash(left.relation) === canonicalHash(right.relation)
+    && scopesOverlap(candidate.scope, incumbent.scope);
 }
 
 function judgmentNames(source: Decision | undefined, identifier: string): boolean {
@@ -84,6 +127,7 @@ export function enumerateStructuralCandidates(
 ): Enumerated {
   const symbols = opts.publicOnly ? store.json.loadAll("symbols") : store.recs("symbols");
   const edges = opts.publicOnly ? store.json.loadAll("edges") : store.recs("edges");
+  const components = opts.publicOnly ? store.json.loadAll("components") : store.recs("components");
   const callsFrom = new Map<string, Set<string>>();
   for (const edge of edges.filter((e: Edge) => e.type === "calls")) {
     const targets = callsFrom.get(edge.from) ?? new Set<string>();
@@ -92,6 +136,16 @@ export function enumerateStructuralCandidates(
   }
   const candidates: StructuralCandidate[] = [];
   const unsupported: string[] = [];
+  const files = new Set(symbols.map((symbol) => symbol.file));
+
+  const componentForFile = (file: string, role: string): Component | null => {
+    const matches = components.filter((component) => component.paths.some((glob) => pathMatchesGlob(file, glob)));
+    if (matches.length !== 1) {
+      unsupported.push(`${role} file ${file} maps to ${matches.length ? `${matches.length} components` : "no component"}`);
+      return null;
+    }
+    return matches[0]!;
+  };
 
   const subjectFor = (file: string, name: string): Symbol | null => {
     const matches = symbols.filter((s) => s.file === file && s.name === name);
@@ -174,12 +228,64 @@ export function enumerateStructuralCandidates(
 
   for (const removed of delta.symbols.removed) unsupported.push(`removed symbol ${removed.file}:${removed.name} has no enforceable current binding`);
   for (const moved of delta.symbols.moved) unsupported.push(`moved symbol ${moved.from}:${moved.name} -> ${moved.to} needs repair semantics, not a new policy`);
-  for (const added of delta.imports.added) unsupported.push(`added import ${added.file}:${added.specifier} awaits an import assertion evaluator for positive requirements`);
+  const addRelativeImportCandidate = (
+    ref: StructuralDelta["imports"]["added"][number],
+    basis: "added-relative-import" | "removed-relative-import",
+  ): void => {
+    const resolved = resolveRelativeImport(ref.file, ref.specifier, files);
+    if (resolved.matches.length !== 1 || !resolved.path) {
+      unsupported.push(`relative import ${ref.file}:${ref.specifier} target is ${resolved.matches.length ? "ambiguous" : "missing"} in the current graph`);
+      return;
+    }
+    const from = componentForFile(ref.file, "source");
+    const to = componentForFile(resolved.path, "target");
+    if (!from || !to) return;
+    if (from.id === to.id) {
+      unsupported.push(`relative import ${ref.file}:${ref.specifier} stays inside component ${from.name}; the component evaluator cannot represent an internal file edge`);
+      return;
+    }
+    const relationNamed = judgmentNames(opts.judgment, ref.specifier)
+      || (judgmentNames(opts.judgment, from.name) && judgmentNames(opts.judgment, to.name));
+    if (!relationNamed) {
+      unsupported.push(`relative import ${from.name} -> ${to.name} is structural coincidence not explicitly named by the human judgment`);
+      return;
+    }
+    const currentEdge = edges.some((edge) => edge.type === "depends_on" && edge.from === from.id && edge.to === to.id);
+    if (basis === "added-relative-import" && !currentEdge) {
+      unsupported.push(`added relative import ${from.name} -> ${to.name} has no exact current component edge`);
+      return;
+    }
+    if (basis === "removed-relative-import" && currentEdge) {
+      unsupported.push(`removed relative import ${from.name} -> ${to.name} leaves the component dependency present through another import`);
+      return;
+    }
+    const assertion: PolicyAssertion = {
+      kind: basis === "added-relative-import" ? "reaches" : "not-reaches",
+      subject: { selector: `component-id:${from.id}` },
+      relation: { edges: ["depends_on"], transitive: false, max_depth: 1 },
+      object: { selector: `component-id:${to.id}` },
+    };
+    const scope = { repos: [], paths: [ref.file], components: [from.id, to.id].sort() };
+    candidates.push({
+      id: candidateId(assertion, scope),
+      assertion,
+      scope,
+      basis,
+      reason: basis === "added-relative-import"
+        ? `fix/revert added exact relative component dependency ${from.name} -> ${to.name}`
+        : `fix/revert removed exact relative component dependency ${from.name} -> ${to.name}`,
+    });
+  };
+
+  for (const added of delta.imports.added) {
+    if (externalPackage(added.specifier)) unsupported.push(`added external import ${added.file}:${added.specifier} awaits an import assertion evaluator for positive package requirements`);
+    else addRelativeImportCandidate(added, "added-relative-import");
+  }
   for (const removed of delta.imports.removed) {
     const dependency = externalPackage(removed.specifier);
     const external = externalImportNodeId(removed.specifier);
     if (!dependency || !external) {
-      unsupported.push(`removed import ${removed.file}:${removed.specifier} is relative/internal and not an external dependency boundary`);
+      addRelativeImportCandidate(removed, "removed-relative-import");
       continue;
     }
     if (!judgmentNames(opts.judgment, dependency) && !judgmentNames(opts.judgment, removed.specifier)) {
@@ -317,7 +423,7 @@ function eventFor(
 
 function canReclassify(event: EvidenceEvent | undefined): boolean {
   const status = event?.compiler?.status;
-  return !event || status === "eligible" || status === "uncompilable";
+  return !event || status === "eligible" || status === "uncompilable" || status === "conflicted";
 }
 
 /** Phase-2B opt-in bootstrap: only human-confirmed fix/revert or explicit
@@ -352,7 +458,7 @@ export function bootstrapStructuralPolicies(
   const maxCandidates = clampCandidateLimit(opts.maxCandidates);
   const open = repository.listPolicies(homeView).filter((p) => p.state === "compiled" || p.state === "validating" || p.state === "proposed").length;
   const available = Math.max(0, maxCandidates - Math.min(maxCandidates, open));
-  const report: BootstrapReport = { scanned: decisions.length, eligible: eligible.length, compiled: [], covered: 0, deferred: 0, uncompilable: 0 };
+  const report: BootstrapReport = { scanned: decisions.length, eligible: eligible.length, compiled: [], covered: 0, deferred: 0, uncompilable: 0, conflicted: 0 };
 
   for (const { source, meta, kind } of eligible) {
     const isPrivate = opts.privateOnly ? true : opts.publicOnly ? false : !!store.getPrivateRec("decisions", source.id);
@@ -372,7 +478,8 @@ export function bootstrapStructuralPolicies(
           ? `Ambiguous structural delta enumerated ${enumerated.candidates.length} exact supported candidates; Hunch refused to choose semantics.`
           : `No exact supported structural assertion. ${enumerated.unsupported.slice(0, 4).join("; ") || "The delta contains no supported call/symbol/import fact."}`;
         if (canReclassify(prior) && (prior?.compiler?.status !== "uncompilable" || prior.compiler.reason !== reason)) {
-          repository.putEvidence({ ...baseEvent, compiler: { status: "uncompilable", policy: null, reason } }, { private: isPrivate });
+          const context = candidateContext(enumerated);
+          repository.putEvidence({ ...baseEvent, compiler: { status: "uncompilable", policy: null, reason, ...context } }, { private: isPrivate });
         }
         continue;
       }
@@ -385,16 +492,35 @@ export function bootstrapStructuralPolicies(
         assertion: candidate.assertion,
         scope: candidate.scope,
         dataClass: (isPrivate ? "private" : "public") as DataClass,
+        candidate: candidateContext(enumerated, candidate),
         now,
       });
       const key = structuralKey(compiled.policy);
-      const incumbent = repository.listPolicies(homeView).find((p) => structuralKey(p) === key);
+      const policies = repository.listPolicies(homeView);
+      const incumbent = policies.find((p) => structuralKey(p) === key);
       if (incumbent) {
         report.covered++;
+        const context = candidateContext(enumerated, candidate, [], incumbent.id);
         if (canReclassify(prior)) repository.putEvidence({
           ...baseEvent,
           related_records: [...baseEvent.related_records, incumbent.id],
-          compiler: { status: "covered", policy: incumbent.id, reason: "Equivalent assertion and scope already exist; incumbent lifecycle preserved." },
+          compiler: { status: "covered", policy: incumbent.id, reason: "Equivalent assertion and scope already exist; incumbent lifecycle preserved and the new evidence is linked.", ...context },
+        }, { private: isPrivate });
+        continue;
+      }
+      const conflicts = policies.filter((policy) => directConflict(compiled.policy, policy)).map((policy) => policy.id).sort();
+      if (conflicts.length) {
+        report.conflicted++;
+        const context = candidateContext(enumerated, candidate, conflicts);
+        repository.putEvidence({
+          ...baseEvent,
+          related_records: [...baseEvent.related_records, ...conflicts],
+          compiler: {
+            status: "conflicted",
+            policy: null,
+            reason: `Candidate directly contradicts ${conflicts.join(", ")}; no policy was minted and no authority changed.`,
+            ...context,
+          },
         }, { private: isPrivate });
         continue;
       }
@@ -407,14 +533,14 @@ export function bootstrapStructuralPolicies(
       const event = repository.putEvidence({
         ...baseEvent,
         related_records: [...baseEvent.related_records, policy.id],
-        compiler: { status: "compiled", policy: policy.id, reason: `Exactly one supported candidate: ${candidate.reason}.` },
+        compiler: { status: "compiled", policy: policy.id, reason: `Exactly one supported candidate: ${candidate.reason}.`, ...candidateContext(enumerated, candidate) },
       }, { private: isPrivate });
       report.compiled.push({ evidence: event, policy });
     } catch (e) {
       report.uncompilable++;
       const reason = (e as Error).message;
       if (canReclassify(prior) && (prior?.compiler?.status !== "uncompilable" || prior.compiler.reason !== reason)) {
-        repository.putEvidence({ ...baseEvent, compiler: { status: "uncompilable", policy: null, reason } }, { private: isPrivate });
+        repository.putEvidence({ ...baseEvent, compiler: { status: "uncompilable", policy: null, reason, alternatives: [], uncertainty: [reason], conflicts: [], incumbent: null } }, { private: isPrivate });
       }
     }
   }

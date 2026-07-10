@@ -2,8 +2,8 @@ import { z } from "zod";
 import { ProvenanceSchema } from "../core/types.js";
 
 export const POLICY_IR_VERSION = 1;
-export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.1.0" } as const;
-export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "3" } as const;
+export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.2.0" } as const;
+export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "4" } as const;
 
 export const DataClassSchema = z.enum(["public", "private", "secret"]);
 export type DataClass = z.infer<typeof DataClassSchema>;
@@ -56,6 +56,22 @@ export const StructuralDeltaSchema = z.object({
 }).strict();
 export type StructuralDelta = z.infer<typeof StructuralDeltaSchema>;
 
+export const CandidateAlternativeSchema = z.object({
+  id: z.string().regex(/^cand_[a-f0-9]{10}$/),
+  basis: z.string().min(1),
+  reason: z.string().min(1),
+  assertion_hash: z.string().min(1),
+}).strict();
+export type CandidateAlternative = z.infer<typeof CandidateAlternativeSchema>;
+
+export const CandidateContextSchema = z.object({
+  alternatives: z.array(CandidateAlternativeSchema).default([]),
+  uncertainty: z.array(z.string().min(1)).default([]),
+  conflicts: z.array(z.string().regex(/^pol_[a-f0-9]{10}$/)).default([]),
+  incumbent: z.string().regex(/^pol_[a-f0-9]{10}$/).nullable().default(null),
+}).default({ alternatives: [], uncertainty: [], conflicts: [], incumbent: null });
+export type CandidateContext = z.infer<typeof CandidateContextSchema>;
+
 export const EvidenceEventSchema = z.object({
   id: z.string().regex(/^ev_[a-f0-9]{10}$/),
   kind: z.enum(["correction", "review", "incident", "decision", "revert", "bug_fix", "test_failure", "instruction", "commit"]),
@@ -72,9 +88,13 @@ export const EvidenceEventSchema = z.object({
   content_hash: z.string(),
   structural_delta: StructuralDeltaSchema.optional(),
   compiler: z.object({
-    status: z.enum(["eligible", "compiled", "covered", "uncompilable"]),
+    status: z.enum(["eligible", "compiled", "covered", "uncompilable", "conflicted"]),
     policy: z.string().nullable().default(null),
     reason: z.string().default(""),
+    alternatives: z.array(CandidateAlternativeSchema).optional(),
+    uncertainty: z.array(z.string().min(1)).optional(),
+    conflicts: z.array(z.string().regex(/^pol_[a-f0-9]{10}$/)).optional(),
+    incumbent: z.string().regex(/^pol_[a-f0-9]{10}$/).nullable().optional(),
   }).optional(),
   provenance: ProvenanceSchema,
 }).passthrough();
@@ -205,6 +225,7 @@ export const PolicySpecSchema = z.object({
   valid_to: z.string().nullable().default(null),
   data_class: DataClassSchema.default("public"),
   limitations: z.array(z.string()).default([]),
+  candidate: CandidateContextSchema,
   legacy_refs: z.array(z.string()).default([]),
   audit: z.array(PolicyAuditEventSchema).default([]),
   created_at: z.string().datetime({ offset: true }),
