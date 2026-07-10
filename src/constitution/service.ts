@@ -1,4 +1,5 @@
 import type { HunchStore } from "../store/hunchStore.js";
+import { canonicalJson } from "./canonical.js";
 import { compileDecisionPolicy, type CompilePolicyOptions } from "./compiler.js";
 import { evaluatePolicy, policyBlocks, policyIsActive } from "./evaluator.js";
 import { approvePolicy, blockingProofError, demotePolicy, linkPolicyException, proposeProvedPolicy } from "./lifecycle.js";
@@ -38,6 +39,18 @@ export interface PolicyExceptionRelations {
   exceptions: PolicyRelationSummary[];
 }
 
+export interface PolicyConsolidationCandidate {
+  anchor: PolicyRelationSummary;
+  suggested_scope: PolicySpec["scope"] | null;
+  status: "unavailable" | "reviewable" | "challenged";
+  members: PolicyRelationSummary[];
+  independent_decisions: string[];
+  counterexamples: string[];
+  conflicts: string[];
+  exception_linked_members: string[];
+  reasons: string[];
+}
+
 function relationSummary(policy: PolicySpec): PolicyRelationSummary {
   return {
     id: policy.id,
@@ -48,6 +61,31 @@ function relationSummary(policy: PolicySpec): PolicyRelationSummary {
     scope: policy.scope,
     exception_of: policy.exception_of,
   };
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  const leftSorted = [...left].sort();
+  const rightSorted = [...right].sort();
+  return leftSorted.length === rightSorted.length
+    && leftSorted.every((value, index) => value === rightSorted[index]);
+}
+
+function pathFallsWithin(path: string, broader: string): boolean {
+  if (path === broader) return true;
+  if (!broader.endsWith("/**")) return false;
+  const prefix = broader.slice(0, -3);
+  return path.startsWith(`${prefix}/`);
+}
+
+/** Conservative, syntactic containment for advisory consolidation only. A
+ * suggestion that uses another glob shape stays non-reviewable rather than
+ * guessing glob semantics. */
+function scopeFallsWithin(scope: PolicySpec["scope"], suggestion: PolicySpec["scope"]): boolean {
+  if (!sameStringSet(scope.repos, suggestion.repos)) return false;
+  if (!scope.components.every((component) => suggestion.components.includes(component))) return false;
+  return scope.paths.length > 0
+    && suggestion.paths.length > 0
+    && scope.paths.every((path) => suggestion.paths.some((broader) => pathFallsWithin(path, broader)));
 }
 
 export class ConstitutionService {
@@ -175,6 +213,77 @@ export class ConstitutionService {
       exceptions: policies
         .filter((candidate) => candidate.exception_of === policy.id)
         .map(relationSummary),
+    };
+  }
+
+  consolidation(id: string, opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicyConsolidationCandidate {
+    const anchor = this.get(id, opts);
+    const suggestion = anchor.candidate.scope_suggestion;
+    if (!suggestion) {
+      return {
+        anchor: relationSummary(anchor),
+        suggested_scope: null,
+        status: "unavailable",
+        members: [],
+        independent_decisions: [],
+        counterexamples: [],
+        conflicts: [],
+        exception_linked_members: [],
+        reasons: ["Policy has no compiler-produced advisory scope suggestion; consolidation is unavailable."],
+      };
+    }
+    if (anchor.exception_of) {
+      return {
+        anchor: relationSummary(anchor),
+        suggested_scope: suggestion,
+        status: "unavailable",
+        members: [],
+        independent_decisions: [],
+        counterexamples: [],
+        conflicts: [],
+        exception_linked_members: [anchor.id],
+        reasons: ["An explicit exception policy cannot anchor consolidation until combined exception semantics are implemented and proved."],
+      };
+    }
+    const assertion = canonicalJson(anchor.assertion);
+    const policies = this.list(opts);
+    const members = policies
+      .filter((candidate) => candidate.data_class === anchor.data_class)
+      .filter((candidate) => canonicalJson(candidate.assertion) === assertion)
+      .filter((candidate) => candidate.exception_of === null)
+      .filter((candidate) => scopeFallsWithin(candidate.scope, suggestion));
+    const independentDecisions = [...new Set(members.flatMap((candidate) => candidate.legacy_refs.filter((ref) => ref.startsWith("dec_"))))].sort();
+    const counterexamples = [...new Set(members.flatMap((candidate) => candidate.candidate.counterexamples))].sort();
+    const conflicts = [...new Set(members.flatMap((candidate) => candidate.candidate.conflicts))].sort();
+    const exceptionLinkedMembers = members
+      .filter((candidate) => policies.some((other) => other.exception_of === candidate.id))
+      .map((candidate) => candidate.id);
+    const active = members.filter((candidate) => candidate.state === "active_advisory" || candidate.state === "active_blocking").map((candidate) => candidate.id);
+    const reasons = [
+      "Candidate is an advisory review packet only; no policy is merged, widened, evaluated, activated, or enforced.",
+      ...(members.length < 3 ? [`Only ${members.length} matching narrow policy record(s) fall within the suggested scope; at least three are required.`] : []),
+      ...(independentDecisions.length < 3 ? [`Only ${independentDecisions.length} independent decision reference(s) support the group; at least three are required.`] : []),
+      ...(counterexamples.length ? [`${counterexamples.length} counterexample signal(s) challenge broader consolidation.`] : []),
+      ...(conflicts.length ? [`${conflicts.length} direct conflict signal(s) require human disposition first.`] : []),
+      ...(exceptionLinkedMembers.length ? [`Exception-linked policy member(s) require combined exception semantics first: ${exceptionLinkedMembers.join(", ")}.`] : []),
+      ...(active.length ? [`Active policy member(s) require explicit human migration rather than consolidation: ${active.join(", ")}.`] : []),
+    ];
+    const reviewable = members.length >= 3
+      && independentDecisions.length >= 3
+      && counterexamples.length === 0
+      && conflicts.length === 0
+      && exceptionLinkedMembers.length === 0
+      && active.length === 0;
+    return {
+      anchor: relationSummary(anchor),
+      suggested_scope: suggestion,
+      status: reviewable ? "reviewable" : "challenged",
+      members: members.map(relationSummary),
+      independent_decisions: independentDecisions,
+      counterexamples,
+      conflicts,
+      exception_linked_members: exceptionLinkedMembers,
+      reasons,
     };
   }
 

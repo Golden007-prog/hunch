@@ -1165,6 +1165,23 @@ policyCmd
   });
 
 policyCmd
+  .command("consolidation")
+  .description("Inspect a non-mutating advisory consolidation candidate from an existing scope suggestion.")
+  .argument("<id>", "anchor policy id")
+  .option("--public-only", "exclude private-overlay policy records")
+  .action((id: string, opts: { publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const candidate = new ConstitutionService(store, root).consolidation(id, { publicOnly: opts.publicOnly });
+      console.log(JSON.stringify(candidate, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
   .command("evaluate")
   .description("Evaluate one or all policies with the neutral deterministic result algebra.")
   .argument("[id]", "optional policy id")

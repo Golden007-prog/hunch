@@ -186,6 +186,11 @@ policy result or create authority.
 `policy relations` is a read-only view of those explicit exception-parent links. It shows the
 selected policy, its parent if any, linked narrower exceptions, and a visible missing-parent marker
 for a manually damaged record; it never evaluates or composes exception semantics.
+`policy consolidation` is also read-only. When a compiler-produced advisory scope suggestion exists,
+it groups only matching narrow policies with the same assertion/data class and syntactically contained
+scopes, then requires three independent decision references with no exception, active-policy,
+conflict, or counterexample signal before marking the packet reviewable. It never merges or widens a
+policy.
 Planning runs no replay, test, model, or activation; `policy prove` binds its receipt to that plan.
 Proof execution checks out each unique immutable commit into a disposable worktree with hooks,
 user-global Git configuration, private-overlay discovery, and provider selection disabled. It

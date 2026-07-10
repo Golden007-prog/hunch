@@ -399,6 +399,16 @@ test("Phase 2J exception relations are read-only, reverse-indexed, and surface a
     assert.equal(damagedRelations.exception_parent, null);
     assert.equal(damagedRelations.missing_exception_parent, "pol_aaaaaaaaaa");
     assert.equal(service.get(linked.id, { publicOnly: true }).exception_of, parent.id, "inspection never mutates linked policy state");
+
+    const suggestedParent = PolicySpecSchema.parse({
+      ...parent,
+      candidate: { ...parent.candidate, scope_suggestion: parent.scope },
+    });
+    service.repository.putPolicy(suggestedParent);
+    const protectedConsolidation = service.consolidation(parent.id, { publicOnly: true });
+    assert.equal(protectedConsolidation.status, "challenged");
+    assert.deepEqual(protectedConsolidation.exception_linked_members, [parent.id]);
+    assert.match(protectedConsolidation.reasons.join("\n"), /combined exception semantics first/);
   } finally {
     cleanup();
   }
@@ -1357,6 +1367,15 @@ test("Phase 2G repeated component evidence suggests a broader scope without sile
     assert.ok(files.includes(suggested.scope.paths[0]!), "the compiled scope stays on one evidenced file until human review");
     assert.notDeepEqual(suggested.scope, suggested.candidate.scope_suggestion);
     assert.equal(suggested.authority, null);
+    const beforeConsolidation = service.list({ publicOnly: true }).map((policy) => canonicalJson(policy));
+    const consolidation = service.consolidation(suggested.id, { publicOnly: true });
+    assert.equal(consolidation.status, "reviewable");
+    assert.deepEqual(consolidation.suggested_scope, suggested.candidate.scope_suggestion);
+    assert.equal(consolidation.members.length, 3);
+    assert.deepEqual(consolidation.independent_decisions, ["dec_scope_a", "dec_scope_b", "dec_scope_c"]);
+    assert.deepEqual(consolidation.counterexamples, []);
+    assert.match(consolidation.reasons[0]!, /no policy is merged, widened, evaluated, activated, or enforced/);
+    assert.deepEqual(service.list({ publicOnly: true }).map((policy) => canonicalJson(policy)), beforeConsolidation, "consolidation inspection never changes policies");
   } finally {
     cleanup();
   }
