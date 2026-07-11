@@ -63,6 +63,11 @@ export interface G2BehaviorDependencySnapshotReceipt {
   writes: "cache_only";
 }
 
+export interface G2BehaviorDependencyCommitSnapshots {
+  snapshots: G2BehaviorDependencySnapshot[];
+  commits: Array<{ commit: string; dependency_snapshot_id: string }>;
+}
+
 interface SnapshotInput {
   packageJson: string;
   packageLock: string;
@@ -329,7 +334,18 @@ function buildSnapshot(base: string, input: SnapshotInput, env: NodeJS.ProcessEn
   }
 }
 
-export function dependencySnapshotForCommit(root: string, commit: string): { snapshot: G2BehaviorDependencySnapshot; nodeModules: string } | null {
+export function dependencySnapshotById(root: string, id: string): { snapshot: G2BehaviorDependencySnapshot; nodeModules: string } | null {
+  if (!/^g2deps_[a-f0-9]{10}$/.test(id)) return null;
+  const dir = join(root, ".hunch-cache", "behavior-deps", id);
+  const snapshot = readSnapshot(dir);
+  return snapshot ? { snapshot, nodeModules: join(dir, "node_modules") } : null;
+}
+
+export function dependencySnapshotForCommit(
+  root: string,
+  commit: string,
+  allowedIds?: string[],
+): { snapshot: G2BehaviorDependencySnapshot; nodeModules: string } | null {
   const base = join(root, ".hunch-cache", "behavior-deps");
   if (!existsSync(base)) return null;
   const env = buildEnvironment(base);
@@ -346,6 +362,7 @@ export function dependencySnapshotForCommit(root: string, commit: string): { sna
   for (const dir of snapshotDirs(base)) {
     const snapshot = readSnapshot(dir);
     if (snapshot
+      && (!allowedIds || allowedIds.includes(snapshot.id))
       && snapshot.package_json_hash === packageJsonHash
       && snapshot.package_lock_hash === packageLockHash
       && canonicalJson(snapshot.runtime) === canonicalJson(runtime)) {
@@ -355,15 +372,18 @@ export function dependencySnapshotForCommit(root: string, commit: string): { sna
   return matches.length === 1 ? matches[0]! : null;
 }
 
-export function provisionG2BehaviorDependencySnapshots(
+export function provisionG2BehaviorDependencySnapshotsForCommits(
   root: string,
-  report: G2BehaviorCandidateReview,
-  candidate: G2BehaviorCandidate,
+  commits: string[],
   allowInstallScripts: string[] = [],
   timeoutMs = 300_000,
-): G2BehaviorDependencySnapshotReceipt {
+): G2BehaviorDependencyCommitSnapshots {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 900_000) {
     throw new Error("dependency snapshot timeoutMs must be a positive integer no greater than 900000");
+  }
+  const normalizedCommits = [...new Set(commits)].sort();
+  if (!normalizedCommits.length || normalizedCommits.some((commit) => !FULL_SHA.test(commit))) {
+    throw new Error("dependency snapshots require at least one full lowercase 40-character commit SHA");
   }
   const base = join(root, ".hunch-cache", "behavior-deps");
   mkdirSync(base, { recursive: true });
@@ -371,22 +391,46 @@ export function provisionG2BehaviorDependencySnapshots(
   writeFileSync(join(home, "global.gitconfig"), "");
   const env = buildEnvironment(home);
   try {
-    const badInput = snapshotInput(root, candidate.proposed_corpus.known_bad.ref, allowInstallScripts, env);
-    const goodInput = snapshotInput(root, candidate.proposed_corpus.known_good.ref, allowInstallScripts, env);
-    const bad = buildSnapshot(base, badInput, env, timeoutMs);
-    const good = badInput.inputHash === goodInput.inputHash ? bad : buildSnapshot(base, goodInput, env, timeoutMs);
-    const snapshots = [...new Map([bad, good].map((snapshot) => [snapshot.id, snapshot])).values()]
-      .sort((left, right) => left.id.localeCompare(right.id));
+    const byInput = new Map<string, G2BehaviorDependencySnapshot>();
+    const mapped = normalizedCommits.map((commit) => {
+      const input = snapshotInput(root, commit, allowInstallScripts, env);
+      const snapshot = byInput.get(input.inputHash) ?? buildSnapshot(base, input, env, timeoutMs);
+      byInput.set(input.inputHash, snapshot);
+      return { commit, dependency_snapshot_id: snapshot.id };
+    });
+    return {
+      snapshots: [...new Map([...byInput.values()].map((snapshot) => [snapshot.id, snapshot])).values()]
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      commits: mapped,
+    };
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+export function provisionG2BehaviorDependencySnapshots(
+  root: string,
+  report: G2BehaviorCandidateReview,
+  candidate: G2BehaviorCandidate,
+  allowInstallScripts: string[] = [],
+  timeoutMs = 300_000,
+): G2BehaviorDependencySnapshotReceipt {
+  const provisioned = provisionG2BehaviorDependencySnapshotsForCommits(root, [
+    candidate.proposed_corpus.known_bad.ref,
+    candidate.proposed_corpus.known_good.ref,
+  ], allowInstallScripts, timeoutMs);
+  const bad = provisioned.commits.find((entry) => entry.commit === candidate.proposed_corpus.known_bad.ref)!;
+  const good = provisioned.commits.find((entry) => entry.commit === candidate.proposed_corpus.known_good.ref)!;
     const body = {
       candidate_id: candidate.id,
       candidate_hash: canonicalHash(candidate),
       review_hash: report.content_hash,
-      snapshots,
+      snapshots: provisioned.snapshots,
       legs: {
-        known_bad: { commit: candidate.proposed_corpus.known_bad.ref, dependency_snapshot_id: bad.id },
-        known_good: { commit: candidate.proposed_corpus.known_good.ref, dependency_snapshot_id: good.id },
+        known_bad: { commit: candidate.proposed_corpus.known_bad.ref, dependency_snapshot_id: bad.dependency_snapshot_id },
+        known_good: { commit: candidate.proposed_corpus.known_good.ref, dependency_snapshot_id: good.dependency_snapshot_id },
       },
-      allow_install_scripts: badInput.allowInstallScripts,
+      allow_install_scripts: [...new Set(allowInstallScripts.map((value) => value.trim()).filter(Boolean))].sort(),
       data_class: "private" as const,
       authority: "none" as const,
       effects: "cache_only" as const,
@@ -394,7 +438,4 @@ export function provisionG2BehaviorDependencySnapshots(
     };
     const contentHash = canonicalHash(body);
     return { id: `g2depsreceipt_${shortHash(contentHash)}`, content_hash: contentHash, ...body };
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
 }

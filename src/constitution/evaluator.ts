@@ -5,6 +5,7 @@ import { pathMatchesGlob } from "../core/glob.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { headSha } from "../extractors/git.js";
 import { canonicalHash, proofEvaluationHash } from "./canonical.js";
+import { evaluateExecutableBehaviorPolicy } from "./behaviorEvaluator.js";
 import { policyCompositionBinding } from "./composition.js";
 import {
   POLICY_EVALUATOR,
@@ -182,6 +183,9 @@ export function evaluatePolicyOnSnapshot(policy: PolicySpec, snapshot: GraphSnap
       if (!applicable) return finish(policy, snapshot, "not_applicable", [], `repository ${repo} is outside the policy scope`);
     }
     const assertion: PolicyAssertion = policy.assertion;
+    if (assertion.kind === "executable-behavior") {
+      return unfinished(policy, snapshot, "error", "executable-behavior requires an isolated repository checkout, not a graph snapshot");
+    }
     const subject = resolveSelector(snapshot, assertion.subject);
     if (assertion.kind === "exists") {
       if (subject.resolution === "exact") {
@@ -255,6 +259,7 @@ function scopeApplicability(policy: PolicySpec, snapshot: GraphSnapshot): ScopeA
     const applies = policy.scope.repos.some((candidate) => candidate === snapshot.root || candidate === repo || candidate.endsWith(`/${repo}`));
     if (!applies) return { kind: "not_applicable", explanation: `repository ${repo} is outside ${policy.id} scope` };
   }
+  if (policy.assertion.kind === "executable-behavior") return { kind: "applicable", explanation: "executable behavior repository scope applies" };
   const subject = resolveSelector(snapshot, policy.assertion.subject);
   if (subject.resolution !== "exact") {
     return { kind: "unknown", explanation: `cannot choose scoped policy ${policy.id}: subject binding is ${subject.resolution}` };
@@ -394,6 +399,10 @@ export function evaluatePolicy(
   policy: PolicySpec,
   opts: { publicOnly?: boolean; composition?: PolicySpec[] } = {},
 ): PolicyEvaluation {
+  if (policy.assertion.kind === "executable-behavior") {
+    if (opts.composition?.length) throw new Error("executable-behavior policies cannot participate in parent/exception composition");
+    return evaluateExecutableBehaviorPolicy(root, policy);
+  }
   const snapshot = graphSnapshot(store, root, opts);
   return opts.composition?.length
     ? evaluateCompositePolicyOnSnapshot(policy, opts.composition, snapshot)
@@ -413,6 +422,7 @@ export function policyBlocks(policy: PolicySpec, evaluation: PolicyEvaluation): 
 }
 
 export function mutationOperatorForPolicy(policy: PolicySpec): string {
+  if (policy.assertion.kind === "executable-behavior") return "known-bad-regression";
   if (policy.assertion.kind === "exists") return "delete-required-symbol";
   if (policy.assertion.kind === "reaches") return "remove-required-path";
   if (policy.assertion.kind === "must-pass-through") return "add-bypass-edge";
@@ -427,6 +437,7 @@ export function mutateSnapshotForPolicy(
   snapshot: GraphSnapshot,
 ): { snapshot: GraphSnapshot; operator: string } | null {
   const assertion = policy.assertion;
+  if (assertion.kind === "executable-behavior") return null;
   const subject = resolveSelector(snapshot, assertion.subject);
   if (subject.resolution !== "exact") return null;
   const subjectId = subject.ids[0]!;

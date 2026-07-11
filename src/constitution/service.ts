@@ -26,7 +26,7 @@ import {
 } from "./shadow.js";
 import type { HistoryDisposition, HistoryDispositionClassification, ReplayReceipt, ShadowDisposition, ShadowEvaluationRecord } from "./schema.js";
 import { assessHistoryDispositions } from "./disposition.js";
-import { MUTATION_ENGINE, POLICY_EVALUATOR } from "./schema.js";
+import { evaluatorForPolicy, mutationEngineForPolicy } from "./policyRuntime.js";
 import {
   G2_RUNBOOK_CATEGORIES,
   G2EvidenceRepository,
@@ -69,6 +69,11 @@ import {
   assessG2BehaviorMaterialization,
   type G2BehaviorMaterializationAssessment,
 } from "./g2BehaviorMaterialization.js";
+import {
+  materializeSelectedG2BehaviorPolicies,
+  type G2BehaviorPolicyMaterialization,
+} from "./g2BehaviorPolicyMaterializer.js";
+import { executableBehaviorAttestationError } from "./behaviorAttestationBinding.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -241,6 +246,8 @@ export class ConstitutionService {
       } else if (!policy.proof) {
         reasons.push("selected policy has no current proof");
       } else {
+        const behaviorAttestationError = executableBehaviorAttestationError(policy, this.g2BehaviorAttestationRepository.current());
+        if (behaviorAttestationError) reasons.push(behaviorAttestationError);
         const composition = compositionDescendants(policy, privatePolicies);
         const proof = this.repository.getProof(policy.proof, { privateOnly: true });
         proofId = proof?.id ?? null;
@@ -248,8 +255,10 @@ export class ConstitutionService {
           reasons.push(`linked proof ${policy.proof} is missing from the private overlay`);
         } else {
           if (proof.policy_hash !== policyProofHash(policy, composition)) reasons.push("proof does not bind current policy/composite semantics");
-          if (proof.evaluator.name !== POLICY_EVALUATOR.name || proof.evaluator.version !== POLICY_EVALUATOR.version) reasons.push("proof evaluator version is stale");
-          if (proof.mutation_engine?.name !== MUTATION_ENGINE.name || proof.mutation_engine.version !== MUTATION_ENGINE.version) reasons.push("proof mutation engine version is stale");
+          const expectedEvaluator = evaluatorForPolicy(policy);
+          const expectedMutationEngine = mutationEngineForPolicy(policy);
+          if (proof.evaluator.name !== expectedEvaluator.name || proof.evaluator.version !== expectedEvaluator.version) reasons.push("proof evaluator version is stale");
+          if (proof.mutation_engine?.name !== expectedMutationEngine.name || proof.mutation_engine.version !== expectedMutationEngine.version) reasons.push("proof mutation engine version is stale");
           if (!["P3", "P4", "P5"].includes(proof.proof_class)) reasons.push(`proof class ${proof.proof_class} is below P3`);
           if (proof.current.satisfied !== 1 || proof.current.total !== 1 || proof.current.violated || proof.current.unknown || proof.current.error) reasons.push("proof has no exact clean satisfied baseline");
 
@@ -437,6 +446,20 @@ export class ConstitutionService {
     return assessG2BehaviorMaterialization(report, this.g2BehaviorAttestationRepository.current());
   }
 
+  g2BehaviorPolicyMaterialize(
+    opts: G2CandidateReviewOptions & { allowInstallScripts?: string[]; dependencyTimeoutMs?: number; now?: string } = {},
+  ): G2BehaviorPolicyMaterialization {
+    const report = this.g2BehaviorCandidateReview(opts);
+    return materializeSelectedG2BehaviorPolicies(
+      this.store,
+      this.root,
+      this.repository,
+      report,
+      this.g2BehaviorAttestationRepository.current(),
+      opts,
+    );
+  }
+
   g2BehaviorDependencySnapshots(
     candidateId: string,
     reviewHash: string,
@@ -607,25 +630,29 @@ export class ConstitutionService {
 
   prove(id: string, opts: { now?: string } = {}): { policy: PolicySpec; proof: PolicyProof } {
     const policy = this.get(id);
+    const behaviorBindingError = executableBehaviorAttestationError(policy, this.g2BehaviorAttestationRepository.current());
+    if (behaviorBindingError) throw new Error(behaviorBindingError);
     const publicOnly = policy.data_class === "public" && this.repository.homeOfPolicy(id) === "public";
     const homeOpts = publicOnly ? { publicOnly: true } : { privateOnly: true };
     const composition = this.composition(policy, homeOpts);
     const plan = this.plan(id, { publicOnly, now: opts.now });
     const proof = provePolicy(this.store, this.root, policy, { publicOnly, now: opts.now, plan, composition });
     this.repository.putProof(proof, policy.id);
-    const proposed = proposeProvedPolicy(policy, proof, opts.now ?? proof.generated_at, composition);
+    const proposed = proposeProvedPolicy(policy, proof, opts.now ?? proof.generated_at, composition, this.g2BehaviorAttestationRepository.current());
     return { policy: this.repository.putPolicy(proposed), proof };
   }
 
   approve(id: string, mode: "advisory" | "blocking", actor: string, opts: { now?: string } = {}): PolicySpec {
     const policy = this.get(id);
+    const behaviorBindingError = executableBehaviorAttestationError(policy, this.g2BehaviorAttestationRepository.current());
+    if (behaviorBindingError) throw new Error(behaviorBindingError);
     if (!policy.proof) throw new Error(`policy ${id} has no proof`);
     const home = this.repository.homeOfPolicy(id);
     const homeOpts = home === "public" ? { publicOnly: true } : { privateOnly: true };
     const proof = this.proof(policy.proof, homeOpts);
     const dispositions = this.repository.listDispositions(homeOpts).filter((record) => record.policy_id === id && record.proof_id === proof.id);
     const composition = this.composition(policy, homeOpts);
-    const approved = approvePolicy(policy, proof, mode, actor, opts.now ?? new Date().toISOString(), dispositions, composition);
+    const approved = approvePolicy(policy, proof, mode, actor, opts.now ?? new Date().toISOString(), dispositions, composition, this.g2BehaviorAttestationRepository.current());
     return this.repository.putPolicy(approved);
   }
 
@@ -848,7 +875,8 @@ export class ConstitutionService {
         proof = this.repository.getProof(policy.proof, homeOpts);
         dispositions = this.repository.listDispositions(homeOpts).filter((record) => record.policy_id === policy.id && record.proof_id === policy.proof);
       }
-      const gateError = blockingProofError(policy, proof, dispositions, composition);
+      const behaviorBindingError = executableBehaviorAttestationError(policy, this.g2BehaviorAttestationRepository.current());
+      const gateError = behaviorBindingError ?? blockingProofError(policy, proof, dispositions, composition, this.g2BehaviorAttestationRepository.current());
       return {
         policy,
         evaluation,

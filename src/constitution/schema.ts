@@ -4,6 +4,9 @@ import { ProvenanceSchema } from "../core/types.js";
 export const POLICY_IR_VERSION = 1;
 export const POLICY_EVALUATOR = { name: "hunch-graph-policy", version: "1.3.0" } as const;
 export const MUTATION_ENGINE = { name: "hunch-static-graph-controls", version: "5" } as const;
+export const EXECUTABLE_BEHAVIOR_IR_VERSION = 2;
+export const BEHAVIOR_POLICY_EVALUATOR = { name: "hunch-executable-behavior", version: "1.0.0" } as const;
+export const BEHAVIOR_MUTATION_ENGINE = { name: "hunch-behavior-controls", version: "1" } as const;
 
 export const DataClassSchema = z.enum(["public", "private", "secret"]);
 export type DataClass = z.infer<typeof DataClassSchema>;
@@ -185,10 +188,32 @@ const MustPassThroughAssertionSchema = z.object({
   object: PolicySelectorSchema,
 });
 
+const ExecutableBehaviorAssertionSchema = z.object({
+  kind: z.literal("executable-behavior"),
+  test: z.object({
+    file: z.string().min(1).max(1024).refine((file) => !file.includes("\\") && !file.includes("\0") && !file.split("/").some((part) => part === "" || part === "." || part === ".."), "behavior test file must be a safe relative POSIX path"),
+    name: z.string().min(1).max(500).refine((name) => !/[\0\r\n]/.test(name), "behavior test name cannot contain control line breaks"),
+    source_commit: z.string().regex(/^[a-f0-9]{40}$/),
+    source_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+  }).strict(),
+  runner: z.enum(["node-test", "node-test-tsx"]),
+  attestation: z.object({
+    id: z.string().regex(/^g2behaviorattest_[a-f0-9]{10}$/),
+    content_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+    candidate_id: z.string().regex(/^g2behavior_[a-f0-9]{10}$/),
+    candidate_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+    replay_id: z.string().regex(/^g2behaviorreplay_[a-f0-9]{10}$/),
+    replay_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+  }).strict(),
+  dependency_snapshot_ids: z.array(z.string().regex(/^g2deps_[a-f0-9]{10}$/)).min(1).max(3),
+  timeout_ms: z.number().int().min(1).max(120_000),
+}).strict();
+
 export const PolicyAssertionSchema = z.discriminatedUnion("kind", [
   ExistsAssertionSchema,
   ReachAssertionSchema,
   MustPassThroughAssertionSchema,
+  ExecutableBehaviorAssertionSchema,
 ]);
 export type PolicyAssertion = z.infer<typeof PolicyAssertionSchema>;
 
@@ -213,7 +238,7 @@ export type PolicyAuthority = z.infer<typeof PolicyAuthoritySchema>;
 export const PolicySpecSchema = z.object({
   id: z.string().regex(/^pol_[a-f0-9]{10}$/),
   topic: z.string().min(1),
-  ir_version: z.literal(POLICY_IR_VERSION),
+  ir_version: z.union([z.literal(POLICY_IR_VERSION), z.literal(EXECUTABLE_BEHAVIOR_IR_VERSION)]),
   revision: z.number().int().min(1),
   state: PolicyStateSchema,
   statement: z.string().min(1),
@@ -239,7 +264,14 @@ export const PolicySpecSchema = z.object({
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
   provenance: ProvenanceSchema,
-}).passthrough();
+}).passthrough().superRefine((policy, context) => {
+  if (policy.assertion.kind === "executable-behavior" && policy.ir_version !== EXECUTABLE_BEHAVIOR_IR_VERSION) {
+    context.addIssue({ code: "custom", path: ["ir_version"], message: `executable-behavior requires Policy IR v${EXECUTABLE_BEHAVIOR_IR_VERSION}` });
+  }
+  if (policy.assertion.kind !== "executable-behavior" && policy.ir_version !== POLICY_IR_VERSION) {
+    context.addIssue({ code: "custom", path: ["ir_version"], message: `graph assertions require Policy IR v${POLICY_IR_VERSION}` });
+  }
+});
 export type PolicySpec = z.infer<typeof PolicySpecSchema>;
 
 export const PolicyCompositionMemberSchema = z.object({
@@ -266,6 +298,22 @@ export const PolicyEvaluationResultSchema = z.enum([
   "error",
 ]);
 export type PolicyEvaluationResult = z.infer<typeof PolicyEvaluationResultSchema>;
+
+export const BehaviorExecutionSchema = z.object({
+  commit: z.string().regex(/^[a-f0-9]{40}$/),
+  test: z.object({
+    file: z.string().min(1),
+    name: z.string().min(1),
+    source_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+  }).strict(),
+  runner: z.enum(["node-test", "node-test-tsx"]),
+  dependency_snapshot_id: z.string().regex(/^g2deps_[a-f0-9]{10}$/).optional(),
+  exit_code: z.number().int().nullable(),
+  selected_event: z.enum(["passed", "failed"]).nullable(),
+  error_code: z.string().min(1).optional(),
+  execution_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+}).strict();
+export type BehaviorExecution = z.infer<typeof BehaviorExecutionSchema>;
 
 const HumanFixtureAttestationSchema = z.object({
   actor: z.string().regex(/^(human|github|git):[^\s]+$/i, "fixture attestation requires an explicit human actor (human:, github:, or git:)"),
@@ -396,6 +444,7 @@ export const PolicyEvaluationSchema = z.object({
   })),
   explanation: z.string(),
   evidence_refs: z.array(z.string()),
+  behavior: BehaviorExecutionSchema.optional(),
   composition: PolicyCompositionBindingSchema.extend({
     selected_policy_id: z.string().regex(/^pol_[a-f0-9]{10}$/),
     applicable_policy_ids: z.array(z.string().regex(/^pol_[a-f0-9]{10}$/)).min(1),
@@ -429,6 +478,7 @@ export const ReplayReceiptSchema = z.object({
   graph_hash: z.string().min(1).optional(),
   evaluation_hash: z.string().min(1).optional(),
   error_code: z.string().min(1).optional(),
+  behavior: BehaviorExecutionSchema.optional(),
   deterministic_hash: z.string().min(1),
 }).strict();
 export type ReplayReceipt = z.infer<typeof ReplayReceiptSchema>;
@@ -530,6 +580,7 @@ export const MutationReceiptSchema = z.object({
   }).strict().optional(),
   evaluation_hash: z.string().min(1).optional(),
   error_code: z.string().min(1).optional(),
+  behavior: BehaviorExecutionSchema.optional(),
   deterministic_hash: z.string().min(1),
 }).strict();
 export type MutationReceipt = z.infer<typeof MutationReceiptSchema>;
@@ -544,7 +595,7 @@ const MutationControlSummarySchema = z.object({
 const ProjectChecksSchema = z.object({
   build: z.enum(["not_run", "passed", "failed", "error"]).default("not_run"),
   test: z.enum(["not_run", "passed", "failed", "error"]).default("not_run"),
-  required_for_evaluator_sensitivity: z.literal(false).default(false),
+  required_for_evaluator_sensitivity: z.boolean().default(false),
 }).strict();
 
 export const PolicyProofSchema = z.object({

@@ -117,7 +117,7 @@ function directConflict(candidate: PolicySpec, incumbent: PolicySpec): boolean {
 
 function counterexampleSignals(store: HunchStore, candidate: StructuralCandidate, publicOnly: boolean): string[] {
   const assertion = candidate.assertion;
-  if (assertion.kind === "exists" || assertion.relation.transitive) return [];
+  if (assertion.kind === "exists" || assertion.kind === "executable-behavior" || assertion.relation.transitive) return [];
   const parseSymbol = (raw: string): { file: string; name: string } | null => {
     if (!raw.startsWith("symbol:")) return null;
     const target = raw.slice("symbol:".length);
@@ -161,7 +161,7 @@ function commonPathGlob(paths: string[]): string | null {
 /** Repetition may suggest a broader review scope but never mutates the compiled
  * scope. Three independently grounded component-policy sources are required. */
 function repeatedScopeSuggestion(candidate: PolicySpec, policies: PolicySpec[]): PolicySpec["scope"] | null {
-  if (candidate.assertion.kind === "exists" || !candidate.assertion.subject.selector.startsWith("component")) return null;
+  if (candidate.assertion.kind === "exists" || candidate.assertion.kind === "executable-behavior" || !candidate.assertion.subject.selector.startsWith("component")) return null;
   const assertionHash = canonicalHash(candidate.assertion);
   const related = [...policies, candidate].filter((policy) => policy.data_class === candidate.data_class && canonicalHash(policy.assertion) === assertionHash);
   const sources = new Set(related.flatMap((policy) => policy.legacy_refs.filter((ref) => ref.startsWith("dec_"))));

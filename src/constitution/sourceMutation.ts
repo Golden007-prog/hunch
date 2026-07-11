@@ -117,6 +117,7 @@ function spliceBytes(source: string, replacements: Array<{ start: number; end: n
 
 function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: string, source: string): { file: string; source: string } | { error: string } {
   const assertion = policy.assertion;
+  if (assertion.kind === "executable-behavior") return { error: "mutation-executable-behavior-unsupported" };
   if (assertion.kind !== "exists"
     && assertion.relation.edges.length === 1
     && assertion.relation.edges[0] === "depends_on") {
@@ -234,6 +235,7 @@ function removeWorktree(root: string, hooks: string, env: NodeJS.ProcessEnv, che
 /** Apply one primary mutation to an immutable disposable source checkout. No
  * project script, build, test, provider, model, or repository hook executes. */
 export function runSourceMutation(root: string, policy: PolicySpec, base: GraphSnapshot): SourceMutationOutcome {
+  if (policy.assertion.kind === "executable-behavior") return { error_code: "mutation-executable-behavior-unsupported" };
   if (!/^[a-f0-9]{40}$/.test(base.head)) return { error_code: "mutation-base-not-immutable" };
   const cacheBase = join(root, ".hunch-cache", "mutations");
   mkdirSync(cacheBase, { recursive: true });

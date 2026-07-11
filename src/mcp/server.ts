@@ -1103,6 +1103,35 @@ export function buildServer(root: string): McpServer {
     },
   );
 
+  server.registerTool(
+    "hunch_constitution_g2_behavior_policy_materialize",
+    {
+      title: "Materialize selected G2 behavior policies",
+      description:
+        "Materialize every current exact selected behavior attestation into a separate private Policy IR v2 proposal, exact corpus and plan, and P3 executable proof. Writes private non-authoritative artifacts only; activation remains a separate explicit human action.",
+      inputSchema: {
+        since: z.string().min(1).max(100).optional().describe("Git history window used by the complete exact review packet (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
+        allow_install_scripts: z.array(z.string().min(1).max(214)).max(20).optional().describe("Exact dependency package names allowed to run lifecycle scripts while provisioning snapshots."),
+        dependency_timeout_ms: z.number().int().min(1).max(900000).optional().describe("Timeout for each exact dependency snapshot operation (default 300000ms)."),
+      },
+    },
+    async ({ since, max_commits, limit, allow_install_scripts, dependency_timeout_ms }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorPolicyMaterialize({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+          allowInstallScripts: allow_install_scripts ?? [],
+          dependencyTimeoutMs: dependency_timeout_ms ?? 300_000,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to materialize G2 behavior policies: ${(e as Error).message}`);
+      }
+    },
+  );
+
   return server;
 }
 

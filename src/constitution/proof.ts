@@ -16,6 +16,7 @@ import {
   type ReplayReceipt,
 } from "./schema.js";
 import type { HunchStore } from "../store/hunchStore.js";
+import { proveExecutableBehaviorPolicy } from "./behaviorProof.js";
 
 function summary(results: PolicyEvaluation[]): EvaluationSummary {
   const count = (kind: PolicyEvaluation["result"]): number => results.filter((r) => r.result === kind).length;
@@ -62,6 +63,11 @@ export function provePolicy(
   policy: PolicySpec,
   opts: { publicOnly?: boolean; now?: string; plan?: ProofPlan; composition?: PolicySpec[] } = {},
 ): PolicyProof {
+  if (policy.assertion.kind === "executable-behavior") {
+    if (!opts.plan) throw new Error("executable-behavior proof requires an exact ProofPlan");
+    if (opts.composition?.length) throw new Error("executable-behavior policies cannot have exception composition");
+    return proveExecutableBehaviorPolicy(root, policy, opts.plan, { now: opts.now });
+  }
   if (opts.plan && (
     opts.plan.mutation_engine?.name !== MUTATION_ENGINE.name
     || opts.plan.mutation_engine.version !== MUTATION_ENGINE.version

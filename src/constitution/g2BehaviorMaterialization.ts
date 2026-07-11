@@ -10,10 +10,10 @@ import {
   g2BehaviorAttestationContentHash,
   type G2BehaviorAttestation,
 } from "./g2BehaviorAttestation.js";
-import { POLICY_EVALUATOR, POLICY_IR_VERSION } from "./schema.js";
+import { BEHAVIOR_POLICY_EVALUATOR, EXECUTABLE_BEHAVIOR_IR_VERSION } from "./schema.js";
 
 const HASH = /^sha1:[a-f0-9]{40}$/;
-const SUPPORTED_ASSERTION_KINDS = ["exists", "must-pass-through", "not-reaches", "reaches"] as const;
+const SUPPORTED_ASSERTION_KINDS = ["executable-behavior", "exists", "must-pass-through", "not-reaches", "reaches"] as const;
 
 const SourceReviewSchema = z.object({
   id: z.string().regex(/^g2behaviorcandidates_[a-f0-9]{10}$/),
@@ -37,7 +37,7 @@ const MaterializationItemSchema = z.object({
     source_hash: z.string().regex(HASH),
   }).strict(),
   durable_meaning: z.string().min(1),
-  status: z.literal("uncompilable_current_ir"),
+  status: z.literal("ready_for_materialization"),
   reason: z.string().min(1),
   required_capability: z.object({
     assertion: z.literal("executable-behavior"),
@@ -52,15 +52,15 @@ export const G2BehaviorMaterializationAssessmentSchema = z.object({
   id: z.string().regex(/^g2behaviormaterialization_[a-f0-9]{10}$/),
   content_hash: z.string().regex(HASH),
   source_review: SourceReviewSchema,
-  policy_ir_version: z.literal(POLICY_IR_VERSION),
+  policy_ir_version: z.literal(EXECUTABLE_BEHAVIOR_IR_VERSION),
   evaluator: z.object({
-    name: z.literal(POLICY_EVALUATOR.name),
-    version: z.literal(POLICY_EVALUATOR.version),
+    name: z.literal(BEHAVIOR_POLICY_EVALUATOR.name),
+    version: z.literal(BEHAVIOR_POLICY_EVALUATOR.version),
   }).strict(),
   supported_assertion_kinds: z.array(z.enum(SUPPORTED_ASSERTION_KINDS)).length(SUPPORTED_ASSERTION_KINDS.length),
   selected_attestations: z.number().int().min(1),
   materialized_policies: z.literal(0),
-  readiness: z.literal("blocked_unsupported_policy_ir"),
+  readiness: z.literal("ready_for_materialization"),
   items: z.array(MaterializationItemSchema).min(1),
   outputs: z.object({
     policies: z.array(z.never()).length(0),
@@ -84,7 +84,7 @@ export function g2BehaviorMaterializationContentHash(assessment: G2BehaviorMater
   return canonicalHash(body);
 }
 
-const unsupportedReason = `The selected receipt proves executable behavior, but ${POLICY_EVALUATOR.name}@${POLICY_EVALUATOR.version} can evaluate only static graph existence and reachability. Translating this meaning to any supported assertion would create an implementation proxy rather than prove the selected runtime behavior.`;
+const readyReason = `The selected receipt is expressible by Policy IR v${EXECUTABLE_BEHAVIOR_IR_VERSION} through ${BEHAVIOR_POLICY_EVALUATOR.name}@${BEHAVIOR_POLICY_EVALUATOR.version}; materialization must still produce exact current, known-bad, known-good, and mutation-control receipts before proposal.`;
 
 /**
  * Assess exact selected behavior receipts against the currently implemented
@@ -134,8 +134,8 @@ export function assessG2BehaviorMaterialization(
       commit: attestation.commit,
       test: candidate.test,
       durable_meaning: attestation.reason,
-      status: "uncompilable_current_ir" as const,
-      reason: unsupportedReason,
+      status: "ready_for_materialization" as const,
+      reason: readyReason,
       required_capability: {
         assertion: "executable-behavior" as const,
         current_baseline: "required" as const,
@@ -152,18 +152,18 @@ export function assessG2BehaviorMaterialization(
       content_hash: report.content_hash,
       structural_review_hash: report.structural_review_hash,
     },
-    policy_ir_version: POLICY_IR_VERSION,
-    evaluator: { ...POLICY_EVALUATOR },
+    policy_ir_version: EXECUTABLE_BEHAVIOR_IR_VERSION,
+    evaluator: { ...BEHAVIOR_POLICY_EVALUATOR },
     supported_assertion_kinds: [...SUPPORTED_ASSERTION_KINDS],
     selected_attestations: items.length,
     materialized_policies: 0 as const,
-    readiness: "blocked_unsupported_policy_ir" as const,
+    readiness: "ready_for_materialization" as const,
     items,
     outputs: { policies: [], corpora: [], plans: [], proofs: [] },
     limitations: [
-      "No selected runtime behavior is expressible by the current static graph Policy IR.",
-      "This assessment creates no PolicySpec, corpus, proof plan, proof, authority, warning, or block.",
-      "A future executable-behavior evaluator must independently prove current, known-bad, known-good, and mutation-control behavior before proposal.",
+      "Assessment alone creates no PolicySpec, corpus, proof plan, proof, authority, warning, or block.",
+      "Executable materialization must independently prove current, known-bad, known-good, and mutation-control behavior before proposal.",
+      "Committed HEAD is the executable evaluator baseline; uncommitted working-tree state is outside this assertion version.",
     ],
     data_class: "private" as const,
     authority: "none" as const,

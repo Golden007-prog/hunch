@@ -1,6 +1,9 @@
 import { assertCompositionBinding, exceptionScopeIsNarrower, oppositeExceptionAssertions, policyProofHash } from "./composition.js";
 import { assessHistoryDispositions } from "./disposition.js";
-import { MUTATION_ENGINE, POLICY_EVALUATOR, type HistoryDisposition, type PolicyProof, type PolicySpec, type ProofClass } from "./schema.js";
+import { type HistoryDisposition, type PolicyProof, type PolicySpec, type ProofClass } from "./schema.js";
+import { evaluatorForPolicy, mutationEngineForPolicy } from "./policyRuntime.js";
+import { executableBehaviorAttestationError } from "./behaviorAttestationBinding.js";
+import type { G2BehaviorAttestation } from "./g2BehaviorAttestation.js";
 
 function isHumanActor(actor: string): boolean {
   return /^(human|github|git):[^\s]+$/i.test(actor);
@@ -34,13 +37,18 @@ export function blockingProofError(
   proof: PolicyProof | undefined,
   dispositions: HistoryDisposition[] = [],
   composition: PolicySpec[] = [],
+  currentBehaviorAttestations: G2BehaviorAttestation[] = [],
 ): string | null {
   if (policy.state !== "active_blocking") return null;
   if (policy.authority?.kind !== "human") return "active blocking policy has no human authority event";
+  const behaviorAttestationError = executableBehaviorAttestationError(policy, currentBehaviorAttestations);
+  if (behaviorAttestationError) return behaviorAttestationError;
   if (!policy.proof || !proof) return "active blocking policy has no readable proof artifact";
   if (proofRank[proof.proof_class] < proofRank.P3) return `blocking proof is ${proof.proof_class}; P3+ is required`;
-  if (proof.evaluator.name !== POLICY_EVALUATOR.name || proof.evaluator.version !== POLICY_EVALUATOR.version) return "blocking proof evaluator version is stale";
-  if (proof.mutation_engine?.name !== MUTATION_ENGINE.name || proof.mutation_engine.version !== MUTATION_ENGINE.version) return "blocking proof mutation engine version is stale";
+  const evaluator = evaluatorForPolicy(policy);
+  const mutationEngine = mutationEngineForPolicy(policy);
+  if (proof.evaluator.name !== evaluator.name || proof.evaluator.version !== evaluator.version) return "blocking proof evaluator version is stale";
+  if (proof.mutation_engine?.name !== mutationEngine.name || proof.mutation_engine.version !== mutationEngine.version) return "blocking proof mutation engine version is stale";
   try {
     assertCompositionBinding(policy, composition, proof.composition);
   } catch {
@@ -58,14 +66,18 @@ function requireHuman(actor: string): void {
 }
 
 function requireCurrentProof(policy: PolicySpec, proof: PolicyProof, composition: PolicySpec[] = []): void {
-  if (proof.evaluator.name !== POLICY_EVALUATOR.name || proof.evaluator.version !== POLICY_EVALUATOR.version) throw new Error(`proof ${proof.id} evaluator version is stale`);
-  if (proof.mutation_engine?.name !== MUTATION_ENGINE.name || proof.mutation_engine.version !== MUTATION_ENGINE.version) throw new Error(`proof ${proof.id} mutation engine version is stale`);
+  const evaluator = evaluatorForPolicy(policy);
+  const mutationEngine = mutationEngineForPolicy(policy);
+  if (proof.evaluator.name !== evaluator.name || proof.evaluator.version !== evaluator.version) throw new Error(`proof ${proof.id} evaluator version is stale`);
+  if (proof.mutation_engine?.name !== mutationEngine.name || proof.mutation_engine.version !== mutationEngine.version) throw new Error(`proof ${proof.id} mutation engine version is stale`);
   assertCompositionBinding(policy, composition, proof.composition);
   if (proof.policy_hash !== policyProofHash(policy, composition)) throw new Error(`proof ${proof.id} does not match the current policy semantics`);
   if (proof.current.satisfied !== 1 || proof.current.error || proof.current.unknown) throw new Error(`proof ${proof.id} has no clean satisfied baseline`);
 }
 
-export function proposeProvedPolicy(policy: PolicySpec, proof: PolicyProof, at: string, composition: PolicySpec[] = []): PolicySpec {
+export function proposeProvedPolicy(policy: PolicySpec, proof: PolicyProof, at: string, composition: PolicySpec[] = [], currentBehaviorAttestations: G2BehaviorAttestation[] = []): PolicySpec {
+  const behaviorAttestationError = executableBehaviorAttestationError(policy, currentBehaviorAttestations);
+  if (behaviorAttestationError) throw new Error(behaviorAttestationError);
   if (policy.state !== "compiled" && policy.state !== "validating" && policy.state !== "proposed") throw new Error(`cannot attach proof while policy is ${policy.state}`);
   if (proofRank[proof.proof_class] < proofRank.P1) throw new Error(`proof ${proof.id} is ${proof.proof_class}; a clean current baseline is required`);
   requireCurrentProof(policy, proof, composition);
@@ -87,8 +99,11 @@ export function approvePolicy(
   at: string,
   dispositions: HistoryDisposition[] = [],
   composition: PolicySpec[] = [],
+  currentBehaviorAttestations: G2BehaviorAttestation[] = [],
 ): PolicySpec {
   requireHuman(actor);
+  const behaviorAttestationError = executableBehaviorAttestationError(policy, currentBehaviorAttestations);
+  if (behaviorAttestationError) throw new Error(behaviorAttestationError);
   if (policy.exception_of && mode === "blocking") throw new Error(`exception policy ${policy.id} cannot block independently; activate its broad parent only after parent/exception composition is proved`);
   if (policy.state !== "proposed") throw new Error(`policy ${policy.id} is ${policy.state}; only a proposed policy can be activated`);
   requireCurrentProof(policy, proof, composition);
@@ -105,7 +120,9 @@ export function approvePolicy(
     revision: policy.revision + 1,
     state: mode === "blocking" ? "active_blocking" : "active_advisory",
     severity: mode === "blocking" ? "blocking" : "warning",
-    surfaces: mode === "blocking" ? ["pre_commit", "ci", "mcp", "cli"] : ["pre_edit", "pre_commit", "ci", "mcp", "cli"],
+    surfaces: policy.assertion.kind === "executable-behavior"
+      ? ["ci", "mcp", "cli"]
+      : mode === "blocking" ? ["pre_commit", "ci", "mcp", "cli"] : ["pre_edit", "pre_commit", "ci", "mcp", "cli"],
     authority: { kind: "human", actor, event, at },
     valid_from: at,
     valid_to: null,

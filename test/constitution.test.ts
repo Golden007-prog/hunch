@@ -1652,7 +1652,7 @@ test("Phase 2S G2 candidate attestations are exact, append-only, private, and no
   }
 });
 
-test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior", async () => {
+test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior", async () => {
   const { root, store: initial, cleanup } = layeredRepo();
   initial.close();
   const privateRoot = join(root, "private-g2-behavior/.hunch");
@@ -1907,12 +1907,12 @@ test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior",
     assert.equal(materialization.source_review.content_hash, afterBehaviorSelection.content_hash);
     assert.equal(materialization.selected_attestations, 1);
     assert.equal(materialization.materialized_policies, 0);
-    assert.equal(materialization.readiness, "blocked_unsupported_policy_ir");
-    assert.deepEqual(materialization.supported_assertion_kinds, ["exists", "must-pass-through", "not-reaches", "reaches"]);
+    assert.equal(materialization.readiness, "ready_for_materialization");
+    assert.deepEqual(materialization.supported_assertion_kinds, ["executable-behavior", "exists", "must-pass-through", "not-reaches", "reaches"]);
     assert.equal(materialization.items[0]?.attestation_id, behaviorSelection.id);
     assert.equal(materialization.items[0]?.attestation_hash, behaviorSelection.content_hash);
-    assert.equal(materialization.items[0]?.status, "uncompilable_current_ir");
-    assert.match(materialization.items[0]?.reason ?? "", /implementation proxy/i);
+    assert.equal(materialization.items[0]?.status, "ready_for_materialization");
+    assert.match(materialization.items[0]?.reason ?? "", /known-bad.*known-good.*mutation-control/i);
     assert.deepEqual(materialization.outputs, { policies: [], corpora: [], plans: [], proofs: [] });
     assert.equal(materialization.authority, "none");
     assert.equal(materialization.effects, "assessment_only");
@@ -1920,6 +1920,57 @@ test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior",
     assert.deepEqual(service.g2BehaviorMaterializationAssessment(bounds), materialization, "materialization assessment is byte-stable");
     assert.equal(existsSync(join(privateRoot, "policies")), false);
     assert.equal(existsSync(join(privateRoot, "evidence")), false);
+    const policyMaterialization = service.g2BehaviorPolicyMaterialize({
+      ...bounds,
+      now: "2026-07-11T20:30:00.000Z",
+      allowInstallScripts: [],
+    });
+    assert.match(policyMaterialization.id, /^g2behaviorpolicies_[a-f0-9]{10}$/);
+    assert.equal(policyMaterialization.assessment_hash, materialization.content_hash);
+    assert.equal(policyMaterialization.materialized_policies, 1);
+    assert.equal(policyMaterialization.authority, "none");
+    assert.equal(policyMaterialization.effects, "policy_proposal_only");
+    assert.equal(policyMaterialization.activation, "separate_human_action_required");
+    assert.equal(policyMaterialization.items[0]?.proof_class, "P3");
+    assert.equal(policyMaterialization.items[0]?.policy_state, "proposed");
+    const behaviorPolicy = service.get(policyMaterialization.items[0]!.policy_id, { privateOnly: true });
+    assert.equal(behaviorPolicy.assertion.kind, "executable-behavior");
+    assert.equal(behaviorPolicy.authority, null);
+    assert.equal(behaviorPolicy.surfaces.includes("pre_edit"), false);
+    assert.throws(() => PolicySpecSchema.parse({ ...behaviorPolicy, ir_version: 1 }), /Policy IR v2/i);
+    assert.throws(() => PolicySpecSchema.parse({
+      ...behaviorPolicy,
+      assertion: { ...behaviorPolicy.assertion, runner: "shell-command", argv: ["sh", "-c", "true"] },
+    }), /Invalid option/i, "Policy IR rejects arbitrary behavior command arrays");
+    const behaviorProof = service.proof(policyMaterialization.items[0]!.proof_id, { privateOnly: true });
+    assert.equal(behaviorProof.current.satisfied, 1);
+    assert.equal(behaviorProof.known_bad.violated, 1);
+    assert.equal(behaviorProof.known_good.satisfied, 1);
+    assert.equal(behaviorProof.mutation_receipts.find((receipt) => receipt.kind === "primary")?.passed, true);
+    assert.equal(behaviorProof.mutation_receipts.find((receipt) => receipt.kind === "control")?.error_code, "selected-test-not-executed");
+    assert.equal(behaviorProof.mutation_controls.failed, 0);
+    assert.equal(behaviorProof.project_checks.required_for_evaluator_sensitivity, true);
+    assert.throws(
+      () => approvePolicy(behaviorPolicy, behaviorProof, "advisory", "human:reviewer", "2026-07-11T20:30:30.000Z"),
+      /current exact selected human attestation/i,
+      "the low-level lifecycle cannot activate executable behavior without repository attestation validation",
+    );
+    assert.equal(service.evaluate({ id: behaviorPolicy.id })[0]?.evaluation.result, "satisfied");
+    assert.deepEqual(service.g2BehaviorPolicyMaterialize({
+      ...bounds,
+      now: "2026-07-11T20:31:00.000Z",
+      allowInstallScripts: [],
+    }), policyMaterialization, "exact behavior policy materialization is retry-safe and byte-stable");
+    const cliPolicyMaterializeRun = spawnSync(process.execPath, [
+      tsx, cli, "constitution", "g2",
+      "--behavior-policy-materialize",
+      "--candidate-since", bounds.since,
+      "--candidate-commits", String(bounds.maxCommits),
+      "--candidate-limit", String(bounds.limit),
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(cliPolicyMaterializeRun.status, 0, cliPolicyMaterializeRun.stderr);
+    const cliPolicyMaterialization = JSON.parse(cliPolicyMaterializeRun.stdout) as { content_hash: string };
+    assert.equal(cliPolicyMaterialization.content_hash, policyMaterialization.content_hash, "CLI exposes the exact core policy materialization receipt");
     const cliMaterializeRun = spawnSync(process.execPath, [
       tsx, cli, "constitution", "g2",
       "--behavior-materialize",
@@ -1941,6 +1992,12 @@ test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior",
     });
     const mcpMaterialization = JSON.parse((mcpMaterializationCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
     assert.equal(mcpMaterialization.content_hash, materialization.content_hash, "MCP exposes the exact core materialization assessment");
+    const mcpPolicyMaterializationCall = await client.callTool({
+      name: "hunch_constitution_g2_behavior_policy_materialize",
+      arguments: { since: bounds.since, max_commits: bounds.maxCommits, limit: bounds.limit },
+    });
+    const mcpPolicyMaterialization = JSON.parse((mcpPolicyMaterializationCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
+    assert.equal(mcpPolicyMaterialization.content_hash, policyMaterialization.content_hash, "MCP exposes the exact core policy materialization receipt");
     await client.close();
     client = null;
     assert.throws(
@@ -2002,6 +2059,12 @@ test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior",
       /at least one current selected attestation/i,
       "correcting the selected disposition retracts materialization eligibility immediately",
     );
+    assert.throws(
+      () => service.approve(behaviorPolicy.id, "advisory", "human:reviewer"),
+      /not bound to a current exact selected human attestation/i,
+      "a corrected behavior selection cannot activate an already materialized proposal",
+    );
+    assert.match(service.evaluate({ id: behaviorPolicy.id })[0]?.gate_error ?? "", /not bound to a current exact selected human attestation/i);
 
     const behaviorFile = join(privateRoot, "behavior-attestations", `${behaviorSelection.id}.json`);
     const behaviorRecord = readFileSync(behaviorFile, "utf8");
@@ -2010,7 +2073,7 @@ test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior",
     writeFileSync(behaviorFile, JSON.stringify(tamperedBehavior));
     assert.throws(() => service.g2BehaviorCandidateReview(bounds), /content hash mismatch/i);
     writeFileSync(behaviorFile, behaviorRecord);
-    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, 0);
+    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, 1);
     assert.equal(service.repository.listEvidence({ privateOnly: true }).length, 0);
   } finally {
     if (client) await client.close();

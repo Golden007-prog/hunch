@@ -139,6 +139,7 @@ export function compileStructuralPolicy(store: HunchStore, input: StructuralPoli
     && input.assertion.relation.edges[0] === "imports"
     && input.assertion.object.selector.startsWith("external:");
   const componentRelation = input.assertion.kind !== "exists"
+    && input.assertion.kind !== "executable-behavior"
     && input.assertion.relation.edges.length === 1
     && input.assertion.relation.edges[0] === "depends_on"
     && input.assertion.subject.selector.startsWith("component");

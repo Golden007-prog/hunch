@@ -37,6 +37,7 @@ interface MutationHarnessContext {
 
 function policySelectors(policy: PolicySpec): PolicySelector[] {
   const assertion = policy.assertion;
+  if (assertion.kind === "executable-behavior") return [];
   return [
     assertion.subject,
     ...(assertion.kind === "exists" ? [] : [assertion.object]),

@@ -6,6 +6,7 @@ import { canonicalHash, policySemanticHash } from "./canonical.js";
 import { policyCompositionBinding, policyProofHash } from "./composition.js";
 import { graphSnapshot, mutationOperatorForPolicy, selectedPolicyForComposition } from "./evaluator.js";
 import type { PolicyRepository } from "./repository.js";
+import { createExecutableBehaviorProofPlan } from "./behaviorProof.js";
 import {
   POLICY_EVALUATOR,
   MUTATION_ENGINE,
@@ -33,6 +34,7 @@ function clamp(value: number | undefined, fallback: number, min: number, max: nu
 
 function hasBareNameSelector(policy: PolicySpec): boolean {
   const assertion = policy.assertion;
+  if (assertion.kind === "executable-behavior") return false;
   const selectors = [assertion.subject, ...(assertion.kind === "exists" ? [] : [assertion.object]), ...(assertion.kind === "must-pass-through" ? [assertion.via] : [])];
   return selectors.some(({ selector }) => selector.startsWith("symbol:") && !selector.slice("symbol:".length).includes(":"));
 }
@@ -66,6 +68,10 @@ export function createProofPlan(
   opts: ProofPlanOptions = {},
 ): ProofPlan {
   if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
+  if (policy.assertion.kind === "executable-behavior") {
+    if (opts.composition?.length) throw new Error("executable-behavior policies cannot have exception composition");
+    return createExecutableBehaviorProofPlan(root, repository, policy, { now: opts.now, privateOnly: true });
+  }
   const head = headSha(root);
   if (!head) throw new Error("proof planning needs a Git repository with a current HEAD");
   const composition = opts.composition ?? [];
