@@ -408,13 +408,16 @@ function directDecisionReview(
       continue;
     }
     const before = fileAt(root, commit.knownBad, file) ?? "";
-    const previous = new Set(addedNodeTestNames(before));
+    const previous = new Set(literalNodeTestCases(file, before).map((candidate) => candidate.name));
     const addedLines = addedLineNumbers(root, commit.knownBad, commit.commit, file);
-    const modified = new Set(literalNodeTestCases(file, after)
+    const afterCases = literalNodeTestCases(file, after);
+    const modified = new Set(afterCases
       .filter((candidate) => previous.has(candidate.name)
         && [...addedLines].some((line) => line >= candidate.startLine && line <= candidate.endLine))
       .map((candidate) => candidate.name));
-    const names = addedNodeTestNames(after).filter((candidate) => !previous.has(candidate) || modified.has(candidate));
+    const names = [...new Set(afterCases.map((candidate) => candidate.name))]
+      .filter((candidate) => !previous.has(candidate) || modified.has(candidate))
+      .sort();
     for (const name of names) {
       const grounding = previous.has(name) ? "human_decision_plus_modified_test" as const : "human_decision_plus_added_test" as const;
       if (grounding === "human_decision_plus_modified_test") hasModifiedTestCandidate = true;

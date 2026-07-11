@@ -1700,6 +1700,7 @@ test("Phase 2Z direct decision review captures assertions added to an existing n
       'import test from "node:test";',
       'import assert from "node:assert/strict";',
       'import { outcome } from "../src/direct.mjs";',
+      'const documentation = \'test("not a registered test", () => {})\';',
       'test("reports the actual outcome", () => {',
       '  outcome();',
       '  assert.ok(true);',
@@ -1733,6 +1734,7 @@ test("Phase 2Z direct decision review captures assertions added to an existing n
     assert.equal(review.items.length, 1);
     const candidate = review.items[0]!;
     assert.equal(candidate.test.name, "reports the actual outcome");
+    assert.doesNotMatch(candidate.test.name, /not a registered test/);
     assert.equal(candidate.grounding, "human_decision_plus_modified_test");
     assert.match(review.limitations[0]!, /existing literal-named cases/i);
     const replay = service.g2BehaviorCandidateReplay(candidate.id, review.content_hash, opts);
