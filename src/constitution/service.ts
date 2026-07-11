@@ -65,6 +65,10 @@ import {
   compileG2BehaviorAttestation,
   type G2BehaviorAttestation,
 } from "./g2BehaviorAttestation.js";
+import {
+  assessG2BehaviorMaterialization,
+  type G2BehaviorMaterializationAssessment,
+} from "./g2BehaviorMaterialization.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -424,6 +428,13 @@ export class ConstitutionService {
   ): G2BehaviorReplayReceipt {
     const report = this.g2BehaviorCandidateReview(opts);
     return replayG2BehaviorCandidate(this.root, report, candidateId, reviewHash, { timeoutMs: opts.timeoutMs });
+  }
+
+  g2BehaviorMaterializationAssessment(
+    opts: G2CandidateReviewOptions = {},
+  ): G2BehaviorMaterializationAssessment {
+    const report = this.g2BehaviorCandidateReview(opts);
+    return assessG2BehaviorMaterialization(report, this.g2BehaviorAttestationRepository.current());
   }
 
   g2BehaviorDependencySnapshots(

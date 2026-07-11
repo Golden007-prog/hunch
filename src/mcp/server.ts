@@ -1078,6 +1078,31 @@ export function buildServer(root: string): McpServer {
     },
   );
 
+  server.registerTool(
+    "hunch_constitution_g2_behavior_materialization",
+    {
+      title: "Assess selected G2 behavior materialization",
+      description:
+        "Bind the complete current private behavior review and exact selected attestations, then report whether their durable meanings are expressible by the supported Policy IR. Read-only and fail-closed: unsupported behavior creates no policy, corpus, plan, proof, authority, warning, or block.",
+      inputSchema: {
+        since: z.string().min(1).max(100).optional().describe("Git history window used by the exact review packet (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
+      },
+    },
+    async ({ since, max_commits, limit }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorMaterializationAssessment({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to assess G2 behavior materialization: ${(e as Error).message}`);
+      }
+    },
+  );
+
   return server;
 }
 

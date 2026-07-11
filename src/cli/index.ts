@@ -1463,6 +1463,7 @@ constitutionCmd
   .option("--behavior-replay <candidate-id>", "run one exact behavior candidate in disposable known-bad/good worktrees")
   .option("--behavior-deps <candidate-id>", "explicitly build or validate content-addressed historical dependency snapshots for one behavior candidate")
   .option("--behavior-attest <candidate-id>", "append an exact private human selection or rejection bound to a snapshot-backed behavior replay")
+  .option("--behavior-materialize", "assess current selected behavior attestations against the exact supported Policy IR without creating artifacts")
   .option("--behavior-review-hash <hash>", "exact behavior-candidate review content hash being replayed or provisioned")
   .option("--allow-install-script <packages...>", "dependency packages explicitly allowed to run lifecycle scripts while building --behavior-deps")
   .option("--dependency-timeout-ms <n>", "timeout for each npm dependency snapshot operation", "300000")
@@ -1478,7 +1479,7 @@ constitutionCmd
   .option("--reason <text>", "candidate selection or rejection rationale")
   .option("--supersedes <id>", "current rehearsal or candidate attestation corrected by this append-only receipt")
   .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
-  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
+  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorMaterialize?: boolean; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
     const { store, root } = storeFor();
     try {
       const queueRequested = opts.queue !== undefined;
@@ -1487,9 +1488,10 @@ constitutionCmd
       const behaviorReplayRequested = opts.behaviorReplay !== undefined;
       const behaviorDepsRequested = opts.behaviorDeps !== undefined;
       const behaviorAttestRequested = opts.behaviorAttest !== undefined;
+      const behaviorMaterializeRequested = opts.behaviorMaterialize === true;
       const attestRequested = opts.attest !== undefined;
-      const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, queueRequested, candidatesRequested, behaviorCandidatesRequested, behaviorReplayRequested, behaviorDepsRequested, behaviorAttestRequested].filter(Boolean).length;
-      if (actions > 1) throw new Error("choose only one G2 plan, rehearsal, structural attestation, observation, queue, structural candidate, behavior candidate, behavior replay, dependency snapshot, or behavior attestation action");
+      const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, queueRequested, candidatesRequested, behaviorCandidatesRequested, behaviorReplayRequested, behaviorDepsRequested, behaviorAttestRequested, behaviorMaterializeRequested].filter(Boolean).length;
+      if (actions > 1) throw new Error("choose only one G2 plan, rehearsal, structural attestation, observation, queue, structural candidate, behavior candidate, behavior replay, dependency snapshot, behavior attestation, or behavior materialization action");
       if (opts.allowInstallScript && !behaviorDepsRequested) throw new Error("--allow-install-script requires --behavior-deps");
       const service = new ConstitutionService(store, root);
       let output: unknown;
@@ -1575,6 +1577,15 @@ constitutionCmd
           { ...reviewOptions, supersedes: opts.supersedes },
         );
         output = { appended, review: service.g2BehaviorCandidateReview(reviewOptions) };
+      } else if (behaviorMaterializeRequested) {
+        if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.behaviorReviewHash || opts.allowInstallScript) {
+          throw new Error("--behavior-materialize accepts no human evidence, review-hash, or dependency-install options");
+        }
+        output = service.g2BehaviorMaterializationAssessment({
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+        });
       } else if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.behaviorReviewHash || opts.allowInstallScript) {
         throw new Error("human evidence options require --rehearse <runbook-id> or --attest <candidate-id>");
       } else {

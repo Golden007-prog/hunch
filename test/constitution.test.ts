@@ -1652,7 +1652,7 @@ test("Phase 2S G2 candidate attestations are exact, append-only, private, and no
   }
 });
 
-test("Phase 2U/2V replays exact behavior and records replay-bound human dispositions", async () => {
+test("Phase 2U/2V/2W replays, attests, and fail-closed assesses exact behavior", async () => {
   const { root, store: initial, cleanup } = layeredRepo();
   initial.close();
   const privateRoot = join(root, "private-g2-behavior/.hunch");
@@ -1787,6 +1787,11 @@ test("Phase 2U/2V replays exact behavior and records replay-bound human disposit
     assert.equal(replayWithSnapshot.known_bad.dependency_snapshot_id, snapshots.snapshots[0]!.id);
     assert.equal(replayWithSnapshot.known_good.dependency_snapshot_id, snapshots.snapshots[0]!.id);
     assert.equal(replayWithSnapshot.verdict, "behavior_confirmed");
+    assert.throws(
+      () => service.g2BehaviorMaterializationAssessment(bounds),
+      /every behavior candidate.*current human disposition/i,
+      "an unresolved review cannot be materialized",
+    );
     assert.deepEqual(
       readdirSync(join(root, ".hunch-cache/behavior-deps")).filter((entry) => entry.startsWith(".")),
       [],
@@ -1896,6 +1901,48 @@ test("Phase 2U/2V replays exact behavior and records replay-bound human disposit
     assert.equal(afterBehaviorSelection.rejected_candidates, 0);
     assert.equal(afterBehaviorSelection.unreviewed_candidates, 0);
     assert.equal(afterBehaviorSelection.items[0]?.human_review?.id, behaviorSelection.id);
+    const materialization = service.g2BehaviorMaterializationAssessment(bounds);
+    assert.match(materialization.id, /^g2behaviormaterialization_[a-f0-9]{10}$/);
+    assert.equal(materialization.source_review.id, afterBehaviorSelection.id);
+    assert.equal(materialization.source_review.content_hash, afterBehaviorSelection.content_hash);
+    assert.equal(materialization.selected_attestations, 1);
+    assert.equal(materialization.materialized_policies, 0);
+    assert.equal(materialization.readiness, "blocked_unsupported_policy_ir");
+    assert.deepEqual(materialization.supported_assertion_kinds, ["exists", "must-pass-through", "not-reaches", "reaches"]);
+    assert.equal(materialization.items[0]?.attestation_id, behaviorSelection.id);
+    assert.equal(materialization.items[0]?.attestation_hash, behaviorSelection.content_hash);
+    assert.equal(materialization.items[0]?.status, "uncompilable_current_ir");
+    assert.match(materialization.items[0]?.reason ?? "", /implementation proxy/i);
+    assert.deepEqual(materialization.outputs, { policies: [], corpora: [], plans: [], proofs: [] });
+    assert.equal(materialization.authority, "none");
+    assert.equal(materialization.effects, "assessment_only");
+    assert.equal(materialization.writes, "none");
+    assert.deepEqual(service.g2BehaviorMaterializationAssessment(bounds), materialization, "materialization assessment is byte-stable");
+    assert.equal(existsSync(join(privateRoot, "policies")), false);
+    assert.equal(existsSync(join(privateRoot, "evidence")), false);
+    const cliMaterializeRun = spawnSync(process.execPath, [
+      tsx, cli, "constitution", "g2",
+      "--behavior-materialize",
+      "--candidate-since", bounds.since,
+      "--candidate-commits", String(bounds.maxCommits),
+      "--candidate-limit", String(bounds.limit),
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(cliMaterializeRun.status, 0, cliMaterializeRun.stderr);
+    const cliMaterialization = JSON.parse(cliMaterializeRun.stdout) as { content_hash: string; materialized_policies: number };
+    assert.equal(cliMaterialization.content_hash, materialization.content_hash, "CLI exposes the exact core materialization assessment");
+    assert.equal(cliMaterialization.materialized_policies, 0);
+
+    const materializationTransport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: root });
+    client = new Client({ name: "g2-behavior-materialization-test", version: "1.0.0" });
+    await client.connect(materializationTransport);
+    const mcpMaterializationCall = await client.callTool({
+      name: "hunch_constitution_g2_behavior_materialization",
+      arguments: { since: bounds.since, max_commits: bounds.maxCommits, limit: bounds.limit },
+    });
+    const mcpMaterialization = JSON.parse((mcpMaterializationCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
+    assert.equal(mcpMaterialization.content_hash, materialization.content_hash, "MCP exposes the exact core materialization assessment");
+    await client.close();
+    client = null;
     assert.throws(
       () => service.attestG2BehaviorCandidate(
         candidate.id,
@@ -1939,6 +1986,22 @@ test("Phase 2U/2V replays exact behavior and records replay-bound human disposit
     assert.equal(cliBehaviorOutput.appended.authority, "none");
     assert.equal(cliBehaviorOutput.review.selected_candidates, 1);
     assert.equal(cliBehaviorOutput.review.items[0]?.human_review?.id, behaviorSelection.id);
+
+    const behaviorCorrection = service.attestG2BehaviorCandidate(
+      candidate.id,
+      afterBehaviorSelection.content_hash,
+      "rejected",
+      "human:reviewer",
+      "The selected meaning was corrected before policy materialization.",
+      { ...bounds, supersedes: behaviorSelection.id, now: "2026-07-11T21:00:00.000Z" },
+    );
+    assert.equal(behaviorCorrection.supersedes, behaviorSelection.id);
+    assert.equal(service.g2BehaviorCandidateReview(bounds).selected_candidates, 0);
+    assert.throws(
+      () => service.g2BehaviorMaterializationAssessment(bounds),
+      /at least one current selected attestation/i,
+      "correcting the selected disposition retracts materialization eligibility immediately",
+    );
 
     const behaviorFile = join(privateRoot, "behavior-attestations", `${behaviorSelection.id}.json`);
     const behaviorRecord = readFileSync(behaviorFile, "utf8");
