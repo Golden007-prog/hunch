@@ -1691,6 +1691,60 @@ test("Phase 2Y direct decision replay executes regex-punctuated test names exact
   }
 });
 
+test("Phase 2Z direct decision review captures assertions added to an existing named test", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    mkdirSync(join(root, "test"), { recursive: true });
+    writeFileSync(join(root, "src/direct.mjs"), "export function outcome(){ return null; }\n");
+    writeFileSync(join(root, "test/direct.test.mjs"), [
+      'import test from "node:test";',
+      'import assert from "node:assert/strict";',
+      'import { outcome } from "../src/direct.mjs";',
+      'test("reports the actual outcome", () => {',
+      '  outcome();',
+      '  assert.ok(true);',
+      '});',
+      "",
+    ].join("\n"));
+    commitFiles(root, ["src/direct.mjs", "test/direct.test.mjs"], "fixture: existing behavior baseline");
+    writeFileSync(join(root, "src/direct.mjs"), 'export function outcome(){ return "committed"; }\n');
+    writeFileSync(join(root, "test/direct.test.mjs"), [
+      'import test from "node:test";',
+      'import assert from "node:assert/strict";',
+      'import { outcome } from "../src/direct.mjs";',
+      'test("reports the actual outcome", () => {',
+      '  const result = outcome();',
+      '  assert.equal(result, "committed");',
+      '});',
+      "",
+    ].join("\n"));
+    const fix = commitFiles(root, ["src/direct.mjs", "test/direct.test.mjs"], "fix: report actual outcome");
+    store.json.put("decisions", {
+      ...decision("dec_g2_modified_test"),
+      title: "Prove an existing regression strengthened by the fix",
+      context: "The fixing commit adds its durable assertion inside a pre-existing named test.",
+      decision: "Modified existing tests are executable behavior candidates when the fixing diff adds a line inside the exact test call.",
+      related_files: ["src/direct.mjs", "test/direct.test.mjs"],
+      commit: fix,
+    });
+    const service = new ConstitutionService(store, root);
+    const opts = { decisionId: "dec_g2_modified_test", since: "30d", maxCommits: 10, limit: 10 };
+    const review = service.g2BehaviorCandidateReview(opts);
+    assert.equal(review.items.length, 1);
+    const candidate = review.items[0]!;
+    assert.equal(candidate.test.name, "reports the actual outcome");
+    assert.equal(candidate.grounding, "human_decision_plus_modified_test");
+    assert.match(review.limitations[0]!, /existing literal-named cases/i);
+    const replay = service.g2BehaviorCandidateReplay(candidate.id, review.content_hash, opts);
+    assert.equal(replay.known_bad.result, "failed");
+    assert.equal(replay.known_good.result, "passed");
+    assert.equal(replay.verdict, "behavior_confirmed");
+  } finally {
+    store.close();
+    cleanup();
+  }
+});
+
 test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavior", async () => {
   const { root, store: initial, cleanup } = layeredRepo();
   initial.close();

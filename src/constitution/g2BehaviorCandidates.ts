@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import Parser from "tree-sitter";
+import TS from "tree-sitter-typescript";
+import type { SyntaxNode } from "tree-sitter";
 import { shortHash } from "../core/ids.js";
 import type { Decision } from "../core/types.js";
 import type { HunchStore } from "../store/hunchStore.js";
@@ -74,7 +77,7 @@ export interface G2BehaviorCandidate {
     known_good: { ref: string; expected: "passed" };
     observed: false;
   };
-  grounding: "rejected_proxy_plus_added_test" | "human_decision_plus_added_test";
+  grounding: "rejected_proxy_plus_added_test" | "human_decision_plus_added_test" | "human_decision_plus_modified_test";
   data_class: "private";
   authority: "none";
   writes: "none";
@@ -166,6 +169,12 @@ const LIMITATIONS = [
   "Replay never installs historical dependencies or runs package lifecycle scripts; missing dependency snapshots remain explicit diagnostic errors.",
   "A confirmed diagnostic receipt is not Policy IR, corpus evidence, a Constitution proof, activation authority, or G2 approval.",
 ];
+const DIRECT_TEST_DELTA_LIMITATIONS = [
+  "Direct decision candidates cover newly named node:test test()/it() cases and existing literal-named cases whose body contains an added fixing-commit line.",
+  ...LIMITATIONS.slice(1),
+];
+
+const { typescript: tsLanguage, tsx: tsxLanguage } = TS as unknown as { typescript: unknown; tsx: unknown };
 
 function safeTestFile(file: string): boolean {
   return !!file
@@ -240,6 +249,78 @@ export function addedNodeTestNames(source: string): string[] {
     start.lastIndex = Math.max(start.lastIndex, cursor + 1);
   }
   return [...names].sort();
+}
+
+interface LiteralNodeTestCase {
+  name: string;
+  startLine: number;
+  endLine: number;
+}
+
+function literalTestName(raw: string): string | null {
+  const quote = raw[0];
+  if ((quote !== '"' && quote !== "'" && quote !== "`") || raw.at(-1) !== quote) return null;
+  const body = raw.slice(1, -1);
+  if (quote === "`" && body.includes("${")) return null;
+  const name = decodeEscaped(body);
+  return name.trim() ? name : null;
+}
+
+function literalNodeTestCases(file: string, source: string): LiteralNodeTestCase[] {
+  const language = /\.[cm]?[jt]sx$/.test(file) && /x$/.test(file) ? tsxLanguage : tsLanguage;
+  const parser = new Parser();
+  parser.setLanguage(language as never);
+  let tree;
+  try {
+    tree = parser.parse(source, undefined, { bufferSize: Math.max(32 * 1024, source.length * 2 + 1024) });
+  } catch {
+    return [];
+  }
+  const cases: LiteralNodeTestCase[] = [];
+  const visit = (node: SyntaxNode): void => {
+    if (node.type === "call_expression") {
+      const fn = node.childForFieldName("function");
+      const args = node.childForFieldName("arguments");
+      const first = args?.namedChildren[0];
+      if (fn?.type === "identifier" && (fn.text === "test" || fn.text === "it")
+        && first && (first.type === "string" || first.type === "template_string")) {
+        const name = literalTestName(first.text);
+        if (name) cases.push({ name, startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 });
+      }
+    }
+    node.namedChildren.forEach(visit);
+  };
+  visit(tree.rootNode);
+  return cases;
+}
+
+function addedLineNumbers(root: string, knownBad: string, knownGood: string, file: string): Set<number> {
+  let diff: string;
+  try {
+    diff = execFileSync("git", ["-C", root, "diff", "--unified=0", "--no-ext-diff", knownBad, knownGood, "--", file], {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return new Set();
+  }
+  const added = new Set<number>();
+  let nextLine: number | null = null;
+  for (const line of diff.split("\n")) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) {
+      nextLine = Number(hunk[1]);
+      continue;
+    }
+    if (nextLine == null || line.startsWith("\\ No newline")) continue;
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      added.add(nextLine++);
+    } else if (!line.startsWith("-") || line.startsWith("---")) {
+      nextLine++;
+    }
+  }
+  return added;
 }
 
 function runnerFor(file: string, name: string, exact = false): G2BehaviorCandidate["runner"] {
@@ -319,6 +400,7 @@ function directDecisionReview(
   const commit = directDecisionCommit(store, root, opts.decisionId!);
   const candidates: G2BehaviorCandidate[] = [];
   const failures: G2BehaviorCandidateReview["extraction_failures"] = [];
+  let hasModifiedTestCandidate = false;
   for (const file of [...commit.changedFiles].filter(safeTestFile).sort()) {
     const after = fileAt(root, commit.commit, file);
     if (after == null) {
@@ -327,10 +409,18 @@ function directDecisionReview(
     }
     const before = fileAt(root, commit.knownBad, file) ?? "";
     const previous = new Set(addedNodeTestNames(before));
-    for (const name of addedNodeTestNames(after).filter((candidate) => !previous.has(candidate))) {
+    const addedLines = addedLineNumbers(root, commit.knownBad, commit.commit, file);
+    const modified = new Set(literalNodeTestCases(file, after)
+      .filter((candidate) => previous.has(candidate.name)
+        && [...addedLines].some((line) => line >= candidate.startLine && line <= candidate.endLine))
+      .map((candidate) => candidate.name));
+    const names = addedNodeTestNames(after).filter((candidate) => !previous.has(candidate) || modified.has(candidate));
+    for (const name of names) {
+      const grounding = previous.has(name) ? "human_decision_plus_modified_test" as const : "human_decision_plus_added_test" as const;
+      if (grounding === "human_decision_plus_modified_test") hasModifiedTestCandidate = true;
       const sourceHash = canonicalHash(after);
       const seed = canonicalHash({
-        grounding: "human_decision_plus_added_test",
+        grounding,
         decision_id: commit.decisionId,
         commit: commit.commit,
         file,
@@ -353,7 +443,7 @@ function directDecisionReview(
           known_good: { ref: commit.commit, expected: "passed" },
           observed: false,
         },
-        grounding: "human_decision_plus_added_test",
+        grounding,
         data_class: "private",
         authority: "none",
         writes: "none",
@@ -387,7 +477,7 @@ function directDecisionReview(
     extraction_failures: failures,
     items,
     has_more: candidates.length > items.length,
-    limitations: LIMITATIONS,
+    limitations: hasModifiedTestCandidate ? DIRECT_TEST_DELTA_LIMITATIONS : LIMITATIONS,
     data_class: "private" as const,
     authority: "none" as const,
     writes: "none" as const,
