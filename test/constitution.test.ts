@@ -2153,6 +2153,15 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
       "the low-level lifecycle cannot activate executable behavior without repository attestation validation",
     );
     assert.equal(service.evaluate({ id: behaviorPolicy.id })[0]?.evaluation.result, "satisfied");
+    const prePolicyShadow = service.recordShadow(behaviorPolicy.id, {
+      commit: candidate.proposed_corpus.known_bad.ref,
+      now: "2026-07-11T20:30:40.000Z",
+      latencyMs: 1,
+    });
+    assert.equal(prePolicyShadow.evaluation.result, "violated", "raw pre-policy evidence remains append-only and inspectable");
+    const postIntroductionPrecision = service.shadowReport(behaviorPolicy.id, { minApplicable: 0 }, { privateOnly: true });
+    assert.equal(postIntroductionPrecision.counts.total, 0, "commits before the policy fixing commit never enter its operational precision denominator");
+    assert.equal(postIntroductionPrecision.evaluations.length, 1, "the excluded raw observation remains in the audit view");
     assert.deepEqual(service.g2BehaviorPolicyMaterialize({
       ...bounds,
       now: "2026-07-11T20:31:00.000Z",

@@ -255,3 +255,41 @@ test("G2 service stores only exact private evidence and reports real blockers", 
     cleanup();
   }
 });
+
+test("G2 operational drills bind exact runbooks and historical backfill aborts atomically on preflight errors", () => {
+  const { root, privateRoot, store, cleanup } = privateFixture();
+  try {
+    const service = new ConstitutionService(store, process.cwd());
+    for (const id of POLICY_IDS) service.repository.putPolicy(privatePolicy(id), { private: true });
+    for (const category of G2_RUNBOOK_CATEGORIES) store.putPrivate("runbooks", privateRunbook(RUNBOOKS[category], category));
+    const plan = service.createG2Plan({
+      policy_ids: POLICY_IDS,
+      runbooks: RUNBOOKS,
+      actor: "human:release-owner",
+      reason: "Bind exact operational drills.",
+    }, { now: NOW });
+
+    const drill = service.g2OperationalDrill("provider_outage");
+    assert.equal(drill.plan_id, plan.id);
+    assert.equal(drill.runbook_id, RUNBOOKS.provider_outage);
+    assert.equal(drill.result, "passed");
+    assert.equal(drill.selected_event, "passed");
+    assert.equal(drill.authority, "none");
+    assert.equal(drill.writes, "none");
+    assert.equal(existsSync(join(privateRoot, "rehearsals")), false, "diagnostic drill never self-attests a rehearsal");
+
+    const backfill = service.g2ShadowBackfill(2, { now: NOW });
+    assert.equal(backfill.plan_id, plan.id);
+    assert.equal(backfill.commits.length, 2);
+    assert.equal(backfill.attempted, 20);
+    assert.equal(backfill.preflight_failures.length, 20, "every unproved policy fails before any write");
+    assert.equal(backfill.recorded.length, 0);
+    assert.equal(backfill.writes, "none");
+    assert.match(backfill.skipped_reason ?? "", /preflight.*wrote nothing/i);
+    assert.equal(existsSync(join(privateRoot, "shadow")), false, "failed backfill is atomic across the whole policy/commit matrix");
+    assert.throws(() => service.g2ShadowBackfill(0), /positive integer/i);
+  } finally {
+    cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

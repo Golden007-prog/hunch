@@ -89,7 +89,7 @@ import { ConstitutionService, type PolicyEvaluationSet } from "../constitution/s
 import { renderProofCard } from "../constitution/card.js";
 import { movePolicyArtifactsToPrivate } from "../constitution/repository.js";
 import { HistoryDispositionClassificationSchema } from "../constitution/schema.js";
-import type { CompileG2PlanInput } from "../constitution/g2.js";
+import { G2_RUNBOOK_CATEGORIES, type CompileG2PlanInput } from "../constitution/g2.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
 import type { Constraint, Decision } from "../core/types.js";
@@ -1457,6 +1457,8 @@ constitutionCmd
   .option("--rehearse <runbook-id>", "append a rehearsal receipt for the exact current private runbook content")
   .option("--attest <candidate-id>", "append an exact private human selection or rejection for one reviewed candidate")
   .option("--observe", "record at most one private shadow observation per selected policy for the current real HEAD/graph")
+  .option("--backfill <n>", "atomically record shadow observations across up to n real first-parent commits after an all-policy preflight")
+  .option("--drill <category>", "execute one exact selected operational runbook drill, or all seven with category=all; writes no evidence")
   .option("--queue <limit>", "return the bounded current-proof queue of unclassified G2 shadow violations")
   .option("--candidates <limit>", "return a bounded read-only review packet of exact fix-history candidates requiring human attestation")
   .option("--behavior-candidates <limit>", "derive bounded behavior-level candidates from rejected grounded proxies plus newly added regression tests")
@@ -1481,7 +1483,7 @@ constitutionCmd
   .option("--reason <text>", "candidate selection or rejection rationale")
   .option("--supersedes <id>", "current rehearsal or candidate attestation corrected by this append-only receipt")
   .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
-  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorDecision?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorMaterialize?: boolean; behaviorPolicyMaterialize?: boolean; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
+  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; backfill?: string; drill?: string; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorDecision?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorMaterialize?: boolean; behaviorPolicyMaterialize?: boolean; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
     const { store, root } = storeFor();
     try {
       const queueRequested = opts.queue !== undefined;
@@ -1492,11 +1494,13 @@ constitutionCmd
       const behaviorAttestRequested = opts.behaviorAttest !== undefined;
       const behaviorMaterializeRequested = opts.behaviorMaterialize === true;
       const behaviorPolicyMaterializeRequested = opts.behaviorPolicyMaterialize === true;
+      const backfillRequested = opts.backfill !== undefined;
+      const drillRequested = opts.drill !== undefined;
       const behaviorActionRequested = behaviorCandidatesRequested || behaviorReplayRequested || behaviorDepsRequested
         || behaviorAttestRequested || behaviorMaterializeRequested || behaviorPolicyMaterializeRequested;
       const attestRequested = opts.attest !== undefined;
-      const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, queueRequested, candidatesRequested, behaviorCandidatesRequested, behaviorReplayRequested, behaviorDepsRequested, behaviorAttestRequested, behaviorMaterializeRequested, behaviorPolicyMaterializeRequested].filter(Boolean).length;
-      if (actions > 1) throw new Error("choose only one G2 plan, rehearsal, structural attestation, observation, queue, structural candidate, behavior candidate, behavior replay, dependency snapshot, behavior attestation, behavior assessment, or behavior policy materialization action");
+      const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, backfillRequested, drillRequested, queueRequested, candidatesRequested, behaviorCandidatesRequested, behaviorReplayRequested, behaviorDepsRequested, behaviorAttestRequested, behaviorMaterializeRequested, behaviorPolicyMaterializeRequested].filter(Boolean).length;
+      if (actions > 1) throw new Error("choose only one G2 plan, rehearsal, structural attestation, observation, historical backfill, operational drill, queue, structural candidate, behavior candidate, behavior replay, dependency snapshot, behavior attestation, behavior assessment, or behavior policy materialization action");
       if (opts.allowInstallScript && !behaviorDepsRequested && !behaviorPolicyMaterializeRequested) throw new Error("--allow-install-script requires --behavior-deps or --behavior-policy-materialize");
       if (opts.behaviorDecision && !behaviorActionRequested) throw new Error("--behavior-decision requires a behavior candidate, replay, dependency, attestation, assessment, or materialization action");
       const service = new ConstitutionService(store, root);
@@ -1532,6 +1536,12 @@ constitutionCmd
         indexRepo(store, root, { churn: false });
         store.reindex();
         output = { sweep: service.g2ShadowSweep(), readiness: service.g2Readiness() };
+      } else if (backfillRequested) {
+        output = { backfill: service.g2ShadowBackfill(Number(opts.backfill)), readiness: service.g2Readiness() };
+      } else if (drillRequested) {
+        const categories = opts.drill === "all" ? [...G2_RUNBOOK_CATEGORIES] : G2_RUNBOOK_CATEGORIES.filter((category) => category === opts.drill);
+        if (!categories.length) throw new Error(`--drill must be all or one of: ${G2_RUNBOOK_CATEGORIES.join(", ")}`);
+        output = { drills: categories.map((category) => service.g2OperationalDrill(category)), readiness: service.g2Readiness() };
       } else if (queueRequested) {
         output = service.g2ShadowQueue(Number(opts.queue));
       } else if (candidatesRequested) {

@@ -242,6 +242,24 @@ export interface G2ShadowSweepReport {
   effects: "shadow_only";
 }
 
+export interface G2ShadowBackfillReport {
+  id: string;
+  content_hash: string;
+  plan_id: string | null;
+  max_commits: number;
+  commits: string[];
+  selected: number;
+  attempted: number;
+  recorded: string[];
+  existing: string[];
+  ineligible: Array<{ policy_id: string; commit: string; reason: string }>;
+  preflight_failures: Array<{ policy_id: string; commit: string; error: string }>;
+  skipped_reason: string | null;
+  authority: "none";
+  effects: "shadow_only";
+  writes: "atomic_after_preflight" | "none";
+}
+
 export interface G2ShadowQueueItem {
   policy_id: string;
   shadow_id: string;

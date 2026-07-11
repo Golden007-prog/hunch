@@ -1,4 +1,6 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import type { HunchStore } from "../store/hunchStore.js";
+import { headSha } from "../extractors/git.js";
 import { canonicalHash, canonicalJson } from "./canonical.js";
 import { shortHash } from "../core/ids.js";
 import { compileDecisionPolicy, type CompilePolicyOptions } from "./compiler.js";
@@ -41,6 +43,7 @@ import {
   type G2RunbookEvidence,
   type G2ShadowQueue,
   type G2ShadowQueueItem,
+  type G2ShadowBackfillReport,
   type G2ShadowSweepReport,
   type RunbookRehearsal,
 } from "./g2.js";
@@ -75,6 +78,8 @@ import {
   type G2BehaviorPolicyMaterialization,
 } from "./g2BehaviorPolicyMaterializer.js";
 import { executableBehaviorAttestationError } from "./behaviorAttestationBinding.js";
+import { evaluateExecutableBehaviorPolicy } from "./behaviorEvaluator.js";
+import { executeG2OperationalDrill, type G2OperationalDrillReceipt } from "./g2Drills.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -165,6 +170,18 @@ function scopeFallsWithin(scope: PolicySpec["scope"], suggestion: PolicySpec["sc
   return scope.paths.length > 0
     && suggestion.paths.length > 0
     && scope.paths.every((path) => suggestion.paths.some((broader) => pathFallsWithin(path, broader)));
+}
+
+export function shadowCommitEligible(root: string, policy: PolicySpec, commit: string): boolean {
+  if (policy.assertion.kind !== "executable-behavior") return true;
+  const sourceCommit = policy.assertion.test.source_commit;
+  const check = spawnSync("git", ["-C", root, "merge-base", "--is-ancestor", sourceCommit, commit], {
+    encoding: "utf8",
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  if (check.status === 0) return true;
+  if (check.status === 1) return false;
+  throw new Error(`cannot compare shadow commit ${commit} with policy introduction ${sourceCommit}: ${(check.stderr ?? "").trim() || `git exited ${check.status}`}`);
 }
 
 export class ConstitutionService {
@@ -395,6 +412,89 @@ export class ConstitutionService {
     return { id: `g2sweep_${shortHash(contentHash)}`, content_hash: contentHash, ...body };
   }
 
+  g2ShadowBackfill(maxCommits = 20, opts: { now?: string } = {}): G2ShadowBackfillReport {
+    if (!Number.isInteger(maxCommits) || maxCommits < 1 || maxCommits > 100) {
+      throw new Error("G2 shadow backfill maxCommits must be a positive integer no greater than 100");
+    }
+    const manifest = this.g2Repository.currentPlan();
+    const commits = manifest ? execFileSync("git", ["-C", this.root, "rev-list", "--first-parent", `--max-count=${maxCommits}`, "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim().split("\n").filter((commit) => /^[a-f0-9]{40}$/.test(commit)) : [];
+    const attempted = (manifest?.policy_ids.length ?? 0) * commits.length;
+    const preflightFailures: G2ShadowBackfillReport["preflight_failures"] = [];
+    const ineligible: G2ShadowBackfillReport["ineligible"] = [];
+    const candidates: ShadowEvaluationRecord[] = [];
+    if (manifest) {
+      for (const commit of commits) {
+        for (const policyId of manifest.policy_ids) {
+          try {
+            const policy = this.repository.getPolicy(policyId, { privateOnly: true });
+            if (!policy) throw new Error("selected policy is missing from the private overlay");
+            if (!shadowCommitEligible(this.root, policy, commit)) {
+              ineligible.push({ policy_id: policyId, commit, reason: "commit predates the executable policy fixing commit" });
+              continue;
+            }
+            const record = this.compileShadowRecord(policyId, { commit, now: opts.now });
+            if (record.evaluation.result === "unknown" || record.evaluation.result === "error") {
+              preflightFailures.push({ policy_id: policyId, commit, error: record.evaluation.explanation });
+            } else {
+              candidates.push(record);
+            }
+          } catch (error) {
+            preflightFailures.push({ policy_id: policyId, commit, error: (error as Error).message });
+          }
+        }
+      }
+    }
+    const recorded: string[] = [];
+    const existing: string[] = [];
+    if (manifest && !preflightFailures.length) {
+      const before = new Set(this.repository.listShadowEvaluations({ privateOnly: true }).map((record) => record.id));
+      for (const candidate of candidates) {
+        const stored = this.repository.putShadowEvaluation(candidate, candidate.policy_id);
+        if (before.has(stored.id)) existing.push(stored.id);
+        else {
+          recorded.push(stored.id);
+          before.add(stored.id);
+        }
+      }
+    }
+    const skippedReason = !manifest
+      ? "No current private G2 plan; historical shadow backfill wrote nothing."
+      : preflightFailures.length
+        ? "Historical shadow preflight produced unknown/error evidence; the batch wrote nothing."
+        : null;
+    const body = {
+      plan_id: manifest?.id ?? null,
+      max_commits: maxCommits,
+      commits,
+      selected: manifest?.policy_ids.length ?? 0,
+      attempted,
+      recorded: recorded.sort(),
+      existing: existing.sort(),
+      ineligible: ineligible.sort((left, right) => left.commit.localeCompare(right.commit) || left.policy_id.localeCompare(right.policy_id)),
+      preflight_failures: preflightFailures.sort((left, right) => left.commit.localeCompare(right.commit) || left.policy_id.localeCompare(right.policy_id)),
+      skipped_reason: skippedReason,
+      authority: "none" as const,
+      effects: "shadow_only" as const,
+      writes: manifest && !preflightFailures.length ? "atomic_after_preflight" as const : "none" as const,
+    };
+    const contentHash = canonicalHash(body);
+    return { id: `g2backfill_${shortHash(contentHash)}`, content_hash: contentHash, ...body };
+  }
+
+  g2OperationalDrill(category: (typeof G2_RUNBOOK_CATEGORIES)[number]): G2OperationalDrillReceipt {
+    const manifest = this.g2Repository.currentPlan();
+    if (!manifest) throw new Error("No current private G2 plan; operational drill cannot bind an exact runbook");
+    if (!G2_RUNBOOK_CATEGORIES.includes(category)) throw new Error(`unknown G2 operational drill category ${category}`);
+    const runbookId = manifest.runbooks[category];
+    const runbook = this.store.getPrivateRec("runbooks", runbookId);
+    const publicDuplicate = this.store.recsInHome("runbooks", "public").some((candidate) => candidate.id === runbookId);
+    if (!runbook || publicDuplicate) throw new Error(`G2 ${category} runbook ${runbookId} is not in one exact private-only home`);
+    return executeG2OperationalDrill(this.root, manifest, runbook, category);
+  }
+
   g2CandidateReview(opts: G2CandidateReviewOptions = {}): G2CandidateReviewReport {
     return buildG2CandidateReview(this.store, this.root, opts, this.g2CandidateRepository.resolutions());
   }
@@ -515,6 +615,7 @@ export class ConstitutionService {
       if (!policy || publicDuplicate || policy.proof !== record.proof_id) return false;
       const proof = proofs.find((candidate) => candidate.id === record.proof_id);
       if (!proof || proof.policy_hash !== record.policy_hash) return false;
+      if (!shadowCommitEligible(this.root, policy, record.evaluation.repository.head)) return false;
       const composition = compositionDescendants(policy, policies);
       return proof.policy_hash === policyProofHash(policy, composition);
     });
@@ -696,7 +797,7 @@ export class ConstitutionService {
     return this.repository.putDisposition(disposition, policy.id);
   }
 
-  recordShadow(id: string, opts: { now?: string; latencyMs?: number } = {}): ShadowEvaluationRecord {
+  private compileShadowRecord(id: string, opts: { now?: string; latencyMs?: number; commit?: string } = {}): ShadowEvaluationRecord {
     const policy = this.get(id);
     if (!policy.proof) throw new Error(`policy ${id} has no proof`);
     const home = this.repository.homeOfPolicy(id);
@@ -706,10 +807,19 @@ export class ConstitutionService {
     const expectedHash = policyProofHash(policy, composition);
     if (proof.policy_hash !== expectedHash) throw new Error(`proof ${proof.id} does not match current policy semantics`);
     const started = performance.now();
-    const evaluation = evaluatePolicy(this.store, this.root, policy, { publicOnly: home === "public", composition });
+    const currentHead = headSha(this.root);
+    let evaluation: PolicyEvaluation;
+    if (opts.commit && policy.assertion.kind === "executable-behavior") {
+      evaluation = evaluateExecutableBehaviorPolicy(this.root, policy, { commit: opts.commit });
+    } else if (opts.commit && opts.commit !== currentHead) {
+      throw new Error(`historical shadow backfill supports executable-behavior policies only; ${policy.id} is ${policy.assertion.kind}`);
+    } else {
+      evaluation = evaluatePolicy(this.store, this.root, policy, { publicOnly: home === "public", composition });
+    }
     const latencyMs = opts.latencyMs ?? performance.now() - started;
     const sameMatches = canonicalJson(evaluation.matches);
     const alsoDetectedBy = evaluation.result === "violated"
+      && (!opts.commit || opts.commit === currentHead)
       ? this.evaluate({ activeOnly: true, publicOnly: home === "public" })
         .filter((candidate) => candidate.policy.id !== id
           && candidate.evaluation.result === "violated"
@@ -717,7 +827,12 @@ export class ConstitutionService {
         .map((candidate) => candidate.policy.id)
       : [];
     const record = compileShadowEvaluation(policy, proof, expectedHash, evaluation, alsoDetectedBy, latencyMs, opts.now);
-    return this.repository.putShadowEvaluation(record, policy.id);
+    return record;
+  }
+
+  recordShadow(id: string, opts: { now?: string; latencyMs?: number; commit?: string } = {}): ShadowEvaluationRecord {
+    const record = this.compileShadowRecord(id, opts);
+    return this.repository.putShadowEvaluation(record, record.policy_id);
   }
 
   classifyShadow(
@@ -748,7 +863,8 @@ export class ConstitutionService {
     const audit = this.repository.listShadowDispositions(opts).filter((record) => record.policy_id === id);
     const current = currentShadowDispositions(audit);
     const history = this.repository.listDispositions(opts).filter((record) => record.policy_id === id && record.proof_id === proof.id);
-    const report = scoreShadowPrecision(policy, proof, records, audit, history, thresholds);
+    const scoringRecords = records.filter((record) => shadowCommitEligible(this.root, policy, record.evaluation.repository.head));
+    const report = scoreShadowPrecision(policy, proof, scoringRecords, audit, history, thresholds);
     return {
       ...report,
       evaluations: records.map((record) => ({
