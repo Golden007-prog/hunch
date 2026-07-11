@@ -2562,9 +2562,15 @@ program
       if (!inPrivate) { refreshExistingGrounding(root, store); publicGroundingChanged = true; }
       console.log(`✓ accepted ${opts.accept} (now ${source}, confidence 0.95${armed ? `, ${armed} tripwire(s) now blocking` : ""})`);
     } else if (opts.reject) {
-      const ok2 = opts.private ? store.deleteWhereItLives("decisions", opts.reject) : store.json.delete("decisions", opts.reject);
+      const d = opts.private ? store.getRec("decisions", opts.reject) : store.json.get("decisions", opts.reject);
+      if (!d) { store.close(); return fail(`decision ${opts.reject} not found`); }
+      if (d.status !== "proposed") {
+        store.close();
+        return fail(`refusing to reject ${d.status} decision ${d.id}; review --reject only removes proposed drafts`);
+      }
+      const ok2 = opts.private ? store.deleteWhereItLives("decisions", d.id) : store.json.delete("decisions", d.id);
       store.reindex();
-      console.log(ok2 ? `✓ rejected and removed ${opts.reject}` : `decision ${opts.reject} not found`);
+      console.log(ok2 ? `✓ rejected and removed ${d.id}` : `decision ${d.id} not found`);
     } else if (opts.rejectDuplicates) {
       // Deterministic hygiene, not a trust decision (dec_a466655539 stays intact):
       // only drafts, only against ACCEPTED records, conservative threshold.
