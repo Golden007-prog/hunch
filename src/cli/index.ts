@@ -72,7 +72,7 @@ import {
   savePipelineState,
   stopVerdict,
 } from "../core/pipeline.js";
-import { draftDuplicateOf } from "../core/dupdetect.js";
+import { draftDuplicateOf, isAcceptedDuplicateAnchor } from "../core/dupdetect.js";
 import { planAutoReview, planMutations, type AutoReviewPlan, type AutoReviewEntry } from "../core/autoreview.js";
 import type { RelevanceVerdict, ExistingDecisionRef } from "../synthesis/provider.js";
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
@@ -2665,9 +2665,9 @@ program
       if (judgmentRequested) {
         const provider = await selectProvider({ root });
         if (provider.judgeDraft) {
-          // The candidate pool for duplicate_of / restatement: the LIVE, vouched records.
+          // Deletion anchors are only finalized, live, human-confirmed records.
           const existing: ExistingDecisionRef[] = all
-            .filter((d) => d.provenance.source.includes("human_confirmed") && d.status !== "superseded" && d.status !== "rejected")
+            .filter(isAcceptedDuplicateAnchor)
             .map((d) => ({ id: d.id, title: d.title, decision: d.decision }));
           console.log(`Judging ${drafts.length} draft(s) via ${provider.name} (subscription)…`);
           for (const d of drafts) {

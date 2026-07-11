@@ -21,7 +21,7 @@
  */
 import type { Decision } from "./types.js";
 import type { RelevanceVerdict } from "../synthesis/provider.js";
-import { draftDuplicateOf } from "./dupdetect.js";
+import { draftDuplicateOf, isAcceptedDuplicateAnchor } from "./dupdetect.js";
 import { parseSynth, isReady, READY_MIN_GROUNDED } from "./reviewqueue.js";
 
 export type AutoReviewAction = "accept" | "rejectDuplicate" | "rejectIrrelevant" | "keep";
@@ -81,7 +81,8 @@ export function planAutoReview(
       plan.rejectDuplicate.push({ ...base, action: "rejectDuplicate", reason: `near-duplicate of ${detDup.of.id} "${detDup.of.title}" (${Math.round(detDup.score * 100)}%)` });
       continue;
     }
-    if (verdict?.duplicate_of && verdict.duplicate_of !== d.id && allDecisions.some((x) => x.id === verdict.duplicate_of)) {
+    if (verdict?.duplicate_of && verdict.duplicate_of !== d.id
+      && allDecisions.some((x) => x.id === verdict.duplicate_of && isAcceptedDuplicateAnchor(x))) {
       plan.rejectDuplicate.push({ ...base, action: "rejectDuplicate", reason: `harness: restates ${verdict.duplicate_of} — ${verdict.reason}` });
       continue;
     }

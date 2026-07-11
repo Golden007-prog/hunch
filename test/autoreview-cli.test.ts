@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
@@ -12,7 +12,7 @@ const projectRoot = process.cwd();
 const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
 const cli = join(projectRoot, "src/cli/index.ts");
 
-function draft(id: string, title: string): Decision {
+function draft(id: string, title: string, source = "llm_draft"): Decision {
   return {
     id,
     title,
@@ -31,7 +31,7 @@ function draft(id: string, title: string): Decision {
     commit: null,
     valid_to: null,
     retired: { symbols: [], deps: [] },
-    provenance: { source: "llm_draft", confidence: 0.5, evidence: [] },
+    provenance: { source, confidence: source.includes("human_confirmed") ? 0.95 : 0.5, evidence: [] },
     date: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -121,6 +121,59 @@ exit 1
       before,
       "explicit deterministic-only triage remains available and does not invent judgments",
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("auto-review never deletes two proposed decisions merely because they duplicate each other", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-autoreview-proposals-"));
+  const bin = join(root, "bin");
+  const count = join(root, "judge-count");
+  mkdirSync(bin);
+  const fakeCodex = join(bin, "codex");
+  writeFileSync(fakeCodex, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "codex-cli fixture"
+  exit 0
+fi
+n=0
+if [ -f "$HUNCH_FAKE_COUNTER" ]; then n=$(cat "$HUNCH_FAKE_COUNTER"); fi
+n=$((n + 1))
+echo "$n" > "$HUNCH_FAKE_COUNTER"
+if [ "$n" -eq 1 ]; then
+  printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"relevant\\":true,\\"confidence\\":0.99,\\"duplicate_of\\":\\"dec_benchmark_v2\\",\\"reason\\":\\"fixture reciprocal proposal\\"}"}}'
+else
+  printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"relevant\\":true,\\"confidence\\":0.99,\\"duplicate_of\\":\\"dec_benchmark_v1\\",\\"reason\\":\\"fixture reciprocal proposal\\"}"}}'
+fi
+`);
+  chmodSync(fakeCodex, 0o755);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  const title = "Benchmark evidence establishes the architectural enforcement boundary";
+  store.json.put("decisions", draft("dec_benchmark_v1", title, "human_confirmed"));
+  store.json.put("decisions", draft("dec_benchmark_v2", title, "human_confirmed"));
+  store.close();
+  const firstPath = join(root, ".hunch/decisions/dec_benchmark_v1.json");
+  const secondPath = join(root, ".hunch/decisions/dec_benchmark_v2.json");
+
+  try {
+    const run = spawnSync(process.execPath, [tsx, cli, "auto-review", "--apply"], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        HUNCH_FAKE_COUNTER: count,
+        HUNCH_PRIVATE_DIR: "",
+        HUNCH_SYNTH_PROVIDER: "codex-cli",
+      },
+    });
+    const output = `${run.stdout}${run.stderr}`;
+    assert.equal(run.status, 0, output);
+    assert.match(output, /Harness batch complete: 2\/2 judged/);
+    assert.match(output, /0 accepted, 0 deleted, 2 kept/);
+    assert.ok(existsSync(firstPath) && existsSync(secondPath), "both unresolved proposals remain for human review");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
