@@ -60,6 +60,11 @@ import {
   provisionG2BehaviorDependencySnapshots,
   type G2BehaviorDependencySnapshotReceipt,
 } from "./g2BehaviorDependencies.js";
+import {
+  G2BehaviorAttestationRepository,
+  compileG2BehaviorAttestation,
+  type G2BehaviorAttestation,
+} from "./g2BehaviorAttestation.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -156,11 +161,13 @@ export class ConstitutionService {
   readonly repository: PolicyRepository;
   readonly g2Repository: G2EvidenceRepository;
   readonly g2CandidateRepository: G2CandidateAttestationRepository;
+  readonly g2BehaviorAttestationRepository: G2BehaviorAttestationRepository;
 
   constructor(private readonly store: HunchStore, private readonly root: string) {
     this.repository = new PolicyRepository(root, store);
     this.g2Repository = new G2EvidenceRepository(store);
     this.g2CandidateRepository = new G2CandidateAttestationRepository(store);
+    this.g2BehaviorAttestationRepository = new G2BehaviorAttestationRepository(store);
   }
 
   createG2Plan(input: CompileG2PlanInput, opts: { now?: string } = {}) {
@@ -401,7 +408,13 @@ export class ConstitutionService {
   }
 
   g2BehaviorCandidateReview(opts: G2CandidateReviewOptions = {}): G2BehaviorCandidateReview {
-    return buildG2BehaviorCandidateReview(this.store, this.root, opts, this.g2CandidateRepository.resolutions());
+    return buildG2BehaviorCandidateReview(
+      this.store,
+      this.root,
+      opts,
+      this.g2CandidateRepository.resolutions(),
+      this.g2BehaviorAttestationRepository.resolutions(),
+    );
   }
 
   g2BehaviorCandidateReplay(
@@ -429,6 +442,29 @@ export class ConstitutionService {
       opts.allowInstallScripts ?? [],
       opts.timeoutMs ?? 300_000,
     );
+  }
+
+  attestG2BehaviorCandidate(
+    candidateId: string,
+    reviewHash: string,
+    disposition: "selected" | "rejected",
+    actor: string,
+    reason: string,
+    opts: G2CandidateReviewOptions & { timeoutMs?: number; now?: string; supersedes?: string | null } = {},
+  ): G2BehaviorAttestation {
+    const existing = this.g2BehaviorAttestationRepository.current().find((record) => (
+      record.candidate_id === candidateId
+      && record.review_hash === reviewHash
+      && record.disposition === disposition
+      && record.actor === actor
+      && record.reason === reason.trim()
+      && record.supersedes === (opts.supersedes ?? null)
+    ));
+    if (existing) return existing;
+    const report = this.g2BehaviorCandidateReview(opts);
+    const replay = replayG2BehaviorCandidate(this.root, report, candidateId, reviewHash, { timeoutMs: opts.timeoutMs });
+    const attestation = compileG2BehaviorAttestation(report, candidateId, reviewHash, replay, disposition, actor, reason, opts);
+    return this.g2BehaviorAttestationRepository.put(attestation);
   }
 
   g2ShadowQueue(limit = 20): G2ShadowQueue {

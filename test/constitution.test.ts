@@ -1652,7 +1652,7 @@ test("Phase 2S G2 candidate attestations are exact, append-only, private, and no
   }
 });
 
-test("Phase 2U provisions exact historical dependencies and replays behavior candidates fail-to-pass", async () => {
+test("Phase 2U/2V replays exact behavior and records replay-bound human dispositions", async () => {
   const { root, store: initial, cleanup } = layeredRepo();
   initial.close();
   const privateRoot = join(root, "private-g2-behavior/.hunch");
@@ -1743,6 +1743,17 @@ test("Phase 2U provisions exact historical dependencies and replays behavior can
     assert.equal(replay.effects, "diagnostic_only");
     assert.equal(replay.writes, "disposable_only");
     assert.equal(replay.known_bad.dependency_snapshot_id, undefined, "replay does not install dependencies implicitly");
+    assert.throws(
+      () => service.attestG2BehaviorCandidate(
+        candidate.id,
+        review.content_hash,
+        "selected",
+        "human:reviewer",
+        "must not select without an exact historical environment",
+        bounds,
+      ),
+      /snapshot-backed behavior_confirmed replay/i,
+    );
     assert.equal(existsSync(join(privateRoot, "policies")), false);
     assert.equal(existsSync(join(privateRoot, "evidence")), false);
     assert.deepEqual(readdirSync(join(root, ".hunch-cache/worktrees")), []);
@@ -1853,6 +1864,91 @@ test("Phase 2U provisions exact historical dependencies and replays behavior can
     assert.equal(replayAfterTamper.known_bad.dependency_snapshot_id, undefined, "a tampered snapshot is never attached to replay");
     assert.equal(replayAfterTamper.known_good.dependency_snapshot_id, undefined, "tampering invalidates every leg sharing the snapshot");
     writeFileSync(manifestFile, manifest);
+
+    const behaviorReason = "The executable regression proves the durable behavior without binding its implementation.";
+    const behaviorSelection = service.attestG2BehaviorCandidate(
+      candidate.id,
+      review.content_hash,
+      "selected",
+      "human:reviewer",
+      behaviorReason,
+      { ...bounds, now: "2026-07-11T20:00:00.000Z" },
+    );
+    assert.match(behaviorSelection.id, /^g2behaviorattest_[a-f0-9]{10}$/);
+    assert.equal(behaviorSelection.disposition, "selected");
+    assert.equal(behaviorSelection.replay_hash, replayWithSnapshot.content_hash);
+    assert.deepEqual(behaviorSelection.dependency_snapshot_ids, [snapshots.snapshots[0]!.id]);
+    assert.equal(behaviorSelection.authority, "none");
+    assert.equal(behaviorSelection.effects, "review_only");
+    assert.equal(existsSync(join(privateRoot, "behavior-attestations", `${behaviorSelection.id}.json`)), true);
+    assert.equal(existsSync(join(root, ".hunch/behavior-attestations")), false);
+    const behaviorRetry = service.attestG2BehaviorCandidate(
+      candidate.id,
+      review.content_hash,
+      "selected",
+      "human:reviewer",
+      behaviorReason,
+      { ...bounds, now: "2026-07-11T20:01:00.000Z" },
+    );
+    assert.equal(behaviorRetry.id, behaviorSelection.id, "an exact lost-response retry returns the immutable behavior attestation");
+    const afterBehaviorSelection = service.g2BehaviorCandidateReview(bounds);
+    assert.equal(afterBehaviorSelection.selected_candidates, 1);
+    assert.equal(afterBehaviorSelection.rejected_candidates, 0);
+    assert.equal(afterBehaviorSelection.unreviewed_candidates, 0);
+    assert.equal(afterBehaviorSelection.items[0]?.human_review?.id, behaviorSelection.id);
+    assert.throws(
+      () => service.attestG2BehaviorCandidate(
+        candidate.id,
+        afterBehaviorSelection.content_hash,
+        "rejected",
+        "human:reviewer",
+        "missing supersession",
+        bounds,
+      ),
+      /current.*supersedes/i,
+    );
+    assert.throws(
+      () => service.attestG2BehaviorCandidate(
+        candidate.id,
+        review.content_hash,
+        "rejected",
+        "human:reviewer",
+        "stale correction",
+        { ...bounds, supersedes: behaviorSelection.id },
+      ),
+      /review hash/i,
+    );
+
+    const cliBehaviorAttest = spawnSync(process.execPath, [
+      tsx, cli, "constitution", "g2",
+      "--behavior-attest", candidate.id,
+      "--behavior-review-hash", review.content_hash,
+      "--disposition", "selected",
+      "--actor", "human:reviewer",
+      "--reason", behaviorReason,
+      "--candidate-since", bounds.since,
+      "--candidate-commits", String(bounds.maxCommits),
+      "--candidate-limit", String(bounds.limit),
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(cliBehaviorAttest.status, 0, cliBehaviorAttest.stderr);
+    const cliBehaviorOutput = JSON.parse(cliBehaviorAttest.stdout) as {
+      appended: { id: string; authority: string };
+      review: { selected_candidates: number; items: Array<{ human_review?: { id: string } }> };
+    };
+    assert.equal(cliBehaviorOutput.appended.id, behaviorSelection.id);
+    assert.equal(cliBehaviorOutput.appended.authority, "none");
+    assert.equal(cliBehaviorOutput.review.selected_candidates, 1);
+    assert.equal(cliBehaviorOutput.review.items[0]?.human_review?.id, behaviorSelection.id);
+
+    const behaviorFile = join(privateRoot, "behavior-attestations", `${behaviorSelection.id}.json`);
+    const behaviorRecord = readFileSync(behaviorFile, "utf8");
+    const tamperedBehavior = JSON.parse(behaviorRecord) as Record<string, unknown>;
+    tamperedBehavior.reason = "tampered in place";
+    writeFileSync(behaviorFile, JSON.stringify(tamperedBehavior));
+    assert.throws(() => service.g2BehaviorCandidateReview(bounds), /content hash mismatch/i);
+    writeFileSync(behaviorFile, behaviorRecord);
+    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, 0);
+    assert.equal(service.repository.listEvidence({ privateOnly: true }).length, 0);
   } finally {
     if (client) await client.close();
     store.close();

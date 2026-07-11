@@ -22,6 +22,21 @@ import { dependencySnapshotForCommit } from "./g2BehaviorDependencies.js";
 
 export type G2BehaviorRunnerKind = "node-test" | "node-test-tsx";
 
+export type G2BehaviorHumanDisposition = "selected" | "rejected";
+
+export interface G2BehaviorReviewResolution {
+  id: string;
+  candidate_id: string;
+  candidate_hash: string;
+  review_hash: string;
+  replay_id: string;
+  replay_hash: string;
+  disposition: G2BehaviorHumanDisposition;
+  actor: string;
+  reason: string;
+  created_at: string;
+}
+
 export interface G2BehaviorCandidate {
   id: string;
   commit: string;
@@ -50,6 +65,7 @@ export interface G2BehaviorCandidate {
   authority: "none";
   writes: "none";
   proof_status: "not_run";
+  human_review?: G2BehaviorReviewResolution;
 }
 
 export interface G2BehaviorCandidateReview {
@@ -62,6 +78,9 @@ export interface G2BehaviorCandidateReview {
   grounded_rejections_scanned: number;
   candidate_commits: number;
   behavior_candidates: number;
+  selected_candidates?: number;
+  rejected_candidates?: number;
+  unreviewed_candidates?: number;
   commits_without_added_tests: string[];
   extraction_failures: Array<{ commit: string; file: string; error: string }>;
   items: G2BehaviorCandidate[];
@@ -207,7 +226,13 @@ function runnerFor(file: string, name: string): G2BehaviorCandidate["runner"] {
 }
 
 export function g2BehaviorCandidateHash(candidate: G2BehaviorCandidate): string {
-  return canonicalHash(candidate);
+  const { human_review: _humanReview, ...body } = candidate;
+  return canonicalHash(body);
+}
+
+export function g2BehaviorReplayContentHash(receipt: G2BehaviorReplayReceipt): string {
+  const { id: _id, content_hash: _contentHash, ...body } = receipt;
+  return canonicalHash(body);
 }
 
 export function g2BehaviorReviewContentHash(report: G2BehaviorCandidateReview): string {
@@ -220,6 +245,7 @@ export function buildG2BehaviorCandidateReview(
   root: string,
   opts: G2CandidateReviewOptions = {},
   resolutions: G2CandidateReviewResolution[] = [],
+  behaviorResolutions: G2BehaviorReviewResolution[] = [],
 ): G2BehaviorCandidateReview {
   const since = (opts.since ?? "180d").trim();
   if (!since || since.length > 100) throw new Error("G2 behavior candidate since window must be a non-empty bounded string");
@@ -291,11 +317,22 @@ export function buildG2BehaviorCandidateReview(
     }
     if (!found) withoutTests.push(commit.commit);
   }
+  for (const candidate of candidates) {
+    const resolution = behaviorResolutions.find((entry) => (
+      entry.candidate_id === candidate.id && entry.candidate_hash === g2BehaviorCandidateHash(candidate)
+    ));
+    if (resolution) candidate.human_review = resolution;
+  }
   candidates.sort((left, right) => right.commit_date.localeCompare(left.commit_date)
     || left.commit.localeCompare(right.commit)
     || left.test.file.localeCompare(right.test.file)
     || left.test.name.localeCompare(right.test.name));
   const items = candidates.slice(0, limit);
+  const reviewCounts = behaviorResolutions.length ? {
+    selected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "selected").length,
+    rejected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "rejected").length,
+    unreviewed_candidates: candidates.filter((candidate) => candidate.human_review === undefined).length,
+  } : {};
   const body = {
     structural_review_hash: structural.content_hash,
     since,
@@ -304,6 +341,7 @@ export function buildG2BehaviorCandidateReview(
     grounded_rejections_scanned: rejected.length,
     candidate_commits: commits.size,
     behavior_candidates: candidates.length,
+    ...reviewCounts,
     commits_without_added_tests: withoutTests.sort(),
     extraction_failures: failures.sort((left, right) => left.commit.localeCompare(right.commit) || left.file.localeCompare(right.file)),
     items,
