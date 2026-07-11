@@ -1452,33 +1452,56 @@ constitutionCmd
 
 constitutionCmd
   .command("g2")
-  .description("Inspect the exact private G2 dogfood evidence packet; optionally append a human-selected plan or exact runbook rehearsal receipt. Never grants policy authority.")
+  .description("Inspect exact private G2 evidence; optionally append a human plan, runbook rehearsal, or candidate review. Never grants policy authority.")
   .option("--plan <file>", "append a private human-selected G2 plan from JSON")
   .option("--rehearse <runbook-id>", "append a rehearsal receipt for the exact current private runbook content")
+  .option("--attest <candidate-id>", "append an exact private human selection or rejection for one reviewed candidate")
   .option("--observe", "record at most one private shadow observation per selected policy for the current real HEAD/graph")
   .option("--queue <limit>", "return the bounded current-proof queue of unclassified G2 shadow violations")
   .option("--candidates <limit>", "return a bounded read-only review packet of exact fix-history candidates requiring human attestation")
-  .option("--candidate-since <window>", "git history window for --candidates", "180d")
-  .option("--candidate-commits <n>", "maximum fix-labeled commits inspected by --candidates", "100")
+  .option("--candidate-since <window>", "git history window for candidate review or attestation", "180d")
+  .option("--candidate-commits <n>", "maximum fix-labeled commits inspected for candidate review or attestation", "100")
+  .option("--candidate-limit <n>", "exact review-packet limit used by --attest", "30")
+  .option("--review-hash <hash>", "exact candidate review content hash being attested")
+  .option("--disposition <value>", "candidate disposition: selected | rejected")
   .option("--result <result>", "rehearsal result: passed | failed")
   .option("--actor <actor>", "explicit human actor (human:, github:, or git:)")
   .option("--evidence <hashes...>", "one or more sha1 evidence hashes for a rehearsal")
   .option("--notes <text>", "rehearsal evidence notes")
-  .option("--supersedes <id>", "current rehearsal id corrected by this append-only receipt")
+  .option("--reason <text>", "candidate selection or rejection rationale")
+  .option("--supersedes <id>", "current rehearsal or candidate attestation corrected by this append-only receipt")
   .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
-  .action((opts: { plan?: string; rehearse?: string; observe?: boolean; queue?: string; candidates?: string; candidateSince: string; candidateCommits: string; result?: string; actor?: string; evidence?: string[]; notes?: string; supersedes?: string; strict?: boolean }) => {
+  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; queue?: string; candidates?: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
     const { store, root } = storeFor();
     try {
       const queueRequested = opts.queue !== undefined;
       const candidatesRequested = opts.candidates !== undefined;
-      const actions = [!!opts.plan, !!opts.rehearse, !!opts.observe, queueRequested, candidatesRequested].filter(Boolean).length;
-      if (actions > 1) throw new Error("choose only one of --plan, --rehearse, --observe, --queue, or --candidates");
+      const attestRequested = opts.attest !== undefined;
+      const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, queueRequested, candidatesRequested].filter(Boolean).length;
+      if (actions > 1) throw new Error("choose only one of --plan, --rehearse, --attest, --observe, --queue, or --candidates");
       const service = new ConstitutionService(store, root);
       let output: unknown;
       if (opts.plan) {
         const appended = service.createG2Plan(JSON.parse(readFileSync(resolve(opts.plan), "utf8")) as CompileG2PlanInput);
         output = { appended, readiness: service.g2Readiness() };
+      } else if (attestRequested) {
+        if (opts.result || opts.evidence || opts.notes) throw new Error("--attest does not accept rehearsal --result, --evidence, or --notes");
+        if (!opts.reviewHash) throw new Error("--attest requires --review-hash");
+        if (opts.disposition !== "selected" && opts.disposition !== "rejected") throw new Error("--attest requires --disposition selected|rejected");
+        if (!opts.actor) throw new Error("--attest requires --actor");
+        if (!opts.reason) throw new Error("--attest requires --reason");
+        const reviewOptions = {
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+        };
+        const appended = service.attestG2Candidate(opts.attest!, opts.reviewHash, opts.disposition, opts.actor, opts.reason, {
+          ...reviewOptions,
+          supersedes: opts.supersedes,
+        });
+        output = { appended, review: service.g2CandidateReview(reviewOptions) };
       } else if (opts.rehearse) {
+        if (opts.reviewHash || opts.disposition || opts.reason) throw new Error("--rehearse does not accept candidate --review-hash, --disposition, or --reason");
         if (opts.result !== "passed" && opts.result !== "failed") throw new Error("--rehearse requires --result passed|failed");
         if (!opts.actor) throw new Error("--rehearse requires --actor");
         if (!opts.evidence?.length) throw new Error("--rehearse requires at least one --evidence sha1 hash");
@@ -1493,8 +1516,8 @@ constitutionCmd
         output = service.g2ShadowQueue(Number(opts.queue));
       } else if (candidatesRequested) {
         output = service.g2CandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.candidates) });
-      } else if (opts.result || opts.actor || opts.evidence || opts.notes || opts.supersedes) {
-        throw new Error("rehearsal options require --rehearse <runbook-id>");
+      } else if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes) {
+        throw new Error("human evidence options require --rehearse <runbook-id> or --attest <candidate-id>");
       } else {
         output = service.g2Readiness();
       }

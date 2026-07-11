@@ -17,6 +17,19 @@ export type G2CandidateAttestationStatus =
   | "human_grounded_needs_selection"
   | "unattested_structural_coincidence";
 
+export type G2CandidateHumanDisposition = "selected" | "rejected";
+
+export interface G2CandidateReviewResolution {
+  id: string;
+  candidate_id: string;
+  candidate_hash: string;
+  review_hash: string;
+  disposition: G2CandidateHumanDisposition;
+  actor: string;
+  reason: string;
+  created_at: string;
+}
+
 export interface G2CandidateReviewItem {
   id: string;
   candidate_id: string;
@@ -38,6 +51,7 @@ export interface G2CandidateReviewItem {
     status: G2CandidateAttestationStatus;
     decision_ids: string[];
   };
+  human_review: G2CandidateReviewResolution | null;
 }
 
 export interface G2CandidateReviewReport {
@@ -52,6 +66,9 @@ export interface G2CandidateReviewReport {
   human_grounded_exact: number;
   human_grounded_needs_selection: number;
   unattested_structural_coincidence: number;
+  selected_candidates: number;
+  rejected_candidates: number;
+  unreviewed_candidates: number;
   extraction_failures: Array<{ commit: string; error: string }>;
   items: G2CandidateReviewItem[];
   has_more: boolean;
@@ -65,6 +82,16 @@ export interface G2CandidateReviewOptions {
   since?: string;
   maxCommits?: number;
   limit?: number;
+}
+
+export function g2CandidateItemHash(item: G2CandidateReviewItem): string {
+  const { human_review: _humanReview, ...body } = item;
+  return canonicalHash(body);
+}
+
+export function g2CandidateReviewContentHash(report: G2CandidateReviewReport): string {
+  const { id: _id, content_hash: _contentHash, ...body } = report;
+  return canonicalHash(body);
 }
 
 interface Grounding {
@@ -131,13 +158,14 @@ export function buildG2CandidateReview(
   store: HunchStore,
   root: string,
   opts: G2CandidateReviewOptions = {},
+  resolutions: G2CandidateReviewResolution[] = [],
 ): G2CandidateReviewReport {
   const scratchRoot = mkdtempSync(join(tmpdir(), "hunch-g2-candidates-"));
   const graphStore = new HunchStore(hunchPathsForDir(scratchRoot));
   try {
     graphStore.json.ensureDirs();
     indexRepo(graphStore, root, { churn: false });
-    return buildFromIndexedGraph(store, graphStore, root, opts);
+    return buildFromIndexedGraph(store, graphStore, root, opts, resolutions);
   } finally {
     graphStore.close();
     rmSync(scratchRoot, { recursive: true, force: true });
@@ -149,6 +177,7 @@ function buildFromIndexedGraph(
   graphStore: HunchStore,
   root: string,
   opts: G2CandidateReviewOptions,
+  resolutions: G2CandidateReviewResolution[],
 ): G2CandidateReviewReport {
   const since = (opts.since ?? "180d").trim();
   if (!since || since.length > 100) throw new Error("G2 candidate since window must be a non-empty bounded string");
@@ -199,11 +228,17 @@ function buildFromIndexedGraph(
             status,
             decision_ids: [...new Set(matches.map((entry) => entry.decision_id))].sort(),
           },
+          human_review: null,
         });
       }
     } catch (error) {
       failures.push({ commit, error: (error as Error).message });
     }
+  }
+
+  for (const candidate of candidates) {
+    const candidateHash = g2CandidateItemHash(candidate);
+    candidate.human_review = resolutions.find((resolution) => resolution.candidate_id === candidate.id && resolution.candidate_hash === candidateHash) ?? null;
   }
 
   candidates.sort((left, right) => {
@@ -222,6 +257,9 @@ function buildFromIndexedGraph(
     human_grounded_exact: candidates.filter((candidate) => candidate.attestation.status === "human_grounded_exact").length,
     human_grounded_needs_selection: candidates.filter((candidate) => candidate.attestation.status === "human_grounded_needs_selection").length,
     unattested_structural_coincidence: candidates.filter((candidate) => candidate.attestation.status === "unattested_structural_coincidence").length,
+    selected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "selected").length,
+    rejected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "rejected").length,
+    unreviewed_candidates: candidates.filter((candidate) => candidate.human_review === null).length,
   };
   const items = candidates.slice(0, limit);
   const body = {

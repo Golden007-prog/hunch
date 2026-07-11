@@ -45,6 +45,11 @@ import {
   type RunbookRehearsal,
 } from "./g2.js";
 import { buildG2CandidateReview, type G2CandidateReviewOptions, type G2CandidateReviewReport } from "./g2Candidates.js";
+import {
+  G2CandidateAttestationRepository,
+  compileG2CandidateAttestation,
+  type G2CandidateAttestation,
+} from "./g2CandidateAttestation.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -140,10 +145,12 @@ function scopeFallsWithin(scope: PolicySpec["scope"], suggestion: PolicySpec["sc
 export class ConstitutionService {
   readonly repository: PolicyRepository;
   readonly g2Repository: G2EvidenceRepository;
+  readonly g2CandidateRepository: G2CandidateAttestationRepository;
 
   constructor(private readonly store: HunchStore, private readonly root: string) {
     this.repository = new PolicyRepository(root, store);
     this.g2Repository = new G2EvidenceRepository(store);
+    this.g2CandidateRepository = new G2CandidateAttestationRepository(store);
   }
 
   createG2Plan(input: CompileG2PlanInput, opts: { now?: string } = {}) {
@@ -358,7 +365,29 @@ export class ConstitutionService {
   }
 
   g2CandidateReview(opts: G2CandidateReviewOptions = {}): G2CandidateReviewReport {
-    return buildG2CandidateReview(this.store, this.root, opts);
+    return buildG2CandidateReview(this.store, this.root, opts, this.g2CandidateRepository.resolutions());
+  }
+
+  attestG2Candidate(
+    candidateId: string,
+    reviewHash: string,
+    disposition: "selected" | "rejected",
+    actor: string,
+    reason: string,
+    opts: G2CandidateReviewOptions & { now?: string; supersedes?: string | null } = {},
+  ): G2CandidateAttestation {
+    const existing = this.g2CandidateRepository.current().find((record) => (
+      record.candidate_id === candidateId
+      && record.review_hash === reviewHash
+      && record.disposition === disposition
+      && record.actor === actor
+      && record.reason === reason.trim()
+      && record.supersedes === (opts.supersedes ?? null)
+    ));
+    if (existing) return existing;
+    const report = this.g2CandidateReview(opts);
+    const attestation = compileG2CandidateAttestation(report, candidateId, reviewHash, disposition, actor, reason, opts);
+    return this.g2CandidateRepository.put(attestation);
   }
 
   g2ShadowQueue(limit = 20): G2ShadowQueue {

@@ -985,7 +985,7 @@ export function buildServer(root: string): McpServer {
     {
       title: "Review potential G2 dogfood candidates",
       description:
-        "Return a bounded private review packet of exact structural candidates from fix-labeled git history, graded as exact human-grounded, human-grounded but ambiguous, or unattested coincidence. Read-only: proposed before/after corpus refs are not replayed evidence, and the tool creates no policy, proof, corpus, authority, warning, or block.",
+        "Return a bounded private review packet of exact structural candidates from fix-labeled git history, including the current append-only human selection/rejection when present. Read-only: proposed before/after corpus refs are not replayed evidence, and the tool creates no attestation, policy, proof, corpus, authority, warning, or block.",
       inputSchema: {
         since: z.string().min(1).max(100).optional().describe("Git history window (default 180d)."),
         max_commits: z.number().int().min(1).max(200).optional().describe("Maximum fix-labeled commits to inspect (default 100)."),

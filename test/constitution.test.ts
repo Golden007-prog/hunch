@@ -1495,6 +1495,162 @@ test("Phase 2R G2 candidate review separates human grounding from structural coi
   }
 });
 
+test("Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative", async () => {
+  const { root, store: initial, cleanup } = layeredRepo();
+  initial.close();
+  const privateRoot = join(root, "private-g2-attestations/.hunch");
+  mkdirSync(privateRoot, { recursive: true });
+  writeFileSync(join(root, ".hunch/local.json"), JSON.stringify({ privateDir: privateRoot, autoCommit: false, mode: "private" }));
+
+  writeFileSync(join(root, "src/api/orders.ts"), 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\nexport function guardedOrders(){ return fetchOrders("guarded"); }\n');
+  const groundedCommit = commitFiles(root, ["src/api/orders.ts"], "fix: guardedOrders must call fetchOrders");
+  const store = new HunchStore(hunchPaths(root));
+  let client: Client | null = null;
+  try {
+    store.putPrivate("decisions", {
+      ...decision("dec_g2_attestation", { private: true }),
+      title: "guardedOrders must call fetchOrders",
+      context: "The fixing commit introduced the exact guarded order path.",
+      decision: "Keep guardedOrders calling fetchOrders.",
+      related_files: ["src/api/orders.ts", "src/services/orders.ts"],
+      commit: groundedCommit,
+    });
+    const service = new ConstitutionService(store, root);
+    const bounds = { since: "30d", maxCommits: 20, limit: 20 };
+    const beforePolicies = service.repository.listPolicies({ privateOnly: true }).length;
+    const beforeEvidence = service.repository.listEvidence({ privateOnly: true }).length;
+    const review = service.g2CandidateReview(bounds);
+    const candidate = review.items.find((item) => item.reason.includes("guardedOrders -> fetchOrders"))!;
+    assert.ok(candidate, "the exact reviewed call candidate is present");
+    assert.equal(candidate.human_review, null);
+    assert.throws(
+      () => service.attestG2Candidate(candidate.id, review.content_hash, "selected", "model:hunch", "model choice", { ...bounds, now: "2026-07-11T16:00:00.000Z" }),
+      /explicit human actor/i,
+    );
+
+    const selected = service.attestG2Candidate(
+      candidate.id,
+      review.content_hash,
+      "selected",
+      "human:reviewer",
+      "This exact call expresses the durable reviewed intent.",
+      { ...bounds, now: "2026-07-11T16:01:00.000Z" },
+    );
+    assert.match(selected.id, /^g2attest_[a-f0-9]{10}$/);
+    assert.equal(selected.candidate_id, candidate.id);
+    assert.equal(selected.structural_candidate_id, candidate.candidate_id);
+    assert.equal(selected.review_hash, review.content_hash);
+    assert.equal(selected.disposition, "selected");
+    assert.equal(selected.authority, "none");
+    assert.equal(selected.effects, "review_only");
+    assert.ok(existsSync(join(privateRoot, "candidate-attestations", `${selected.id}.json`)));
+    assert.equal(existsSync(join(root, ".hunch/candidate-attestations")), false);
+    const retried = service.attestG2Candidate(
+      candidate.id,
+      review.content_hash,
+      "selected",
+      "human:reviewer",
+      "This exact call expresses the durable reviewed intent.",
+      { ...bounds, now: "2026-07-11T16:01:30.000Z" },
+    );
+    assert.equal(retried.id, selected.id, "an exact retry after a lost response returns the existing immutable append");
+
+    const afterSelected = service.g2CandidateReview(bounds);
+    const selectedItem = afterSelected.items.find((item) => item.id === candidate.id)!;
+    assert.equal(selectedItem.human_review?.id, selected.id);
+    assert.equal(selectedItem.human_review?.disposition, "selected");
+    assert.throws(
+      () => service.attestG2Candidate(candidate.id, afterSelected.content_hash, "rejected", "human:reviewer", "missing supersession", { ...bounds, now: "2026-07-11T16:02:00.000Z" }),
+      /current.*supersedes/i,
+    );
+    assert.throws(
+      () => service.attestG2Candidate("g2candidate_0000000000", afterSelected.content_hash, "selected", "human:reviewer", "unknown", { ...bounds, now: "2026-07-11T16:02:00.000Z" }),
+      /not present in review/i,
+    );
+    assert.throws(
+      () => service.attestG2Candidate(candidate.id, review.content_hash, "rejected", "human:reviewer", "stale packet", { ...bounds, now: "2026-07-11T16:02:00.000Z", supersedes: selected.id }),
+      /review hash does not match/i,
+    );
+
+    const rejected = service.attestG2Candidate(
+      candidate.id,
+      afterSelected.content_hash,
+      "rejected",
+      "human:reviewer",
+      "Correction: existence is durable, but this exact call edge is incidental.",
+      { ...bounds, now: "2026-07-11T16:03:00.000Z", supersedes: selected.id },
+    );
+    assert.equal(rejected.supersedes, selected.id);
+    assert.equal(existsSync(join(privateRoot, "candidate-attestations", `${selected.id}.json`)), true, "superseded review remains append-only history");
+    const afterRejected = service.g2CandidateReview(bounds);
+    assert.equal(afterRejected.items.find((item) => item.id === candidate.id)?.human_review?.disposition, "rejected");
+    assert.throws(
+      () => service.attestG2Candidate(candidate.id, review.content_hash, "selected", "human:reviewer", "This exact call expresses the durable reviewed intent.", { ...bounds, now: "2026-07-11T16:03:30.000Z" }),
+      /review hash does not match/i,
+      "an old exact request stops being retryable after its attestation is superseded",
+    );
+    assert.throws(
+      () => service.attestG2Candidate(candidate.id, afterRejected.content_hash, "selected", "human:reviewer", "branched correction", { ...bounds, now: "2026-07-11T16:04:00.000Z", supersedes: selected.id }),
+      /current.*supersedes|branched/i,
+    );
+    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, beforePolicies);
+    assert.equal(service.repository.listEvidence({ privateOnly: true }).length, beforeEvidence);
+    assert.equal(existsSync(join(privateRoot, "policies")), false);
+    assert.equal(existsSync(join(privateRoot, "evidence")), false);
+
+    const secondCandidate = afterRejected.items.find((item) => item.id !== candidate.id && item.reason.includes("guardedOrders"))!;
+    assert.ok(secondCandidate, "a second exact sibling candidate is available for the CLI adapter check");
+    const cliRun = spawnSync(process.execPath, [
+      join(process.cwd(), "node_modules/tsx/dist/cli.mjs"),
+      join(process.cwd(), "src/cli/index.ts"),
+      "constitution", "g2",
+      "--attest", secondCandidate.id,
+      "--review-hash", afterRejected.content_hash,
+      "--disposition", "selected",
+      "--actor", "human:cli-reviewer",
+      "--reason", "The introduced symbol itself is the durable reviewed meaning.",
+      "--candidate-since", bounds.since,
+      "--candidate-commits", String(bounds.maxCommits),
+      "--candidate-limit", String(bounds.limit),
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(cliRun.status, 0, cliRun.stderr);
+    const cliOutput = JSON.parse(cliRun.stdout) as { appended: { candidate_id: string; disposition: string; authority: string }; review: { content_hash: string } };
+    assert.equal(cliOutput.appended.candidate_id, secondCandidate.id);
+    assert.equal(cliOutput.appended.disposition, "selected");
+    assert.equal(cliOutput.appended.authority, "none");
+    assert.notEqual(cliOutput.review.content_hash, afterRejected.content_hash, "the read receipt now binds the appended review status");
+
+    const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
+    const cli = join(process.cwd(), "src/cli/index.ts");
+    const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: root });
+    client = new Client({ name: "g2-candidate-attestation-test", version: "1.0.0" });
+    await client.connect(transport);
+    const mcpCall = await client.callTool({
+      name: "hunch_constitution_g2_candidates",
+      arguments: { since: bounds.since, max_commits: bounds.maxCommits, limit: bounds.limit },
+    });
+    const mcpReview = JSON.parse((mcpCall.content[0] as { type: "text"; text: string }).text) as {
+      content_hash: string;
+      items: Array<{ id: string; human_review: { disposition: string } | null }>;
+    };
+    assert.equal(mcpReview.content_hash, cliOutput.review.content_hash, "CLI and read-only MCP expose the identical resolved review receipt");
+    assert.equal(mcpReview.items.find((item) => item.id === candidate.id)?.human_review?.disposition, "rejected");
+    assert.equal(mcpReview.items.find((item) => item.id === secondCandidate.id)?.human_review?.disposition, "selected");
+    await client.close();
+    client = null;
+
+    const file = join(privateRoot, "candidate-attestations", `${rejected.id}.json`);
+    const tampered = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    tampered.reason = "tampered in place";
+    writeFileSync(file, JSON.stringify(tampered));
+    assert.throws(() => service.g2CandidateReview(bounds), /content hash mismatch/i);
+  } finally {
+    if (client) await client.close();
+    store.close();
+    cleanup();
+  }
+});
+
 test("Phase 3 unresolved refs and history-enumeration failures stay visible as deterministic proof errors", () => {
   const { root, store, cleanup } = layeredRepo();
   try {
