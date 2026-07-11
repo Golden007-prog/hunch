@@ -37,6 +37,7 @@ export const RELEASE_TEST_COVERAGE = Object.freeze({
   private_leak_suite: ["test/private-overlay.test.ts", "test/constitution.test.ts", "test/wiki.test.ts"],
   replay_isolation: ["test/constitution.test.ts", "tooling/constitution-clean-rehearsal.mjs"],
   proof_version_invalidation: ["test/constitution.test.ts"],
+  g2_readiness: ["test/g2.test.ts", "test/constitution.test.ts"],
 });
 
 function stable(value) {

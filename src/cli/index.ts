@@ -89,6 +89,7 @@ import { ConstitutionService, type PolicyEvaluationSet } from "../constitution/s
 import { renderProofCard } from "../constitution/card.js";
 import { movePolicyArtifactsToPrivate } from "../constitution/repository.js";
 import { HistoryDispositionClassificationSchema } from "../constitution/schema.js";
+import type { CompileG2PlanInput } from "../constitution/g2.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
 import type { Constraint, Decision } from "../core/types.js";
@@ -1424,6 +1425,44 @@ constitutionCmd
       }
       console.log(`  ${report.compiled.length} compiled · ${report.covered} already covered · ${report.conflicted} conflicted · ${report.deferred} deferred by max-three cap · ${report.uncompilable} uncompilable`);
       if (!report.compiled.length) console.log("  No new candidates; existing policy lifecycle states were left untouched.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+constitutionCmd
+  .command("g2")
+  .description("Inspect the exact private G2 dogfood evidence packet; optionally append a human-selected plan or exact runbook rehearsal receipt. Never grants policy authority.")
+  .option("--plan <file>", "append a private human-selected G2 plan from JSON")
+  .option("--rehearse <runbook-id>", "append a rehearsal receipt for the exact current private runbook content")
+  .option("--result <result>", "rehearsal result: passed | failed")
+  .option("--actor <actor>", "explicit human actor (human:, github:, or git:)")
+  .option("--evidence <hashes...>", "one or more sha1 evidence hashes for a rehearsal")
+  .option("--notes <text>", "rehearsal evidence notes")
+  .option("--supersedes <id>", "current rehearsal id corrected by this append-only receipt")
+  .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
+  .action((opts: { plan?: string; rehearse?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; supersedes?: string; strict?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (opts.plan && opts.rehearse) throw new Error("choose only one of --plan or --rehearse");
+      const service = new ConstitutionService(store, root);
+      let appended: unknown;
+      if (opts.plan) {
+        appended = service.createG2Plan(JSON.parse(readFileSync(resolve(opts.plan), "utf8")) as CompileG2PlanInput);
+      } else if (opts.rehearse) {
+        if (opts.result !== "passed" && opts.result !== "failed") throw new Error("--rehearse requires --result passed|failed");
+        if (!opts.actor) throw new Error("--rehearse requires --actor");
+        if (!opts.evidence?.length) throw new Error("--rehearse requires at least one --evidence sha1 hash");
+        if (!opts.notes) throw new Error("--rehearse requires --notes");
+        appended = service.recordRunbookRehearsal(opts.rehearse, opts.result, opts.actor, opts.evidence, opts.notes, { supersedes: opts.supersedes });
+      } else if (opts.result || opts.actor || opts.evidence || opts.notes || opts.supersedes) {
+        throw new Error("rehearsal options require --rehearse <runbook-id>");
+      }
+      const readiness = service.g2Readiness();
+      console.log(JSON.stringify(appended ? { appended, readiness } : readiness, null, 2));
+      if (opts.strict && readiness.recommendation !== "eligible_for_human_g2_signoff") process.exitCode = 1;
     } catch (e) {
       fail((e as Error).message);
     } finally {

@@ -24,6 +24,22 @@ import {
   type ShadowPrecisionThresholds,
 } from "./shadow.js";
 import type { HistoryDisposition, HistoryDispositionClassification, ReplayReceipt, ShadowDisposition, ShadowEvaluationRecord } from "./schema.js";
+import { assessHistoryDispositions } from "./disposition.js";
+import { MUTATION_ENGINE, POLICY_EVALUATOR } from "./schema.js";
+import {
+  G2_RUNBOOK_CATEGORIES,
+  G2EvidenceRepository,
+  compileG2Plan,
+  compileRunbookRehearsal,
+  currentRunbookRehearsals,
+  runbookContentHash,
+  scoreG2Readiness,
+  type CompileG2PlanInput,
+  type G2PolicyEvidence,
+  type G2ReadinessReport,
+  type G2RunbookEvidence,
+  type RunbookRehearsal,
+} from "./g2.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -118,9 +134,183 @@ function scopeFallsWithin(scope: PolicySpec["scope"], suggestion: PolicySpec["sc
 
 export class ConstitutionService {
   readonly repository: PolicyRepository;
+  readonly g2Repository: G2EvidenceRepository;
 
   constructor(private readonly store: HunchStore, private readonly root: string) {
     this.repository = new PolicyRepository(root, store);
+    this.g2Repository = new G2EvidenceRepository(store);
+  }
+
+  createG2Plan(input: CompileG2PlanInput, opts: { now?: string } = {}) {
+    const plan = compileG2Plan(input, opts);
+    for (const policyId of plan.policy_ids) {
+      const policy = this.repository.getPolicy(policyId, { privateOnly: true });
+      const publicDuplicate = this.repository.getPolicy(policyId, { publicOnly: true });
+      if (!policy || publicDuplicate || this.repository.homeOfPolicy(policyId) !== "private" || policy.data_class === "public") {
+        throw new Error(`G2 selected policy ${policyId} must exist only in the configured private overlay`);
+      }
+    }
+    for (const [category, runbookId] of Object.entries(plan.runbooks)) {
+      const publicDuplicate = this.store.recsInHome("runbooks", "public").some((runbook) => runbook.id === runbookId);
+      if (!this.store.getPrivateRec("runbooks", runbookId) || publicDuplicate) {
+        throw new Error(`G2 ${category} runbook ${runbookId} must exist in the configured private overlay`);
+      }
+    }
+    return this.g2Repository.putPlan(plan);
+  }
+
+  recordRunbookRehearsal(
+    runbookId: string,
+    result: "passed" | "failed",
+    actor: string,
+    evidenceHashes: string[],
+    notes: string,
+    opts: { now?: string; supersedes?: string | null } = {},
+  ): RunbookRehearsal {
+    const runbook = this.store.getPrivateRec("runbooks", runbookId);
+    if (!runbook) throw new Error(`private runbook ${runbookId} not found`);
+    const receipt = compileRunbookRehearsal({
+      runbook_id: runbookId,
+      runbook_hash: runbookContentHash(runbook),
+      result,
+      actor,
+      evidence_hashes: evidenceHashes,
+      notes,
+      supersedes: opts.supersedes,
+    }, { now: opts.now });
+    return this.g2Repository.putRehearsal(receipt);
+  }
+
+  g2Readiness(): G2ReadinessReport {
+    const manifest = this.g2Repository.currentPlan();
+    const privatePolicies = this.repository.listPolicies({ privateOnly: true });
+    const publicPolicies = this.repository.listPolicies({ publicOnly: true });
+    const privateRunbooks = this.store.recsInHome("runbooks", "private");
+    const publicRunbooks = this.store.recsInHome("runbooks", "public");
+    const rehearsals = this.g2Repository.listRehearsals();
+    const currentRehearsals = currentRunbookRehearsals(rehearsals);
+    const activeBlocking = this.repository.listPolicies().filter((policy) => policy.state === "active_blocking").map((policy) => policy.id);
+    const policyEvidence: G2PolicyEvidence[] = [];
+    const runbookEvidence: G2RunbookEvidence[] = [];
+
+    for (const policyId of manifest?.policy_ids ?? []) {
+      const reasons: string[] = [];
+      const policy = privatePolicies.find((candidate) => candidate.id === policyId);
+      const publicDuplicate = publicPolicies.some((candidate) => candidate.id === policyId);
+      let proofId: string | null = null;
+      let corpusId: string | null = null;
+      let shadowApplicable = 0;
+      let shadowViolations = 0;
+      let shadowUnclassified = 0;
+      let confirmedPrecision: number | null = null;
+      if (!policy || publicDuplicate || this.repository.homeOfPolicy(policyId) !== "private" || policy.data_class === "public") {
+        reasons.push("selected policy is missing from its exact private home");
+      } else if (!policy.proof) {
+        reasons.push("selected policy has no current proof");
+      } else {
+        const composition = compositionDescendants(policy, privatePolicies);
+        const proof = this.repository.getProof(policy.proof, { privateOnly: true });
+        proofId = proof?.id ?? null;
+        if (!proof) {
+          reasons.push(`linked proof ${policy.proof} is missing from the private overlay`);
+        } else {
+          if (proof.policy_hash !== policyProofHash(policy, composition)) reasons.push("proof does not bind current policy/composite semantics");
+          if (proof.evaluator.name !== POLICY_EVALUATOR.name || proof.evaluator.version !== POLICY_EVALUATOR.version) reasons.push("proof evaluator version is stale");
+          if (proof.mutation_engine?.name !== MUTATION_ENGINE.name || proof.mutation_engine.version !== MUTATION_ENGINE.version) reasons.push("proof mutation engine version is stale");
+          if (!["P3", "P4", "P5"].includes(proof.proof_class)) reasons.push(`proof class ${proof.proof_class} is below P3`);
+          if (proof.current.satisfied !== 1 || proof.current.total !== 1 || proof.current.violated || proof.current.unknown || proof.current.error) reasons.push("proof has no exact clean satisfied baseline");
+
+          const plan = this.repository.listPlans({ privateOnly: true }).find((candidate) => candidate.content_hash === proof.plan_hash && candidate.policy_id === policy.id);
+          if (!plan) reasons.push("proof has no exact bound private proof plan");
+          const corpus = this.repository.getCorpus(policy.id, { privateOnly: true });
+          corpusId = corpus?.id ?? null;
+          if (!corpus) {
+            reasons.push("policy has no imported private proof corpus");
+          } else {
+            if (!plan?.corpus_manifest || plan.corpus_manifest.id !== corpus.id || plan.corpus_manifest.content_hash !== corpus.content_hash) reasons.push("proof plan does not bind the exact imported corpus manifest");
+            if (corpus.known_bad.length < 1) reasons.push("corpus has no declared known-bad fixture");
+            else if (proof.known_bad.total !== corpus.known_bad.length || proof.known_bad.violated !== proof.known_bad.total) reasons.push("proof did not catch every imported known-bad fixture");
+            if (corpus.known_good.length < 1) reasons.push("corpus has no declared known-good fixture");
+            else if (proof.known_good.total !== corpus.known_good.length || proof.known_good.satisfied !== proof.known_good.total) reasons.push("proof did not satisfy every imported known-good fixture");
+          }
+
+          if (!plan?.mutations.length) reasons.push("proof plan has no mutation corpus");
+          else {
+            const available = [...proof.mutation_receipts];
+            for (const mutation of plan.mutations.filter((candidate) => candidate.required)) {
+              const index = available.findIndex((receipt) => receipt.operator === mutation.operator && receipt.required);
+              const receipt = index >= 0 ? available.splice(index, 1)[0] : undefined;
+              if (!receipt) reasons.push(`required mutation ${mutation.operator} has no exact receipt`);
+              else if (!receipt.passed) reasons.push(`required mutation ${mutation.operator} failed`);
+            }
+          }
+          if (proof.mutation_controls.total < 1) reasons.push("proof has no mutation controls");
+          if (proof.mutation_controls.failed > 0 || proof.mutation_controls.passed !== proof.mutation_controls.total) reasons.push("proof mutation controls are incomplete or failed");
+
+          const dispositionAssessment = assessHistoryDispositions(
+            proof,
+            this.repository.listDispositions({ privateOnly: true }).filter((record) => record.policy_id === policy.id && record.proof_id === proof.id),
+          );
+          if (dispositionAssessment.blocking_error) reasons.push(dispositionAssessment.blocking_error);
+
+          try {
+            const shadow = this.shadowReport(policy.id, { minApplicable: manifest?.min_shadow_applicable ?? 20 }, { privateOnly: true });
+            shadowApplicable = shadow.counts.applicable;
+            shadowViolations = shadow.counts.violated;
+            shadowUnclassified = shadow.dispositions.unclassified;
+            confirmedPrecision = shadow.precision.confirmed;
+            if (shadowApplicable < (manifest?.min_shadow_applicable ?? 20)) reasons.push(`shadow baseline has ${shadowApplicable}/${manifest?.min_shadow_applicable ?? 20} applicable observations`);
+            if (shadowUnclassified > 0) reasons.push(`shadow baseline has ${shadowUnclassified} unclassified violation(s)`);
+          } catch (error) {
+            reasons.push(`shadow precision baseline unavailable: ${(error as Error).message}`);
+          }
+        }
+      }
+      policyEvidence.push({
+        policy_id: policyId,
+        complete: reasons.length === 0,
+        proof_id: proofId,
+        corpus_id: corpusId,
+        shadow_applicable: shadowApplicable,
+        shadow_violations: shadowViolations,
+        shadow_unclassified: shadowUnclassified,
+        confirmed_precision: confirmedPrecision,
+        reasons,
+      });
+    }
+
+    for (const category of G2_RUNBOOK_CATEGORIES) {
+      const runbookId = manifest?.runbooks[category];
+      if (!runbookId) continue;
+      const reasons: string[] = [];
+      const runbook = privateRunbooks.find((candidate) => candidate.id === runbookId);
+      const publicDuplicate = publicRunbooks.some((candidate) => candidate.id === runbookId);
+      const hash = runbook ? runbookContentHash(runbook) : null;
+      const rehearsal = hash ? currentRehearsals.find((candidate) => candidate.runbook_id === runbookId && candidate.runbook_hash === hash) : undefined;
+      if (!runbook || publicDuplicate) reasons.push("selected runbook is missing from its exact private-only home");
+      else if (!rehearsal) reasons.push("exact runbook content has no current rehearsal receipt");
+      else if (rehearsal.result !== "passed") reasons.push(`current rehearsal result is ${rehearsal.result}`);
+      runbookEvidence.push({ category, runbook_id: runbookId, runbook_hash: hash, rehearsal_id: rehearsal?.id ?? null, passed: rehearsal?.result === "passed", reasons });
+    }
+
+    return scoreG2Readiness({
+      manifest,
+      policy_evidence: policyEvidence,
+      runbook_evidence: runbookEvidence,
+      active_blocking_policy_ids: activeBlocking,
+      inventory: {
+        private_policies: privatePolicies.length,
+        public_policies: publicPolicies.length,
+        private_proofs: this.repository.listProofs({ privateOnly: true }).length,
+        private_corpora: this.repository.listCorpora({ privateOnly: true }).length,
+        private_shadow_evaluations: this.repository.listShadowEvaluations({ privateOnly: true }).length,
+        private_shadow_dispositions: this.repository.listShadowDispositions({ privateOnly: true }).length,
+        private_runbooks: privateRunbooks.length,
+        public_runbooks: publicRunbooks.length,
+        private_plans: this.g2Repository.listPlans().length,
+        private_rehearsals: rehearsals.length,
+      },
+    });
   }
 
   list(opts: { publicOnly?: boolean; privateOnly?: boolean; state?: string } = {}): PolicySpec[] {

@@ -944,6 +944,23 @@ export function buildServer(root: string): McpServer {
     },
   );
 
+  server.registerTool(
+    "hunch_constitution_g2_readiness",
+    {
+      title: "Inspect Constitution G2 readiness",
+      description:
+        "Return the exact private G2 dogfood evidence packet: human-selected policies, bound proof/corpus/shadow evidence, operational runbook rehearsals, and blockers. Read-only; it never creates evidence, signs off G2, activates policy, warns, or blocks.",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2Readiness(), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect G2 readiness: ${(e as Error).message}`);
+      }
+    },
+  );
+
   // -- hunch_conformance ----------------------------------------------------
   server.registerTool(
     "hunch_conformance",

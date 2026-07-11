@@ -124,6 +124,14 @@ export class PolicyRepository {
     return byId.get(id);
   }
 
+  listProofs(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): PolicyProof[] {
+    if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
+    if (opts.privateOnly) return this.proofsIn("private").sort((a, b) => a.id.localeCompare(b.id));
+    const byId = new Map(this.proofsIn("public").map((proof) => [proof.id, proof]));
+    if (!opts.publicOnly) for (const proof of this.proofsIn("private")) byId.set(proof.id, proof);
+    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   listPlans(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): ProofPlan[] {
     if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
     if (opts.privateOnly) return this.plansIn("private").sort((a, b) => a.id.localeCompare(b.id));
@@ -142,6 +150,14 @@ export class PolicyRepository {
     const publicCorpus = this.corporaIn("public").find((corpus) => corpus.policy_id === policyId);
     if (opts.publicOnly) return publicCorpus;
     return this.corporaIn("private").find((corpus) => corpus.policy_id === policyId) ?? publicCorpus;
+  }
+
+  listCorpora(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): ProofCorpus[] {
+    if (opts.publicOnly && opts.privateOnly) throw new Error("choose only one of publicOnly or privateOnly");
+    if (opts.privateOnly) return this.corporaIn("private").sort((a, b) => a.policy_id.localeCompare(b.policy_id));
+    const byPolicy = new Map(this.corporaIn("public").map((corpus) => [corpus.policy_id, corpus]));
+    if (!opts.publicOnly) for (const corpus of this.corporaIn("private")) byPolicy.set(corpus.policy_id, corpus);
+    return [...byPolicy.values()].sort((a, b) => a.policy_id.localeCompare(b.policy_id));
   }
 
   listEvidence(opts: { publicOnly?: boolean; privateOnly?: boolean } = {}): EvidenceEvent[] {

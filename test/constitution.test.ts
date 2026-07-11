@@ -2139,6 +2139,16 @@ test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical rec
     assert.equal(shadowCardRun.status, 0, shadowCardRun.stderr);
     const shadowCardHash = (JSON.parse(shadowCardRun.stdout) as { card_hash: string }).card_hash;
     assert.notEqual(shadowCardHash, expectedCardHash, "the content-addressed card changes when shadow evidence is attached");
+    const g2CliRun = spawnSync(process.execPath, [tsx, cli, "constitution", "g2"], {
+      cwd: fixture.root,
+      env,
+      encoding: "utf8",
+    });
+    assert.equal(g2CliRun.status, 0, g2CliRun.stderr);
+    const g2CliReport = JSON.parse(g2CliRun.stdout) as { content_hash: string; recommendation: string; authority: string; g2_passed: boolean };
+    assert.equal(g2CliReport.recommendation, "not_ready");
+    assert.equal(g2CliReport.authority, "none");
+    assert.equal(g2CliReport.g2_passed, false);
 
     const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: fixture.root, env });
     client = new Client({ name: "constitution-contract-test", version: "1.0.0" });
@@ -2158,6 +2168,12 @@ test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical rec
     const shadowReport = JSON.parse((shadowCall.content[0] as { type: "text"; text: string }).text) as { counts: { total: number }; recommendation: string };
     assert.equal(shadowReport.counts.total, 1);
     assert.equal(shadowReport.recommendation, "not_ready");
+    const g2Call = await client.callTool({ name: "hunch_constitution_g2_readiness", arguments: {} });
+    const g2McpReport = JSON.parse((g2Call.content[0] as { type: "text"; text: string }).text) as { content_hash: string; recommendation: string; authority: string; g2_passed: boolean };
+    assert.equal(g2McpReport.content_hash, g2CliReport.content_hash, "CLI and read-only MCP expose the identical G2 readiness receipt");
+    assert.equal(g2McpReport.recommendation, "not_ready");
+    assert.equal(g2McpReport.authority, "none");
+    assert.equal(g2McpReport.g2_passed, false);
   } finally {
     if (client) await client.close();
     fixture.cleanup();
