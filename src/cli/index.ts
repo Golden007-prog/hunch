@@ -1457,18 +1457,22 @@ constitutionCmd
   .option("--rehearse <runbook-id>", "append a rehearsal receipt for the exact current private runbook content")
   .option("--observe", "record at most one private shadow observation per selected policy for the current real HEAD/graph")
   .option("--queue <limit>", "return the bounded current-proof queue of unclassified G2 shadow violations")
+  .option("--candidates <limit>", "return a bounded read-only review packet of exact fix-history candidates requiring human attestation")
+  .option("--candidate-since <window>", "git history window for --candidates", "180d")
+  .option("--candidate-commits <n>", "maximum fix-labeled commits inspected by --candidates", "100")
   .option("--result <result>", "rehearsal result: passed | failed")
   .option("--actor <actor>", "explicit human actor (human:, github:, or git:)")
   .option("--evidence <hashes...>", "one or more sha1 evidence hashes for a rehearsal")
   .option("--notes <text>", "rehearsal evidence notes")
   .option("--supersedes <id>", "current rehearsal id corrected by this append-only receipt")
   .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
-  .action((opts: { plan?: string; rehearse?: string; observe?: boolean; queue?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; supersedes?: string; strict?: boolean }) => {
+  .action((opts: { plan?: string; rehearse?: string; observe?: boolean; queue?: string; candidates?: string; candidateSince: string; candidateCommits: string; result?: string; actor?: string; evidence?: string[]; notes?: string; supersedes?: string; strict?: boolean }) => {
     const { store, root } = storeFor();
     try {
       const queueRequested = opts.queue !== undefined;
-      const actions = [!!opts.plan, !!opts.rehearse, !!opts.observe, queueRequested].filter(Boolean).length;
-      if (actions > 1) throw new Error("choose only one of --plan, --rehearse, --observe, or --queue");
+      const candidatesRequested = opts.candidates !== undefined;
+      const actions = [!!opts.plan, !!opts.rehearse, !!opts.observe, queueRequested, candidatesRequested].filter(Boolean).length;
+      if (actions > 1) throw new Error("choose only one of --plan, --rehearse, --observe, --queue, or --candidates");
       const service = new ConstitutionService(store, root);
       let output: unknown;
       if (opts.plan) {
@@ -1487,6 +1491,8 @@ constitutionCmd
         output = { sweep: service.g2ShadowSweep(), readiness: service.g2Readiness() };
       } else if (queueRequested) {
         output = service.g2ShadowQueue(Number(opts.queue));
+      } else if (candidatesRequested) {
+        output = service.g2CandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.candidates) });
       } else if (opts.result || opts.actor || opts.evidence || opts.notes || opts.supersedes) {
         throw new Error("rehearsal options require --rehearse <runbook-id>");
       } else {

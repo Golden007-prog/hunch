@@ -44,6 +44,7 @@ import {
   type G2ShadowSweepReport,
   type RunbookRehearsal,
 } from "./g2.js";
+import { buildG2CandidateReview, type G2CandidateReviewOptions, type G2CandidateReviewReport } from "./g2Candidates.js";
 
 export interface PolicyEvaluationSet {
   policy: PolicySpec;
@@ -354,6 +355,10 @@ export class ConstitutionService {
     };
     const contentHash = canonicalHash(body);
     return { id: `g2sweep_${shortHash(contentHash)}`, content_hash: contentHash, ...body };
+  }
+
+  g2CandidateReview(opts: G2CandidateReviewOptions = {}): G2CandidateReviewReport {
+    return buildG2CandidateReview(this.store, this.root, opts);
   }
 
   g2ShadowQueue(limit = 20): G2ShadowQueue {

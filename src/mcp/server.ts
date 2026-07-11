@@ -980,6 +980,31 @@ export function buildServer(root: string): McpServer {
     },
   );
 
+  server.registerTool(
+    "hunch_constitution_g2_candidates",
+    {
+      title: "Review potential G2 dogfood candidates",
+      description:
+        "Return a bounded private review packet of exact structural candidates from fix-labeled git history, graded as exact human-grounded, human-grounded but ambiguous, or unattested coincidence. Read-only: proposed before/after corpus refs are not replayed evidence, and the tool creates no policy, proof, corpus, authority, warning, or block.",
+      inputSchema: {
+        since: z.string().min(1).max(100).optional().describe("Git history window (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Maximum fix-labeled commits to inspect (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Maximum ranked candidates to return (default 30)."),
+      },
+    },
+    async ({ since, max_commits, limit }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2CandidateReview({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect G2 candidates: ${(e as Error).message}`);
+      }
+    },
+  );
+
   // -- hunch_conformance ----------------------------------------------------
   server.registerTool(
     "hunch_conformance",

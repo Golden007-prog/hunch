@@ -198,9 +198,21 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
   const bytes = Buffer.from(source, "utf8");
   const open = bytes.indexOf("{".charCodeAt(0), definition.startByte);
   if (open < 0 || open >= definition.endByte) return { error: "mutation-subject-body-unsupported" };
+  const replacements = [{ start: open + 1, end: open + 1, text: `\n  ${object.name}(); // hunch deterministic source mutation\n` }];
+  if (object.file !== subject.file) {
+    const specifier = relativeSpecifier(subject.file, object.file);
+    if (!parsed.imports.includes(specifier)) {
+      const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
+      replacements.push({
+        start: insertion,
+        end: insertion,
+        text: `import { ${object.name} } from ${JSON.stringify(specifier)}; // hunch deterministic source mutation\n`,
+      });
+    }
+  }
   return {
     file: subject.file,
-    source: spliceBytes(source, [{ start: open + 1, end: open + 1, text: `\n  ${object.name}(); // hunch deterministic source mutation\n` }]),
+    source: spliceBytes(source, replacements),
   };
 }
 

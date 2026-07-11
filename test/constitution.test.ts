@@ -125,13 +125,14 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
     });
     const primaryMutation = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
     assert.equal(primaryMutation.error_code, undefined, JSON.stringify(primaryMutation));
-    assert.equal(primaryMutation.passed, true);
+    assert.equal(primaryMutation.passed, true, JSON.stringify(primaryMutation));
     assert.equal(proved.proof.mutations.violated, 1);
     assert.equal(proved.proof.proof_class, "P3", "clean baseline + caught bypass mutation earns P3");
-    assert.equal(primaryMutation.graph_diff.added_edges.length, 1, "primary graph diff is persisted in the proof");
+    assert.equal(primaryMutation.graph_diff.added_edges.length, 2, "the exact call and its source-grounding import dependency are persisted in the proof");
     assert.equal(primaryMutation.parseability, "parseable");
     assert.deepEqual(primaryMutation.source_patch?.files, ["src/api/orders.ts"]);
     assert.match(primaryMutation.source_patch?.diff ?? "", /hunch deterministic source mutation/);
+    assert.match(primaryMutation.source_patch?.diff ?? "", /import \{ dbQuery \} from "\.\.\/db\/client\.js"/);
     assert.ok(primaryMutation.source_patch?.diff_hash.startsWith("sha1:"));
     const commentControl = proved.proof.mutation_receipts.find((receipt) => receipt.operator === "comment-string-control")!;
     assert.equal(commentControl.parseability, "parseable");
@@ -1412,6 +1413,88 @@ test("Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, 
   }
 });
 
+test("Phase 2R G2 candidate review separates human grounding from structural coincidence without writes", () => {
+  const { root, store: initial, cleanup } = layeredRepo();
+  initial.close();
+  const privateRoot = join(root, "private-g2-candidates/.hunch");
+  mkdirSync(privateRoot, { recursive: true });
+  writeFileSync(join(root, ".hunch/local.json"), JSON.stringify({ privateDir: privateRoot, autoCommit: false, mode: "private" }));
+
+  writeFileSync(join(root, "src/global.ts"), "export function resolve(id){ return id; }\n");
+  commitFiles(root, ["src/global.ts"], "chore: add unrelated resolver");
+  writeFileSync(join(root, "src/api/orders.ts"), 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\nexport function guardedOrders(){ return fetchOrders("guarded"); }\n');
+  writeFileSync(join(root, "src/provider.ts"), 'export function execute(){ return new Promise((resolve) => resolve("ok")); }\n');
+  const groundedCommit = commitFiles(root, ["src/api/orders.ts", "src/provider.ts"], "fix: guardedOrders must call fetchOrders");
+  writeFileSync(join(root, "src/api/orders.ts"), `${readFileSync(join(root, "src/api/orders.ts"), "utf8")}export function auditedOrders(){ return fetchOrders("audited"); }\n`);
+  const unattestedCommit = commitFiles(root, ["src/api/orders.ts"], "fix: add audited order path");
+
+  const store = new HunchStore(hunchPaths(root));
+  try {
+    store.putPrivate("decisions", {
+      ...decision("dec_g2_candidate", { private: true }),
+      title: "guardedOrders must call fetchOrders",
+      context: "A real fix introduced guardedOrders and its fetchOrders call.",
+      decision: "Keep guardedOrders calling fetchOrders.",
+      related_files: ["src/api/orders.ts", "src/services/orders.ts"],
+      commit: groundedCommit,
+    });
+    indexRepo(store, root, { churn: false });
+    const publicSymbols = store.json.loadAll("symbols");
+    const execute = publicSymbols.find((symbol) => symbol.file === "src/provider.ts" && symbol.name === "execute")!;
+    const unrelatedResolve = publicSymbols.find((symbol) => symbol.file === "src/global.ts" && symbol.name === "resolve")!;
+    store.putPrivate("edges", {
+      id: "edge_stale_private_resolve",
+      from: execute.id,
+      to: unrelatedResolve.id,
+      type: "calls",
+      reason: "stale private graph incorrectly linked callback resolve",
+      strength: 0.8,
+      provenance: { source: "extracted", confidence: 0.8, evidence: ["stale-private-index"] },
+    });
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const beforePolicies = service.repository.listPolicies({ privateOnly: true }).length;
+    const beforeEvidence = service.repository.listEvidence({ privateOnly: true }).length;
+    const beforeGraph = canonicalJson({
+      symbols: store.json.loadAll("symbols"),
+      edges: store.json.loadAll("edges"),
+      components: store.json.loadAll("components"),
+    });
+
+    const report = service.g2CandidateReview({ since: "30d", maxCommits: 20, limit: 20 });
+    assert.match(report.id, /^g2candidates_[a-f0-9]{10}$/);
+    assert.match(report.content_hash, /^sha1:[a-f0-9]{40}$/);
+    assert.equal(report.authority, "none");
+    assert.equal(report.writes, "none");
+    assert.equal(report.proof_status, "not_run");
+    assert.ok(report.items.some((item) => item.commit === groundedCommit && item.attestation.status === "human_grounded_needs_selection"));
+    assert.ok(report.items.some((item) => item.commit === unattestedCommit && item.attestation.status === "unattested_structural_coincidence"));
+    assert.equal(report.items.some((item) => item.reason.includes("execute -> resolve")), false, "stale private derived edges cannot manufacture public-code candidates");
+    assert.ok(report.items.filter((item) => item.commit === groundedCommit && item.reason.includes("guardedOrders")).every((item) => item.attestation.decision_ids.includes("dec_g2_candidate")));
+    assert.ok(report.items.every((item) => item.proposed_corpus.known_bad.ref !== item.proposed_corpus.known_good.ref));
+    assert.ok(report.items.every((item) => item.proposed_corpus.observed === false));
+    assert.deepEqual(service.g2CandidateReview({ since: "30d", maxCommits: 20, limit: 20 }), report, "same repository and bounds yield a byte-stable review packet");
+
+    const bounded = service.g2CandidateReview({ since: "30d", maxCommits: 20, limit: 1 });
+    assert.equal(bounded.items.length, 1);
+    assert.equal(bounded.has_more, true);
+    assert.notEqual(bounded.items[0]?.attestation.status, "unattested_structural_coincidence", "human-grounded review work ranks ahead of coincidence");
+    assert.throws(() => service.g2CandidateReview({ since: "30d", maxCommits: 0, limit: 1 }), /positive integer/i);
+    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, beforePolicies);
+    assert.equal(service.repository.listEvidence({ privateOnly: true }).length, beforeEvidence);
+    assert.equal(canonicalJson({
+      symbols: store.json.loadAll("symbols"),
+      edges: store.json.loadAll("edges"),
+      components: store.json.loadAll("components"),
+    }), beforeGraph, "candidate review leaves the workspace graph byte-stable");
+    assert.equal(existsSync(join(privateRoot, "policies")), false);
+    assert.equal(existsSync(join(privateRoot, "evidence")), false);
+  } finally {
+    store.close();
+    cleanup();
+  }
+});
+
 test("Phase 3 unresolved refs and history-enumeration failures stay visible as deterministic proof errors", () => {
   const { root, store, cleanup } = layeredRepo();
   try {
@@ -2270,6 +2353,16 @@ test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical rec
     const g2QueueCli = JSON.parse(g2QueueCliRun.stdout) as { content_hash: string; total_unclassified: number; authority: string };
     assert.equal(g2QueueCli.total_unclassified, 0);
     assert.equal(g2QueueCli.authority, "none");
+    const g2CandidatesCliRun = spawnSync(process.execPath, [tsx, cli, "constitution", "g2", "--candidates", "5", "--candidate-since", "30d", "--candidate-commits", "10"], {
+      cwd: fixture.root,
+      env,
+      encoding: "utf8",
+    });
+    assert.equal(g2CandidatesCliRun.status, 0, g2CandidatesCliRun.stderr);
+    const g2CandidatesCli = JSON.parse(g2CandidatesCliRun.stdout) as { content_hash: string; authority: string; writes: string; proof_status: string };
+    assert.equal(g2CandidatesCli.authority, "none");
+    assert.equal(g2CandidatesCli.writes, "none");
+    assert.equal(g2CandidatesCli.proof_status, "not_run");
 
     const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: fixture.root, env });
     client = new Client({ name: "constitution-contract-test", version: "1.0.0" });
@@ -2300,6 +2393,12 @@ test("Gate G1 adapter contract: CLI, MCP, and strict CI expose the identical rec
     assert.equal(g2QueueMcp.content_hash, g2QueueCli.content_hash, "CLI and read-only MCP expose the identical bounded G2 shadow queue");
     assert.equal(g2QueueMcp.total_unclassified, 0);
     assert.equal(g2QueueMcp.authority, "none");
+    const g2CandidatesCall = await client.callTool({ name: "hunch_constitution_g2_candidates", arguments: { since: "30d", max_commits: 10, limit: 5 } });
+    const g2CandidatesMcp = JSON.parse((g2CandidatesCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string; authority: string; writes: string; proof_status: string };
+    assert.equal(g2CandidatesMcp.content_hash, g2CandidatesCli.content_hash, "CLI and read-only MCP expose the identical G2 candidate review packet");
+    assert.equal(g2CandidatesMcp.authority, "none");
+    assert.equal(g2CandidatesMcp.writes, "none");
+    assert.equal(g2CandidatesMcp.proof_status, "not_run");
   } finally {
     if (client) await client.close();
     fixture.cleanup();
