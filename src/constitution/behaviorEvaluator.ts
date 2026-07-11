@@ -15,31 +15,12 @@ import {
   type PolicyEvaluation,
   type PolicySpec,
 } from "./schema.js";
-
-const REPORTER_PROTOCOL = "hunch-node-test-reporter-v1";
-const REPORTER_SOURCE = `export default async function* hunchReporter(source) {
-  for await (const event of source) {
-    if (event.type !== "test:pass" && event.type !== "test:fail") continue;
-    yield JSON.stringify({
-      protocol: "${REPORTER_PROTOCOL}",
-      type: event.type,
-      name: event.data.name,
-      nesting: event.data.nesting,
-      skip: event.data.skip ?? null,
-      todo: event.data.todo ?? null
-    }) + "\\n";
-  }
-}
-`;
-
-interface ReporterEvent {
-  protocol: typeof REPORTER_PROTOCOL;
-  type: "test:pass" | "test:fail";
-  name: string;
-  nesting?: number;
-  skip: string | boolean | null;
-  todo: string | boolean | null;
-}
+import {
+  NODE_TEST_REPORTER_SOURCE,
+  exactNodeTestPattern,
+  nodeTestIsolationFlag,
+  nodeTestReporterEvents,
+} from "./nodeTestEvidence.js";
 
 export interface BehaviorEvaluationOptions {
   commit?: string;
@@ -66,17 +47,6 @@ function behaviorEnvironment(home: string, gitConfig: string): NodeJS.ProcessEnv
   };
 }
 
-function exactPattern(name: string): string {
-  return `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
-}
-
-function testIsolationFlag(): string {
-  const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-  return major > 23 || (major === 23 && minor >= 6)
-    ? "--test-isolation=none"
-    : "--experimental-test-isolation=none";
-}
-
 function sourceAt(root: string, commit: string, file: string): string | null {
   try {
     return execFileSync("git", ["-C", root, "show", `${commit}:${file}`], {
@@ -87,27 +57,6 @@ function sourceAt(root: string, commit: string, file: string): string | null {
   } catch {
     return null;
   }
-}
-
-function reporterEvents(output: string): ReporterEvent[] {
-  const events: ReporterEvent[] = [];
-  for (const line of output.split("\n").filter(Boolean)) {
-    try {
-      const event = JSON.parse(line) as Partial<ReporterEvent>;
-      if (event.protocol !== REPORTER_PROTOCOL
-        || (event.type !== "test:pass" && event.type !== "test:fail")
-        || typeof event.name !== "string") continue;
-      events.push({
-        protocol: REPORTER_PROTOCOL,
-        type: event.type,
-        name: event.name,
-        ...(typeof event.nesting === "number" ? { nesting: event.nesting } : {}),
-        skip: event.skip ?? null,
-        todo: event.todo ?? null,
-      });
-    } catch { /* non-protocol output cannot become evidence */ }
-  }
-  return events;
 }
 
 function evaluation(
@@ -170,7 +119,7 @@ export function evaluateExecutableBehaviorPolicy(
   const reporter = join(session, "reporter.mjs");
   mkdirSync(hooks, { recursive: true });
   writeFileSync(gitConfig, "");
-  writeFileSync(reporter, REPORTER_SOURCE);
+  writeFileSync(reporter, NODE_TEST_REPORTER_SOURCE);
   const env = behaviorEnvironment(session, gitConfig);
   let added = false;
   let result: PolicyEvaluation;
@@ -190,8 +139,8 @@ export function evaluateExecutableBehaviorPolicy(
       writeFileSync(testFile, source);
       const common = [
         "--test",
-        testIsolationFlag(),
-        `--test-name-pattern=${exactPattern(selectedName)}`,
+        nodeTestIsolationFlag(),
+        `--test-name-pattern=${exactNodeTestPattern(selectedName)}`,
         `--test-reporter=${pathToFileURL(reporter).href}`,
         "--test-reporter-destination=stdout",
         assertion.test.file,
@@ -209,7 +158,7 @@ export function evaluateExecutableBehaviorPolicy(
         shell: false,
       });
       const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
-      const matches = reporterEvents(run.stdout ?? "")
+      const matches = nodeTestReporterEvents(run.stdout ?? "")
         .filter((event) => event.name === selectedName && !event.skip && !event.todo);
       const exitCode = run.status ?? null;
       const execution = {

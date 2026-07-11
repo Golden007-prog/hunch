@@ -1460,6 +1460,7 @@ constitutionCmd
   .option("--queue <limit>", "return the bounded current-proof queue of unclassified G2 shadow violations")
   .option("--candidates <limit>", "return a bounded read-only review packet of exact fix-history candidates requiring human attestation")
   .option("--behavior-candidates <limit>", "derive bounded behavior-level candidates from rejected grounded proxies plus newly added regression tests")
+  .option("--behavior-decision <decision-id>", "scope behavior review/replay/materialization to one exact current human-confirmed decision")
   .option("--behavior-replay <candidate-id>", "run one exact behavior candidate in disposable known-bad/good worktrees")
   .option("--behavior-deps <candidate-id>", "explicitly build or validate content-addressed historical dependency snapshots for one behavior candidate")
   .option("--behavior-attest <candidate-id>", "append an exact private human selection or rejection bound to a snapshot-backed behavior replay")
@@ -1480,7 +1481,7 @@ constitutionCmd
   .option("--reason <text>", "candidate selection or rejection rationale")
   .option("--supersedes <id>", "current rehearsal or candidate attestation corrected by this append-only receipt")
   .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
-  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorMaterialize?: boolean; behaviorPolicyMaterialize?: boolean; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
+  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorDecision?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorMaterialize?: boolean; behaviorPolicyMaterialize?: boolean; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
     const { store, root } = storeFor();
     try {
       const queueRequested = opts.queue !== undefined;
@@ -1491,10 +1492,13 @@ constitutionCmd
       const behaviorAttestRequested = opts.behaviorAttest !== undefined;
       const behaviorMaterializeRequested = opts.behaviorMaterialize === true;
       const behaviorPolicyMaterializeRequested = opts.behaviorPolicyMaterialize === true;
+      const behaviorActionRequested = behaviorCandidatesRequested || behaviorReplayRequested || behaviorDepsRequested
+        || behaviorAttestRequested || behaviorMaterializeRequested || behaviorPolicyMaterializeRequested;
       const attestRequested = opts.attest !== undefined;
       const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, queueRequested, candidatesRequested, behaviorCandidatesRequested, behaviorReplayRequested, behaviorDepsRequested, behaviorAttestRequested, behaviorMaterializeRequested, behaviorPolicyMaterializeRequested].filter(Boolean).length;
       if (actions > 1) throw new Error("choose only one G2 plan, rehearsal, structural attestation, observation, queue, structural candidate, behavior candidate, behavior replay, dependency snapshot, behavior attestation, behavior assessment, or behavior policy materialization action");
       if (opts.allowInstallScript && !behaviorDepsRequested && !behaviorPolicyMaterializeRequested) throw new Error("--allow-install-script requires --behavior-deps or --behavior-policy-materialize");
+      if (opts.behaviorDecision && !behaviorActionRequested) throw new Error("--behavior-decision requires a behavior candidate, replay, dependency, attestation, assessment, or materialization action");
       const service = new ConstitutionService(store, root);
       let output: unknown;
       if (opts.plan) {
@@ -1534,7 +1538,7 @@ constitutionCmd
         output = service.g2CandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.candidates) });
       } else if (behaviorCandidatesRequested) {
         if (opts.behaviorReviewHash) throw new Error("--behavior-candidates does not accept --behavior-review-hash");
-        output = service.g2BehaviorCandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.behaviorCandidates) });
+        output = service.g2BehaviorCandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.behaviorCandidates), decisionId: opts.behaviorDecision });
       } else if (behaviorReplayRequested) {
         if (!opts.behaviorReviewHash) throw new Error("--behavior-replay requires --behavior-review-hash");
         if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.allowInstallScript) {
@@ -1544,6 +1548,7 @@ constitutionCmd
           since: opts.candidateSince,
           maxCommits: Number(opts.candidateCommits),
           limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
         });
       } else if (behaviorDepsRequested) {
         if (!opts.behaviorReviewHash) throw new Error("--behavior-deps requires --behavior-review-hash");
@@ -1554,6 +1559,7 @@ constitutionCmd
           since: opts.candidateSince,
           maxCommits: Number(opts.candidateCommits),
           limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
           allowInstallScripts: opts.allowInstallScript ?? [],
           timeoutMs: Number(opts.dependencyTimeoutMs),
         });
@@ -1569,6 +1575,7 @@ constitutionCmd
           since: opts.candidateSince,
           maxCommits: Number(opts.candidateCommits),
           limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
         };
         const appended = service.attestG2BehaviorCandidate(
           opts.behaviorAttest!,
@@ -1587,6 +1594,7 @@ constitutionCmd
           since: opts.candidateSince,
           maxCommits: Number(opts.candidateCommits),
           limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
         });
       } else if (behaviorPolicyMaterializeRequested) {
         if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.behaviorReviewHash) {
@@ -1596,6 +1604,7 @@ constitutionCmd
           since: opts.candidateSince,
           maxCommits: Number(opts.candidateCommits),
           limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
           allowInstallScripts: opts.allowInstallScript ?? [],
           dependencyTimeoutMs: Number(opts.dependencyTimeoutMs),
         });

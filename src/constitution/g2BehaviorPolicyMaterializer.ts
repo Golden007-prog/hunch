@@ -12,7 +12,11 @@ import {
   provisionG2BehaviorDependencySnapshotsForCommits,
   type G2BehaviorDependencySnapshot,
 } from "./g2BehaviorDependencies.js";
-import type { G2BehaviorCandidate, G2BehaviorCandidateReview } from "./g2BehaviorCandidates.js";
+import {
+  g2BehaviorCandidateHash,
+  type G2BehaviorCandidate,
+  type G2BehaviorCandidateReview,
+} from "./g2BehaviorCandidates.js";
 import type { G2BehaviorAttestation } from "./g2BehaviorAttestation.js";
 import { executableBehaviorAttestationError } from "./behaviorAttestationBinding.js";
 import { proposeProvedPolicy } from "./lifecycle.js";
@@ -171,7 +175,9 @@ export function materializeSelectedG2BehaviorPolicies(
   if (assessment.readiness !== "ready_for_materialization") throw new Error(`behavior assessment ${assessment.id} is not ready for materialization`);
   const currentCommit = headSha(root);
   if (!/^[a-f0-9]{40}$/.test(currentCommit)) throw new Error("behavior materialization requires a current full-SHA HEAD");
-  const selected = currentAttestations.filter((attestation) => attestation.disposition === "selected")
+  const candidateHashes = new Map(report.items.map((candidate) => [candidate.id, g2BehaviorCandidateHash(candidate)]));
+  const selected = currentAttestations.filter((attestation) => attestation.disposition === "selected"
+      && candidateHashes.get(attestation.candidate_id) === attestation.candidate_hash)
     .sort((left, right) => left.candidate_id.localeCompare(right.candidate_id));
   const dependencies = provisionG2BehaviorDependencySnapshotsForCommits(
     root,

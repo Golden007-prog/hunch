@@ -53,6 +53,7 @@ import {
 import {
   buildG2BehaviorCandidateReview,
   replayG2BehaviorCandidate,
+  type G2BehaviorCandidateReviewOptions,
   type G2BehaviorCandidateReview,
   type G2BehaviorReplayReceipt,
 } from "./g2BehaviorCandidates.js";
@@ -420,7 +421,7 @@ export class ConstitutionService {
     return this.g2CandidateRepository.put(attestation);
   }
 
-  g2BehaviorCandidateReview(opts: G2CandidateReviewOptions = {}): G2BehaviorCandidateReview {
+  g2BehaviorCandidateReview(opts: G2BehaviorCandidateReviewOptions = {}): G2BehaviorCandidateReview {
     return buildG2BehaviorCandidateReview(
       this.store,
       this.root,
@@ -433,21 +434,21 @@ export class ConstitutionService {
   g2BehaviorCandidateReplay(
     candidateId: string,
     reviewHash: string,
-    opts: G2CandidateReviewOptions & { timeoutMs?: number } = {},
+    opts: G2BehaviorCandidateReviewOptions & { timeoutMs?: number } = {},
   ): G2BehaviorReplayReceipt {
     const report = this.g2BehaviorCandidateReview(opts);
     return replayG2BehaviorCandidate(this.root, report, candidateId, reviewHash, { timeoutMs: opts.timeoutMs });
   }
 
   g2BehaviorMaterializationAssessment(
-    opts: G2CandidateReviewOptions = {},
+    opts: G2BehaviorCandidateReviewOptions = {},
   ): G2BehaviorMaterializationAssessment {
     const report = this.g2BehaviorCandidateReview(opts);
     return assessG2BehaviorMaterialization(report, this.g2BehaviorAttestationRepository.current());
   }
 
   g2BehaviorPolicyMaterialize(
-    opts: G2CandidateReviewOptions & { allowInstallScripts?: string[]; dependencyTimeoutMs?: number; now?: string } = {},
+    opts: G2BehaviorCandidateReviewOptions & { allowInstallScripts?: string[]; dependencyTimeoutMs?: number; now?: string } = {},
   ): G2BehaviorPolicyMaterialization {
     const report = this.g2BehaviorCandidateReview(opts);
     return materializeSelectedG2BehaviorPolicies(
@@ -463,7 +464,7 @@ export class ConstitutionService {
   g2BehaviorDependencySnapshots(
     candidateId: string,
     reviewHash: string,
-    opts: G2CandidateReviewOptions & { allowInstallScripts?: string[]; timeoutMs?: number } = {},
+    opts: G2BehaviorCandidateReviewOptions & { allowInstallScripts?: string[]; timeoutMs?: number } = {},
   ): G2BehaviorDependencySnapshotReceipt {
     const report = this.g2BehaviorCandidateReview(opts);
     if (reviewHash !== report.content_hash) throw new Error("behavior candidate review hash does not match the exact current review packet");
@@ -484,7 +485,7 @@ export class ConstitutionService {
     disposition: "selected" | "rejected",
     actor: string,
     reason: string,
-    opts: G2CandidateReviewOptions & { timeoutMs?: number; now?: string; supersedes?: string | null } = {},
+    opts: G2BehaviorCandidateReviewOptions & { timeoutMs?: number; now?: string; supersedes?: string | null } = {},
   ): G2BehaviorAttestation {
     const existing = this.g2BehaviorAttestationRepository.current().find((record) => (
       record.candidate_id === candidateId

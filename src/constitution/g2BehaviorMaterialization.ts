@@ -19,6 +19,9 @@ const SourceReviewSchema = z.object({
   id: z.string().regex(/^g2behaviorcandidates_[a-f0-9]{10}$/),
   content_hash: z.string().regex(HASH),
   structural_review_hash: z.string().regex(HASH),
+  grounding_mode: z.literal("human_decision_plus_added_test").optional(),
+  source_decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional(),
+  source_grounding_hash: z.string().regex(HASH).optional(),
 }).strict();
 
 const MaterializationItemSchema = z.object({
@@ -102,8 +105,10 @@ export function assessG2BehaviorMaterialization(
   if (report.has_more) throw new Error("G2 behavior materialization requires a complete, untruncated behavior review");
   if (report.unreviewed_candidates !== 0) throw new Error("G2 behavior materialization requires every behavior candidate to have a current human disposition");
 
+  const candidateHashes = new Map(report.items.map((candidate) => [candidate.id, g2BehaviorCandidateHash(candidate)]));
   const selected = currentAttestations
-    .filter((attestation) => attestation.disposition === "selected")
+    .filter((attestation) => attestation.disposition === "selected"
+      && candidateHashes.get(attestation.candidate_id) === attestation.candidate_hash)
     .sort((left, right) => left.candidate_id.localeCompare(right.candidate_id));
   if (!selected.length) throw new Error("G2 behavior materialization requires at least one current selected attestation");
   if (report.selected_candidates !== selected.length) {
@@ -151,6 +156,9 @@ export function assessG2BehaviorMaterialization(
       id: report.id,
       content_hash: report.content_hash,
       structural_review_hash: report.structural_review_hash,
+      ...(report.grounding_mode ? { grounding_mode: report.grounding_mode } : {}),
+      ...(report.source_decision_id ? { source_decision_id: report.source_decision_id } : {}),
+      ...(report.source_grounding_hash ? { source_grounding_hash: report.source_grounding_hash } : {}),
     },
     policy_ir_version: EXECUTABLE_BEHAVIOR_IR_VERSION,
     evaluator: { ...BEHAVIOR_POLICY_EVALUATOR },

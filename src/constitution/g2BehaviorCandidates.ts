@@ -2,9 +2,11 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { shortHash } from "../core/ids.js";
+import type { Decision } from "../core/types.js";
 import type { HunchStore } from "../store/hunchStore.js";
-import { revExists } from "../extractors/git.js";
+import { commitMeta, revExists } from "../extractors/git.js";
 import { canonicalHash } from "./canonical.js";
 import {
   buildG2CandidateReview,
@@ -19,10 +21,22 @@ import {
   replaySafeEnvironment,
 } from "./replay.js";
 import { dependencySnapshotForCommit } from "./g2BehaviorDependencies.js";
+import {
+  NODE_TEST_REPORTER_SOURCE,
+  exactNodeTestPattern,
+  nodeTestIsolationFlag,
+  nodeTestReporterEvents,
+} from "./nodeTestEvidence.js";
 
 export type G2BehaviorRunnerKind = "node-test" | "node-test-tsx";
 
 export type G2BehaviorHumanDisposition = "selected" | "rejected";
+
+export interface G2BehaviorCandidateReviewOptions extends G2CandidateReviewOptions {
+  /** Build one finite review batch directly from an exact current human-confirmed
+   * decision instead of requiring a rejected structural proxy first. */
+  decisionId?: string;
+}
 
 export interface G2BehaviorReviewResolution {
   id: string;
@@ -60,7 +74,7 @@ export interface G2BehaviorCandidate {
     known_good: { ref: string; expected: "passed" };
     observed: false;
   };
-  grounding: "rejected_proxy_plus_added_test";
+  grounding: "rejected_proxy_plus_added_test" | "human_decision_plus_added_test";
   data_class: "private";
   authority: "none";
   writes: "none";
@@ -90,6 +104,9 @@ export interface G2BehaviorCandidateReview {
   authority: "none";
   writes: "none";
   proof_status: "not_run";
+  grounding_mode?: "human_decision_plus_added_test";
+  source_decision_id?: string;
+  source_grounding_hash?: string;
 }
 
 export interface G2BehaviorReplayLeg {
@@ -129,6 +146,16 @@ interface RejectedCommit {
   sourceCandidateIds: Set<string>;
   sourceAttestationIds: Set<string>;
   knownBad: string;
+}
+
+interface DirectDecisionCommit {
+  commit: string;
+  subject: string;
+  date: string;
+  changedFiles: Set<string>;
+  decisionId: string;
+  knownBad: string;
+  groundingHash: string;
 }
 
 const TEST_FILE = /\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/;
@@ -215,13 +242,14 @@ export function addedNodeTestNames(source: string): string[] {
   return [...names].sort();
 }
 
-function runnerFor(file: string, name: string): G2BehaviorCandidate["runner"] {
+function runnerFor(file: string, name: string, exact = false): G2BehaviorCandidate["runner"] {
   const kind: G2BehaviorRunnerKind = /\.(?:[cm]?js)$/.test(file) ? "node-test" : "node-test-tsx";
+  const pattern = exact ? exactNodeTestPattern(name) : name;
   return {
     kind,
     argv: kind === "node-test"
-      ? ["node", "--test", `--test-name-pattern=${name}`, file]
-      : ["node", "tsx", "--test", `--test-name-pattern=${name}`, file],
+      ? ["node", "--test", `--test-name-pattern=${pattern}`, file]
+      : ["node", "tsx", "--test", `--test-name-pattern=${pattern}`, file],
   };
 }
 
@@ -240,10 +268,142 @@ export function g2BehaviorReviewContentHash(report: G2BehaviorCandidateReview): 
   return canonicalHash(body);
 }
 
+function currentHumanDecision(store: HunchStore, decisionId: string): Decision {
+  if (!/^dec_[A-Za-z0-9_-]+$/.test(decisionId)) throw new Error("G2 behavior decision id is invalid");
+  const decision = store.getRec("decisions", decisionId);
+  if (!decision) throw new Error(`G2 behavior decision ${decisionId} does not exist`);
+  if (decision.status !== "accepted" || decision.superseded_by || decision.valid_to) {
+    throw new Error(`G2 behavior decision ${decisionId} is not current and accepted`);
+  }
+  if (!decision.provenance.source.includes("human_confirmed")) {
+    throw new Error(`G2 behavior decision ${decisionId} is not human-confirmed`);
+  }
+  if (!decision.commit) throw new Error(`G2 behavior decision ${decisionId} has no exact fixing commit`);
+  return decision;
+}
+
+function directDecisionCommit(store: HunchStore, root: string, decisionId: string): DirectDecisionCommit {
+  const decision = currentHumanDecision(store, decisionId);
+  const meta = commitMeta(decision.commit!, root);
+  if (!meta) throw new Error(`G2 behavior decision ${decisionId} fixing commit is unavailable`);
+  let knownBad: string;
+  try {
+    knownBad = execFileSync("git", ["-C", root, "rev-parse", `${meta.sha}^`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    throw new Error(`G2 behavior decision ${decisionId} fixing commit has no first parent`);
+  }
+  if (!FULL_SHA.test(knownBad)) throw new Error(`G2 behavior decision ${decisionId} first parent is invalid`);
+  return {
+    commit: meta.sha,
+    subject: meta.subject,
+    date: meta.date,
+    changedFiles: new Set(meta.files),
+    decisionId: decision.id,
+    knownBad,
+    groundingHash: canonicalHash(decision),
+  };
+}
+
+function directDecisionReview(
+  store: HunchStore,
+  root: string,
+  opts: G2BehaviorCandidateReviewOptions,
+  behaviorResolutions: G2BehaviorReviewResolution[],
+  since: string,
+  maxCommits: number,
+  limit: number,
+): G2BehaviorCandidateReview {
+  const commit = directDecisionCommit(store, root, opts.decisionId!);
+  const candidates: G2BehaviorCandidate[] = [];
+  const failures: G2BehaviorCandidateReview["extraction_failures"] = [];
+  for (const file of [...commit.changedFiles].filter(safeTestFile).sort()) {
+    const after = fileAt(root, commit.commit, file);
+    if (after == null) {
+      failures.push({ commit: commit.commit, file, error: "known-good test source unavailable" });
+      continue;
+    }
+    const before = fileAt(root, commit.knownBad, file) ?? "";
+    const previous = new Set(addedNodeTestNames(before));
+    for (const name of addedNodeTestNames(after).filter((candidate) => !previous.has(candidate))) {
+      const sourceHash = canonicalHash(after);
+      const seed = canonicalHash({
+        grounding: "human_decision_plus_added_test",
+        decision_id: commit.decisionId,
+        commit: commit.commit,
+        file,
+        name,
+        source_hash: sourceHash,
+      });
+      candidates.push({
+        id: `g2behavior_${shortHash(seed)}`,
+        commit: commit.commit,
+        commit_subject: commit.subject,
+        commit_date: commit.date,
+        statement: name,
+        test: { file, name, source_hash: sourceHash },
+        runner: runnerFor(file, name, true),
+        decision_ids: [commit.decisionId],
+        source_candidate_ids: [],
+        source_attestation_ids: [],
+        proposed_corpus: {
+          known_bad: { ref: commit.knownBad, expected: "failed" },
+          known_good: { ref: commit.commit, expected: "passed" },
+          observed: false,
+        },
+        grounding: "human_decision_plus_added_test",
+        data_class: "private",
+        authority: "none",
+        writes: "none",
+        proof_status: "not_run",
+      });
+    }
+  }
+  for (const candidate of candidates) {
+    const resolution = behaviorResolutions.find((entry) => (
+      entry.candidate_id === candidate.id && entry.candidate_hash === g2BehaviorCandidateHash(candidate)
+    ));
+    if (resolution) candidate.human_review = resolution;
+  }
+  candidates.sort((left, right) => left.test.file.localeCompare(right.test.file) || left.test.name.localeCompare(right.test.name));
+  const items = candidates.slice(0, limit);
+  const reviewCounts = candidates.some((candidate) => candidate.human_review !== undefined) ? {
+    selected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "selected").length,
+    rejected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "rejected").length,
+    unreviewed_candidates: candidates.filter((candidate) => candidate.human_review === undefined).length,
+  } : {};
+  const body = {
+    structural_review_hash: commit.groundingHash,
+    since,
+    max_commits: maxCommits,
+    limit,
+    grounded_rejections_scanned: 0,
+    candidate_commits: candidates.length ? 1 : 0,
+    behavior_candidates: candidates.length,
+    ...reviewCounts,
+    commits_without_added_tests: candidates.length ? [] : [commit.commit],
+    extraction_failures: failures,
+    items,
+    has_more: candidates.length > items.length,
+    limitations: LIMITATIONS,
+    data_class: "private" as const,
+    authority: "none" as const,
+    writes: "none" as const,
+    proof_status: "not_run" as const,
+    grounding_mode: "human_decision_plus_added_test" as const,
+    source_decision_id: commit.decisionId,
+    source_grounding_hash: commit.groundingHash,
+  };
+  const contentHash = canonicalHash(body);
+  return { id: `g2behaviorcandidates_${shortHash(contentHash)}`, content_hash: contentHash, ...body };
+}
+
 export function buildG2BehaviorCandidateReview(
   store: HunchStore,
   root: string,
-  opts: G2CandidateReviewOptions = {},
+  opts: G2BehaviorCandidateReviewOptions = {},
   resolutions: G2CandidateReviewResolution[] = [],
   behaviorResolutions: G2BehaviorReviewResolution[] = [],
 ): G2BehaviorCandidateReview {
@@ -251,6 +411,7 @@ export function buildG2BehaviorCandidateReview(
   if (!since || since.length > 100) throw new Error("G2 behavior candidate since window must be a non-empty bounded string");
   const maxCommits = positiveBound(opts.maxCommits ?? 100, "G2 behavior candidate maxCommits", 200);
   const limit = positiveBound(opts.limit ?? 30, "G2 behavior candidate limit", 100);
+  if (opts.decisionId) return directDecisionReview(store, root, opts, behaviorResolutions, since, maxCommits, limit);
   const structural = buildG2CandidateReview(store, root, { since, maxCommits, limit: 100 }, resolutions);
   const rejected = structural.items.filter((candidate) => candidate.human_review?.disposition === "rejected"
     && candidate.attestation.status !== "unattested_structural_coincidence");
@@ -328,7 +489,7 @@ export function buildG2BehaviorCandidateReview(
     || left.test.file.localeCompare(right.test.file)
     || left.test.name.localeCompare(right.test.name));
   const items = candidates.slice(0, limit);
-  const reviewCounts = behaviorResolutions.length ? {
+  const reviewCounts = candidates.some((candidate) => candidate.human_review !== undefined) ? {
     selected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "selected").length,
     rejected_candidates: candidates.filter((candidate) => candidate.human_review?.disposition === "rejected").length,
     unreviewed_candidates: candidates.filter((candidate) => candidate.human_review === undefined).length,
@@ -410,12 +571,27 @@ function runLeg(
     const testFile = join(checkout, candidate.test.file);
     mkdirSync(dirname(testFile), { recursive: true });
     writeFileSync(testFile, source);
+    const exactEvidence = candidate.grounding === "human_decision_plus_added_test";
+    const reporter = join(run, "reporter.mjs");
+    const patternArg = candidate.runner.argv.find((arg) => arg.startsWith("--test-name-pattern="))
+      ?? `--test-name-pattern=${candidate.test.name}`;
+    if (exactEvidence) writeFileSync(reporter, NODE_TEST_REPORTER_SOURCE);
+    const testArgs = exactEvidence
+      ? [
+          "--test",
+          nodeTestIsolationFlag(),
+          patternArg,
+          `--test-reporter=${pathToFileURL(reporter).href}`,
+          "--test-reporter-destination=stdout",
+          candidate.test.file,
+        ]
+      : ["--test", patternArg, candidate.test.file];
     let args: string[] | null;
     if (candidate.runner.kind === "node-test") {
-      args = ["--test", `--test-name-pattern=${candidate.test.name}`, candidate.test.file];
+      args = testArgs;
     } else {
       const tsx = dependencySnapshot ? join(dependencySnapshot.nodeModules, "tsx", "dist", "cli.mjs") : "";
-      args = existsSync(tsx) ? [tsx, "--test", `--test-name-pattern=${candidate.test.name}`, candidate.test.file] : null;
+      args = existsSync(tsx) ? [tsx, ...testArgs] : null;
     }
     if (!args) {
       leg = errorLeg(commit, expected, "dependency-snapshot-unavailable", dependencySnapshotId);
@@ -425,7 +601,7 @@ function runLeg(
         env,
         encoding: "utf8",
         timeout: budgetMs,
-        maxBuffer: 1024 * 1024,
+        maxBuffer: 2 * 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
       });
@@ -436,16 +612,33 @@ function runLeg(
         leg = errorLeg(commit, expected, result.signal === "SIGTERM" ? "timeout" : "runner-signaled", dependencySnapshotId);
       } else {
         const exitCode = result.status ?? null;
-        const infrastructureError = exitCode === 0 ? null : nodeTestInfrastructureError(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
-        leg = infrastructureError
-          ? errorLeg(commit, expected, infrastructureError, dependencySnapshotId)
-          : {
-              commit,
-              expected,
-              result: exitCode === 0 ? "passed" : "failed",
-              exit_code: exitCode,
-              ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}),
-            };
+        const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+        if (exactEvidence) {
+          const matches = nodeTestReporterEvents(result.stdout ?? "")
+            .filter((event) => event.name === candidate.test.name && !event.skip && !event.todo);
+          if (matches.length === 0) {
+            leg = errorLeg(commit, expected, nodeTestInfrastructureError(output) ?? "selected-test-not-executed", dependencySnapshotId);
+          } else if (matches.length > 1) {
+            leg = errorLeg(commit, expected, "selected-test-ambiguous", dependencySnapshotId);
+          } else if (matches[0]!.type === "test:pass" && exitCode === 0) {
+            leg = { commit, expected, result: "passed", exit_code: exitCode, ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}) };
+          } else if (matches[0]!.type === "test:fail" && exitCode !== 0) {
+            leg = { commit, expected, result: "failed", exit_code: exitCode, ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}) };
+          } else {
+            leg = errorLeg(commit, expected, "runner-outcome-inconsistent", dependencySnapshotId);
+          }
+        } else {
+          const infrastructureError = exitCode === 0 ? null : nodeTestInfrastructureError(output);
+          leg = infrastructureError
+            ? errorLeg(commit, expected, infrastructureError, dependencySnapshotId)
+            : {
+                commit,
+                expected,
+                result: exitCode === 0 ? "passed" : "failed",
+                exit_code: exitCode,
+                ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}),
+              };
+        }
       }
     }
   } catch (error) {

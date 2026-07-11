@@ -1652,7 +1652,46 @@ test("Phase 2S G2 candidate attestations are exact, append-only, private, and no
   }
 });
 
-test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior", async () => {
+test("Phase 2Y direct decision replay executes regex-punctuated test names exactly", () => {
+  const { root, store, cleanup } = layeredRepo();
+  try {
+    writeFileSync(join(root, "src/direct.mjs"), "export function guarded(){ return false; }\n");
+    commitFiles(root, ["src/direct.mjs"], "fixture: direct behavior baseline");
+    writeFileSync(join(root, "src/direct.mjs"), "export function guarded(){ return true; }\n");
+    mkdirSync(join(root, "test"), { recursive: true });
+    writeFileSync(join(root, "test/direct.test.mjs"), [
+      'import test from "node:test";',
+      'import assert from "node:assert/strict";',
+      'import { guarded } from "../src/direct.mjs";',
+      'test("guarded path validates behavior (exact)", () => assert.equal(guarded(), true));',
+      "",
+    ].join("\n"));
+    const fix = commitFiles(root, ["src/direct.mjs", "test/direct.test.mjs"], "fix: direct exact behavior");
+    store.json.put("decisions", {
+      ...decision("dec_g2_exact_name"),
+      title: "Execute exact decision-grounded regression",
+      context: "Regex punctuation in a test name must never turn zero execution into a pass.",
+      decision: "The exact selected regression must produce one real pass or fail event.",
+      related_files: ["src/direct.mjs", "test/direct.test.mjs"],
+      commit: fix,
+    });
+    const service = new ConstitutionService(store, root);
+    const opts = { decisionId: "dec_g2_exact_name", since: "30d", maxCommits: 10, limit: 10 };
+    const review = service.g2BehaviorCandidateReview(opts);
+    assert.equal(review.items.length, 1);
+    const candidate = review.items[0]!;
+    assert.equal(candidate.runner.argv[2], "--test-name-pattern=^guarded path validates behavior \\(exact\\)$");
+    const replay = service.g2BehaviorCandidateReplay(candidate.id, review.content_hash, opts);
+    assert.equal(replay.known_bad.result, "failed");
+    assert.equal(replay.known_good.result, "passed");
+    assert.equal(replay.verdict, "behavior_confirmed");
+  } finally {
+    store.close();
+    cleanup();
+  }
+});
+
+test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavior", async () => {
   const { root, store: initial, cleanup } = layeredRepo();
   initial.close();
   const privateRoot = join(root, "private-g2-behavior/.hunch");
@@ -1696,8 +1735,34 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
       related_files: ["src/guard.mjs", "test/guard.test.mjs"],
       commit: fix,
     });
+    store.json.put("decisions", {
+      ...decision("dec_g2_direct"),
+      title: "Guarded path validates behavior directly",
+      context: "The exact fixing commit added an executable regression for the human-confirmed behavior.",
+      decision: "The guarded path must validate before returning success.",
+      related_files: ["src/guard.mjs", "test/guard.test.mjs"],
+      commit: fix,
+    });
     const service = new ConstitutionService(store, root);
     const bounds = { since: "30d", maxCommits: 20, limit: 20 };
+    const directBounds = { ...bounds, decisionId: "dec_g2_direct" };
+    const directReview = service.g2BehaviorCandidateReview(directBounds);
+    assert.equal(directReview.grounding_mode, "human_decision_plus_added_test");
+    assert.equal(directReview.source_decision_id, "dec_g2_direct");
+    assert.equal(directReview.items.length, 1);
+    assert.equal(directReview.items[0]?.grounding, "human_decision_plus_added_test");
+    assert.deepEqual(directReview.items[0]?.decision_ids, ["dec_g2_direct"]);
+    assert.deepEqual(directReview.items[0]?.source_candidate_ids, []);
+    assert.deepEqual(directReview.items[0]?.source_attestation_ids, []);
+    const directReplay = service.g2BehaviorCandidateReplay(
+      directReview.items[0]!.id,
+      directReview.content_hash,
+      directBounds,
+    );
+    assert.equal(directReplay.verdict, "behavior_confirmed");
+    assert.equal(directReplay.known_bad.result, "failed");
+    assert.equal(directReplay.known_good.result, "passed");
+
     const structural = service.g2CandidateReview(bounds);
     const proxy = structural.items.find((item) => item.commit === fix && item.attestation.decision_ids.includes("dec_g2_behavior"))!;
     assert.ok(proxy, "the human-grounded structural proxy is available for explicit rejection");
@@ -1783,6 +1848,25 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
       allowInstallScripts: [],
     }), snapshots, "an exact retry validates and reuses the immutable snapshot");
 
+    const directSnapshots = service.g2BehaviorDependencySnapshots(
+      directReview.items[0]!.id,
+      directReview.content_hash,
+      { ...directBounds, allowInstallScripts: [] },
+    );
+    assert.deepEqual(directSnapshots.snapshots.map((snapshot) => snapshot.id), snapshots.snapshots.map((snapshot) => snapshot.id));
+    const directSelection = service.attestG2BehaviorCandidate(
+      directReview.items[0]!.id,
+      directReview.content_hash,
+      "selected",
+      "human:reviewer",
+      "The decision-grounded executable regression proves the durable behavior without a structural proxy.",
+      { ...directBounds, now: "2026-07-11T19:30:00.000Z" },
+    );
+    assert.equal(directSelection.disposition, "selected");
+    const directAssessment = service.g2BehaviorMaterializationAssessment(directBounds);
+    assert.equal(directAssessment.selected_attestations, 1);
+    assert.equal(directAssessment.source_review.source_decision_id, "dec_g2_direct");
+
     const replayWithSnapshot = service.g2BehaviorCandidateReplay(candidate.id, review.content_hash, bounds);
     assert.equal(replayWithSnapshot.known_bad.dependency_snapshot_id, snapshots.snapshots[0]!.id);
     assert.equal(replayWithSnapshot.known_good.dependency_snapshot_id, snapshots.snapshots[0]!.id);
@@ -1821,6 +1905,17 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
     assert.equal(cliReviewRun.status, 0, cliReviewRun.stderr);
     const cliReview = JSON.parse(cliReviewRun.stdout) as { content_hash: string };
     assert.equal(cliReview.content_hash, review.content_hash, "CLI exposes the exact core behavior review receipt");
+    const cliDirectReviewRun = spawnSync(process.execPath, [
+      tsx, cli, "constitution", "g2",
+      "--behavior-candidates", "20",
+      "--behavior-decision", "dec_g2_direct",
+      "--candidate-since", bounds.since,
+      "--candidate-commits", String(bounds.maxCommits),
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(cliDirectReviewRun.status, 0, cliDirectReviewRun.stderr);
+    const cliDirectReview = JSON.parse(cliDirectReviewRun.stdout) as { content_hash: string };
+    const currentDirectReview = service.g2BehaviorCandidateReview(directBounds);
+    assert.equal(cliDirectReview.content_hash, currentDirectReview.content_hash, "CLI exposes the exact current direct-decision review receipt");
 
     const cliReplayRun = spawnSync(process.execPath, [
       tsx, cli, "constitution", "g2",
@@ -1844,6 +1939,12 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
     });
     const mcpReview = JSON.parse((mcpReviewCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
     assert.equal(mcpReview.content_hash, review.content_hash, "MCP exposes the exact core behavior review receipt");
+    const mcpDirectReviewCall = await client.callTool({
+      name: "hunch_constitution_g2_behavior_candidates",
+      arguments: { decision_id: "dec_g2_direct", since: bounds.since, max_commits: bounds.maxCommits, limit: bounds.limit },
+    });
+    const mcpDirectReview = JSON.parse((mcpDirectReviewCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
+    assert.equal(mcpDirectReview.content_hash, currentDirectReview.content_hash, "MCP exposes the exact current direct-decision review receipt");
     const mcpReplayCall = await client.callTool({
       name: "hunch_constitution_g2_behavior_replay",
       arguments: {
@@ -1961,6 +2062,14 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
       now: "2026-07-11T20:31:00.000Z",
       allowInstallScripts: [],
     }), policyMaterialization, "exact behavior policy materialization is retry-safe and byte-stable");
+    const directPolicyMaterialization = service.g2BehaviorPolicyMaterialize({
+      ...directBounds,
+      now: "2026-07-11T20:32:00.000Z",
+      allowInstallScripts: [],
+    });
+    assert.equal(directPolicyMaterialization.materialized_policies, 1);
+    assert.equal(directPolicyMaterialization.items[0]?.proof_class, "P3");
+    assert.notEqual(directPolicyMaterialization.items[0]?.policy_id, behaviorPolicy.id);
     const cliPolicyMaterializeRun = spawnSync(process.execPath, [
       tsx, cli, "constitution", "g2",
       "--behavior-policy-materialize",
@@ -1971,6 +2080,17 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
     assert.equal(cliPolicyMaterializeRun.status, 0, cliPolicyMaterializeRun.stderr);
     const cliPolicyMaterialization = JSON.parse(cliPolicyMaterializeRun.stdout) as { content_hash: string };
     assert.equal(cliPolicyMaterialization.content_hash, policyMaterialization.content_hash, "CLI exposes the exact core policy materialization receipt");
+    const cliDirectPolicyMaterializeRun = spawnSync(process.execPath, [
+      tsx, cli, "constitution", "g2",
+      "--behavior-policy-materialize",
+      "--behavior-decision", "dec_g2_direct",
+      "--candidate-since", bounds.since,
+      "--candidate-commits", String(bounds.maxCommits),
+      "--candidate-limit", String(bounds.limit),
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(cliDirectPolicyMaterializeRun.status, 0, cliDirectPolicyMaterializeRun.stderr);
+    const cliDirectPolicyMaterialization = JSON.parse(cliDirectPolicyMaterializeRun.stdout) as { content_hash: string };
+    assert.equal(cliDirectPolicyMaterialization.content_hash, directPolicyMaterialization.content_hash, "CLI materializes only the exact direct-decision batch");
     const cliMaterializeRun = spawnSync(process.execPath, [
       tsx, cli, "constitution", "g2",
       "--behavior-materialize",
@@ -1998,6 +2118,12 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
     });
     const mcpPolicyMaterialization = JSON.parse((mcpPolicyMaterializationCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
     assert.equal(mcpPolicyMaterialization.content_hash, policyMaterialization.content_hash, "MCP exposes the exact core policy materialization receipt");
+    const mcpDirectPolicyMaterializationCall = await client.callTool({
+      name: "hunch_constitution_g2_behavior_policy_materialize",
+      arguments: { decision_id: "dec_g2_direct", since: bounds.since, max_commits: bounds.maxCommits, limit: bounds.limit },
+    });
+    const mcpDirectPolicyMaterialization = JSON.parse((mcpDirectPolicyMaterializationCall.content[0] as { type: "text"; text: string }).text) as { content_hash: string };
+    assert.equal(mcpDirectPolicyMaterialization.content_hash, directPolicyMaterialization.content_hash, "MCP materializes only the exact direct-decision batch");
     await client.close();
     client = null;
     assert.throws(
@@ -2073,7 +2199,7 @@ test("Phase 2U/2V/2W/2X replays, attests, and proves exact executable behavior",
     writeFileSync(behaviorFile, JSON.stringify(tamperedBehavior));
     assert.throws(() => service.g2BehaviorCandidateReview(bounds), /content hash mismatch/i);
     writeFileSync(behaviorFile, behaviorRecord);
-    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, 1);
+    assert.equal(service.repository.listPolicies({ privateOnly: true }).length, 2);
     assert.equal(service.repository.listEvidence({ privateOnly: true }).length, 0);
   } finally {
     if (client) await client.close();

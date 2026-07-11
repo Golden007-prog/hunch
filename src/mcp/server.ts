@@ -1031,17 +1031,19 @@ export function buildServer(root: string): McpServer {
       description:
         "Derive a bounded private review packet from human-grounded rejected structural proxies and newly added literal node:test cases in their exact fixing commits. Read-only: candidates remain unselected and create no policy, corpus, proof, authority, warning, or block.",
       inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact current human-confirmed decision to use as the direct behavior grounding batch."),
         since: z.string().min(1).max(100).optional().describe("Git history window (default 180d)."),
         max_commits: z.number().int().min(1).max(200).optional().describe("Maximum fix-labeled commits to inspect (default 100)."),
         limit: z.number().int().min(1).max(100).optional().describe("Maximum behavior candidates to return (default 30)."),
       },
     },
-    async ({ since, max_commits, limit }): Promise<ToolResult> => {
+    async ({ decision_id, since, max_commits, limit }): Promise<ToolResult> => {
       try {
         return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorCandidateReview({
           since: since ?? "180d",
           maxCommits: max_commits ?? 100,
           limit: limit ?? 30,
+          decisionId: decision_id,
         }), null, 2));
       } catch (e) {
         return err(`Failed to inspect G2 behavior candidates: ${(e as Error).message}`);
@@ -1058,18 +1060,20 @@ export function buildServer(root: string): McpServer {
       inputSchema: {
         candidate_id: z.string().regex(/^g2behavior_[a-f0-9]{10}$/),
         review_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact decision batch used by the reviewed candidate."),
         since: z.string().min(1).max(100).optional().describe("Git history window used by the exact review packet (default 180d)."),
         max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
         limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
         timeout_ms: z.number().int().min(1).max(120000).optional().describe("Per-leg execution timeout (default 30000ms)."),
       },
     },
-    async ({ candidate_id, review_hash, since, max_commits, limit, timeout_ms }): Promise<ToolResult> => {
+    async ({ candidate_id, review_hash, decision_id, since, max_commits, limit, timeout_ms }): Promise<ToolResult> => {
       try {
         return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorCandidateReplay(candidate_id, review_hash, {
           since: since ?? "180d",
           maxCommits: max_commits ?? 100,
           limit: limit ?? 30,
+          decisionId: decision_id,
           timeoutMs: timeout_ms ?? 30_000,
         }), null, 2));
       } catch (e) {
@@ -1085,17 +1089,19 @@ export function buildServer(root: string): McpServer {
       description:
         "Bind the complete current private behavior review and exact selected attestations, then report whether their durable meanings are expressible by the supported Policy IR. Read-only and fail-closed: unsupported behavior creates no policy, corpus, plan, proof, authority, warning, or block.",
       inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact decision batch to assess."),
         since: z.string().min(1).max(100).optional().describe("Git history window used by the exact review packet (default 180d)."),
         max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
         limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
       },
     },
-    async ({ since, max_commits, limit }): Promise<ToolResult> => {
+    async ({ decision_id, since, max_commits, limit }): Promise<ToolResult> => {
       try {
         return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorMaterializationAssessment({
           since: since ?? "180d",
           maxCommits: max_commits ?? 100,
           limit: limit ?? 30,
+          decisionId: decision_id,
         }), null, 2));
       } catch (e) {
         return err(`Failed to assess G2 behavior materialization: ${(e as Error).message}`);
@@ -1110,6 +1116,7 @@ export function buildServer(root: string): McpServer {
       description:
         "Materialize every current exact selected behavior attestation into a separate private Policy IR v2 proposal, exact corpus and plan, and P3 executable proof. Writes private non-authoritative artifacts only; activation remains a separate explicit human action.",
       inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact decision batch to materialize."),
         since: z.string().min(1).max(100).optional().describe("Git history window used by the complete exact review packet (default 180d)."),
         max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
         limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
@@ -1117,12 +1124,13 @@ export function buildServer(root: string): McpServer {
         dependency_timeout_ms: z.number().int().min(1).max(900000).optional().describe("Timeout for each exact dependency snapshot operation (default 300000ms)."),
       },
     },
-    async ({ since, max_commits, limit, allow_install_scripts, dependency_timeout_ms }): Promise<ToolResult> => {
+    async ({ decision_id, since, max_commits, limit, allow_install_scripts, dependency_timeout_ms }): Promise<ToolResult> => {
       try {
         return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorPolicyMaterialize({
           since: since ?? "180d",
           maxCommits: max_commits ?? 100,
           limit: limit ?? 30,
+          decisionId: decision_id,
           allowInstallScripts: allow_install_scripts ?? [],
           dependencyTimeoutMs: dependency_timeout_ms ?? 300_000,
         }), null, 2));
