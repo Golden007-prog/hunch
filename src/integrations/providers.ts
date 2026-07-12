@@ -24,6 +24,7 @@ import type { HunchStore } from "../store/hunchStore.js";
 import type { Invocation } from "./scaffold.js";
 import type { HookProvider } from "../core/agenthook.js";
 import { renderHunchSection, upsertSection, updateClaudeMd } from "./claudemd.js";
+import { isGitCleanPath } from "../extractors/git.js";
 
 /** Strip // line and block comments + trailing commas (JSONC → JSON). String-aware
  *  (double-quoted, with escapes) so a // inside a value isn't mangled. VS Code's
@@ -396,28 +397,49 @@ export function regenerateGrounding(root: string, store: HunchStore): string[] {
   ];
 }
 
-/** Self-heal: refresh the Hunch section in each grounding doc that ALREADY exists,
- *  and report which ones actually changed. Unlike regenerateGrounding it NEVER creates
- *  a file (so it can't scaffold grounding into a project that opted out of an
- *  assistant). Run by `hunch index` and non-hook `hunch sync` so a project silently
- *  picks up generator fixes (e.g. corrected MCP tool param names) and fresh record
- *  counts on the next refresh — no manual `hunch init`. Not run from the commit hook,
- *  which deliberately avoids dirtying the working tree on every commit. */
-export function refreshExistingGrounding(root: string, store: HunchStore): string[] {
-  const targets: Array<[string, () => string]> = [
+function groundingTargets(root: string, store: HunchStore): Array<[string, () => string]> {
+  return [
     ["CLAUDE.md", () => updateClaudeMd(root, store)],
     ["AGENTS.md", () => writeAgentsMd(root, store)],
     [join(".github", "copilot-instructions.md"), () => writeCopilotInstructions(root, store)],
     [join(".cursor", "rules", "hunch.mdc"), () => writeCursorRule(root, store)],
     [join(".windsurf", "rules", "hunch.md"), () => writeWindsurfRule(root, store)],
   ];
+}
+
+/** Self-heal: refresh the Hunch section in each grounding doc that ALREADY exists,
+ *  and report which ones actually changed. Unlike regenerateGrounding it NEVER creates
+ *  a file (so it can't scaffold grounding into a project that opted out of an
+ *  assistant). Run by `hunch index` and non-hook `hunch sync` so a project silently
+ *  picks up generator fixes (e.g. corrected MCP tool param names) and fresh record
+ *  counts on the next refresh — no manual `hunch init`. */
+export function refreshExistingGrounding(root: string, store: HunchStore): string[] {
   const changed: string[] = [];
-  for (const [rel, write] of targets) {
+  for (const [rel, write] of groundingTargets(root, store)) {
     const file = join(root, rel);
     if (!existsSync(file)) continue; // refresh-only: never scaffold a doc the project doesn't have
     const before = readFileSync(file, "utf8");
     write();
     if (readFileSync(file, "utf8") !== before) changed.push(rel);
+  }
+  return changed;
+}
+
+/** Capture-commit refresh: rewrite ONLY grounding docs that are git-clean, and return the
+ *  absolute paths of the ones that changed so the caller folds them into the memory commit
+ *  (commitAndPushHunch alsoStage). This keeps committed record counts permanently true —
+ *  every capture used to bump the count and re-stale the committed docs, failing the
+ *  release gate's clean-tree check on the next CI index (the refresh-counts treadmill).
+ *  A user-dirty or untracked doc is left completely untouched (never refreshed, never
+ *  staged); it heals on the next manual `hunch sync` or `hunch index`. */
+export function refreshCommittableGrounding(root: string, store: HunchStore): string[] {
+  const changed: string[] = [];
+  for (const [rel, write] of groundingTargets(root, store)) {
+    const file = join(root, rel);
+    if (!existsSync(file) || !isGitCleanPath(root, rel)) continue;
+    const before = readFileSync(file, "utf8");
+    write();
+    if (readFileSync(file, "utf8") !== before) changed.push(file);
   }
   return changed;
 }

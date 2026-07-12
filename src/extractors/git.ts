@@ -70,7 +70,7 @@ export function mainWorktreeRoot(root: string): string {
  *  "pushed" (commit created and pushed), "committed" (commit created; push not requested,
  *  or the merge/push failed — retry rides the next flush), null (nothing committed: lock
  *  held, backstop refusal, nothing staged, or not a repo). */
-export function commitAndPushHunch(hunchDir: string, message: string, opts: { push?: boolean } = {}): "pushed" | "committed" | null {
+export function commitAndPushHunch(hunchDir: string, message: string, opts: { push?: boolean; alsoStage?: string[] } = {}): "pushed" | "committed" | null {
   // Serialize across worktrees: several worktrees auto-committing the SAME overlay repo
   // at once would race git's index.lock. An atomic-mkdir lock lets one proceed; the others
   // skip — safe because each record is already written to disk, so `git add .` here sweeps
@@ -101,6 +101,13 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: { pu
       }
       return null;
     }
+    // Grounding docs refreshed by this capture ride the same memory commit, so committed record
+    // counts can never go stale (the refresh-counts treadmill: every capture commit bumped the
+    // count and re-staled the docs for the next release-gate clean-tree check). Staged AFTER the
+    // memory-only backstop on purpose: alsoStage is a code-controlled list of generated grounding
+    // docs the caller verified git-clean BEFORE rewriting, so it can neither weaken the
+    // bug_overlay_clobber detection above nor sweep user edits.
+    for (const file of opts.alsoStage ?? []) run(["add", "--", file]);
     // Only sync+push when a memory commit was actually created — never run pull/push against the
     // enclosing repo on an empty stage. Two-way sync: MERGE the remote BEFORE pushing so a push
     // can't be rejected non-fast-forward; the .hunch merge driver resolves same-record conflicts
@@ -116,6 +123,16 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: { pu
     return "committed";
   } finally {
     try { rmSync(lock, { recursive: true, force: true }); } catch { /* released best-effort */ }
+  }
+}
+
+/** True when `rel` is tracked with no staged or unstaged changes (untracked counts as
+ *  dirty, so a doc the user never committed is never swept into a memory commit). */
+export function isGitCleanPath(root: string, rel: string): boolean {
+  try {
+    return execFileSync("git", ["-C", root, "status", "--porcelain", "--", rel], { encoding: "utf8" }).trim() === "";
+  } catch {
+    return false;
   }
 }
 

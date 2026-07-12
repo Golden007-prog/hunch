@@ -7,8 +7,10 @@
  * commits (bug_overlay_clobber); the memory commit rides their next push instead.
  * Used by every CLI/MCP path that writes a record.
  */
+import { dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { commitAndPushHunch } from "../extractors/git.js";
+import { refreshCommittableGrounding } from "./providers.js";
 
 /** Auto-commit + push the overlay after a private write, when auto-commit is on. No-op
  *  otherwise (manual `hunch private --sync` still works). Never throws. */
@@ -35,5 +37,9 @@ export function flushCapture(
     return null;
   }
   if (!store.autoCommit) return null;
-  return commitAndPushHunch(publicHunchDir, message, { push: false });
+  // A public capture changes record counts, so refresh git-clean grounding docs and fold
+  // them into the SAME memory commit — otherwise every capture re-stales the committed
+  // counts and the release gate's clean-tree check fails on the next CI index.
+  const grounding = refreshCommittableGrounding(dirname(publicHunchDir), store);
+  return commitAndPushHunch(publicHunchDir, message, { push: false, alsoStage: grounding });
 }

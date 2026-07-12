@@ -53,7 +53,7 @@ import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS } from "../integr
 import { writeCiWorkflow } from "../integrations/ciAction.js";
 import { updateClaudeMd } from "../integrations/claudemd.js";
 import { writeMcpJson, writeSlashCommands, installClaudeHooks } from "../integrations/scaffold.js";
-import { scaffoldProviders, regenerateGrounding, refreshExistingGrounding } from "../integrations/providers.js";
+import { scaffoldProviders, regenerateGrounding, refreshExistingGrounding, refreshCommittableGrounding } from "../integrations/providers.js";
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatStructure } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
@@ -367,12 +367,16 @@ program
     const doCommit = opts.commit ?? store.autoCommit;
     if (r.status === "written") {
       store.reindex();
-      // Don't rewrite grounding from the hook — it would dirty the working tree on
-      // every commit. Off the hook (manual `hunch sync`), self-heal ALL existing
-      // grounding docs (param-name fixes + fresh counts), not just CLAUDE.md.
+      // Refresh grounding so committed counts track the store. Git-CLEAN docs are
+      // refreshed and folded into the capture commit below (kills the refresh-counts
+      // treadmill: every capture bumped the count and re-staled the docs for the
+      // release gate's clean-tree check). A user-dirty doc is never touched from the
+      // hook; manual `hunch sync` still self-heals ALL existing grounding docs.
+      const groundingToStage = toOverlay ? [] : refreshCommittableGrounding(root, store);
       if (!opts.fromHook) {
         const healed = refreshExistingGrounding(root, store);
-        if (healed.length && !opts.quiet) console.log(`  ↳ grounding refreshed: ${healed.join(", ")}`);
+        const refreshed = [...new Set([...groundingToStage.map((file) => relative(root, file)), ...healed])];
+        if (refreshed.length && !opts.quiet) console.log(`  ↳ grounding refreshed: ${refreshed.join(", ")}`);
       }
       // Persist the captured decision in the repo it landed in (private store under
       // --private, else this repo). ON by default (follows auto-commit; --no-commit or
@@ -384,7 +388,7 @@ program
       // unpushed commits (bug_overlay_clobber lineage).
       const commitTarget = doCommit ? (toOverlay ? store.privateDir : hunchPaths(root).hunch) : undefined;
       if (commitTarget) {
-        commitAndPushHunch(commitTarget, `hunch: capture ${r.decision?.id ?? "decision"}`, { push: toOverlay });
+        commitAndPushHunch(commitTarget, `hunch: capture ${r.decision?.id ?? "decision"}`, { push: toOverlay, alsoStage: groundingToStage });
         if (!opts.quiet) console.log(`  ↳ committed ${toOverlay ? "+ pushed " : ""}${r.decision?.id} (${commitTarget}${toOverlay ? "" : " — rides your next push"})`);
       }
       if (!opts.quiet) console.log(`✓ captured decision ${r.decision?.id} via ${r.provider}: "${r.decision?.title}"`);
