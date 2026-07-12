@@ -36,7 +36,7 @@ function draft(id: string, title: string, source = "llm_draft"): Decision {
   };
 }
 
-test("auto-review --apply refuses an incomplete harness batch without mutating drafts", () => {
+test("auto-review --apply refuses an incomplete harness batch without mutating drafts", { skip: process.platform === "win32" ? "fixture fakes the provider with a #!/bin/sh stub" : false }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-autoreview-cli-"));
   const bin = join(root, "bin");
   const count = join(root, "judge-count");
@@ -126,7 +126,7 @@ exit 1
   }
 });
 
-test("auto-review never deletes two proposed decisions merely because they duplicate each other", () => {
+test("auto-review never deletes two proposed decisions merely because they duplicate each other", { skip: process.platform === "win32" ? "fixture fakes the provider with a #!/bin/sh stub" : false }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-autoreview-proposals-"));
   const bin = join(root, "bin");
   const count = join(root, "judge-count");

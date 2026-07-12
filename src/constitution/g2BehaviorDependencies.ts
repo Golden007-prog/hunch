@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -142,6 +142,20 @@ function npmExecutable(): string {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
+// npm on Windows is a .cmd shim, which Node's CVE-2024-27980 hardening refuses
+// to spawn with shell:false (EINVAL). Mirror src/synthesis/provider.ts: route
+// through cmd.exe as ONE trusted line — every argv here is a fixed flag or a
+// lockfile-validated package name, so nothing can be shell-interpreted. POSIX
+// keeps shell:false with argv as-is.
+function spawnNpm(
+  args: string[],
+  opts: { cwd?: string; env: NodeJS.ProcessEnv; timeout: number; maxBuffer?: number; stdio: ("ignore" | "pipe")[] },
+): SpawnSyncReturns<string> {
+  return process.platform === "win32"
+    ? spawnSync([npmExecutable(), ...args].join(" "), { ...opts, encoding: "utf8", shell: true, windowsHide: true })
+    : spawnSync(npmExecutable(), args, { ...opts, encoding: "utf8", shell: false });
+}
+
 function buildEnvironment(home: string): NodeJS.ProcessEnv {
   const env = replaySafeEnvironment(home, join(home, "global.gitconfig"));
   for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "npm_config_registry"]) {
@@ -151,12 +165,10 @@ function buildEnvironment(home: string): NodeJS.ProcessEnv {
 }
 
 function runtimeIdentity(env: NodeJS.ProcessEnv): G2BehaviorDependencySnapshot["runtime"] {
-  const result = spawnSync(npmExecutable(), ["--version"], {
+  const result = spawnNpm(["--version"], {
     env,
-    encoding: "utf8",
     timeout: 10_000,
     stdio: ["ignore", "pipe", "ignore"],
-    shell: false,
   });
   if (result.status !== 0 || !result.stdout.trim()) throw new Error("dependency snapshot could not identify npm");
   return { node: process.version, npm: result.stdout.trim(), platform: process.platform, arch: process.arch };
@@ -252,14 +264,12 @@ function findSnapshot(base: string, inputHash: string): { snapshot: G2BehaviorDe
 }
 
 function runNpm(args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): void {
-  const result = spawnSync(npmExecutable(), args, {
+  const result = spawnNpm(args, {
     cwd,
     env,
-    encoding: "utf8",
     timeout: timeoutMs,
     maxBuffer: 10 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
-    shell: false,
   });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT" ? "timed out" : "failed to start";
