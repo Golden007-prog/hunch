@@ -13,6 +13,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="upgrade.css" />
+<link rel="stylesheet" href="/proof-curve.css" />
 <style>
   /* ──────────────────────────── tokens ──────────────────────────── */
   :root{
@@ -302,6 +303,46 @@
   </div>
 
 </header>
+
+<!-- One public job: a shareable, source-backed proof of compounding value. -->
+<section class="proof-curve" id="proof" aria-labelledby="proof-title">
+  <div class="wrap proof-shell">
+    <div class="proof-head">
+      <div>
+        <span class="eyebrow">public receipt · hunch.stats/1</span>
+        <h2 id="proof-title">Memory rises. Return has to be earned.</h2>
+      </div>
+      <div>
+        <p>This is Hunch measuring itself on its own repository. Stock comes from the committed graph. Catches begin at zero and move only when a real gate blocks a real reversal.</p>
+        <div class="proof-meta">Generated <span data-proof="generated">from the latest public graph</span> · no private overlay</div>
+      </div>
+    </div>
+    <div class="proof-instrument">
+      <div class="proof-plot" role="img" aria-label="Engineering memory stock rising over time while the return line begins at zero">
+        <span class="proof-axis y">accumulated memory</span><span class="proof-axis x">repository lifetime →</span>
+        <div class="proof-trace">
+          <svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-hidden="true">
+            <defs><linearGradient id="proofWash" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a6b58" stop-opacity=".18"/><stop offset="1" stop-color="#3a6b58" stop-opacity="0"/></linearGradient></defs>
+            <path class="proof-area" data-proof-area d=""/>
+            <path class="proof-stock-line" data-proof-stock pathLength="1" d=""/>
+            <path class="proof-return-line" d="M475 180 L700 180"/>
+            <circle class="proof-point" data-proof-point cx="700" cy="18" r="4"/>
+          </svg>
+        </div>
+        <span class="proof-now">loading public receipt…</span>
+      </div>
+      <div class="proof-ledger" aria-live="polite">
+        <div class="proof-row"><span>accepted decisions</span><strong data-proof="decisions">—</strong></div>
+        <div class="proof-row"><span>locked invariants</span><strong data-proof="locked">—</strong></div>
+        <div class="proof-row"><span>architecture covered</span><strong data-proof="coverage">—</strong></div>
+        <div class="proof-row return"><span>violations caught</span><strong data-proof="caught">—</strong></div>
+        <div class="proof-row return"><span>bugs re-prevented</span><strong data-proof="reprevented">—</strong></div>
+        <div class="proof-row"><span>payback ratio</span><strong data-proof="payback">—</strong></div>
+        <p class="proof-note"><b>Honest by construction.</b> The page computes nothing. Every number is copied from <code>hunch stats --json</code>; zero remains zero until the repository earns otherwise.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ─────────────────────────── problem ─────────────────────────── -->
 <section id="problem">
@@ -887,5 +928,6 @@
 <script defer src="/_vercel/insights/script.js"></script>
 <script defer src="/_vercel/speed-insights/script.js"></script>
 <script src="upgrade.js"></script>
+<script src="/proof-curve.js"></script>
 </body>
 </html>
