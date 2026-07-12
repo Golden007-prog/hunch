@@ -1,8 +1,8 @@
 {
   "name": "hunch-vscode",
   "displayName": "Hunch",
-  "description": "Visualize and query Hunch (an Engineering Memory OS) for the current repo — decisions, invariants, bug history, fragility — right in VS Code.",
-  "version": "0.8.0",
+  "description": "Your repo's engineering memory, in the editor: see WHY code is the way it is (decisions, invariants, bug history), and capture what you decide — one command each.",
+  "version": "0.9.0",
   "publisher": "davesheffer",
   "license": "MIT",
   "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
@@ -42,53 +42,18 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "hunch",
-          "title": "Hunch",
-          "icon": "media/hunch.svg"
-        }
-      ]
-    },
-    "views": {
-      "hunch": [
-        {
-          "id": "hunch.tree",
-          "name": "Engineering Memory",
-          "icon": "media/hunch.svg"
-        }
-      ]
-    },
     "commands": [
       {
-        "command": "hunch.home",
-        "title": "Home — what needs you",
-        "category": "Hunch",
-        "icon": "$(home)"
-      },
-      {
         "command": "hunch.why",
-        "title": "Why is this file the way it is?",
+        "title": "Why is this?",
         "category": "Hunch",
         "icon": "$(question)"
       },
       {
-        "command": "hunch.whySymbol",
-        "title": "Why is this symbol the way it is?",
-        "category": "Hunch"
-      },
-      {
-        "command": "hunch.context",
-        "title": "Assemble context for this file",
+        "command": "hunch.capture",
+        "title": "Capture…",
         "category": "Hunch",
-        "icon": "$(list-tree)"
-      },
-      {
-        "command": "hunch.changeGate",
-        "title": "Review changes against Hunch",
-        "category": "Hunch",
-        "icon": "$(shield)"
+        "icon": "$(lightbulb)"
       },
       {
         "command": "hunch.search",
@@ -97,175 +62,16 @@
         "icon": "$(search)"
       },
       {
-        "command": "hunch.graph",
-        "title": "Component Graph",
-        "category": "Hunch",
-        "icon": "$(type-hierarchy)"
-      },
-      {
-        "command": "hunch.stats",
-        "title": "Compounding Value (stats)",
-        "category": "Hunch",
-        "icon": "$(graph-line)"
-      },
-      {
-        "command": "hunch.recordConstraint",
-        "title": "Record Invariant…",
+        "command": "hunch.whySymbol",
+        "title": "Why is this symbol the way it is?",
         "category": "Hunch"
-      },
-      {
-        "command": "hunch.recordBug",
-        "title": "Record Bug…",
-        "category": "Hunch"
-      },
-      {
-        "command": "hunch.revealScope",
-        "title": "Reveal Invariant Scope",
-        "category": "Hunch"
-      },
-      {
-        "command": "hunch.runCommand",
-        "title": "Hunch Console",
-        "category": "Hunch",
-        "icon": "$(comment-discussion)"
-      },
-      {
-        "command": "hunch.reviewDraft",
-        "title": "Review Draft",
-        "category": "Hunch"
-      },
-      {
-        "command": "hunch.acceptDraft",
-        "title": "Confirm Decision",
-        "category": "Hunch",
-        "icon": "$(check)"
-      },
-      {
-        "command": "hunch.rejectDraft",
-        "title": "Reject Draft",
-        "category": "Hunch",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "hunch.editDraft",
-        "title": "Edit Draft",
-        "category": "Hunch",
-        "icon": "$(edit)"
-      },
-      {
-        "command": "hunch.acceptVerified",
-        "title": "Confirm All Verified Drafts",
-        "category": "Hunch",
-        "icon": "$(check-all)"
-      },
-      {
-        "command": "hunch.rejectDuplicates",
-        "title": "Reject Duplicate Drafts",
-        "category": "Hunch",
-        "icon": "$(clear-all)"
-      },
-      {
-        "command": "hunch.autoReview",
-        "title": "Auto-review Drafts (harness)…",
-        "category": "Hunch",
-        "icon": "$(sparkle)"
-      },
-      {
-        "command": "hunch.refresh",
-        "title": "Refresh",
-        "category": "Hunch",
-        "icon": "$(refresh)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "hunch.revealScope",
-          "when": "false"
-        },
-        {
-          "command": "hunch.reviewDraft",
-          "when": "false"
-        },
-        {
-          "command": "hunch.acceptDraft",
-          "when": "false"
-        },
-        {
-          "command": "hunch.rejectDraft",
-          "when": "false"
-        },
-        {
-          "command": "hunch.editDraft",
-          "when": "false"
-        },
-        {
           "command": "hunch.whySymbol",
-          "when": "editorIsOpen"
-        }
-      ],
-      "view/title": [
-        {
-          "command": "hunch.changeGate",
-          "when": "view == hunch.tree",
-          "group": "navigation@0"
-        },
-        {
-          "command": "hunch.home",
-          "when": "view == hunch.tree",
-          "group": "navigation@1"
-        },
-        {
-          "command": "hunch.runCommand",
-          "when": "view == hunch.tree",
-          "group": "navigation@1"
-        },
-        {
-          "command": "hunch.search",
-          "when": "view == hunch.tree",
-          "group": "navigation@2"
-        },
-        {
-          "command": "hunch.graph",
-          "when": "view == hunch.tree",
-          "group": "navigation@3"
-        },
-        {
-          "command": "hunch.refresh",
-          "when": "view == hunch.tree",
-          "group": "navigation@4"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "hunch.acceptDraft",
-          "when": "view == hunch.tree && viewItem == hunch.draft",
-          "group": "inline@1"
-        },
-        {
-          "command": "hunch.editDraft",
-          "when": "view == hunch.tree && viewItem == hunch.draft",
-          "group": "inline@2"
-        },
-        {
-          "command": "hunch.rejectDraft",
-          "when": "view == hunch.tree && viewItem == hunch.draft",
-          "group": "inline@3"
-        },
-        {
-          "command": "hunch.acceptVerified",
-          "when": "view == hunch.tree && viewItem == hunch.reviewReady",
-          "group": "inline@1"
-        },
-        {
-          "command": "hunch.autoReview",
-          "when": "view == hunch.tree && viewItem == hunch.reviewQueue",
-          "group": "inline@1"
-        },
-        {
-          "command": "hunch.rejectDuplicates",
-          "when": "view == hunch.tree && viewItem == hunch.reviewQueue",
-          "group": "inline@2"
+          "when": "false"
         }
       ],
       "editor/title": [
@@ -275,16 +81,9 @@
           "group": "navigation"
         }
       ],
-      "scm/title": [
-        {
-          "command": "hunch.changeGate",
-          "when": "scmProvider == git",
-          "group": "navigation@20"
-        }
-      ],
       "editor/context": [
         {
-          "command": "hunch.whySymbol",
+          "command": "hunch.why",
           "when": "resourceLangId =~ /typescript|javascript|typescriptreact|javascriptreact|python|go|rust/",
           "group": "navigation"
         }
@@ -296,37 +95,17 @@
         "hunch.statusBar.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show constraints-in-scope for the active file in the status bar."
-        },
-        "hunch.compoundingStatusBar.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the ambient compounding-value item (coverage · caught · re-prevented) from `hunch stats`, with a click-through breakdown."
-        },
-        "hunch.codeLens.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a CodeLens summary (invariants / decisions / bugs) and per-symbol bug/fragility marks."
+          "description": "Show how many invariants guard the active file in the status bar."
         },
         "hunch.hover.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show Hunch bug history and fragility when hovering a symbol."
         },
-        "hunch.diagnostics.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Surface invariants in scope (and near-invariants) for the active file in the Problems panel."
-        },
-        "hunch.decorations.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Mark bug-bearing and fragile symbols on the editor overview ruler."
-        },
         "hunch.cliPath": {
           "type": "string",
           "default": "hunch",
-          "description": "Command used to invoke the Hunch CLI for the record commands (set an absolute path if `hunch` is not on PATH)."
+          "description": "Command used to invoke the Hunch CLI for capture (set an absolute path if `hunch` is not on PATH)."
         }
       }
     },
@@ -414,36 +193,20 @@
       {
         "id": "hunch.gettingStarted",
         "title": "Get started with Hunch",
-        "description": "Browse, query, and write back your repo's engineering memory.",
+        "description": "See why code is the way it is; capture what you decide.",
         "steps": [
           {
-            "id": "explore",
-            "title": "Open the Hunch view",
-            "description": "Browse invariants, decisions, bugs, fragility, and stale records.",
-            "media": {
-              "markdown": "media/walkthrough/explore.md"
-            }
-          },
-          {
             "id": "why",
-            "title": "Why is this file the way it is?",
-            "description": "CodeLens, hover, diagnostics, and the full brief in the editor.",
+            "title": "Why is this the way it is?",
+            "description": "One command (and hover, and the status bar) answers it: invariants, decisions, bug history, blast radius.",
             "media": {
               "markdown": "media/walkthrough/why.md"
             }
           },
           {
-            "id": "graph",
-            "title": "See the shape of the system",
-            "description": "The component dependency graph and fuzzy search.",
-            "media": {
-              "markdown": "media/walkthrough/graph.md"
-            }
-          },
-          {
             "id": "record",
-            "title": "Write memory back",
-            "description": "Record invariants and bugs via the Hunch CLI.",
+            "title": "Capture what you decide",
+            "description": "Hunch: Capture… records a decision, invariant, or bug into the repo's memory.",
             "media": {
               "markdown": "media/walkthrough/record.md"
             }

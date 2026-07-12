@@ -1,13 +1,14 @@
-# Write memory back
+# Capture what you decide
 
 When you make a non-trivial choice, record it so the next person (or agent) inherits it.
 
-- **Hunch: Record Invariant…** captures a rule the codebase must not break.
-- **Hunch: Record Bug…** captures a failure (symptom + suspects) from a failing test.
+Run **Hunch: Capture…** and pick what kind of memory it is:
 
-These delegate to the `hunch` CLI — the extension never edits `.hunch/` JSON
-itself, so every write goes through the CLI's atomic, validated path. If the CLI
-isn't on your `PATH`, set **`hunch.cliPath`** in Settings.
+- **Decision** — what you decided and why. Recorded through the same `hunch mcp`
+  write path Claude Code uses.
+- **Invariant** — a rule the codebase must not break.
+- **Bug** — a failure worth remembering (root cause, never-twice).
 
-> Decisions are recorded from Claude Code chat via the `hunch_record_decision`
-> MCP tool — the richest write-path, with full provenance.
+Every write is delegated — the extension never edits `.hunch/` JSON itself, so
+each record goes through the CLI's atomic, validated path. If the CLI isn't on
+your `PATH`, set **`hunch.cliPath`** in Settings.
