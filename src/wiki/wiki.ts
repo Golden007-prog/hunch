@@ -639,11 +639,13 @@ export function wikiStatus(store: HunchStore, home: WikiHome, srcRoot: string): 
   const nowHash = sha16(JSON.stringify(canonical({ recent, roadmap, pendingReview })));
   const now = { page: nowPage, hash: nowHash, state: pageState(home, nowPage, NOW_ID, nowHash, manifest?.pages[nowPage]).state, recent, roadmap, pendingReview };
 
-  // The memory-graph page: components + dependencies + per-component decision
-  // dates (the scrubber's timeline). Hashed over the exact embedded data — the
+  // The memory-graph page — the visual knowledge base: components + dependencies
+  // + per-component decision dates (the scrubber's timeline) + every repo doc
+  // with its freshness grade (stale docs point at their adopted healed copy) +
+  // the actionable review count. Hashed over the exact embedded data — the
   // client-side force layout is presentation and never participates.
   const decisionDates = new Map(decisions.map((d) => [d.id, d.valid_from ?? d.date] as const));
-  const graphData = assembleGraphData(home.kind, entries, decisionDates);
+  const graphData = assembleGraphData(home.kind, entries, decisionDates, docs, adoptedPageByRel, pendingReview);
   const graphPage = `${home.dir}/graph.html`;
   const graphHash = sha16(JSON.stringify(canonical(graphData)));
   const graph = { page: graphPage, hash: graphHash, state: pageState(home, graphPage, GRAPH_ID, graphHash, manifest?.pages[graphPage]).state, data: graphData };

@@ -705,6 +705,8 @@ test("memory graph page: embedded data, component links, tamper tripwire, heal",
   assert.match(page, /"Store Layer"/, "embeds the component");
   assert.match(page, /"slug":"store-layer"/, "node click resolves to the component page slug");
   assert.match(page, /"2026-07-02"/, "decision dates ride in for the time scrubber");
+  assert.match(page, /"docs":\[/, "repo docs embed with their freshness grades — the knowledge-base layer");
+  assert.match(page, /"pendingReview":/, "the act-now panel gets the review count");
   assert.equal(readWikiManifestAt(home.manifestPath)?.pages["wiki/graph.html"]?.component, "_graph");
 
   // Hand edit → bytes tripwire → wiki-stale; heal regenerates byte-identically.
