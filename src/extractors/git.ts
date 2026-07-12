@@ -2,7 +2,7 @@
  *  No LLM here — just parsing what git already knows. */
 import { execFileSync } from "node:child_process";
 import { isAbsolute, resolve, join, basename, dirname } from "node:path";
-import { mkdirSync, rmSync, statSync, realpathSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, realpathSync, readFileSync } from "node:fs";
 
 export interface CommitMeta {
   sha: string;
@@ -27,6 +27,17 @@ function gitSafe(args: string[], cwd: string, maxBuffer?: number): string {
     return git(args, cwd, maxBuffer);
   } catch {
     return "";
+  }
+}
+
+function gitRawSafe(args: string[], cwd: string, maxBuffer = 64 * 1024 * 1024): string | null {
+  try {
+    return execFileSync("git", args, {
+      cwd, encoding: "utf8", maxBuffer,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -252,6 +263,49 @@ export function commitMeta(sha: string, cwd: string): CommitMeta | null {
   return { sha: full, shortSha: short, subject, body, author, date, files: commitFiles(sha, cwd) };
 }
 
+export interface CommitFileChange {
+  status: "added" | "modified" | "deleted" | "renamed" | "copied";
+  before: string | null;
+  after: string | null;
+}
+
+/** First-parent and exact blob seams for deterministic before/after analysis.
+ * They never check out a ref or mutate the active worktree. */
+export function firstParent(sha: string, cwd: string): string | null {
+  const row = gitSafe(["rev-list", "--parents", "-n", "1", sha], cwd);
+  const parts = row.split(/\s+/).filter(Boolean);
+  return parts.length > 1 ? parts[1]! : null;
+}
+
+export function fileAtRef(ref: string, file: string, cwd: string): string | null {
+  return gitRawSafe(["show", `${ref}:${file}`], cwd);
+}
+
+/** Name-status records for one commit, rename-aware and NUL-delimited so paths
+ * with whitespace cannot corrupt the parser. */
+export function commitChanges(sha: string, cwd: string): CommitFileChange[] {
+  const raw = gitRawSafe(["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", "-z", sha], cwd);
+  if (raw == null) return [];
+  const fields = raw.split("\0").filter((v) => v !== "");
+  const out: CommitFileChange[] = [];
+  for (let i = 0; i < fields.length;) {
+    const code = fields[i++]!;
+    const kind = code[0];
+    if (kind === "R" || kind === "C") {
+      const before = fields[i++] ?? null;
+      const after = fields[i++] ?? null;
+      if (before && after) out.push({ status: kind === "R" ? "renamed" : "copied", before, after });
+      continue;
+    }
+    const file = fields[i++] ?? null;
+    if (!file) continue;
+    if (kind === "A") out.push({ status: "added", before: null, after: file });
+    else if (kind === "D") out.push({ status: "deleted", before: file, after: null });
+    else out.push({ status: "modified", before: file, after: file });
+  }
+  return out;
+}
+
 /** Machine-generated paths that carry no design "why" — lockfiles, build output,
  *  vendored deps, snapshots, source maps. Excluded from synthesis diffs via git
  *  pathspec BEFORE git assembles/orders the patch: a huge lockfile sorts ahead of
@@ -300,6 +354,18 @@ export function fileChurn(file: string, cwd: string, days = 90): number {
 export function lastCommitForFile(file: string, cwd: string): string {
   const sha = gitSafe(["log", "-1", "--format=%h", "--", file], cwd);
   return sha ? `commit:${sha}` : "";
+}
+
+/** Full SHA of the commit that introduced a path. Unlike lastCommitForFile this
+ * remains stable when lifecycle/proof updates later touch the same policy file. */
+export function firstCommitForFile(file: string, cwd: string): string {
+  // Deliberately do NOT use --follow: content-similar, immutable-ID JSON policy
+  // files can be misclassified as renames of one another, moving valid_from to a
+  // different policy's introduction commit.
+  const added = gitSafe(["log", "--diff-filter=A", "--format=%H", "--", file], cwd)
+    .split("\n").find(Boolean);
+  if (added) return added;
+  return gitSafe(["log", "--reverse", "--format=%H", "--", file], cwd).split("\n").find(Boolean) ?? "";
 }
 
 /** ISO author-date of the most recent commit touching a file ("" if none). */
@@ -360,6 +426,15 @@ export function stagedFiles(cwd: string): string[] {
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
+/** Files changed anywhere in the working tree compared with HEAD: both staged
+ * and unstaged tracked files, plus untracked files. This powers the local,
+ * pre-commit Change Gate; it never mutates the index or asks an agent/model. */
+export function workingFiles(cwd: string): string[] {
+  const changed = gitSafe(["diff", "HEAD", "--name-only", "--diff-filter=ACMR"], cwd).split("\n").filter(Boolean);
+  const untracked = gitSafe(["ls-files", "--others", "--exclude-standard"], cwd).split("\n").filter(Boolean);
+  return [...new Set([...changed, ...untracked])].sort();
+}
+
 /** Does a ref resolve to a commit in this repo? Lets `--base` fail LOUDLY on an
  *  unfetched/typo'd ref instead of silently diffing against nothing (a vacuous
  *  CI pass), since the diff helpers below swallow git errors to "". */
@@ -393,6 +468,27 @@ export function rangeDiff(base: string, cwd: string, head = "HEAD", maxBytes = 6
  *  commitDiff, so the staged and `--commit` guard paths can't diverge on big diffs. */
 export function stagedDiff(cwd: string, maxBytes = 60_000): string {
   const out = gitSafe(["diff", "--cached", "--no-color", "--unified=2", "--", ...DIFF_NOISE], cwd);
+  return out.length > maxBytes ? out.slice(0, maxBytes) + "\n…(diff truncated)…" : out;
+}
+
+/** Unified diff of the complete local working tree vs HEAD. Git's normal diff
+ * includes both staged and unstaged tracked edits; untracked text files are
+ * appended as synthetic additions so guards can also see their added symbols.
+ * Binary/unreadable files remain in workingFiles (scope checks still apply) but
+ * intentionally contribute no synthetic content to regression analysis. */
+export function workingDiff(cwd: string, maxBytes = 60_000): string {
+  let out = gitSafe(["diff", "HEAD", "--no-color", "--unified=2", "--", ...DIFF_NOISE], cwd);
+  const tracked = new Set(gitSafe(["diff", "HEAD", "--name-only", "--diff-filter=ACMR"], cwd).split("\n").filter(Boolean));
+  const untracked = gitSafe(["ls-files", "--others", "--exclude-standard"], cwd).split("\n").filter((f) => f && !tracked.has(f));
+  for (const file of untracked) {
+    try {
+      const text = readFileSync(join(cwd, file), "utf8");
+      if (text.includes("\0")) continue;
+      const lines = text.split("\n");
+      const add = lines.map((line) => `+${line}`).join("\n");
+      out += `${out ? "\n" : ""}diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${add}\n`;
+    } catch { /* unreadable / directory / binary: scope-only is still safe */ }
+  }
   return out.length > maxBytes ? out.slice(0, maxBytes) + "\n…(diff truncated)…" : out;
 }
 

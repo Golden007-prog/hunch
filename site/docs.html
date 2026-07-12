@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="docs-upgrade.css" />
 <style>
   :root{
     --bg:#fbfcfb;
@@ -296,7 +297,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
 
     <section id="synthesis">
       <h2>Synthesis &amp; billing<a class="anchor" href="#synthesis">#</a></h2>
-      <p>When Hunch turns a commit into a structured Decision, the LLM call is billed to <strong>your coding-assistant subscription</strong> through its CLI — <strong>never</strong> a pay-per-token API key. Hunch auto-detects the first CLI present, in order:</p>
+      <p>When Hunch turns a commit into a structured Decision, the LLM call is billed to <strong>your coding-assistant subscription</strong> through its CLI — <strong>never</strong> a pay-per-token API key. Hunch is provider-agnostic: it uses a subscription automatically only when exactly one supported CLI is available. If several are installed, it stays on the free deterministic fallback until <em>you</em> choose which subscription to use.</p>
       <table class="tbl">
         <thead><tr><th>CLI</th><th>Subscription</th><th>Detected by</th></tr></thead>
         <tbody>
@@ -305,8 +306,10 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
           <tr><td><code>cursor-agent</code> (Cursor)</td><td>Cursor</td><td><code>cursor-agent --version</code></td></tr>
         </tbody>
       </table>
-      <p>If none is installed, Hunch still works with a deterministic structural heuristic (lower-confidence drafts). <code>hunch doctor</code> tells you which mode you’re in; force one with the <code>HUNCH_SYNTH_PROVIDER</code> env var:</p>
-      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">export</span> HUNCH_SYNTH_PROVIDER=claude-cli   <span class="c"># | codex-cli | cursor-agent | deterministic</span></pre></div>
+      <p>Your normal choice lives in gitignored local config, not the repository, so it can never spend a teammate’s plan. <code>hunch provider</code> shows what Hunch sees; select once locally, or override one shell with <code>HUNCH_SYNTH_PROVIDER</code>:</p>
+      <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> provider codex-cli               <span class="c"># local: Claude / Codex / Cursor / deterministic</span>
+<span class="k">hunch</span> provider                         <span class="c"># see availability + why this provider is selected</span>
+<span class="k">export</span> HUNCH_SYNTH_PROVIDER=claude-cli <span class="c"># one-shell override; `auto` disables the local choice</span></pre></div>
       <p><strong>Deep Synthesis <span class="pill ok">v0.19</span>.</strong> <code>--deep</code> gathers several independent takes on a change and reconciles them into one note — trusting it more when they agree. <code>--verify</code> then fact-checks the note against the actual commit and drops anything the change doesn't support. The result is a more trustworthy note, and it always stays <em>advisory</em> until you confirm it. Subscription-only; falls back to a single draft when only one assistant is available.</p>
       <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> backfill --deep        <span class="c"># higher-quality notes across history</span>
 <span class="k">hunch</span> sync &lt;sha&gt; --deep       <span class="c"># a single commit (fact-check on)</span>
@@ -344,7 +347,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
       <div class="code" data-lang="bash"><div class="code-head"><span class="lbl">terminal</span><button class="copy">Copy</button></div><pre><span class="k">hunch</span> private                       <span class="c"># default ./.hunch-private (gitignored)</span>
 <span class="k">hunch</span> private ~/work/secret-memory   <span class="c"># or a path you choose</span>
 <span class="k">hunch</span> private --repo git@github.com:you/mem-private.git   <span class="c"># or clone a private repo</span></pre></div>
-      <p>It writes a gitignored <code>.hunch/local.json</code> pointing at the store, installs the <code>--private</code> post-commit hook, and that’s it — Hunch (and the MCP server) <strong>auto-detect</strong> it; <code>hunch doctor</code> shows <code>private: on → …</code>. It’s <strong>opt-in and default-off</strong>: no <code>local.json</code> (and no <code>HUNCH_PRIVATE_DIR</code>) means the overlay is completely inert.</p>
+      <p>It writes a gitignored <code>.hunch/local.json</code> pointing at the store, installs the <code>--private</code> post-commit hook, and that’s it — Hunch, the MCP server, and the local VS Code extension <strong>auto-detect</strong> it; <code>hunch doctor</code> shows <code>private: on → …</code>. It’s <strong>opt-in and default-off</strong>: no <code>local.json</code> (and no <code>HUNCH_PRIVATE_DIR</code>) means the overlay is completely inert.</p>
       <p>Record sensitive items with <code>private: true</code> on <code>hunch_record_decision</code> / <code>hunch_record_correction</code>; they’re written to the overlay, never the committed repo. Post-commit synthesis routes its auto-captured decisions there too, so a private-memory repo’s auto-decisions never land in the public tree. <code>HUNCH_PRIVATE_DIR</code> overrides <code>local.json</code> per-shell (e.g. for portability); the git hook lives in <code>.git/hooks/</code> and is never committed.</p>
       <p><strong>Auto-commit (on by default, every mode).</strong> Each capture is auto-committed to the store it lands in: a private/shared <em>overlay repo</em> is committed <em>and pushed</em>; the public <code>.hunch/</code> in a regular repo is committed <em>only</em> and rides your next push — Hunch never pushes or merges your code branch. It stages only the <code>.hunch/</code> dir (never your other changes) and is recursion-safe. Opt out with <code>--no-auto-commit</code> on <code>hunch init</code> / <code>private</code> / <code>shared</code>.</p>
       <div class="note"><span class="ic">ℹ</span><strong>Leak-safe by construction.</strong> Committed files (the auto <code>CLAUDE.md</code> grounding) and the CI PR comment render <em>public-only</em> — a private record can’t reach a public surface. A private constraint is still <em>enforced</em> on your machine (pre-edit hook + local <code>hunch check</code>), just never posted. Keep the var <strong>unset in CI</strong>; the scaffolded guard also passes <code>--public-only</code> and neutralizes it as defense-in-depth.</div>
@@ -426,12 +429,12 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElem
           <tr><td><code>hunch_get_dependents</code></td><td>Transitive dependents of a symbol — the blast radius.</td></tr>
           <tr><td><code>hunch_blast_radius</code></td><td>Dependent files + near-violations a change could break indirectly.</td></tr>
           <tr><td><code>hunch_structure</code></td><td>The indexed shape of the repo / a dir / a file / a symbol — orient from the graph instead of grep rounds; tells the agent exactly which file to read.</td></tr>
-          <tr><td><code>hunch_pr_impact</code></td><td>The impact surface of a change (staged / branch / commit): dependent files reached, invariants direct &amp; near, decisions concerned. Advisory — the gate stays <code>hunch_merge_verdict</code>.</td></tr>
+          <tr><td><code>hunch_pr_impact</code></td><td>The impact surface of a change (working tree / staged / branch / commit): dependent files reached, invariants direct &amp; near, decisions concerned. Advisory — the gate stays <code>hunch_merge_verdict</code>.</td></tr>
           <tr><td><code>hunch_path</code></td><td>Shortest dependency chain between two symbols/files/components, either direction — "how does A reach B?".</td></tr>
           <tr><td><code>hunch_bug_lineage</code></td><td>Bugs matching a symptom/symbol with their introduced→fixed→recurred lineage.</td></tr>
           <tr><td><code>hunch_context</code></td><td>The minimal relevant slice for a task — invariants, why, bug history, blast radius.</td></tr>
           <tr><td><code>hunch_timeline</code></td><td>A target’s decision history over time, with valid-time windows.</td></tr>
-          <tr><td><code>hunch_merge_verdict</code></td><td>A cited <b>BLOCK / WARN / PASS</b> over a diff (see <a class="link" href="#merge-verdict">below</a>).</td></tr>
+          <tr><td><code>hunch_merge_verdict</code></td><td>A cited <b>BLOCK / WARN / PASS</b> over a working-tree, staged, branch, or commit diff (see <a class="link" href="#merge-verdict">below</a>).</td></tr>
           <tr><td><code>hunch_record_decision</code></td><td>Write-back: persist a new Decision (ADR) with provenance. Gated by <b>topic</b> — refuses a second live decision for a topic that already has one (never silently two); accepts an optional <code>capture_token</code>.</td></tr>
           <tr><td><code>hunch_capture_decision</code></td><td>Start a capture session — returns a one-question-at-a-time grilling protocol plus a <code>capture_token</code> to hand back to <code>hunch_record_decision</code>.</td></tr>
           <tr><td><code>hunch_current_decision</code></td><td>The single in-force decision for a <b>topic</b> — the drift-detection anchor (with what it rejected).</td></tr>
@@ -651,7 +654,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
         <thead><tr><th>Symptom</th><th>Fix</th></tr></thead>
         <tbody>
           <tr><td>Assistant shows no <code>hunch_*</code> tools</td><td>Reload the assistant in the repo; if still missing, <code>hunch doctor</code>.</td></tr>
-          <tr><td>Synthesis is <code>deterministic</code></td><td>Log into a coding-assistant CLI (e.g. <code>claude /login</code>); drafts become high-confidence.</td></tr>
+          <tr><td>Synthesis is <code>deterministic</code></td><td>Log into Claude Code, Codex, or Cursor. If more than one is available, choose with <code>hunch provider &lt;name&gt;</code>.</td></tr>
           <tr><td>Graph looks stale</td><td><code>hunch index</code> to rebuild the symbol graph from current source.</td></tr>
           <tr><td>Schema mismatch after upgrade</td><td><code>hunch migrate</code> to upgrade <code>.hunch/</code> records.</td></tr>
         </tbody>
@@ -898,7 +901,7 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
     {q:"Is the .hunch store encrypted?", kw:["encryption","encrypt","encrypted","at rest","encryption at rest"], a:`The store is plain JSON in your repo, so encryption is whatever your disk or git host already provides (e.g. FileVault, an encrypted volume, your private GitHub). Sensitive notes can also be kept in a separate <b>private</b> repo. → <a href="#private">Private memory</a>`},
     {q:"Is there an audit log of who changed a note?", kw:["audit","audit log","who changed","who added","who wrote","siem","track changes","accountability","change history"], a:`Yes, effectively. Every note records its <b>provenance</b> (where it came from and how it was confirmed), and because the memory is committed to git you get a full history — <code>git log</code> / <code>git blame</code> on the <code>.hunch/</code> files shows who changed what and when. → <a href="#provenance">Provenance</a>`},
     {q:"Does it train an AI model on my code?", kw:["train","training","train a model","train on my code","model training","fine tune","fine-tune","learn to train","used for training"], a:`No. Hunch does not train or fine-tune any model on your code. It only stores short notes and hands the relevant ones to <b>your</b> assistant at the moment it's needed. → <a href="#synthesis">Synthesis</a>`},
-    {q:"Can I use my own or a local LLM?", kw:["custom llm","fine tuned","fine-tuned model","my own model","local llm","local model","ollama","self hosted model","self-hosted","bring my own model"], a:`Synthesis runs whichever assistant <b>CLI</b> you have (Claude, Codex or Cursor), so a custom or local model works if it's reachable through one of those. With no model at all, the deterministic built-in method still writes notes. → <a href="#synthesis">Synthesis</a>`},
+    {q:"Can I use my own or a local LLM?", kw:["custom llm","fine tuned","fine-tuned model","my own model","local llm","local model","ollama","self hosted model","self-hosted","bring my own model"], a:`Synthesis supports the Claude, Codex, and Cursor assistant CLIs. Choose one with <code>hunch provider &lt;name&gt;</code> when several are installed; a custom or local model works if it is reachable through one of those CLIs. With no model at all, the deterministic built-in method still writes notes. → <a href="#synthesis">Synthesis</a>`},
     {q:"Is there a desktop or phone app?", kw:["desktop app","gui","graphical","is there an app","phone","mobile","ios","android","web app","run on my phone"], a:`No GUI app — Hunch is a command-line tool plus an MCP server that your AI assistant talks to. It runs anywhere Node 22.13+ runs (Mac, Windows, Linux), but not on a phone. → <a href="#install">Install</a>`},
     {q:"Who makes Hunch? Is there a company or sales?", kw:["who made","who makes","who built","company","sales","invoice","phone number","contact","maintainer","per seat","seat pricing","subscription to renew","renew","talk to someone","support contact"], a:`Hunch is a free, open-source project (Apache-2.0) by Dave Sheffer — there's no company, no sales team, no per-seat pricing and nothing to renew. Questions and bug reports go through GitHub issues. → <a href="#develop">Develop &amp; contribute</a>`},
     {q:"Does it integrate with Jira, Slack or Linear?", kw:["jira","slack","linear","integrate","integration","integrations","webhook","post to slack","post the notes","ticket","asana"], a:`Not directly. Hunch lives in your repo and connects to AI assistants over MCP — it doesn't post to Jira, Slack or Linear today. Since the memory is plain JSON, you could build such a hook yourself. → <a href="#mcp">MCP &amp; assistants</a>`},
@@ -973,5 +976,6 @@ Agent: hunch_record_correction({ rule: "never import lodash; use src/utils",
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script defer src="/_vercel/speed-insights/script.js"></script>
+<script src="docs-upgrade.js"></script>
 </body>
 </html>

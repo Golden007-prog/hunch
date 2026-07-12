@@ -26,18 +26,35 @@ jobs:
       - name: Install (locked)
         run: npm ci
 
-      - name: Typecheck
-        run: npm run typecheck
+      # One cross-platform gate is shared by normal CI and the publish workflow:
+      # typecheck, full tests, core + VS Code builds, fresh index + conformance, clean tarball
+      # rehearsal/privacy sentinel, and production dependency audit. It emits a
+      # content-addressed receipt even when a prerequisite fails.
+      - name: Constitution release gate
+        run: npm run gate:release -- --output release-gate.json
 
-      - name: Test
-        run: npm test
+      - name: Upload release-gate receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: constitution-release-gate-${{ github.sha }}
+          path: release-gate.json
+          if-no-files-found: error
 
-      - name: Build
-        run: npm run build
+  windows-native-lock:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
 
-      # Supply-chain gate: fail ONLY on a high/critical advisory in the deps we
-      # actually ship (--omit=dev drops dev-only noise). A new CVE on a shipped
-      # transitive turns the build red instead of silently riding along.
-      # Tighten to `--audit-level=moderate` if you want a stricter bar.
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (locked)
+        run: npm ci
+
+      # Reproduce the original EBUSY class: a live parser process must not hold
+      # either installed tree-sitter addon, so both package files remain movable.
+      - name: Native bindings remain replaceable during a live parser session
+        run: npx --no-install tsx --test test/parse.test.ts

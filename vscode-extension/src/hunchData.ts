@@ -5,6 +5,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as cp from "node:child_process";
 
 export interface Provenance {
   source?: string;
@@ -22,8 +23,10 @@ export interface Constraint { id: string; statement: string; scope?: string[]; s
 
 export interface Hunch {
   root: string;
-  /** true when a private overlay store was found and unioned in. */
-  overlay: boolean;
+  /** The extension's local read state. Private/shared records are merged only in
+   * this local process; this status makes an unavailable overlay visible rather
+   * than silently degrading editor grounding to public-only. */
+  overlay?: { mode: "private" | "shared"; state: "active" | "missing"; dir: string };
   components: Component[];
   edges: Edge[];
   symbols: Sym[];
@@ -87,52 +90,58 @@ function readDir<T>(dir: string): T[] {
   return out;
 }
 
+type LocalConfig = { privateDir?: string; mode?: "private" | "shared" };
+function readLocalConfig(file: string): LocalConfig {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8")) as { privateDir?: unknown; mode?: unknown };
+    return {
+      privateDir: typeof value.privateDir === "string" && value.privateDir.trim() ? value.privateDir.trim() : undefined,
+      mode: value.mode === "shared" ? "shared" : value.mode === "private" ? "private" : undefined,
+    };
+  } catch { return {}; }
+}
+function commonOverlayConfig(root: string): LocalConfig {
+  try {
+    const common = cp.execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return readLocalConfig(path.join(path.resolve(root, common), "hunch", "local.json"));
+  } catch { return {}; }
+}
+function resolveOverlay(root: string, publicDir: string): { dir: string; mode: "private" | "shared"; state: "active" | "missing" } | undefined {
+  const local = readLocalConfig(path.join(publicDir, "local.json"));
+  const shared = local.privateDir ? undefined : commonOverlayConfig(root);
+  const config = local.privateDir ? local : shared;
+  const raw = process.env.HUNCH_PRIVATE_DIR?.trim() || config?.privateDir;
+  if (!raw) return undefined;
+  const dir = path.resolve(root, raw);
+  return { dir, mode: config?.mode ?? "private", state: fs.existsSync(dir) ? "active" : "missing" };
+}
+function mergeById<T extends { id: string }>(publicRecords: T[], overlayRecords: T[]): T[] {
+  const records = new Map<string, T>();
+  for (const record of publicRecords) records.set(record.id, record);
+  for (const record of overlayRecords) records.set(record.id, record);
+  return [...records.values()];
+}
+
 export function loadHunch(root: string): Hunch | null {
   const dir = path.join(root, ".hunch");
   if (!fs.existsSync(dir)) return null;
-  const load = (d: string) => ({
-    components: readDir<Component>(path.join(d, "components")),
-    edges: readJson<Edge>(path.join(d, "edges", "index.json")),
-    symbols: readJson<Sym>(path.join(d, "symbols", "index.json")),
-    decisions: readDir<Decision>(path.join(d, "decisions")),
-    bugs: readDir<Bug>(path.join(d, "bugs")),
-    constraints: readDir<Constraint>(path.join(d, "constraints")),
-  });
-  const pub = load(dir);
-  const ov = overlayDir(root);
-  if (!ov) return { root, overlay: false, ...pub };
-  const priv = load(ov);
+  const overlay = resolveOverlay(root, dir);
+  const overlayDir = overlay?.state === "active" ? overlay.dir : undefined;
+  const fromOverlay = <T>(relative: string, indexed = false): T[] => {
+    if (!overlayDir) return [];
+    const file = path.join(overlayDir, relative);
+    return indexed ? readJson<T>(file) : readDir<T>(file);
+  };
   return {
     root,
-    overlay: true,
-    components: unionById(pub.components, priv.components),
-    edges: unionById(pub.edges, priv.edges),
-    symbols: unionById(pub.symbols, priv.symbols),
-    decisions: unionById(pub.decisions, priv.decisions),
-    bugs: unionById(pub.bugs, priv.bugs),
-    constraints: unionById(pub.constraints, priv.constraints),
+    overlay: overlay ? { mode: overlay.mode, state: overlay.state, dir: overlay.dir } : undefined,
+    components: mergeById(readDir<Component>(path.join(dir, "components")), fromOverlay<Component>("components")),
+    edges: mergeById(readJson<Edge>(path.join(dir, "edges", "index.json")), fromOverlay<Edge>("edges/index.json", true)),
+    symbols: mergeById(readJson<Sym>(path.join(dir, "symbols", "index.json")), fromOverlay<Sym>("symbols/index.json", true)),
+    decisions: mergeById(readDir<Decision>(path.join(dir, "decisions")), fromOverlay<Decision>("decisions")),
+    bugs: mergeById(readDir<Bug>(path.join(dir, "bugs")), fromOverlay<Bug>("bugs")),
+    constraints: mergeById(readDir<Constraint>(path.join(dir, "constraints")), fromOverlay<Constraint>("constraints")),
   };
-}
-
-/** Resolve the private-overlay store dir the way the CLI does: HUNCH_PRIVATE_DIR
- *  env first, then the gitignored .hunch/local.json pointer. Local UI only — the
- *  union stays on this machine, exactly like the CLI's query surface. */
-function overlayDir(root: string): string | null {
-  const abs = (p: string) => (path.isAbsolute(p) ? p : path.join(root, p));
-  const env = process.env.HUNCH_PRIVATE_DIR;
-  if (env && fs.existsSync(abs(env))) return abs(env);
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(root, ".hunch", "local.json"), "utf8")) as { privateDir?: string };
-    if (raw.privateDir && fs.existsSync(abs(raw.privateDir))) return abs(raw.privateDir);
-  } catch { /* no overlay configured */ }
-  return null;
-}
-
-/** Union two record sets by id — the overlay (local knowledge) wins a collision. */
-function unionById<T extends { id: string }>(pub: T[], priv: T[]): T[] {
-  const m = new Map(pub.map((r) => [r.id, r]));
-  for (const r of priv) m.set(r.id, r);
-  return [...m.values()];
 }
 
 // ---- queries (lightweight versions of the core store) ----------------------
@@ -374,18 +383,16 @@ export function reviewQueue(hunch: Hunch, minGrounded: number = READY_MIN_GROUND
   return { ready, scrutiny };
 }
 
-/** Absolute path to a decision's JSON file (for opening the draft to edit). */
-export function decisionFilePath(root: string, id: string): string {
-  return path.join(root, ".hunch", "decisions", `${id}.json`);
-}
-
-const RECORD_DIRS: Record<string, string> = { dec: "decisions", con: "constraints", bug: "bugs", comp: "components" };
-
-/** Absolute path to any record's JSON file from its id prefix (dec_/con_/bug_/comp_),
- *  or null for ids that don't map to a store directory (e.g. sym_). */
-export function recordFilePath(root: string, id: string): string | null {
-  const dir = RECORD_DIRS[id.split("_")[0] ?? ""];
-  return dir ? path.join(root, ".hunch", dir, `${id}.json`) : null;
+/** Absolute path to a decision's JSON file (for opening the draft to edit).
+ * Overlay-first mirrors HunchStore: a private draft must open from its real home,
+ * never as a non-existent public `.hunch` path. */
+export function decisionFilePath(hunch: Hunch, id: string): string {
+  const privateFile = hunch.overlay?.state === "active"
+    ? path.join(hunch.overlay.dir, "decisions", `${id}.json`)
+    : "";
+  return privateFile && fs.existsSync(privateFile)
+    ? privateFile
+    : path.join(hunch.root, ".hunch", "decisions", `${id}.json`);
 }
 
 // ---- bug lineage chains ----------------------------------------------------
@@ -499,48 +506,4 @@ export function componentGraph(hunch: Hunch): ComponentGraph {
     return { source, target, weight };
   });
   return { nodes, links };
-}
-// ---- per-component drill-down (the brain's branches) ------------------------
-export interface ComponentFileStat { file: string; symbols: number; bugs: number; churn: number; }
-export interface ComponentDetail {
-  files: ComponentFileStat[];
-  topSymbols: Array<{ name: string; file: string; fanIn: number; bugs: number }>;
-  decisions: Array<{ id: string; title: string; status?: string }>;
-  constraints: Array<{ id: string; statement: string; severity?: string }>;
-  bugs: Array<{ id: string; title: string; severity?: string; status?: string }>;
-}
-
-/** The full inventory behind each brain node: every owned file (with symbol /
- *  bug / churn mass), the symbols carrying the most signal, and the records
- *  (decisions · invariants · bugs) that touch the component's paths — the data
- *  for the graph's expandable branches and structure drawer. */
-export function componentDetails(hunch: Hunch): Record<string, ComponentDetail> {
-  const fileAgg = new Map<string, Map<string, ComponentFileStat>>();
-  const symAgg = new Map<string, Array<{ name: string; file: string; fanIn: number; bugs: number }>>();
-  for (const s of hunch.symbols) {
-    const owner = ownerComponent(s.file, hunch.components);
-    if (!owner) continue;
-    const files = fileAgg.get(owner.id) ?? fileAgg.set(owner.id, new Map()).get(owner.id)!;
-    const f = files.get(s.file) ?? { file: s.file, symbols: 0, bugs: 0, churn: 0 };
-    f.symbols += 1;
-    f.bugs += s.metrics?.bug_count ?? 0;
-    f.churn += s.metrics?.churn_90d ?? 0;
-    files.set(s.file, f);
-    (symAgg.get(owner.id) ?? symAgg.set(owner.id, []).get(owner.id)!)
-      .push({ name: s.name, file: s.file, fanIn: s.metrics?.fan_in ?? 0, bugs: s.metrics?.bug_count ?? 0 });
-  }
-  const out: Record<string, ComponentDetail> = {};
-  for (const c of hunch.components) {
-    const inComp = (files?: string[]) => (files ?? []).some((f) => (c.paths ?? []).some((p) => pathMatchesGlob(f, p)));
-    out[c.id] = {
-      files: [...(fileAgg.get(c.id)?.values() ?? [])].sort((a, b) => b.symbols - a.symbols),
-      topSymbols: (symAgg.get(c.id) ?? []).sort((a, b) => (b.bugs - a.bugs) || (b.fanIn - a.fanIn)).slice(0, 8),
-      decisions: hunch.decisions.filter((d) => inComp(d.related_files)).map((d) => ({ id: d.id, title: d.title, status: d.status })),
-      constraints: hunch.constraints
-        .filter((x) => (x.scope ?? []).some((g) => (c.paths ?? []).some((p) => pathMatchesGlob(p, g) || pathMatchesGlob(g, p))))
-        .map((x) => ({ id: x.id, statement: x.statement, severity: x.severity })),
-      bugs: hunch.bugs.filter((b) => inComp(b.affected_files)).map((b) => ({ id: b.id, title: b.title, severity: b.severity, status: b.status })),
-    };
-  }
-  return out;
 }

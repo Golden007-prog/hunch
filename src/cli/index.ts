@@ -29,15 +29,22 @@ import { selectEmbedder } from "../store/embedder.js";
 import { indexRepo } from "../extractors/indexer.js";
 import { syncCommit, recordFailure, captureTestRun } from "../synthesis/synthesize.js";
 import { parseTestReport } from "../extractors/testreport.js";
-import { selectProvider } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, commitFiles, asOfDate, stagedDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, commitAndPushHunch, pullHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree, mainWorktreeRoot } from "../extractors/git.js";
+import {
+  readSynthesisPreference,
+  resolveSynthesisProvider,
+  selectProvider,
+  SYNTH_PREFERENCES,
+  writeSynthesisPreference,
+  type SynthPreference,
+} from "../synthesis/provider.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree, mainWorktreeRoot } from "../extractors/git.js";
 import { writeTeamConfig, ensureTeamOverlay, readTeamConfig } from "../integrations/team.js";
 import { runbookId, decisionId } from "../core/ids.js";
 import { deriveForbids, effectiveForbids } from "../core/constraintmatch.js";
 import type { Runbook } from "../core/types.js";
 import { extractInlineIntent } from "../extractors/comments.js";
 import { renderText, renderMarkdown, renderImpact, reportFailsStrict, type CheckReport } from "../core/checkreport.js";
-import { partitionReview, parseSynth, isReady, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
+import { partitionReview, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { ensureSharedOverlayPointer } from "../integrations/worktree.js";
 import { flushCapture } from "../integrations/sync.js";
@@ -51,9 +58,8 @@ import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatStructure } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
-import { appendEvent, readEvents } from "../core/events.js";
-import { computeStats, formatStats } from "../core/stats.js";
 import { injectionMode } from "../core/hookcache.js";
+import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
   UNVERIFIED_NAG,
@@ -66,18 +72,27 @@ import {
   savePipelineState,
   stopVerdict,
 } from "../core/pipeline.js";
-import { draftDuplicateOf } from "../core/dupdetect.js";
-import { planAutoReview, planMutations, resolveSelection, type AutoReviewPlan, type AutoReviewEntry } from "../core/autoreview.js";
+import { draftDuplicateOf, isAcceptedDuplicateAnchor } from "../core/dupdetect.js";
+import { planAutoReview, planMutations, type AutoReviewPlan, type AutoReviewEntry } from "../core/autoreview.js";
 import type { RelevanceVerdict, ExistingDecisionRef } from "../synthesis/provider.js";
 import { loadGoldenSet, evaluateGraphLift } from "../eval/harness.js";
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { computeDrift } from "../core/drift.js";
+import { renderCompilerScorecard, scoreCompilerCaseBank } from "../constitution/scorecard.js";
 import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, renderGrounding } from "../core/topics.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
+import { ConstitutionService, type PolicyEvaluationSet } from "../constitution/service.js";
+import { renderProofCard } from "../constitution/card.js";
+import { movePolicyArtifactsToPrivate } from "../constitution/repository.js";
+import { HistoryDispositionClassificationSchema } from "../constitution/schema.js";
+import { G2_RUNBOOK_CATEGORIES, type CompileG2PlanInput } from "../constitution/g2.js";
+import type { CompileExperimentPreregistrationInput, CompileG3PlanInput } from "../constitution/g3.js";
+import { subscriptionCliVersion } from "../constitution/experimentRunner.js";
+import type { CompileExperimentCaseBankInput } from "../constitution/experiment.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
 import type { Constraint, Decision } from "../core/types.js";
@@ -86,6 +101,7 @@ import { mergeHunchJson } from "../store/merge.js";
 import { movePublicMemoryToPrivate } from "../store/privateMigrate.js";
 import { ENTITY_KINDS } from "../core/types.js";
 import { planCompaction } from "../store/compact.js";
+import { repairDecisionReference } from "../core/refrepair.js";
 import { resolveInvocation } from "./invocation.js";
 
 const program = new Command();
@@ -102,12 +118,12 @@ function storeFor(): { store: HunchStore; root: string } {
 // ---- init -----------------------------------------------------------------
 program
   .command("init")
-  .description("Scaffold .hunch/, index the repo, install the git hook, and wire up your coding assistants (Claude Code, Cursor, VS Code, Windsurf, Codex).")
+  .description("Scaffold .hunch/, index the repo, install the git hook, and wire up your coding assistants (Claude Code, Cursor, VS Code, Windsurf, Antigravity, Codex).")
   .option("--no-index", "skip the initial repo index")
   .option("--no-enforce", "do not install the advisory pre-commit constraint guard")
   .option("--enforce-strict", "make the pre-commit guard FAIL the commit on a direct, high-confidence, non-stale blocking invariant")
-  .option("--no-providers", "skip scaffolding non-Claude assistant configs (Cursor / VS Code / Codex / AGENTS.md)")
-  .option("--no-agent-hooks", "skip installing the Claude Code agent hooks (.claude/settings.json)")
+  .option("--no-providers", "skip scaffolding non-Claude assistant configs (Cursor / VS Code / Windsurf / Antigravity / Codex / AGENTS.md)")
+  .option("--no-agent-hooks", "skip installing all assistant lifecycle hooks (MCP + grounding are still configured)")
   .option("--firmness <level>", "agent-hook firmness: off | advisory | firm | strict")
   .option("--private-sync", "post-commit synthesis writes captured decisions into the overlay repo (HUNCH_PRIVATE_DIR), never the public store")
   .option("--shared-sync", "alias of --private-sync (for teams using one shared overlay repo for any code repo)")
@@ -158,7 +174,7 @@ program
 
     if (isGitRepo(root)) {
       const syncToOverlay = !!(opts.privateSync || opts.sharedSync);
-      const h = installPostCommitHook(root, inv.shell, { private: syncToOverlay, commit: opts.autoCommit });
+      const h = installPostCommitHook(root, inv.shell, { private: syncToOverlay, commit: opts.autoCommit, localOnly: syncToOverlay });
       console.log(`  ✓ post-commit hook ${h.action} (learning loop)${syncToOverlay ? " — syncs to the shared overlay" : ""}${opts.autoCommit ? " — auto-commit on" : ""}`);
       const m = installMergeDriver(root, inv.shell);
       console.log(`  ✓ team merge driver ${m.action}`);
@@ -193,17 +209,17 @@ program
     // level even before the user runs `hunch firmness` (--firmness validated above).
     const firmness = writeConfig(paths, opts.firmness ? { firmness: opts.firmness as Firmness } : {}).firmness;
 
-    // Agent hooks: ground the assistant in Hunch automatically (PreToolUse injects
-    // context before edits; UserPromptSubmit reminds). Reads firmness at run time.
+    // Claude's native hooks run alongside provider-specific hooks below. Every
+    // adapter reads firmness at run time, so changing it needs no config rewrite.
     if (opts.agentHooks !== false) {
       const a = installClaudeHooks(root, `${inv.shell} hook`);
       console.log(`  ✓ Claude Code agent hooks ${a.action} (firmness: ${firmness} — change with \`hunch firmness <level>\`)`);
     }
 
-    // Multi-assistant compatibility: the MCP server is client-agnostic, so wire up
-    // Cursor / VS Code (Copilot) / Codex / AGENTS.md to the same .hunch/ graph.
+    // Multi-assistant compatibility: MCP + grounding + lifecycle adapters share
+    // the same .hunch/ graph across Cursor / VS Code / Windsurf / Antigravity.
     if (opts.providers !== false) {
-      const ps = scaffoldProviders(root, inv.mcp, store);
+      const ps = scaffoldProviders(root, inv.mcp, store, { agentHooks: opts.agentHooks !== false });
       const ok = ps.filter((p) => !p.error);
       const total = ok.reduce((a, p) => a + p.files.length, 0);
       console.log(`  ✓ wrote ${total} multi-assistant config file(s) → ${ok.map((p) => p.assistant).join(", ")}`);
@@ -336,7 +352,17 @@ program
     const toOverlay = !!(opts.private || opts.overlay || store.unified);
     if (toOverlay && !store.hasPrivate) { store.close(); return opts.quiet ? undefined : fail("--private/--overlay needs HUNCH_PRIVATE_DIR set to an overlay store"); }
     store.json.ensureDirs();
-    const r = await syncCommit(store, root, sha ?? headSha(root), { force: opts.force, private: toOverlay, deep: opts.deep, verify: opts.verify, samples: parseSamples(opts.samples) });
+    const r = await syncCommit(store, root, sha ?? headSha(root), {
+      force: opts.force,
+      private: toOverlay,
+      // A split-private overlay is sensitive/local by definition. A shared store
+      // is an explicit team policy and may keep its configured synthesis provider.
+      localOnly: toOverlay && store.mode === "private",
+      deep: opts.deep,
+      verify: opts.verify,
+      samples: parseSamples(opts.samples),
+    });
+    const doCommit = opts.commit ?? store.autoCommit;
     if (r.status === "written") {
       store.reindex();
       // Don't rewrite grounding from the hook — it would dirty the working tree on
@@ -354,7 +380,6 @@ program
       // hook (no recursion). The overlay is pushed; the public .hunch/ is committed
       // WITHOUT pushing — auto-pushing the user's code branch would publish their
       // unpushed commits (bug_overlay_clobber lineage).
-      const doCommit = opts.commit ?? store.autoCommit;
       const commitTarget = doCommit ? (toOverlay ? store.privateDir : hunchPaths(root).hunch) : undefined;
       if (commitTarget) {
         commitAndPushHunch(commitTarget, `hunch: capture ${r.decision?.id ?? "decision"}`, { push: toOverlay });
@@ -363,6 +388,24 @@ program
       if (!opts.quiet) console.log(`✓ captured decision ${r.decision?.id} via ${r.provider}: "${r.decision?.title}"`);
     } else if (!opts.quiet) {
       console.log(`· skipped: ${r.reason}`);
+    }
+    try {
+      const constitution = new ConstitutionService(store, root);
+      if (constitution.g2Repository.currentPlan()) {
+        indexRepo(store, root, { churn: false });
+        store.reindex();
+        const sweep = constitution.g2ShadowSweep();
+        if (sweep.recorded.length && doCommit && store.privateDir) {
+          commitAndPushHunch(store.privateDir, `hunch: record ${sweep.recorded.length} G2 shadow observation(s)`);
+        }
+        if (!opts.quiet) {
+          console.log(`  ↳ G2 shadow: ${sweep.recorded.length} recorded · ${sweep.existing.length} existing · ${sweep.failures.length} failed; authority none`);
+        }
+      }
+    } catch (e) {
+      // Post-commit learning is background/best-effort. Shadow operation must
+      // never make a source commit, decision capture, warning, or block fail.
+      if (!opts.quiet) console.log(`  ↳ G2 shadow skipped safely: ${(e as Error).message}`);
     }
     store.close();
   });
@@ -447,7 +490,18 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
   // a store elsewhere on disk. Resolution (env || local.json) re-resolves against root.
   const rel = relative(root, hunchDir);
   const stored = rel && !rel.startsWith("..") && !isAbsolute(rel) ? toPosixTarget(rel) : hunchDir;
-  writeFileAtomic(join(paths.hunch, "local.json"), JSON.stringify({ privateDir: stored, autoCommit: !!opts.autoCommit, mode }, null, 2) + "\n");
+  const localFile = join(paths.hunch, "local.json");
+  let existingLocal: Record<string, unknown> = {};
+  if (existsSync(localFile)) {
+    try {
+      const parsed = JSON.parse(readFileSync(localFile, "utf8")) as unknown;
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("not an object");
+      existingLocal = parsed as Record<string, unknown>;
+    } catch {
+      return fail(`refusing to overwrite malformed local configuration: ${localFile}`);
+    }
+  }
+  writeFileAtomic(localFile, JSON.stringify({ ...existingLocal, privateDir: stored, autoCommit: !!opts.autoCommit, mode }, null, 2) + "\n");
   ensureGitignore(root); // keeps .hunch/local.json + .hunch-private/ out of git
 
   // SHARED mode with a remote: publish the store's URL in a COMMITTED team.json, so a
@@ -472,7 +526,7 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
   // 4) route post-commit synthesis to the overlay (local hook, never committed)
   let hookNote = "";
   if (opts.hook && isGitRepo(root)) {
-    const h = installPostCommitHook(root, inv.shell, { private: true, commit: opts.autoCommit });
+    const h = installPostCommitHook(root, inv.shell, { private: true, commit: opts.autoCommit, localOnly: mode === "private" });
     hookNote = `  ✓ post-commit hook ${h.action} — captured decisions route here${opts.autoCommit ? " (auto-commit+push on)" : ""}\n`;
   }
 
@@ -484,6 +538,7 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
     const pub = new JsonStore(paths);
     const priv = new JsonStore(hunchPathsForDir(hunchDir));
     const res = movePublicMemoryToPrivate(pub, priv);
+    const constitutionMoved = movePolicyArtifactsToPrivate(paths.hunch, hunchDir);
     for (const kind of ENTITY_KINDS) pub.dropAll(kind); // public store now empty on disk
     if (isGitRepo(root)) gitUntrackCached(root, HUNCH_MEMORY_DIRS); // stop publishing it
     ignoreHunchMemory(root);
@@ -491,7 +546,15 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
     const grounding = regenerateGrounding(root, gstore);
     gstore.close();
     commitAndPushHunch(hunchDir, "hunch: absorb public memory into private overlay"); // durable
-    const breakdown = Object.entries(res.moved).map(([k, n]) => `${n} ${k}`).join(", ") || "0 records";
+    const breakdownParts = Object.entries(res.moved).map(([k, n]) => `${n} ${k}`);
+    if (constitutionMoved.policies) breakdownParts.push(`${constitutionMoved.policies} policies`);
+    if (constitutionMoved.proofs) breakdownParts.push(`${constitutionMoved.proofs} proofs`);
+    if (constitutionMoved.plans) breakdownParts.push(`${constitutionMoved.plans} proof plans`);
+    if (constitutionMoved.evidence) breakdownParts.push(`${constitutionMoved.evidence} evidence events`);
+    if (constitutionMoved.corpora) breakdownParts.push(`${constitutionMoved.corpora} proof corpora`);
+    if (constitutionMoved.dispositions) breakdownParts.push(`${constitutionMoved.dispositions} history dispositions`);
+    if (constitutionMoved.shadow) breakdownParts.push(`${constitutionMoved.shadow} shadow records`);
+    const breakdown = breakdownParts.join(", ") || "0 records";
     migrateNote =
       `  ✓ migrated public memory → overlay (${breakdown}); public store emptied\n` +
       `  ✓ untracked + gitignored the .hunch memory tree — this repo is now CODE-ONLY\n` +
@@ -882,6 +945,934 @@ program
     store.close();
   });
 
+// ---- policy (Hunch Constitution — versioned policy/proof lifecycle) -------
+const policyCmd = program
+  .command("policy")
+  .description("Hunch Constitution: compile, prove, inspect, activate, and evaluate deterministic engineering policy.");
+
+policyCmd
+  .command("list")
+  .description("List Policy IR records from the public store plus the local private overlay.")
+  .option("--state <state>", "filter by lifecycle state")
+  .option("--public-only", "exclude private-overlay policy records")
+  .action((opts: { state?: string; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const policies = new ConstitutionService(store, root).list({ state: opts.state, publicOnly: opts.publicOnly });
+      if (!policies.length) {
+        console.log("No Constitution policies found.");
+        return;
+      }
+      for (const p of policies) {
+        console.log(`${p.id}  [${p.state}] [${p.severity}] ${p.statement}${p.data_class === "public" ? "" : ` [${p.data_class}]`}`);
+      }
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("show")
+  .description("Show canonical Policy IR and, optionally, its proof artifact.")
+  .argument("<id>", "policy id")
+  .option("--proof", "include the linked proof artifact")
+  .option("--public-only", "exclude private-overlay policy records")
+  .action((id: string, opts: { proof?: boolean; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const service = new ConstitutionService(store, root);
+      const policy = service.get(id, { publicOnly: opts.publicOnly });
+      const output: { policy: typeof policy; proof?: unknown } = { policy };
+      if (opts.proof && policy.proof) output.proof = service.proof(policy.proof, { publicOnly: opts.publicOnly });
+      console.log(JSON.stringify(output, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("corpus")
+  .description("Import or inspect a policy-bound known-good/known-bad commit corpus. Known-good fixtures may carry a human attestation; imported refs resolve to immutable SHAs.")
+  .argument("<id>", "policy id")
+  .option("--import <file>", "JSON file with known_bad/known_good ref and label arrays; known_good may include attestation { actor, reason }")
+  .option("--public-only", "exclude private-overlay policy/corpus records when inspecting")
+  .action((id: string, opts: { import?: string; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const service = new ConstitutionService(store, root);
+      if (opts.import) {
+        if (opts.publicOnly) throw new Error("--public-only cannot be combined with --import");
+        const file = resolve(root, opts.import);
+        const corpus = service.importCorpus(id, JSON.parse(readFileSync(file, "utf8")));
+        const attestedGood = corpus.known_good.filter((fixture) => !!fixture.attestation).length;
+        console.log(`✓ imported ${corpus.id} for ${corpus.policy_id}: ${corpus.known_bad.length} known bad, ${corpus.known_good.length} known good (${attestedGood} human-attested)`);
+        console.log(`  hash: ${corpus.content_hash} · home follows policy data class (${corpus.data_class})`);
+      } else {
+        console.log(JSON.stringify(service.corpus(id, { publicOnly: opts.publicOnly }), null, 2));
+      }
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("card")
+  .description("Render the deterministic proof card: exact policy, evidence vector, uncertainty, authority, and next actions.")
+  .argument("<id>", "policy id")
+  .option("--json", "emit the canonical proof-card object")
+  .option("--public-only", "exclude private-overlay policy/proof records")
+  .action((id: string, opts: { json?: boolean; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const card = new ConstitutionService(store, root).card(id, { publicOnly: opts.publicOnly });
+      console.log(opts.json ? JSON.stringify(card, null, 2) : renderProofCard(card));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("compile")
+  .description("Compile one structured Decision.conformance predicate into a non-active Policy IR candidate.")
+  .argument("<decision-id>", "source decision id")
+  .option("--through <selector>", "compile a negative boundary as must-pass-through via this symbol selector")
+  .option("--private", "write the policy/proof only to the configured private overlay")
+  .action((decisionId: string, opts: { through?: string; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const policy = new ConstitutionService(store, root).compile(decisionId, opts);
+      console.log(`✓ compiled ${policy.id} [${policy.state}] — ${policy.statement}`);
+      console.log(`  ${policy.assertion.kind}: ${JSON.stringify(policy.assertion)}`);
+      console.log("  authority: none; this candidate cannot block until proved and explicitly accepted by a human.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("plan")
+  .description("Generate or inspect the canonical, non-executing ProofPlan for a Policy IR candidate.")
+  .argument("<id>", "policy id")
+  .option("--history <n>", "maximum accepted-history commits", "20")
+  .option("--mutations <n>", "maximum deterministic mutations", "3")
+  .option("--minutes <n>", "total future replay budget in minutes", "5")
+  .option("--public-only", "exclude private-overlay policy/evidence records")
+  .action((id: string, opts: { history: string; mutations: string; minutes: string; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const values = [opts.history, opts.mutations, opts.minutes].map(Number);
+      if (values.slice(0, 2).some((n) => !Number.isFinite(n) || n < 0) || !Number.isFinite(values[2]) || values[2]! <= 0) {
+        throw new Error("history/mutation budgets must be non-negative and minutes must be positive");
+      }
+      const plan = new ConstitutionService(store, root).plan(id, {
+        maxCommits: values[0],
+        maxMutations: values[1],
+        maxMinutes: values[2],
+        publicOnly: opts.publicOnly,
+      });
+      console.log(JSON.stringify(plan, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("prove")
+  .description("Execute the canonical ProofPlan: isolated current/history/control replay plus deterministic mutation; grants no authority.")
+  .argument("<id>", "policy id")
+  .action((id: string) => {
+    const { store, root } = storeFor();
+    try {
+      indexRepo(store, root, { churn: false });
+      store.reindex();
+      const { policy, proof } = new ConstitutionService(store, root).prove(id);
+      console.log(`POLICY PROOF  ${policy.id}`);
+      console.log(`  state: ${policy.state} · class: ${proof.proof_class} · proof: ${proof.id}`);
+      console.log(`  current: ${proof.current.satisfied} satisfied · ${proof.current.violated} violated · ${proof.current.unknown} unknown · ${proof.current.error} error`);
+      console.log(`  known bad: ${proof.known_bad.violated}/${proof.known_bad.total} caught · known good: ${proof.known_good.satisfied}/${proof.known_good.total} satisfied`);
+      console.log(`  accepted history: ${proof.accepted_history.total} evaluated · ${proof.accepted_history.violated} unclassified hit · ${proof.accepted_history.unknown} unknown · ${proof.accepted_history.error} error`);
+      console.log(`  mutations: ${proof.mutations.violated}/${proof.mutations.total} caught · ${Object.keys(proof.mutations.operator_coverage).join(", ") || "none"}`);
+      for (const limitation of proof.limitations) console.log(`  limitation: ${limitation}`);
+      console.log("  next: hunch policy accept " + policy.id + " --advisory|--blocking --actor human:<identity>");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("history")
+  .description("Inspect or human-classify exact violated accepted-history receipts. Classifications are append-only and grant no activation authority.")
+  .argument("<id>", "policy id")
+  .option("--commit <sha>", "full 40-character accepted-history commit SHA")
+  .option("--classify <kind>", "true_positive_actionable | true_positive_accepted_exception | false_positive_selector | false_positive_semantics | false_positive_stale | unknown_insufficient_parser")
+  .option("--actor <identity>", "explicit human identity: human:, github:, or git:")
+  .option("--reason <reason>", "bounded audited reason for the classification")
+  .option("--supersedes <id>", "current disposition id when appending a corrected classification")
+  .option("--public-only", "exclude private-overlay policy/disposition records when inspecting")
+  .action((id: string, opts: { commit?: string; classify?: string; actor?: string; reason?: string; supersedes?: string; publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const service = new ConstitutionService(store, root);
+      const writing = !!opts.commit || !!opts.classify || !!opts.actor || !!opts.reason || !!opts.supersedes;
+      if (writing) {
+        if (opts.publicOnly) throw new Error("--public-only cannot be combined with history classification");
+        if (!opts.commit || !opts.classify || !opts.actor || !opts.reason) {
+          throw new Error("history classification requires --commit, --classify, --actor, and --reason");
+        }
+        const classification = HistoryDispositionClassificationSchema.parse(opts.classify);
+        const disposition = service.classifyHistory(id, opts.commit, classification, opts.actor, opts.reason, { supersedes: opts.supersedes });
+        console.log(`✓ recorded ${disposition.id}: ${disposition.classification} for ${disposition.commit}`);
+        console.log(`  proof: ${disposition.proof_id} · actor: ${disposition.actor} · home follows policy data class (${disposition.data_class})`);
+        console.log("  classification grants no activation authority; blocking still requires an explicit human policy acceptance.");
+      } else {
+        console.log(JSON.stringify(service.historyDispositions(id, { publicOnly: opts.publicOnly }), null, 2));
+      }
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("shadow")
+  .description("Record or inspect non-blocking shadow evaluations, append human dispositions, and derive raw precision/P4-readiness measurements. Never activates policy.")
+  .argument("<id>", "policy id")
+  .option("--record", "record the current deterministic evaluation once for this exact graph receipt")
+  .option("--event <id>", "shadow evaluation id to classify")
+  .option("--classify <kind>", "true_positive_actionable | true_positive_accepted_exception | false_positive_selector | false_positive_semantics | false_positive_stale | unknown_insufficient_parser")
+  .option("--actor <identity>", "explicit human identity: human:, github:, or git:")
+  .option("--reason <reason>", "bounded audited reason for the classification")
+  .option("--supersedes <id>", "current shadow disposition id when appending a correction")
+  .option("--min-applicable <n>", "minimum recent applicable changes for P4 review eligibility", "20")
+  .option("--recent <n>", "maximum recent applicable changes in the precision window", "100")
+  .option("--max-unknown-error-rate <rate>", "exclusive unknown/error-rate ceiling", "0.01")
+  .option("--public-only", "exclude private-overlay shadow records when inspecting")
+  .action((id: string, opts: {
+    record?: boolean;
+    event?: string;
+    classify?: string;
+    actor?: string;
+    reason?: string;
+    supersedes?: string;
+    minApplicable: string;
+    recent: string;
+    maxUnknownErrorRate: string;
+    publicOnly?: boolean;
+  }) => {
+    const { store, root } = storeFor();
+    try {
+      const service = new ConstitutionService(store, root);
+      const classifying = !!opts.event || !!opts.classify || !!opts.actor || !!opts.reason || !!opts.supersedes;
+      if (opts.record && classifying) throw new Error("choose either --record or a shadow classification, not both");
+      if ((opts.record || classifying) && opts.publicOnly) throw new Error("--public-only cannot be combined with shadow writes");
+      if (opts.record) {
+        indexRepo(store, root, { churn: false });
+        store.reindex();
+        const record = service.recordShadow(id);
+        console.log(`✓ recorded ${record.id}: ${record.evaluation.result} on ${record.evaluation.repository.graph_hash}`);
+        console.log("  shadow recording never warns, blocks, changes lifecycle, or grants authority.");
+        return;
+      }
+      if (classifying) {
+        if (!opts.event || !opts.classify || !opts.actor || !opts.reason) {
+          throw new Error("shadow classification requires --event, --classify, --actor, and --reason");
+        }
+        const classification = HistoryDispositionClassificationSchema.parse(opts.classify);
+        const disposition = service.classifyShadow(id, opts.event, classification, opts.actor, opts.reason, { supersedes: opts.supersedes });
+        console.log(`✓ recorded ${disposition.id}: ${disposition.classification} for ${disposition.shadow_id}`);
+        console.log("  disposition changes measurement only; it cannot activate or block.");
+        return;
+      }
+      const minApplicable = Number(opts.minApplicable);
+      const recentApplicable = Number(opts.recent);
+      const maxUnknownErrorRate = Number(opts.maxUnknownErrorRate);
+      console.log(JSON.stringify(service.shadowReport(id, { minApplicable, recentApplicable, maxUnknownErrorRate }, { publicOnly: opts.publicOnly }), null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("accept")
+  .description("Human-only activation of a proved policy. Blocking requires P3+ proof.")
+  .argument("<id>", "policy id")
+  .option("--advisory", "activate as advisory")
+  .option("--blocking", "activate as blocking")
+  .requiredOption("--actor <identity>", "explicit human identity: human:, github:, or git:")
+  .action((id: string, opts: { advisory?: boolean; blocking?: boolean; actor: string }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!!opts.advisory === !!opts.blocking) throw new Error("choose exactly one of --advisory or --blocking");
+      const mode = opts.blocking ? "blocking" : "advisory";
+      const policy = new ConstitutionService(store, root).approve(id, mode, opts.actor);
+      console.log(`✓ ${policy.id} is ${policy.state} by ${policy.authority?.actor} (revision ${policy.revision})`);
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("demote")
+  .description("Immediately demote an active blocking policy to advisory without erasing history.")
+  .argument("<id>", "policy id")
+  .requiredOption("--actor <identity>", "explicit human identity: human:, github:, or git:")
+  .requiredOption("--reason <reason>", "audited demotion reason")
+  .action((id: string, opts: { actor: string; reason: string }) => {
+    const { store, root } = storeFor();
+    try {
+      const policy = new ConstitutionService(store, root).demote(id, opts.actor, opts.reason);
+      console.log(`✓ ${policy.id} demoted to ${policy.state}; history retained (revision ${policy.revision})`);
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("exception")
+  .description("Human-link a strictly narrower opposite policy to its parent; invalidates child proof/authority and never enables blocking.")
+  .argument("<id>", "narrow exception policy id")
+  .requiredOption("--parent <id>", "broader parent policy id")
+  .requiredOption("--actor <identity>", "explicit human identity: human:, github:, or git:")
+  .requiredOption("--reason <reason>", "audited reason this narrow opposite is intentional")
+  .action((id: string, opts: { parent: string; actor: string; reason: string }) => {
+    const { store, root } = storeFor();
+    try {
+      const policy = new ConstitutionService(store, root).linkException(id, opts.parent, opts.actor, opts.reason);
+      console.log(`✓ ${policy.id} linked as a non-blocking exception of ${policy.exception_of} (revision ${policy.revision})`);
+      console.log("  proof and authority cleared; composition remains advisory until separately proved.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("relations")
+  .description("Inspect explicit exception-parent links without evaluating, composing, activating, or enforcing policy.")
+  .argument("<id>", "policy id")
+  .option("--public-only", "exclude private-overlay policy records")
+  .action((id: string, opts: { publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const relations = new ConstitutionService(store, root).relations(id, { publicOnly: opts.publicOnly });
+      console.log(JSON.stringify(relations, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("consolidation")
+  .description("Inspect a non-mutating advisory consolidation candidate from an existing scope suggestion.")
+  .argument("<id>", "anchor policy id")
+  .option("--public-only", "exclude private-overlay policy records")
+  .action((id: string, opts: { publicOnly?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const candidate = new ConstitutionService(store, root).consolidation(id, { publicOnly: opts.publicOnly });
+      console.log(JSON.stringify(candidate, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+policyCmd
+  .command("evaluate")
+  .description("Evaluate one or all policies with the neutral deterministic result algebra.")
+  .argument("[id]", "optional policy id")
+  .option("--active", "evaluate active policies only")
+  .option("--public-only", "exclude private-overlay policies and graph records")
+  .option("--staged", "evaluate executable-behavior policies against the staged index snapshot")
+  .option("--working", "evaluate executable-behavior policies against all staged, unstaged, and untracked changes")
+  .option("--commit <sha>", "evaluate executable-behavior policies at an exact commit")
+  .option("--strict", "exit non-zero on an authorized blocking violation or evaluator error")
+  .option("--json", "emit canonical receipt objects as JSON")
+  .action((id: string | undefined, opts: { active?: boolean; publicOnly?: boolean; staged?: boolean; working?: boolean; commit?: string; strict?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const sources = [opts.staged && "--staged", opts.working && "--working", opts.commit && "--commit"].filter(Boolean);
+      if (sources.length > 1) throw new Error(`pick one executable-behavior snapshot source (got ${sources.join(", ")})`);
+      if (opts.commit && !revExists(opts.commit, root)) throw new Error(`--commit ref "${opts.commit}" does not resolve`);
+      const behavior = opts.staged ? { workspace: "staged" as const }
+        : opts.working ? { workspace: "working" as const }
+          : opts.commit ? { commit: revParse(opts.commit, root) }
+            : undefined;
+      indexRepo(store, root, { churn: false });
+      store.reindex();
+      const results = new ConstitutionService(store, root).evaluate({ id, activeOnly: opts.active, publicOnly: opts.publicOnly, behavior });
+      if (opts.json) console.log(JSON.stringify(results.map((r) => r.evaluation), null, 2));
+      else renderPolicyEvaluations(results).forEach((line) => console.log(line));
+      if (opts.strict && results.some((r) => r.blocks || r.strict_error)) process.exitCode = 1;
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+function renderPolicyEvaluations(results: PolicyEvaluationSet[]): string[] {
+  if (!results.length) return ["No Constitution policies matched."];
+  const icon: Record<string, string> = { satisfied: "✅", violated: "⛔", not_applicable: "·", unknown: "?", error: "‼" };
+  const out = [`Constitution policy evaluation: ${results.length} canonical receipt(s)`];
+  for (const r of results) {
+    out.push(`  ${icon[r.evaluation.result] ?? "·"} ${r.policy.id} [${r.policy.state}] ${r.evaluation.result}${r.blocks ? " — BLOCK" : ""}`);
+    out.push(`     ${r.evaluation.explanation}`);
+    if (r.gate_error) out.push(`     gate error: ${r.gate_error}`);
+    out.push(`     receipt: ${r.evaluation.deterministic_hash}`);
+  }
+  return out;
+}
+
+// ---- constitution (deterministic evidence -> candidate bootstrap) --------
+const constitutionCmd = program
+  .command("constitution")
+  .description("Bootstrap Hunch Constitution candidates from attributable structured evidence.");
+
+constitutionCmd
+  .command("scorecard")
+  .description("Validate and score a versioned EXP-03 Intent Compiler case bank; writes nothing.")
+  .argument("[file]", "path to a version-1 EXP-03 JSON case bank", join(dirname(fileURLToPath(import.meta.url)), "../../bench/constitution-exp03-v1.json"))
+  .option("--json", "emit the canonical scorecard as JSON")
+  .action((file: string, opts: { json?: boolean }) => {
+    try {
+      const scorecard = scoreCompilerCaseBank(JSON.parse(readFileSync(resolve(file), "utf8")));
+      console.log(opts.json ? JSON.stringify(scorecard, null, 2) : renderCompilerScorecard(scorecard));
+      if (!scorecard.passed) process.exitCode = 1;
+    } catch (e) {
+      fail((e as Error).message);
+    }
+  });
+
+constitutionCmd
+  .command("ingest")
+  .description("Normalize local corrections/failures, committed instructions/ADRs, and local review/PR exports into Git-native EvidenceEvents; creates no policy authority.")
+  .option("--since <duration>", "evidence window, e.g. 90d or 12w", "90d")
+  .option("--max-events <n>", "maximum events normalized in one run (hard-capped at 200)", "100")
+  .option("--instructions", "hash-normalize bounded committed instruction and ADR markdown")
+  .option("--from <files...>", "strict local review/conversation/PR export JSON file(s)")
+  .option("--public-only", "read/write only public records")
+  .option("--private", "read/write only the configured private overlay")
+  .action((opts: { since: string; maxEvents: string; instructions?: boolean; from?: string[]; publicOnly?: boolean; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const maxEvents = Number(opts.maxEvents);
+      if (!Number.isFinite(maxEvents) || maxEvents <= 0) throw new Error("--max-events must be a positive number");
+      const report = new ConstitutionService(store, root).ingest({
+        since: opts.since,
+        maxEvents,
+        instructions: opts.instructions,
+        importFiles: opts.from,
+        publicOnly: opts.publicOnly,
+        privateOnly: opts.private,
+      });
+      console.log(`Constitution evidence ingest: scanned ${report.scanned} record(s), ${report.eligible} eligible`);
+      console.log(`  ${report.normalized} normalized · ${report.existing} existing · ${report.covered} covered · ${report.uncompilable} uncompilable · ${report.excluded} excluded`);
+      for (const event of report.events) {
+        console.log(`  ${event.id} [${event.kind}/${event.compiler?.status ?? "normalized"}] ${event.text_ref ?? ""}`);
+      }
+      console.log("  authority: none; ingestion never proves, proposes, activates, or blocks.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+constitutionCmd
+  .command("delta")
+  .description("Inspect the exact first-parent structural delta and supported candidates for one human-confirmed fix/revert decision; writes nothing.")
+  .argument("<decision-id>", "git-anchored decision id")
+  .option("--public-only", "read only the public decision and graph")
+  .option("--private", "read only the configured private overlay decision and union graph")
+  .action((decisionId: string, opts: { publicOnly?: boolean; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const inspection = new ConstitutionService(store, root).inspectStructural(decisionId, {
+        publicOnly: opts.publicOnly,
+        privateOnly: opts.private,
+      });
+      console.log(JSON.stringify(inspection, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+constitutionCmd
+  .command("bootstrap")
+  .description("Normalize eligible decisions into evidence events and compile at most three non-active Policy IR candidates.")
+  .option("--since <duration>", "evidence window, e.g. 90d or 12w", "90d")
+  .option("--max-candidates <n>", "maximum surfaced candidates (hard-capped at 3)", "3")
+  .option("--public-only", "read/write only public evidence and policies")
+  .option("--private", "read/write only the configured private overlay")
+  .option("--history", "use exact first-parent deltas from human-confirmed fix/revert decisions; ambiguous deltas remain uncompilable")
+  .action((opts: { since: string; maxCandidates: string; publicOnly?: boolean; private?: boolean; history?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const requested = Number(opts.maxCandidates);
+      if (!Number.isFinite(requested) || requested <= 0) throw new Error("--max-candidates must be a positive number");
+      if (opts.history) {
+        indexRepo(store, root, { churn: false });
+        store.reindex();
+      }
+      const report = new ConstitutionService(store, root).bootstrap({
+        since: opts.since,
+        maxCandidates: requested,
+        publicOnly: opts.publicOnly,
+        privateOnly: opts.private,
+        history: opts.history,
+      });
+      console.log(`Constitution ${opts.history ? "history " : ""}bootstrap: scanned ${report.scanned} decision(s), ${report.eligible} eligible`);
+      for (const candidate of report.compiled) {
+        console.log(`  + ${candidate.policy.id} [${candidate.policy.state}] ${candidate.policy.statement}`);
+        console.log(`    evidence: ${candidate.evidence.id} · ${candidate.policy.assertion.kind} · authority: none`);
+      }
+      console.log(`  ${report.compiled.length} compiled · ${report.covered} already covered · ${report.conflicted} conflicted · ${report.deferred} deferred by max-three cap · ${report.uncompilable} uncompilable`);
+      if (!report.compiled.length) console.log("  No new candidates; existing policy lifecycle states were left untouched.");
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+constitutionCmd
+  .command("g2")
+  .description("Inspect exact private G2 evidence; optionally append a human plan, runbook rehearsal, or candidate review. Never grants policy authority.")
+  .option("--plan <file>", "append a private human-selected G2 plan from JSON")
+  .option("--rehearse <runbook-id>", "append a rehearsal receipt for the exact current private runbook content")
+  .option("--attest <candidate-id>", "append an exact private human selection or rejection for one reviewed candidate")
+  .option("--observe", "record at most one private shadow observation per selected policy for the current real HEAD/graph")
+  .option("--backfill <n>", "atomically record shadow observations across up to n real first-parent commits after an all-policy preflight")
+  .option("--drill <category>", "execute one exact selected operational runbook drill, or all seven with category=all; writes no evidence")
+  .option("--queue <limit>", "return the bounded current-proof queue of unclassified G2 shadow violations")
+  .option("--candidates <limit>", "return a bounded read-only review packet of exact fix-history candidates requiring human attestation")
+  .option("--behavior-candidates <limit>", "derive bounded behavior-level candidates from rejected grounded proxies plus newly added regression tests")
+  .option("--behavior-decision <decision-id>", "scope behavior review/replay/materialization to one exact current human-confirmed decision")
+  .option("--behavior-replay <candidate-id>", "run one exact behavior candidate in disposable known-bad/good worktrees")
+  .option("--behavior-deps <candidate-id>", "explicitly build or validate content-addressed historical dependency snapshots for one behavior candidate")
+  .option("--behavior-attest <candidate-id>", "append an exact private human selection or rejection bound to a snapshot-backed behavior replay")
+  .option("--behavior-materialize", "assess current selected behavior attestations against the exact supported Policy IR without creating artifacts")
+  .option("--behavior-policy-materialize", "materialize and P3-prove every current selected behavior as a private non-authoritative policy proposal")
+  .option("--behavior-review-hash <hash>", "exact behavior-candidate review content hash being replayed or provisioned")
+  .option("--allow-install-script <packages...>", "dependency packages explicitly allowed to run lifecycle scripts while building --behavior-deps")
+  .option("--dependency-timeout-ms <n>", "timeout for each npm dependency snapshot operation", "300000")
+  .option("--candidate-since <window>", "git history window for candidate review or attestation", "180d")
+  .option("--candidate-commits <n>", "maximum fix-labeled commits inspected for candidate review or attestation", "100")
+  .option("--candidate-limit <n>", "exact review-packet limit used by --attest or --behavior-replay", "30")
+  .option("--review-hash <hash>", "exact candidate review content hash being attested")
+  .option("--disposition <value>", "candidate disposition: selected | rejected")
+  .option("--result <result>", "rehearsal result: passed | failed")
+  .option("--actor <actor>", "explicit human actor (human:, github:, or git:)")
+  .option("--evidence <hashes...>", "one or more sha1 evidence hashes for a rehearsal")
+  .option("--notes <text>", "rehearsal evidence notes")
+  .option("--reason <text>", "candidate selection or rejection rationale")
+  .option("--supersedes <id>", "current rehearsal or candidate attestation corrected by this append-only receipt")
+  .option("--strict", "exit nonzero while the packet is not eligible for explicit human G2 signoff")
+  .action((opts: { plan?: string; rehearse?: string; attest?: string; observe?: boolean; backfill?: string; drill?: string; queue?: string; candidates?: string; behaviorCandidates?: string; behaviorDecision?: string; behaviorReplay?: string; behaviorDeps?: string; behaviorAttest?: string; behaviorMaterialize?: boolean; behaviorPolicyMaterialize?: boolean; behaviorReviewHash?: string; allowInstallScript?: string[]; dependencyTimeoutMs: string; candidateSince: string; candidateCommits: string; candidateLimit: string; reviewHash?: string; disposition?: string; result?: string; actor?: string; evidence?: string[]; notes?: string; reason?: string; supersedes?: string; strict?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const queueRequested = opts.queue !== undefined;
+      const candidatesRequested = opts.candidates !== undefined;
+      const behaviorCandidatesRequested = opts.behaviorCandidates !== undefined;
+      const behaviorReplayRequested = opts.behaviorReplay !== undefined;
+      const behaviorDepsRequested = opts.behaviorDeps !== undefined;
+      const behaviorAttestRequested = opts.behaviorAttest !== undefined;
+      const behaviorMaterializeRequested = opts.behaviorMaterialize === true;
+      const behaviorPolicyMaterializeRequested = opts.behaviorPolicyMaterialize === true;
+      const backfillRequested = opts.backfill !== undefined;
+      const drillRequested = opts.drill !== undefined;
+      const behaviorActionRequested = behaviorCandidatesRequested || behaviorReplayRequested || behaviorDepsRequested
+        || behaviorAttestRequested || behaviorMaterializeRequested || behaviorPolicyMaterializeRequested;
+      const attestRequested = opts.attest !== undefined;
+      const actions = [!!opts.plan, !!opts.rehearse, attestRequested, !!opts.observe, backfillRequested, drillRequested, queueRequested, candidatesRequested, behaviorCandidatesRequested, behaviorReplayRequested, behaviorDepsRequested, behaviorAttestRequested, behaviorMaterializeRequested, behaviorPolicyMaterializeRequested].filter(Boolean).length;
+      if (actions > 1) throw new Error("choose only one G2 plan, rehearsal, structural attestation, observation, historical backfill, operational drill, queue, structural candidate, behavior candidate, behavior replay, dependency snapshot, behavior attestation, behavior assessment, or behavior policy materialization action");
+      if (opts.allowInstallScript && !behaviorDepsRequested && !behaviorPolicyMaterializeRequested) throw new Error("--allow-install-script requires --behavior-deps or --behavior-policy-materialize");
+      if (opts.behaviorDecision && !behaviorActionRequested) throw new Error("--behavior-decision requires a behavior candidate, replay, dependency, attestation, assessment, or materialization action");
+      const service = new ConstitutionService(store, root);
+      let output: unknown;
+      if (opts.plan) {
+        const appended = service.createG2Plan(JSON.parse(readFileSync(resolve(opts.plan), "utf8")) as CompileG2PlanInput);
+        output = { appended, readiness: service.g2Readiness() };
+      } else if (attestRequested) {
+        if (opts.result || opts.evidence || opts.notes) throw new Error("--attest does not accept rehearsal --result, --evidence, or --notes");
+        if (!opts.reviewHash) throw new Error("--attest requires --review-hash");
+        if (opts.disposition !== "selected" && opts.disposition !== "rejected") throw new Error("--attest requires --disposition selected|rejected");
+        if (!opts.actor) throw new Error("--attest requires --actor");
+        if (!opts.reason) throw new Error("--attest requires --reason");
+        const reviewOptions = {
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+        };
+        const appended = service.attestG2Candidate(opts.attest!, opts.reviewHash, opts.disposition, opts.actor, opts.reason, {
+          ...reviewOptions,
+          supersedes: opts.supersedes,
+        });
+        output = { appended, review: service.g2CandidateReview(reviewOptions) };
+      } else if (opts.rehearse) {
+        if (opts.reviewHash || opts.disposition || opts.reason) throw new Error("--rehearse does not accept candidate --review-hash, --disposition, or --reason");
+        if (opts.result !== "passed" && opts.result !== "failed") throw new Error("--rehearse requires --result passed|failed");
+        if (!opts.actor) throw new Error("--rehearse requires --actor");
+        if (!opts.evidence?.length) throw new Error("--rehearse requires at least one --evidence sha1 hash");
+        if (!opts.notes) throw new Error("--rehearse requires --notes");
+        const appended = service.recordRunbookRehearsal(opts.rehearse, opts.result, opts.actor, opts.evidence, opts.notes, { supersedes: opts.supersedes });
+        output = { appended, readiness: service.g2Readiness() };
+      } else if (opts.observe) {
+        indexRepo(store, root, { churn: false });
+        store.reindex();
+        output = { sweep: service.g2ShadowSweep(), readiness: service.g2Readiness() };
+      } else if (backfillRequested) {
+        output = { backfill: service.g2ShadowBackfill(Number(opts.backfill)), readiness: service.g2Readiness() };
+      } else if (drillRequested) {
+        const categories = opts.drill === "all" ? [...G2_RUNBOOK_CATEGORIES] : G2_RUNBOOK_CATEGORIES.filter((category) => category === opts.drill);
+        if (!categories.length) throw new Error(`--drill must be all or one of: ${G2_RUNBOOK_CATEGORIES.join(", ")}`);
+        output = { drills: categories.map((category) => service.g2OperationalDrill(category)), readiness: service.g2Readiness() };
+      } else if (queueRequested) {
+        output = service.g2ShadowQueue(Number(opts.queue));
+      } else if (candidatesRequested) {
+        output = service.g2CandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.candidates) });
+      } else if (behaviorCandidatesRequested) {
+        if (opts.behaviorReviewHash) throw new Error("--behavior-candidates does not accept --behavior-review-hash");
+        output = service.g2BehaviorCandidateReview({ since: opts.candidateSince, maxCommits: Number(opts.candidateCommits), limit: Number(opts.behaviorCandidates), decisionId: opts.behaviorDecision });
+      } else if (behaviorReplayRequested) {
+        if (!opts.behaviorReviewHash) throw new Error("--behavior-replay requires --behavior-review-hash");
+        if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.allowInstallScript) {
+          throw new Error("--behavior-replay accepts no human evidence or structural-attestation options");
+        }
+        output = service.g2BehaviorCandidateReplay(opts.behaviorReplay!, opts.behaviorReviewHash, {
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
+        });
+      } else if (behaviorDepsRequested) {
+        if (!opts.behaviorReviewHash) throw new Error("--behavior-deps requires --behavior-review-hash");
+        if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes) {
+          throw new Error("--behavior-deps accepts no human evidence or structural-attestation options");
+        }
+        output = service.g2BehaviorDependencySnapshots(opts.behaviorDeps!, opts.behaviorReviewHash, {
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
+          allowInstallScripts: opts.allowInstallScript ?? [],
+          timeoutMs: Number(opts.dependencyTimeoutMs),
+        });
+      } else if (behaviorAttestRequested) {
+        if (!opts.behaviorReviewHash) throw new Error("--behavior-attest requires --behavior-review-hash");
+        if (opts.disposition !== "selected" && opts.disposition !== "rejected") throw new Error("--behavior-attest requires --disposition selected|rejected");
+        if (!opts.actor) throw new Error("--behavior-attest requires --actor");
+        if (!opts.reason) throw new Error("--behavior-attest requires --reason");
+        if (opts.result || opts.evidence || opts.notes || opts.reviewHash || opts.allowInstallScript) {
+          throw new Error("--behavior-attest accepts no rehearsal, structural-review, or dependency-install options");
+        }
+        const reviewOptions = {
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
+        };
+        const appended = service.attestG2BehaviorCandidate(
+          opts.behaviorAttest!,
+          opts.behaviorReviewHash,
+          opts.disposition,
+          opts.actor,
+          opts.reason,
+          { ...reviewOptions, supersedes: opts.supersedes },
+        );
+        output = { appended, review: service.g2BehaviorCandidateReview(reviewOptions) };
+      } else if (behaviorMaterializeRequested) {
+        if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.behaviorReviewHash || opts.allowInstallScript) {
+          throw new Error("--behavior-materialize accepts no human evidence, review-hash, or dependency-install options");
+        }
+        output = service.g2BehaviorMaterializationAssessment({
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
+        });
+      } else if (behaviorPolicyMaterializeRequested) {
+        if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.behaviorReviewHash) {
+          throw new Error("--behavior-policy-materialize accepts no human evidence or review-hash options");
+        }
+        output = service.g2BehaviorPolicyMaterialize({
+          since: opts.candidateSince,
+          maxCommits: Number(opts.candidateCommits),
+          limit: Number(opts.candidateLimit),
+          decisionId: opts.behaviorDecision,
+          allowInstallScripts: opts.allowInstallScript ?? [],
+          dependencyTimeoutMs: Number(opts.dependencyTimeoutMs),
+        });
+      } else if (opts.result || opts.actor || opts.evidence || opts.notes || opts.reason || opts.reviewHash || opts.disposition || opts.supersedes || opts.behaviorReviewHash || opts.allowInstallScript) {
+        throw new Error("human evidence options require --rehearse <runbook-id> or --attest <candidate-id>");
+      } else {
+        output = service.g2Readiness();
+      }
+      const readiness = service.g2Readiness();
+      console.log(JSON.stringify(output, null, 2));
+      if (opts.strict && readiness.recommendation !== "eligible_for_human_g2_signoff") process.exitCode = 1;
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+constitutionCmd
+  .command("g3")
+  .description("Inspect exact private G3 advisory evidence; optionally append a preregistration, human plan, proof review, or executable adapter receipt. Never signs off G3.")
+  .option("--experiment <file>", "append an immutable private EXP-01 or EXP-03 preregistration from JSON")
+  .option("--plan <file>", "append a private human-selected G3 plan bound to exact G2 readiness and experiment records")
+  .option("--review <file>", "append a measured human proof-card review for one plan-selected policy")
+  .option("--conformance", "execute and append the exact current plan's supported three-client adapter fixture")
+  .option("--timeout-ms <n>", "timeout for the executable adapter conformance fixture", "180000")
+  .option("--strict", "exit nonzero while the packet is not eligible for explicit human G3 signoff")
+  .action((opts: { experiment?: string; plan?: string; review?: string; conformance?: boolean; timeoutMs: string; strict?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const actions = [!!opts.experiment, !!opts.plan, !!opts.review, !!opts.conformance].filter(Boolean).length;
+      if (actions > 1) throw new Error("choose only one G3 preregistration, plan, proof review, or adapter-conformance action");
+      const service = new ConstitutionService(store, root);
+      let output: unknown;
+      if (opts.experiment) {
+        const appended = service.registerG3Experiment(JSON.parse(readFileSync(resolve(opts.experiment), "utf8")) as CompileExperimentPreregistrationInput);
+        output = { appended, readiness: service.g3Readiness() };
+      } else if (opts.plan) {
+        const appended = service.createG3Plan(JSON.parse(readFileSync(resolve(opts.plan), "utf8")) as CompileG3PlanInput);
+        output = { appended, readiness: service.g3Readiness() };
+      } else if (opts.review) {
+        const input = JSON.parse(readFileSync(resolve(opts.review), "utf8")) as Parameters<ConstitutionService["recordG3ProofReview"]>[0];
+        const appended = service.recordG3ProofReview(input);
+        output = { appended, readiness: service.g3Readiness() };
+      } else if (opts.conformance) {
+        const appended = service.g3AdapterConformance({ timeoutMs: Number(opts.timeoutMs) });
+        output = { appended, readiness: service.g3Readiness() };
+      } else {
+        output = service.g3Readiness();
+      }
+      const readiness = service.g3Readiness();
+      console.log(JSON.stringify(output, null, 2));
+      if (opts.strict && readiness.recommendation !== "eligible_for_human_g3_signoff") process.exitCode = 1;
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+// ---- experiment (fresh preregistration-bound execution) -----------------
+const experimentCmd = program
+  .command("experiment")
+  .description("Lock, execute, review, and report fresh private preregistered experiments. No result grants policy authority.");
+
+experimentCmd
+  .command("validate")
+  .description("Validate and content-address a draft case bank against the current preregistration without writing it.")
+  .argument("<file>", "case bank JSON input")
+  .action((file: string) => {
+    const { store, root } = storeFor();
+    try {
+      const input = JSON.parse(readFileSync(resolve(file), "utf8")) as CompileExperimentCaseBankInput;
+      console.log(JSON.stringify(new ConstitutionService(store, root).validateExperimentCaseBank(input), null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("prepare")
+  .description("Lock a fresh private case bank to the exact current preregistration before assignment.")
+  .argument("<file>", "case bank JSON input")
+  .action((file: string) => {
+    const { store, root } = storeFor();
+    try {
+      const input = JSON.parse(readFileSync(resolve(file), "utf8")) as CompileExperimentCaseBankInput;
+      console.log(JSON.stringify(new ConstitutionService(store, root).lockExperimentCaseBank(input), null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("create")
+  .description("Create one immutable balanced assignment manifest; one run is allowed per preregistration.")
+  .argument("<case-bank-id>", "locked private case bank id")
+  .requiredOption("--sample-per-arm <n>", "full preregistered target per arm; the minimum is only a checkpoint")
+  .requiredOption("--actor <actor>", "explicit owner (human:, git:, or github:)")
+  .requiredOption("--reason <text>", "why this exact run manifest is being created")
+  .option("--provider <provider>", "EXP-01 subscription CLI: claude-cli | codex-cli")
+  .option("--model <model>", "exact EXP-01 model version or alias")
+  .option("--max-turns <n>", "maximum agent turns for every EXP-01 assignment", "40")
+  .action((caseBankId: string, opts: { samplePerArm: string; actor: string; reason: string; provider?: string; model?: string; maxTurns: string }) => {
+    const { store, root } = storeFor();
+    try {
+      const service = new ConstitutionService(store, root);
+      const bank = service.experimentRepository.listCaseBanks().find((item) => item.id === caseBankId);
+      if (!bank) throw new Error(`unknown private experiment case bank: ${caseBankId}`);
+      if (bank.experiment === "EXP-01" && opts.provider !== "claude-cli" && opts.provider !== "codex-cli") {
+        throw new Error("EXP-01 run creation requires explicit --provider claude-cli|codex-cli; Hunch never chooses which subscription to spend");
+      }
+      if (bank.experiment === "EXP-01" && !opts.model) throw new Error("EXP-01 run creation requires an exact --model stratum");
+      if (bank.experiment === "EXP-03" && (opts.provider || opts.model)) throw new Error("EXP-03 is a human-review experiment and accepts no model provider");
+      const provider = opts.provider as "claude-cli" | "codex-cli" | undefined;
+      const appended = service.createExperimentRun(caseBankId, {
+        sample_per_arm: Number(opts.samplePerArm),
+        ...(provider ? { provider, provider_version: subscriptionCliVersion(provider), model_version: opts.model, max_turns: Number(opts.maxTurns) } : {}),
+        actor: opts.actor,
+        reason: opts.reason,
+      });
+      console.log(JSON.stringify({ appended, report: service.experimentReport(appended.id) }, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("run")
+  .description("Execute the next pending EXP-01 assignments with the manifest-selected subscription CLI.")
+  .argument("<run-id>", "immutable experiment run id")
+  .option("--limit <n>", "maximum assignments to execute in this invocation", "1")
+  .option("--timeout-ms <n>", "per-assignment subscription CLI timeout", "1800000")
+  .action((runId: string, opts: { limit: string; timeoutMs: string }) => {
+    const { store, root } = storeFor();
+    try {
+      console.log(JSON.stringify(new ConstitutionService(store, root).executeExperimentRun(runId, {
+        limit: Number(opts.limit),
+        timeoutMs: Number(opts.timeoutMs),
+      }), null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("next")
+  .description("Start or resume the next randomized EXP-03 human review and return only its assigned treatment.")
+  .argument("<run-id>", "immutable experiment run id")
+  .requiredOption("--reviewer <actor>", "explicit human reviewer")
+  .action((runId: string, opts: { reviewer: string }) => {
+    const { store, root } = storeFor();
+    try {
+      console.log(JSON.stringify(new ConstitutionService(store, root).nextExperimentReview(runId, opts.reviewer), null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("submit")
+  .description("Complete a machine-timed EXP-03 review; duration is derived from the append-only start record.")
+  .argument("<run-id>", "immutable experiment run id")
+  .argument("<assignment-id>", "assignment returned by experiment next")
+  .argument("<file>", "review outcome JSON without a duration field")
+  .action((runId: string, assignmentId: string, file: string) => {
+    const { store, root } = storeFor();
+    try {
+      const input = JSON.parse(readFileSync(resolve(file), "utf8")) as Parameters<ConstitutionService["submitExperimentReview"]>[2];
+      const service = new ConstitutionService(store, root);
+      const appended = service.submitExperimentReview(runId, assignmentId, input);
+      console.log(JSON.stringify({ appended, report: service.experimentReport(runId) }, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("followup")
+  .description("Append the preregistered seven-day EXP-03 reversal measurement.")
+  .argument("<run-id>", "immutable experiment run id")
+  .argument("<assignment-id>", "completed review assignment")
+  .argument("<file>", "follow-up JSON")
+  .action((runId: string, assignmentId: string, file: string) => {
+    const { store, root } = storeFor();
+    try {
+      const input = JSON.parse(readFileSync(resolve(file), "utf8")) as Parameters<ConstitutionService["recordExperimentFollowup"]>[2];
+      const service = new ConstitutionService(store, root);
+      const appended = service.recordExperimentFollowup(runId, assignmentId, input);
+      console.log(JSON.stringify({ appended, report: service.experimentReport(runId) }, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+experimentCmd
+  .command("stop")
+  .description("Irreversibly stop a run for a preregistered safety/privacy or provider-wide inability condition.")
+  .argument("<run-id>", "immutable experiment run id")
+  .argument("<file>", "stop receipt JSON with category, actor, reason, and evidence_hashes")
+  .action((runId: string, file: string) => {
+    const { store, root } = storeFor();
+    try {
+      const input = JSON.parse(readFileSync(resolve(file), "utf8")) as Parameters<ConstitutionService["stopExperiment"]>[1];
+      const service = new ConstitutionService(store, root);
+      const appended = service.stopExperiment(runId, input);
+      console.log(JSON.stringify({ appended, report: service.experimentReport(runId) }, null, 2));
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      store.close();
+    }
+  });
+
+for (const command of ["status", "report"] as const) {
+  experimentCmd
+    .command(command)
+    .description(command === "status" ? "Show raw denominators and remaining assignments." : "Emit the deterministic preregistration-bound analysis receipt.")
+    .argument("<run-id>", "immutable experiment run id")
+    .action((runId: string) => {
+      const { store, root } = storeFor();
+      try {
+        console.log(JSON.stringify(new ConstitutionService(store, root).experimentReport(runId), null, 2));
+      } catch (e) {
+        fail((e as Error).message);
+      } finally {
+        store.close();
+      }
+    });
+}
+
 // ---- compare (rank N candidate solutions by architectural fit) ------------
 program
   .command("compare")
@@ -1006,14 +1997,18 @@ program
   .description("Capture a Bug from a failing test (symptom + suspect ranking).")
   .requiredOption("--test <id>", "failing test id/name")
   .requiredOption("--message <msg>", "failure message / stack")
-  .action(async (opts: { test: string; message: string }) => {
+  .option("--private", "keep the bug and its failure text in the private overlay; uses deterministic local synthesis")
+  .action(async (opts: { test: string; message: string; private?: boolean }) => {
     const { store, root } = storeFor();
+    if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
     store.json.ensureDirs();
-    const r = await recordFailure(store, root, { test: opts.test, message: opts.message });
+    const r = await recordFailure(store, root, { test: opts.test, message: opts.message }, { private: opts.private });
     store.reindex();
-    console.log(`✓ recorded bug ${r.bug.id} via ${r.provider}: "${r.bug.title}"`);
+    const flush = flushCapture(store, hunchPaths(root).hunch, !!opts.private, `hunch: capture ${r.bug.id}`);
+    console.log(`✓ recorded bug ${r.bug.id} via ${r.provider}: "${r.bug.title}"${opts.private ? " [private overlay; local-only synthesis]" : ""}`);
     if (r.bug.lineage.recurrence_of) console.log(`  ↳ recurrence of ${r.bug.lineage.recurrence_of}`);
     if (r.constraint) console.log(`  ↳ promoted constraint ${r.constraint.id} [${r.constraint.severity}]: ${r.constraint.statement}`);
+    if (flush === "pushed") console.log("  ↳ private memory committed + pushed");
     store.close();
   });
 
@@ -1031,10 +2026,12 @@ program
   .option("--forbid-dep <names>", "comma-sep imports that BREAK the rule (parsed-import precise; e.g. lodash) — blocks the real violation, immune to staleness")
   .option("--forbid-symbol <names>", "comma-sep identifier names that break the rule")
   .option("--match <regex>", "textual line regex (lint-grade last resort; prefer --forbid-dep/--forbid-symbol)")
-  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string; match?: string; forbidDep?: string; forbidSymbol?: string }) => {
+  .option("--private", "write the invariant into the private overlay (local enforcement only; never included in public CI output)")
+  .action((statement: string, opts: { scope: string; severity: string; type: string; rationale: string; sourceDecision?: string; enforcement: string; match?: string; forbidDep?: string; forbidSymbol?: string; private?: boolean }) => {
     const SEV = ["advisory", "warning", "blocking"];
     if (!SEV.includes(opts.severity)) return fail(`--severity must be one of: ${SEV.join(", ")}`);
     const { store, root } = storeFor();
+    if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
     store.json.ensureDirs();
     const scope = opts.scope.split(",").map((s) => toPosixTarget(s.trim())).filter(Boolean);
     const csv = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
@@ -1064,10 +2061,13 @@ program
       valid_from: new Date().toISOString(),
       valid_to: null,
       provenance: { source: "human_confirmed", confidence: 1, evidence: [], last_verified: new Date().toISOString() },
-    } as Constraint);
+    } as Constraint, opts.private);
     store.reindex();
-    refreshExistingGrounding(root, store); // keep EVERY assistant's grounding current, not just CLAUDE.md
-    console.log(`✓ recorded ${c.severity} constraint ${c.id}: "${c.statement}" (scope: ${scope.join(", ") || "repo"})`);
+    // Public grounding is a publishable artifact. Private rules stay local and
+    // are surfaced by local checks/MCP, never copied into committed agent docs.
+    if (store.captureHome(!!opts.private) === "public") refreshExistingGrounding(root, store);
+    const flush = flushCapture(store, hunchPaths(root).hunch, !!opts.private, `hunch: capture ${c.id}`);
+    console.log(`✓ recorded ${c.severity} constraint ${c.id}: "${c.statement}" (scope: ${scope.join(", ") || "repo"})${opts.private ? " [private overlay]" : ""}`);
     if (derived && c.forbids?.deps.length) console.log(`  ↳ matcher: forbids import of ${c.forbids.deps.join(", ")} (precise, immune to staleness)`);
     if (c.severity === "blocking" && !effectiveForbids(c)) {
       // The default path's sharp edge: a scope-only blocking rule fails OPEN once any
@@ -1075,6 +2075,7 @@ program
       console.log(`  ⚠ scope-only — this will downgrade to advisory once a file in scope is changed after today.`);
       console.log(`    To block the actual violation across the file's life, add  --forbid-dep <pkg>  (or --forbid-symbol / --match).`);
     }
+    if (flush === "pushed") console.log("  ↳ private memory committed + pushed");
     store.close();
   });
 
@@ -1084,8 +2085,10 @@ program
   .description("Run the test suite; capture failures as Bugs (suspects + recurrence → Constraints), mark passing tests' bugs fixed.")
   .argument("[cmd...]", "test command to run (default: `npm test`)")
   .option("--dry-run", "show what would be captured without writing")
-  .action(async (cmd: string[], opts: { dryRun?: boolean }) => {
+  .option("--private", "keep captured test failures in the private overlay and use deterministic local synthesis")
+  .action(async (cmd: string[], opts: { dryRun?: boolean; private?: boolean }) => {
     const { store, root } = storeFor();
+    if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
     store.json.ensureDirs();
     // Run as a shell string (not argv) so the npm/test-runner shim resolves on
     // Windows and avoids Node's DEP0190 args+shell warning — same lesson as the
@@ -1112,7 +2115,7 @@ program
       return;
     }
 
-    const cap = await captureTestRun(store, root, { report, status: run.status, cmd: cmdStr, output });
+    const cap = await captureTestRun(store, root, { report, status: run.status, cmd: cmdStr, output, private: opts.private });
     for (const { bug, constraint } of cap.results) {
       if (constraint) console.log(`  ⚠ ${bug.id} "${bug.title}" → promoted constraint ${constraint.id} [${constraint.severity}]`);
       else console.log(`  ✗ ${bug.id} "${bug.title}" [${bug.severity}]${bug.lineage.recurrence_of ? ` ↳ recurrence of ${bug.lineage.recurrence_of}` : ""}`);
@@ -1120,6 +2123,7 @@ program
     for (const b of cap.fixed) console.log(`  ✓ ${b.id} "${b.title}" → fixed (test passing)`);
 
     store.reindex();
+    if (cap.results.length || cap.fixed.length) flushCapture(store, hunchPaths(root).hunch, !!opts.private, `hunch: capture test results`);
     store.close();
     const recurrences = cap.results.filter((r) => r.bug.lineage.recurrence_of).length;
     const promoted = cap.results.filter((r) => r.constraint).length;
@@ -1173,15 +2177,16 @@ program
   .command("check")
   .description("Flag changes that touch a do-not-break invariant — the local guardrail AND the CI/PR Constraint Guard. Also flags (advisory) symbols you add that already exist elsewhere — possible re-implementation/sprawl.")
   .option("--staged", "check git staged files (default)")
+  .option("--working", "check all working-tree edits vs HEAD (staged, unstaged, and untracked files)")
   .option("--commit <sha>", "check a specific commit's files")
   .option("--base <ref>", "check a PR/branch: files changed vs <ref> (e.g. origin/main) — for CI")
   .option("--strict", "exit non-zero ONLY on a direct, high-confidence, non-stale blocking invariant (near/stale/low-confidence stay advisory)")
   .option("--format <fmt>", "output: text (default) | markdown (a PR comment)", "text")
   .option("--blast", "also print the dependency blast radius of the changed files")
   .option("--public-only", "exclude the private overlay (HUNCH_PRIVATE_DIR) from the report — use for any output that may be posted publicly (the CI PR comment passes this)")
-  .action((opts: { staged?: boolean; commit?: string; base?: string; strict?: boolean; format?: string; blast?: boolean; publicOnly?: boolean }) => {
-    const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged"].filter(Boolean);
-    if (sources.length > 1) return fail(`pick one of --staged / --commit / --base (got ${sources.join(", ")})`);
+  .action((opts: { staged?: boolean; working?: boolean; commit?: string; base?: string; strict?: boolean; format?: string; blast?: boolean; publicOnly?: boolean }) => {
+    const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged", opts.working && "--working"].filter(Boolean);
+    if (sources.length > 1) return fail(`pick one of --staged / --working / --commit / --base (got ${sources.join(", ")})`);
     const markdown = opts.format === "markdown";
     const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], redundant: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
 
@@ -1192,9 +2197,14 @@ program
       store.close();
       return fail(`--base ref "${opts.base}" does not resolve. In CI, fetch the base branch first (git fetch origin <branch>).`);
     }
+    if (opts.commit && !revExists(opts.commit, root)) {
+      store.close();
+      return fail(`--commit ref "${opts.commit}" does not resolve.`);
+    }
     store.reindex(); // blast radius walks the edge graph — make the index current
     const files = opts.commit ? commitFiles(opts.commit, root)
       : opts.base ? rangeFiles(opts.base, root)
+      : opts.working ? workingFiles(root)
       : stagedFiles(root);
     if (!files.length) {
       console.log(markdown ? renderMarkdown(emptyReport) : "No changed files to check.");
@@ -1205,7 +2215,7 @@ program
     // code) + REDUNDANT (adds a symbol already defined elsewhere — advisory) + the
     // hardened strict gate + causal `why` citations — all assembled by the shared
     // store.buildCheckReport (also used by the hunch_merge_verdict tool).
-    const diff = opts.commit ? commitDiff(opts.commit, root) : opts.base ? rangeDiff(opts.base, root) : stagedDiff(root);
+    const diff = opts.commit ? commitDiff(opts.commit, root) : opts.base ? rangeDiff(opts.base, root) : opts.working ? workingDiff(root) : stagedDiff(root);
     const report: CheckReport = store.buildCheckReport(files, diff, {
       strict: !!opts.strict,
       lastChange: (f) => lastChangeDate(f, root),
@@ -1232,7 +2242,9 @@ program
     // gate cases (--staged / --base / --commit HEAD) all have the working tree AT the change.
     // Surfaced always; gates the commit/PR under --strict, with the receipt of the why.
     const hasConformance = store.recs("decisions").some((d) => (d.conformance?.length ?? 0) > 0);
-    if (hasConformance) {
+    const constitution = new ConstitutionService(store, root);
+    const hasActivePolicies = constitution.list({ publicOnly: !!opts.publicOnly }).some((p) => p.state === "active_advisory" || p.state === "active_blocking");
+    if (hasConformance || hasActivePolicies) {
       indexRepo(store, root, { churn: false }); // refresh the symbol/dep graph from the working tree
       store.reindex();
     }
@@ -1258,7 +2270,33 @@ program
       }
     }
 
-    if (reportFailsStrict(report) || (!!opts.strict && confViolations.length > 0)) process.exitCode = 1;
+    // CONSTITUTION POLICY: the same neutral receipt used by `hunch policy evaluate`
+    // and hunch_policy_evaluate. Only an active_blocking policy with explicit human
+    // authority can block. An evaluator error also fails strict CI; unknown remains
+    // visible/advisory and can never masquerade as satisfied.
+    const behavior = opts.working ? { workspace: "working" as const }
+      : opts.commit ? { commit: revParse(opts.commit, root) }
+        : opts.base ? undefined
+          : { workspace: "staged" as const };
+    const policyResults = hasActivePolicies
+      ? constitution.evaluate({ activeOnly: true, publicOnly: !!opts.publicOnly, behavior })
+      : [];
+    if (policyResults.length) {
+      if (markdown) {
+        console.log(`\n### 📜 Hunch Constitution — ${policyResults.length} policy receipt(s)\n`);
+        for (const r of policyResults) {
+          console.log(`- ${r.blocks ? "⛔" : r.evaluation.result === "satisfied" ? "✅" : r.evaluation.result === "error" ? "‼" : "⚠"} \`${r.policy.id}\` **${r.evaluation.result}** — ${r.evaluation.explanation}`);
+          console.log(`  - receipt: \`${r.evaluation.deterministic_hash}\`${r.blocks ? " **(authorized block)**" : ""}`);
+          if (r.gate_error) console.log(`  - ‼ gate error: ${r.gate_error}`);
+        }
+      } else {
+        console.log("");
+        renderPolicyEvaluations(policyResults).forEach((line) => console.log(line));
+      }
+    }
+
+    const constitutionFails = policyResults.some((r) => r.blocks || r.strict_error);
+    if (reportFailsStrict(report) || (!!opts.strict && (confViolations.length > 0 || constitutionFails))) process.exitCode = 1;
     store.close();
   });
 
@@ -1423,7 +2461,7 @@ program
 // ---- firmness (agent-hook enforcement level) ------------------------------
 program
   .command("firmness")
-  .description("Get or set how firmly the Claude Code agent hook enforces Hunch before edits.")
+  .description("Get or set how firmly agent lifecycle hooks enforce Hunch before edits.")
   .argument("[level]", "off | advisory | firm | strict (omit to print the current level)")
   .action((level: string | undefined) => {
     const paths = hunchPaths(findRoot());
@@ -1436,7 +2474,48 @@ program
       return fail(`firmness must be one of: ${FIRMNESS_LEVELS.join(", ")}`);
     }
     const next = writeConfig(paths, { firmness: level }).firmness;
-    console.log(`✓ firmness set to ${next} (takes effect on the next edit — no Claude Code restart needed).`);
+    console.log(`✓ firmness set to ${next} (takes effect on the next agent edit — no restart needed).`);
+  });
+
+// ---- provider (per-user synthesis subscription choice) -------------------
+program
+  .command("provider")
+  .description("Show or set the local coding-assistant subscription Hunch may use for synthesis. Never changes team config.")
+  .argument("[name]", `auto | ${SYNTH_PREFERENCES.filter((p) => p !== "auto").join(" | ")} (omit to inspect)`)
+  .action(async (value: string | undefined) => {
+    const root = findRoot();
+    if (value != null) {
+      const preference = value.trim();
+      if (!(SYNTH_PREFERENCES as readonly string[]).includes(preference)) {
+        return fail(`provider must be one of: ${SYNTH_PREFERENCES.join(", ")}`);
+      }
+      try {
+        writeSynthesisPreference(root, preference as SynthPreference);
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : String(error));
+      }
+      console.log(`✓ local synthesis preference set to ${preference} (gitignored; it never changes a teammate's billing choice).`);
+    }
+
+    const resolution = await resolveSynthesisProvider({ root });
+    const envValue = process.env.HUNCH_SYNTH_PROVIDER?.trim();
+    const local = readSynthesisPreference(root);
+    const hasValidEnv = !!envValue && (SYNTH_PREFERENCES as readonly string[]).includes(envValue);
+    console.log(`selected:    ${resolution.provider.name} (${resolution.source})`);
+    console.log(`preference:  ${hasValidEnv ? `environment: ${envValue}` : `local: ${local}`}`);
+    if (envValue && !hasValidEnv) console.log(dim(`HUNCH_SYNTH_PROVIDER=${envValue} is unknown and is being ignored.`));
+    console.log("available:");
+    for (const status of resolution.statuses) {
+      const billing = status.subscription ? ` — ${status.subscription}` : "";
+      console.log(`  ${status.available ? "✓" : "·"} ${status.name}: ${status.label}${billing}`);
+    }
+    if (resolution.source === "ambiguous") {
+      const choices = resolution.statuses.filter((s) => s.name !== "deterministic" && s.available).map((s) => `hunch provider ${s.name}`);
+      console.log(dim("Multiple subscription CLIs are available, so Hunch uses the free deterministic fallback rather than guessing which plan to spend."));
+      console.log(`choose one:  ${choices.join("  or  ")}`);
+    } else if (resolution.source === "unavailable-preference") {
+      console.log(dim(`Your ${resolution.preference} preference is not available; Hunch is using the local deterministic fallback.`));
+    }
   });
 
 // ---- status (enforcement readiness at a glance) ---------------------------
@@ -1480,73 +2559,20 @@ program
     store.close();
   });
 
-// ---- stats (the one data contract: stock → return → compounding) ----------
-/** Parse a duration like `7d`, `24h`, `30m`, `2w` into ms. Unknown → 7d. */
-function parseSince(s: string): { ms: number; label: string } {
-  const m = /^(\d+)\s*([mhdw])$/.exec(s.trim());
-  if (!m) return { ms: 7 * 864e5, label: "7d" };
-  const n = Number(m[1]);
-  const u = m[2] as "m" | "h" | "d" | "w";
-  const unit: Record<"m" | "h" | "d" | "w", number> = { m: 6e4, h: 36e5, d: 864e5, w: 7 * 864e5 };
-  return { ms: n * unit[u], label: `${n}${u}` };
-}
-
-program
-  .command("stats")
-  .description("The compounding-value receipt: STOCK (what's accumulated) → RETURN (what it caught) → COMPOUNDING (payback). The single data source for every surface (CLI, extension, proof-curve). Read-only. Public store by default; --private unions the overlay (local terminal only).")
-  .option("--json", "emit the machine contract (schema hunch.stats/1) instead of the human receipt")
-  .option("--since <dur>", "window for 'recent' return (e.g. 7d, 24h, 2w)", "7d")
-  .option("--private", "union the private overlay (decisions/bugs/constraints + its catch-log) — never for a publicly-shared surface")
-  .action((opts: { json?: boolean; since: string; private?: boolean }) => {
-    const { store, root } = storeFor();
-    try {
-      if (opts.private && !store.hasPrivate) return fail("no private overlay configured — run `hunch private` (or `hunch shared`) first.");
-      // Public surfaces (extension status bar, proof-curve) must NEVER render a private
-      // record — a leak. Default = public store only (json.loadAll); --private unions the
-      // overlay for a LOCAL terminal glance, mirroring `hunch now --private`.
-      const load = <K extends "decisions" | "constraints" | "bugs" | "components" | "runbooks">(kind: K) =>
-        opts.private ? store.recs(kind) : store.json.loadAll(kind);
-      // Catch-log: the repo-tracked .hunch/events.log always; the overlay's own log too
-      // under --private (a private repo's gate writes there). Aggregation is union-safe.
-      const events = readEvents(hunchPaths(root));
-      if (opts.private && store.privateDir) events.push(...readEvents(hunchPathsForDir(store.privateDir)));
-      const since = parseSince(opts.since);
-      const now = Date.now();
-      const staleConstraints = store.staleness((f) => lastChangeDate(f, root)).filter((s) => s.kind === "constraint").length;
-      const stats = computeStats({
-        decisions: load("decisions"),
-        constraints: load("constraints"),
-        bugs: load("bugs"),
-        componentIds: load("components").map((c) => c.id),
-        runbooksCount: load("runbooks").length,
-        events,
-        staleConstraints,
-        now,
-        windowStart: now - since.ms,
-        windowLabel: since.label,
-      });
-      console.log(opts.private && !opts.json ? `${formatStats(stats)}  (union incl. private overlay — do not paste publicly)` : opts.json ? JSON.stringify(stats, null, 2) : formatStats(stats));
-    } finally {
-      store.close();
-    }
-  });
-
-// ---- hook (Claude Code agent-hook handler) --------------------------------
+// ---- hook (multi-agent lifecycle hook handler) ----------------------------
 program
   .command("hook")
-  .description("Claude Code hook handler: inject relevant Hunch context before edits (and, at strict firmness, deny edits that hit a blocking invariant). Reads the hook event JSON on stdin.")
-  .action(async () => {
+  .description("Agent-agnostic hook handler: normalizes Claude, VS Code, Cursor, Windsurf, and Antigravity events into Hunch context and strict policy checks. Reads hook JSON on stdin.")
+  .option("--provider <provider>", "hook event dialect: claude | vscode | cursor | windsurf | antigravity", "claude")
+  .action(async (opts: { provider?: string }) => {
     // A hook MUST NEVER break the agent: on ANY error or unrecognized input we
     // emit nothing and exit 0 (the action defers to Claude Code's normal flow).
     let store: HunchStore | null = null;
     try {
-      const evt = JSON.parse(await readStdin()) as {
-        hook_event_name?: string;
-        session_id?: string;
-        tool_name?: string;
-        tool_input?: { file_path?: string; new_string?: string; content?: string; edits?: Array<{ new_string?: string }>; command?: string; skill?: string };
-        prompt?: string;
-      };
+      const provider = hookProvider(opts.provider);
+      if (!provider) return;
+      const evt = normalizeHookEvent(JSON.parse(await readStdin()), provider);
+      if (!evt) return;
       const root = findRoot();
       const paths = hunchPaths(root);
       const firmness = readConfig(paths).firmness;
@@ -1573,7 +2599,7 @@ program
         const verdict = stopVerdict(st, firmness);
         if (verdict.block) {
           savePipelineState(evt.session_id, verdict.state);
-          process.stdout.write(JSON.stringify({ decision: "block", reason: verdict.reason }));
+          emitStop(provider, verdict.reason);
         }
         return;
       }
@@ -1594,7 +2620,7 @@ program
         // every prompt burns context for zero information. A correction nudge has
         // different content, so it always comes through (dec_244397d920).
         if (injectionMode(evt.session_id, "prompt-reminder", text) === "delta") return;
-        emitContext("UserPromptSubmit", text);
+        emitContext(provider, "UserPromptSubmit", text);
         return;
       }
       if (evt.hook_event_name === "SessionStart") {
@@ -1609,7 +2635,7 @@ program
           const { recent, roadmap, pendingReview } = nowData(decisions, 3);
           if (!decisions.length) {
             // Fresh graph: nothing to orient on, but the operating loop still ships.
-            if (pipelineEnabled()) emitContext("SessionStart", PIPELINE_LOOP);
+            if (pipelineEnabled()) emitContext(provider, "SessionStart", PIPELINE_LOOP);
             return;
           }
           const L: string[] = [];
@@ -1626,7 +2652,12 @@ program
           // The operating loop rides session start — guaranteed delivery, once
           // (the zod bench showed ambient skills are read in ~0% of sessions).
           if (pipelineEnabled()) L.push("", PIPELINE_LOOP);
-          emitContext("SessionStart", L.join("\n"));
+          const orientation = L.join("\n");
+          // Antigravity's nearest equivalent is PreInvocation, which can fire
+          // repeatedly in one conversation. Deduplicate it just like edit
+          // grounding so it remains an orientation, not a context flood.
+          if (provider === "antigravity" && injectionMode(evt.session_id, "orientation", orientation) === "delta") return;
+          emitContext(provider, "SessionStart", orientation);
         } finally {
           s.close();
         }
@@ -1657,8 +2688,7 @@ program
         const proposedLines = proposedEditLines(evt.tool_input);
         const deny = blockingInScope(store, target, proposedLines);
         if (deny) {
-          appendEvent(paths, { at: new Date().toISOString(), file: target, ...deny.event });
-          emitDeny(deny.reason);
+          emitDeny(provider, deny.reason);
           return;
         }
         // Veto Guard (live): the proposed edit text re-introduces an approach an
@@ -1666,8 +2696,7 @@ program
         // only human-confirmed tripwires deny.
         const vetoDeny = proposedLines.length ? vetoInScope(store, target, proposedLines) : null;
         if (vetoDeny) {
-          appendEvent(paths, { at: new Date().toISOString(), file: target, ...vetoDeny.event });
-          emitDeny(vetoDeny.reason);
+          emitDeny(provider, vetoDeny.reason);
           return;
         }
       }
@@ -1709,12 +2738,13 @@ program
       // strict-gate deny path above never routes through this (dec_244397d920).
       if (injectionMode(evt.session_id, `pre:${target}`, text) === "delta") {
         emitContext(
+          provider,
           "PreToolUse",
           `Hunch grounding for ${target}: unchanged this session (${ctx.decisions.length} decision(s), ${ctx.constraints.length} invariant(s) shown earlier — still current; hunch_why("${target}") to re-expand).`,
         );
         return;
       }
-      emitContext("PreToolUse", text);
+      emitContext(provider, "PreToolUse", text);
     } catch {
       // swallow — never block an edit on a hook failure
     } finally {
@@ -1764,24 +2794,35 @@ program
   .option("--accept-verified", "batch-accept every Critic-verified, well-grounded draft (>= --min-grounded)")
   .option("--reject-duplicates", "batch-reject drafts that near-duplicate an accepted record (deterministic term+file similarity — hygiene, not judgment)")
   .option("--min-grounded <n>", "grounded-ness threshold for the ready group / --accept-verified", String(READY_MIN_GROUNDED))
-  .action((opts: { accept?: string; reject?: string; acceptVerified?: boolean; rejectDuplicates?: boolean; minGrounded?: string }) => {
+  .option("--private", "include local private/shared-overlay drafts; terminal output may contain private memory")
+  .action((opts: { accept?: string; reject?: string; acceptVerified?: boolean; rejectDuplicates?: boolean; minGrounded?: string; private?: boolean }) => {
     const { store, root } = storeFor();
     const minGrounded = Number.isFinite(Number(opts.minGrounded)) ? Number(opts.minGrounded) : READY_MIN_GROUNDED;
+    if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
+    const decisions = () => opts.private ? store.recs("decisions") : store.json.loadAll("decisions");
+    let publicGroundingChanged = false;
     if (opts.accept) {
-      const d = store.json.get("decisions", opts.accept);
+      const d = opts.private ? store.getRec("decisions", opts.accept) : store.json.get("decisions", opts.accept);
       if (!d) { store.close(); return fail(`decision ${opts.accept} not found`); }
+      const inPrivate = !!store.getPrivateRec("decisions", d.id);
       const { source, armed } = acceptDecision(store, d);
       store.reindex();
-      refreshExistingGrounding(root, store); // confirming a rule must reach EVERY assistant's grounding
+      if (!inPrivate) { refreshExistingGrounding(root, store); publicGroundingChanged = true; }
       console.log(`✓ accepted ${opts.accept} (now ${source}, confidence 0.95${armed ? `, ${armed} tripwire(s) now blocking` : ""})`);
     } else if (opts.reject) {
-      const ok2 = store.json.delete("decisions", opts.reject);
+      const d = opts.private ? store.getRec("decisions", opts.reject) : store.json.get("decisions", opts.reject);
+      if (!d) { store.close(); return fail(`decision ${opts.reject} not found`); }
+      if (d.status !== "proposed") {
+        store.close();
+        return fail(`refusing to reject ${d.status} decision ${d.id}; review --reject only removes proposed drafts`);
+      }
+      const ok2 = opts.private ? store.deleteWhereItLives("decisions", d.id) : store.json.delete("decisions", d.id);
       store.reindex();
-      console.log(ok2 ? `✓ rejected and removed ${opts.reject}` : `decision ${opts.reject} not found`);
+      console.log(ok2 ? `✓ rejected and removed ${d.id}` : `decision ${d.id} not found`);
     } else if (opts.rejectDuplicates) {
       // Deterministic hygiene, not a trust decision (dec_a466655539 stays intact):
       // only drafts, only against ACCEPTED records, conservative threshold.
-      const all = store.json.loadAll("decisions");
+      const all = decisions();
       const drafts = all.filter((d) => d.status === "proposed" && !d.provenance.source.includes("human_confirmed"));
       const dupes = drafts
         .map((d) => ({ d, m: draftDuplicateOf(d, all) }))
@@ -1791,7 +2832,7 @@ program
       } else {
         let removed = 0;
         for (const { d, m } of dupes) {
-          if (store.json.delete("decisions", d.id)) removed++;
+          if ((opts.private ? store.deleteWhereItLives("decisions", d.id) : store.json.delete("decisions", d.id))) removed++;
           console.log(`  ✗ ${d.id} — "${d.title}"\n      duplicate of ${m.of.id} — "${m.of.title}" (${Math.round(m.score * 100)}%)`);
         }
         store.reindex();
@@ -1800,20 +2841,23 @@ program
     } else if (opts.acceptVerified) {
       // Batch path: only Critic-verified, well-grounded drafts qualify — still the
       // human-driven accept gate (the operator runs this), just over a safe subset.
-      const proposed = store.json.loadAll("decisions").filter((d) => d.status === "proposed");
+      const proposed = decisions().filter((d) => d.status === "proposed");
       const { ready } = partitionReview(proposed, minGrounded);
       if (!ready.length) {
         console.log(`✓ No Critic-verified drafts at grounded ≥ ${minGrounded} to batch-accept.`);
       } else {
         let armedTotal = 0;
-        for (const it of ready) armedTotal += acceptDecision(store, it.d).armed;
+        for (const it of ready) {
+          if (!store.getPrivateRec("decisions", it.d.id)) publicGroundingChanged = true;
+          armedTotal += acceptDecision(store, it.d).armed;
+        }
         store.reindex();
-        refreshExistingGrounding(root, store); // batch-confirm must reach EVERY assistant's grounding
+        if (publicGroundingChanged) refreshExistingGrounding(root, store); // committed grounding stays public-only
         console.log(`✓ accepted ${ready.length} verified draft(s); ${armedTotal} tripwire(s) now blocking.`);
         for (const it of ready) console.log(`   ${it.d.id}  grounded=${it.synth.grounded ?? "?"}  ${it.d.title}`);
       }
     } else {
-      const drafts = store.json.loadAll("decisions").filter((d) => d.status === "proposed" || d.provenance.confidence < 0.6);
+      const drafts = decisions().filter((d) => d.status === "proposed" || d.provenance.confidence < 0.6);
       const { ready, scrutiny } = partitionReview(drafts, minGrounded);
       if (!ready.length && !scrutiny.length) {
         console.log("✓ No low-confidence drafts to review.");
@@ -1825,7 +2869,7 @@ program
         }
         if (scrutiny.length) {
           console.log(`⚠ ${scrutiny.length} need scrutiny — unverified / low-grounded (lowest confidence first):\n`);
-          const all = store.json.loadAll("decisions");
+          const all = decisions();
           let dupCount = 0;
           for (const it of scrutiny) {
             printReviewItem(it);
@@ -1846,130 +2890,99 @@ function printAutoEntry(e: AutoReviewEntry): void {
   console.log(`  ${e.d.id}  ${e.d.title.slice(0, 66)}\n      ${dim(e.reason)}`);
 }
 
-/** Serialize a draft for the --json `start` event (Review Console card seed). */
-function draftCard(d: Decision, minGrounded: number): unknown {
-  const synth = parseSynth(d.provenance?.evidence);
-  return {
-    id: d.id, title: d.title, decision: d.decision, status: d.status,
-    source: d.provenance?.source ?? "?", confidence: d.provenance?.confidence ?? null,
-    alternatives_rejected: d.alternatives_rejected ?? [],
-    related_files: d.related_files ?? [],
-    synth: { grounded: synth.grounded ?? null, agreement: synth.agreement ?? null, pruned: synth.pruned ?? null, verify: synth.verify ?? null },
-    ready: isReady(d, synth, minGrounded), // Critic-verified + grounded — the auto-accept floor
-  };
-}
-
-/** Reduce a plan to id/reason/telemetry per entry for the --json `plan` event. */
-function planWire(plan: AutoReviewPlan): unknown {
-  const wire = (es: AutoReviewEntry[]) => es.map((e) => ({ id: e.d.id, reason: e.reason, grounded: e.grounded ?? null, verdict: e.verdict ?? null }));
-  return { accept: wire(plan.accept), rejectDuplicate: wire(plan.rejectDuplicate), rejectIrrelevant: wire(plan.rejectIrrelevant), keep: wire(plan.keep) };
-}
-
-/** Execute an accept/delete set against the store (shared by the whole-plan apply
- *  and the Review Console's apply-by-id). Reindexes + refreshes grounding once. */
-function applySelection(store: HunchStore, root: string, acceptDs: Decision[], deleteDs: Decision[]): { accepted: number; deleted: number; armed: number } {
-  let accepted = 0, deleted = 0, armed = 0;
-  for (const d of acceptDs) { armed += acceptDecision(store, d).armed; accepted++; }
-  for (const d of deleteDs) { if (store.json.delete("decisions", d.id)) deleted++; }
-  if (accepted || deleted) {
-    store.reindex();
-    if (accepted) refreshExistingGrounding(root, store); // confirmations must reach every assistant's grounding
-  }
-  return { accepted, deleted, armed };
-}
-
 program
   .command("auto-review")
-  .description("Harness-driven draft triage: delegate relevance to the coding-assistant CLI, then dedup, auto-confirm the verified+relevant, and delete duplicates/irrelevant. Dry-run unless --apply.")
-  .option("--apply", "execute the plan (accept/delete). Without it, print the plan and change nothing.")
+  .description("Harness-driven draft triage: delegate relevance to the coding-assistant CLI, then dedup, auto-confirm the verified+relevant, and delete duplicates/irrelevant. Dry-run unless --apply; apply refuses an incomplete requested harness batch.")
+  .option("--apply", "execute the plan (accept/delete) only after a complete requested harness batch. Without it, print the plan and change nothing.")
   .option("--min-grounded <n>", "grounded-ness threshold for the auto-accept gate", String(READY_MIN_GROUNDED))
   .option("--min-reject-confidence <n>", "minimum harness confidence to DELETE an irrelevant draft (else kept for a human)", "0.7")
   .option("--no-llm", "skip the harness judgment (dedup + grounding only — no relevance deletion)")
-  .option("--json", "emit NDJSON events (start / judged / plan / applied) for tooling — the VS Code Review Console streams these; suppresses pretty output")
-  .option("--accept <ids>", "apply mode: accept EXACTLY these comma-separated draft ids (requires --apply; skips judging — the console's per-card override)")
-  .option("--delete <ids>", "apply mode: delete EXACTLY these comma-separated draft ids (requires --apply; skips judging)")
-  .action(async (opts: { apply?: boolean; minGrounded?: string; minRejectConfidence?: string; llm?: boolean; json?: boolean; accept?: string; delete?: string }) => {
+  .option("--private", "include local private/shared-overlay drafts; private drafts are never sent to an LLM judge")
+  .action(async (opts: { apply?: boolean; minGrounded?: string; minRejectConfidence?: string; llm?: boolean; private?: boolean }) => {
     const { store, root } = storeFor();
-    const emit = (o: unknown): void => { if (opts.json) console.log(JSON.stringify(o)); };
-    const idList = (s?: string): string[] => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
     try {
+      if (opts.private && !store.hasPrivate) return fail("--private needs HUNCH_PRIVATE_DIR set to a private store");
       const minGrounded = Number.isFinite(Number(opts.minGrounded)) ? Number(opts.minGrounded) : READY_MIN_GROUNDED;
       const minRejectConfidence = Number.isFinite(Number(opts.minRejectConfidence)) ? Number(opts.minRejectConfidence) : 0.7;
-      const all = store.json.loadAll("decisions");
+      const all = opts.private ? store.recs("decisions") : store.json.loadAll("decisions");
       // Same draft set `hunch review` / `hunch status` triage.
       const drafts = all.filter((d) => d.status === "proposed" || d.provenance.confidence < 0.6);
+      if (!drafts.length) { console.log("✓ No drafts to auto-review."); return; }
 
-      // ---- explicit apply-by-id (Review Console per-card override) -----------
-      // A HUMAN clicking Accept/Reject in the console IS the vouch, so this can
-      // confirm a draft the machine-gated planner would only KEEP — same authority
-      // as `hunch review --accept`; dec_a466655539's gate is about the MACHINE only.
-      if (opts.accept !== undefined || opts.delete !== undefined) {
-        if (!opts.apply) return fail("--accept/--delete require --apply.");
-        const sel = resolveSelection(drafts, idList(opts.accept), idList(opts.delete));
-        if (sel.unknown.length) {
-          const msg = `refusing to apply — not current drafts (moved or unknown): ${sel.unknown.join(", ")}`;
-          emit({ event: "error", message: msg });
-          return fail(msg);
-        }
-        const res = applySelection(store, root, sel.accept, sel.delete);
-        emit({ event: "applied", accepted: res.accepted, deleted: res.deleted, armed: res.armed, kept: drafts.length - res.accepted - res.deleted });
-        if (!opts.json) console.log(`✓ auto-review applied: ${res.accepted} accepted${res.armed ? ` (${res.armed} tripwire(s) now blocking)` : ""}, ${res.deleted} deleted.`);
-        return;
-      }
-
-      if (!drafts.length) {
-        emit({ event: "start", drafts: [] });
-        emit({ event: "plan", plan: planWire({ accept: [], rejectDuplicate: [], rejectIrrelevant: [], keep: [] }) });
-        if (!opts.json) console.log("✓ No drafts to auto-review.");
-        return;
-      }
-
-      emit({ event: "start", drafts: drafts.map((d) => draftCard(d, minGrounded)) });
-
-      // Delegate relevance to the harness (subscription CLI) — feature-detected,
-      // and any per-draft failure degrades to "not judged" (kept for a human).
+      // Delegate relevance to the harness (subscription CLI) — feature-detected.
+      // A dry-run may remain partial (missing verdicts are kept), but --apply is
+      // all-or-nothing when judgment was requested: a provider outage must never
+      // turn an incomplete batch into an apparently safe mutation plan.
       const verdicts = new Map<string, RelevanceVerdict>();
-      if (opts.llm !== false) {
-        const provider = await selectProvider();
+      const judgmentRequested = opts.llm !== false && !opts.private;
+      const judgmentFailures: Array<{ id: string; error: string }> = [];
+      if (judgmentRequested) {
+        const provider = await selectProvider({ root });
         if (provider.judgeDraft) {
-          // The candidate pool for duplicate_of / restatement: the LIVE, vouched records.
+          // Deletion anchors are only finalized, live, human-confirmed records.
           const existing: ExistingDecisionRef[] = all
-            .filter((d) => d.provenance.source.includes("human_confirmed") && d.status !== "superseded" && d.status !== "rejected")
+            .filter(isAcceptedDuplicateAnchor)
             .map((d) => ({ id: d.id, title: d.title, decision: d.decision }));
-          if (!opts.json) console.log(`Judging ${drafts.length} draft(s) via ${provider.name} (subscription)…`);
+          console.log(`Judging ${drafts.length} draft(s) via ${provider.name} (subscription)…`);
           for (const d of drafts) {
             try {
-              const v = await provider.judgeDraft(d, existing.filter((e) => e.id !== d.id));
-              verdicts.set(d.id, v);
-              emit({ event: "judged", id: d.id, verdict: v });
-            } catch {
-              /* transient / unparseable — leave unjudged, planner keeps it for a human */
-              emit({ event: "judged", id: d.id, verdict: null });
+              verdicts.set(d.id, await provider.judgeDraft(d, existing.filter((e) => e.id !== d.id)));
+            } catch (e) {
+              // Preserve the safe keep-for-human plan while making the missing
+              // evidence observable. The apply gate below binds to this exact
+              // draft set, so partial provider success cannot mutate the store.
+              const error = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
+              judgmentFailures.push({ id: d.id, error: error.slice(0, 240) || "unknown provider failure" });
             }
           }
         } else {
-          emit({ event: "no_provider" });
-          if (!opts.json) console.log(dim("No subscription CLI available — relevance judgment skipped (dedup + grounding only)."));
+          console.log(dim("No subscription CLI available — relevance judgment skipped (dedup + grounding only)."));
+          judgmentFailures.push(...drafts.map((d) => ({ id: d.id, error: "no subscription relevance judge available" })));
         }
+      } else if (opts.private && opts.llm !== false) {
+        console.log(dim("Private review stays local — harness judgment skipped (dedup + grounding only)."));
       }
 
       const plan = planAutoReview(drafts, all, verdicts, { minGrounded, minRejectConfidence });
-      emit({ event: "plan", plan: planWire(plan) });
-      if (!opts.json) printAutoReviewPlan(plan);
+      printAutoReviewPlan(plan);
+
+      if (judgmentRequested) {
+        const coverage = `${verdicts.size}/${drafts.length} judged`;
+        if (judgmentFailures.length) {
+          console.error(`\n⚠ Incomplete harness batch: ${coverage}; ${judgmentFailures.length} failure(s).`);
+          for (const failure of judgmentFailures.slice(0, 5)) console.error(`   ${failure.id}: ${failure.error}`);
+          if (judgmentFailures.length > 5) console.error(`   … ${judgmentFailures.length - 5} more failure(s)`);
+        } else {
+          console.log(`\n✓ Harness batch complete: ${coverage}.`);
+        }
+      }
 
       if (!opts.apply) {
-        if (!opts.json) {
-          const n = planMutations(plan);
-          console.log(`\n${dim(`Dry run — nothing changed. Re-run with --apply to ${n ? `apply ${n} change(s)` : "confirm (no changes)"}.`)}`);
-        }
+        const n = planMutations(plan);
+        console.log(`\n${dim(`Dry run — nothing changed. Re-run with --apply to ${n ? `apply ${n} change(s)` : "confirm (no changes)"}.`)}`);
         return;
       }
 
-      // Apply the WHOLE plan (backward-compatible path): accept verified+relevant,
-      // delete duplicates + irrelevant.
-      const res = applySelection(store, root, plan.accept.map((e) => e.d), [...plan.rejectDuplicate, ...plan.rejectIrrelevant].map((e) => e.d));
-      emit({ event: "applied", accepted: res.accepted, deleted: res.deleted, armed: res.armed, kept: plan.keep.length });
-      if (!opts.json) console.log(`\n✓ auto-review applied: ${res.accepted} accepted${res.armed ? ` (${res.armed} tripwire(s) now blocking)` : ""}, ${res.deleted} deleted, ${plan.keep.length} kept for review.`);
+      if (judgmentRequested && judgmentFailures.length) {
+        fail(`incomplete harness batch (${verdicts.size}/${drafts.length} judged); no changes applied. Re-run when the provider is healthy, or explicitly choose deterministic-only triage with --no-llm --apply.`);
+        return;
+      }
+
+      // Apply: accept the verified+relevant, delete duplicates + irrelevant.
+      let accepted = 0, deleted = 0, armedTotal = 0, publicAccepted = false;
+      for (const e of plan.accept) {
+        if (!store.getPrivateRec("decisions", e.d.id)) publicAccepted = true;
+        armedTotal += acceptDecision(store, e.d).armed;
+        accepted++;
+      }
+      for (const e of [...plan.rejectDuplicate, ...plan.rejectIrrelevant]) {
+        if ((opts.private ? store.deleteWhereItLives("decisions", e.d.id) : store.json.delete("decisions", e.d.id))) deleted++;
+      }
+      if (accepted || deleted) {
+        store.reindex();
+        if (publicAccepted) refreshExistingGrounding(root, store); // committed grounding stays public-only
+      }
+      console.log(`\n✓ auto-review applied: ${accepted} accepted${armedTotal ? ` (${armedTotal} tripwire(s) now blocking)` : ""}, ${deleted} deleted, ${plan.keep.length} kept for review.`);
     } finally {
       store.close();
     }
@@ -2125,20 +3138,21 @@ program
   .description("PR impact: the dependency + memory surface of a change — dependent files reached, invariants direct/near, and the decisions concerned. Read-only, advisory (gating is `hunch check`). Omit base and --commit to inspect staged changes.")
   .argument("[base]", "diff against this base ref (e.g. origin/main) for a branch/PR")
   .option("--commit <sha>", "impact of a single commit")
-  .action((base: string | undefined, opts: { commit?: string }) => {
+  .option("--working", "impact all working-tree edits vs HEAD (staged, unstaged, and untracked files)")
+  .action((base: string | undefined, opts: { commit?: string; working?: boolean }) => {
     const { store, root } = storeFor();
     try {
-      if (base && opts.commit) return fail("Pass at most one of [base] / --commit.");
+      if ((base && opts.commit) || (opts.working && (base || opts.commit))) return fail("Pass exactly one of [base] / --commit / --working (or omit all for staged changes).");
       if (base && !revExists(base, root)) return fail(`base ref "${base}" does not resolve.`);
       if (opts.commit && !revExists(opts.commit, root)) return fail(`commit "${opts.commit}" does not resolve.`);
       store.reindex(); // reflect out-of-band JSON edits before reading the graph
-      const files = opts.commit ? commitFiles(opts.commit, root) : base ? rangeFiles(base, root) : stagedFiles(root);
-      const scope = opts.commit ? `commit ${opts.commit}` : base ? `${base}..HEAD` : "staged changes";
+      const files = opts.commit ? commitFiles(opts.commit, root) : base ? rangeFiles(base, root) : opts.working ? workingFiles(root) : stagedFiles(root);
+      const scope = opts.commit ? `commit ${opts.commit}` : base ? `${base}..HEAD` : opts.working ? "working changes" : "staged changes";
       if (!files.length) {
         console.log(`No changed files in ${scope}.`);
         return;
       }
-      const diff = opts.commit ? commitDiff(opts.commit, root) : base ? rangeDiff(base, root) : stagedDiff(root);
+      const diff = opts.commit ? commitDiff(opts.commit, root) : base ? rangeDiff(base, root) : opts.working ? workingDiff(root) : stagedDiff(root);
       console.log(renderImpact(store.prImpact(files, diff), scope));
     } finally {
       store.close();
@@ -2215,7 +3229,7 @@ program
       let prose: ((pack: WikiPack, excerpts: string) => Promise<string | null>) | undefined;
       let adoptionProse: ((doc: Parameters<typeof adoptProsePrompt>[0], content: string) => Promise<string | null>) | undefined;
       if (opts.llm !== false) {
-        const provider = await selectProvider();
+        const provider = await selectProvider({ root });
         if (provider.draftProse) {
           console.log(`Prose via ${provider.name} (subscription); the drift-bearing skeleton stays deterministic.`);
           prose = (pack, excerpts) => provider.draftProse!(wikiPrompt(pack, excerpts));
@@ -2329,6 +3343,34 @@ program
     }
   });
 
+// ---- repair-ref (atomic decision reference correction) --------------------
+program
+  .command("repair-ref")
+  .description("Atomically repair one exact file reference in a decision's scope and provenance evidence (never changes the decision itself).")
+  .argument("<decision>", "decision id containing the stale reference")
+  .requiredOption("--from <path>", "exact stale path to replace")
+  .requiredOption("--to <path>", "exact current path (use private:<path> for a private-overlay file)")
+  .option("--private", "require the decision to be in the configured private overlay")
+  .action((id: string, opts: { from: string; to: string; private?: boolean }) => {
+    const { store } = storeFor();
+    try {
+      if (opts.from === opts.to) return fail("--from and --to must be different paths");
+      if (opts.private && !store.hasPrivate) return fail("--private needs HUNCH_PRIVATE_DIR set to a private store");
+      // `getRec` is deliberately overlay-first. An explicit --private prevents a
+      // same-id public record from being silently amended instead of private memory.
+      const d = opts.private ? store.getPrivateRec("decisions", id) : store.getRec("decisions", id);
+      if (!d) return fail(`decision "${id}" not found${opts.private ? " in the private overlay" : ""}`);
+      const repaired = repairDecisionReference(d, opts.from, opts.to);
+      if (!repaired) return fail(`decision "${id}" does not contain the exact reference "${opts.from}"`);
+      store.putWhereItLives("decisions", repaired.decision);
+      store.reindex();
+      console.log(`✓ repaired ${id}: ${repaired.relatedFiles} related file reference(s) + ${repaired.evidence} provenance evidence reference(s).`);
+      console.log(`  ${opts.from} → ${opts.to}`);
+    } finally {
+      store.close();
+    }
+  });
+
 // ---- compact (bound Hunch growth) -----------------------------------------
 program
   .command("compact")
@@ -2403,26 +3445,33 @@ program
     const onDisk = readManifest(hunchPaths(root)).schema_version;
     const schemaNote = onDisk === SCHEMA_VERSION ? "" : onDisk > SCHEMA_VERSION ? `  ⚠ newer than this Hunch (v${SCHEMA_VERSION}) — upgrade hunch` : `  ⚠ run \`hunch migrate\``;
     console.log(`schema:     v${onDisk} (hunch v${SCHEMA_VERSION})${schemaNote}`);
-    const provider = await selectProvider();
-    console.log(`synthesis:  ${provider.name}`);
-    // Synthesis is billed to the user's SUBSCRIPTION via a coding-assistant CLI,
-    // never a pay-per-token API key. Surface which one — or what's missing.
-    const SUB: Record<string, { label: string; strip?: string }> = {
-      "claude-cli": { label: "Claude subscription (claude CLI)", strip: "ANTHROPIC_API_KEY" },
-      "codex-cli": { label: "ChatGPT subscription (codex CLI)", strip: "OPENAI_API_KEY" },
-      "cursor-agent": { label: "Cursor subscription (cursor-agent CLI)" },
-    };
-    const sub = SUB[provider.name];
-    if (sub) {
-      const hadKey = sub.strip && !!process.env[sub.strip];
-      console.log(`            ↳ LLM synthesis billed to your ${sub.label}` +
-        (hadKey ? ` (${sub.strip} in env is stripped — never billed to the API)` : ``));
+    const resolution = await resolveSynthesisProvider({ root });
+    const provider = resolution.provider;
+    console.log(`synthesis:  ${provider.name} (${resolution.source})`);
+    const selected = resolution.statuses.find((s) => s.name === provider.name);
+    if (selected?.subscription) {
+      console.log(`            ↳ LLM synthesis uses your ${selected.subscription}; provider API credentials are not used.`);
+    } else if (resolution.source === "ambiguous") {
+      const names = resolution.statuses.filter((s) => s.name !== "deterministic" && s.available).map((s) => s.name);
+      console.log(dim(`            ↳ ${names.join(", ")} are available; Hunch will not guess which subscription to spend.`));
+      console.log(dim(`              choose one locally: ${names.map((name) => `hunch provider ${name}`).join("  or  ")}`));
+    } else if (resolution.source === "unavailable-preference") {
+      console.log(dim(`            ↳ ${resolution.preference} was selected but is unavailable; using the offline heuristic.`));
     } else {
-      console.log(dim(`            ↳ no assistant CLI found — synthesis uses the offline heuristic (advisory, low-confidence)`));
-      console.log(dim(`              for full synthesis install one: Claude Code (\`claude /login\`), Codex (\`codex login\`), or Cursor (\`cursor-agent login\`)`));
+      console.log(dim(`            ↳ no assistant CLI found — synthesis uses the offline heuristic (advisory, low-confidence).`));
+      console.log(dim(`              install or log into Claude Code, Codex, or Cursor; then select one with \`hunch provider <name>\`.`));
     }
     const c = store.reindex().counts;
     console.log(`hunch:      ${c.symbols} symbols, ${c.edges} edges, ${c.components} components, ${c.decisions} decisions, ${c.bugs} bugs, ${c.constraints} constraints`);
+    try {
+      const policies = new ConstitutionService(store, root).list();
+      const active = policies.filter((p) => p.state === "active_advisory" || p.state === "active_blocking").length;
+      const proposed = policies.filter((p) => p.state === "proposed").length;
+      console.log(`constitution: ${policies.length} policies (${active} active, ${proposed} proposed)`);
+    } catch (e) {
+      console.log(`constitution: ⛔ ${(e as Error).message}`);
+      process.exitCode = 1;
+    }
     // Overlay status speaks the TRUE mode, and a dead pointer is a loud finding, not a
     // silent empty store: the JSON reader degrades to [] when the target dir is missing,
     // so this is the one place the loss is visible.
@@ -2554,15 +3603,18 @@ function toRepoRel(root: string, abs: string): string {
   return relative(realpathNorm(root), realpathNorm(abs)).split("\\").join("/");
 }
 
-function emitContext(event: "PreToolUse" | "UserPromptSubmit" | "SessionStart", text: string): void {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } }));
+function emitContext(provider: HookProvider, event: "PreToolUse" | "UserPromptSubmit" | "SessionStart", text: string): void {
+  const output = contextHookOutput(provider, event, text);
+  if (output) process.stdout.write(JSON.stringify(output));
 }
-function emitDeny(reason: string): void {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
-    }),
-  );
+function emitDeny(provider: HookProvider, reason: string): void {
+  const result = denyHookOutput(provider, reason);
+  if (result.output) process.stdout.write(JSON.stringify(result.output));
+  if (result.stderr) process.stderr.write(`${result.stderr}\n`);
+  if (result.exitCode !== undefined) process.exitCode = result.exitCode;
+}
+function emitStop(provider: HookProvider, reason: string): void {
+  process.stdout.write(JSON.stringify(stopHookOutput(provider, reason)));
 }
 
 program.parseAsync().catch((e) => {

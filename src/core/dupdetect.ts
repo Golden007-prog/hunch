@@ -97,6 +97,16 @@ export interface DupMatch {
   score: number;
 }
 
+/** Only a finalized, still-live human decision can justify deleting a draft as
+ *  redundant. Proposed records may resemble one another, but choosing which one
+ *  survives is review judgment—not deterministic hygiene. */
+export function isAcceptedDuplicateAnchor(d: Decision): boolean {
+  return d.status === "accepted"
+    && d.provenance.source.includes("human_confirmed")
+    && !d.superseded_by
+    && !d.valid_to;
+}
+
 /** Is an existing DRAFT a near-duplicate of an accepted record? Review-time
  *  flag; threshold callers use 0.35 (batch-reject) — conservative on purpose. */
 export function draftDuplicateOf(draft: Decision, existing: readonly Decision[]): DupMatch | null {
@@ -105,8 +115,7 @@ export function draftDuplicateOf(draft: Decision, existing: readonly Decision[])
   let best: DupMatch | null = null;
   for (const d of existing) {
     if (d.id === draft.id) continue;
-    if (!d.provenance.source.includes("human_confirmed")) continue;
-    if (d.status === "superseded" || d.status === "rejected" || d.superseded_by || d.valid_to) continue;
+    if (!isAcceptedDuplicateAnchor(d)) continue;
     const termSim = jaccard(draftTerms, dupTerms(`${d.title} ${d.decision}`));
     let fileBoost = 0;
     if (draftFiles.size) {

@@ -21,7 +21,7 @@
  */
 import type { Decision } from "./types.js";
 import type { RelevanceVerdict } from "../synthesis/provider.js";
-import { draftDuplicateOf } from "./dupdetect.js";
+import { draftDuplicateOf, isAcceptedDuplicateAnchor } from "./dupdetect.js";
 import { parseSynth, isReady, READY_MIN_GROUNDED } from "./reviewqueue.js";
 
 export type AutoReviewAction = "accept" | "rejectDuplicate" | "rejectIrrelevant" | "keep";
@@ -55,7 +55,9 @@ export interface AutoReviewConfig {
 const DEFAULT_MIN_REJECT_CONFIDENCE = 0.7;
 
 /** Build the plan. `verdicts` maps draft id → harness verdict (absent → the draft
- *  was not judged, e.g. no CLI available; it can still be dup-rejected or kept). */
+ *  was not judged, e.g. no CLI available; the pure plan can still flag a
+ *  deterministic duplicate or keep it). The CLI refuses `--apply` on an incomplete
+ *  requested harness batch; explicit `--no-llm` triage intentionally has no batch. */
 export function planAutoReview(
   drafts: Decision[],
   allDecisions: Decision[],
@@ -79,7 +81,8 @@ export function planAutoReview(
       plan.rejectDuplicate.push({ ...base, action: "rejectDuplicate", reason: `near-duplicate of ${detDup.of.id} "${detDup.of.title}" (${Math.round(detDup.score * 100)}%)` });
       continue;
     }
-    if (verdict?.duplicate_of && verdict.duplicate_of !== d.id && allDecisions.some((x) => x.id === verdict.duplicate_of)) {
+    if (verdict?.duplicate_of && verdict.duplicate_of !== d.id
+      && allDecisions.some((x) => x.id === verdict.duplicate_of && isAcceptedDuplicateAnchor(x))) {
       plan.rejectDuplicate.push({ ...base, action: "rejectDuplicate", reason: `harness: restates ${verdict.duplicate_of} — ${verdict.reason}` });
       continue;
     }

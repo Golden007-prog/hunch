@@ -16,16 +16,19 @@ import { decisionId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
-import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, pullHunch } from "../extractors/git.js";
+import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, workingFiles, workingDiff, pullHunch } from "../extractors/git.js";
 import { flushCapture } from "../integrations/sync.js";
 import { ensureTeamOverlay } from "../integrations/team.js";
 import { formatContext, formatStructure } from "../core/format.js";
 import type { Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
+import { ConstitutionService } from "../constitution/service.js";
+import { G2_RUNBOOK_CATEGORIES } from "../constitution/g2.js";
 import { renderMarkdown, renderImpact, verdict } from "../core/checkreport.js";
 import { nowData, wikiStatus, publicHome, readWikiManifestAt } from "../wiki/wiki.js";
 import { HUNCH_VERSION } from "../core/version.js";
+import { indexRepo } from "../extractors/indexer.js";
 import type { Decision, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
 import { issueCaptureToken as issueToken, consumeCaptureToken as consumeToken } from "../core/capturetoken.js";
@@ -515,11 +518,11 @@ export function buildServer(root: string): McpServer {
         const fullSha = resolved && /^[0-9a-f]{40}$/.test(resolved) ? resolved : null;
         const id = fullSha ? decisionId(fullSha) : decisionId(`manual:${decision.title}`);
 
-        // Preserve the ADR lineage: upgrading an auto-draft yields the composite
-        // provenance the design specifies.
-        // Public-only lookup; skip it for a private write so a private decision never
-        // inherits fields from a same-id PUBLIC record (and vice-versa).
-        const existing = decision.private ? undefined : store.json.get("decisions", id);
+        // Preserve the ADR lineage from the SAME home this write will use. A private
+        // re-record must retain its own optional fields, but must never inherit a
+        // same-id public record (and vice versa).
+        const home = store.captureHome(!!decision.private);
+        const existing = home === "private" ? store.getPrivateRec("decisions", id) : store.json.get("decisions", id);
         const source = existing && existing.provenance.source.includes("llm_draft")
           ? "llm_draft+human_confirmed"
           : "human_confirmed";
@@ -552,7 +555,6 @@ export function buildServer(root: string): McpServer {
         // private:false, so the guard must key its incumbent lookup on HOME, not on
         // the flag — keying on the flag let a shared-mode supersede of a public
         // incumbent pass the guard and then no-op the close (two live decisions).
-        const home = store.captureHome(!!decision.private);
         // Decision-grounding uniqueness guard (§4 Enforcement): never create a SECOND
         // live decision for one topic. Exclude ONLY the incumbent this write will
         // actually close — one resolvable in the SAME store the write lands in. A
@@ -645,7 +647,7 @@ export function buildServer(root: string): McpServer {
         // Private corrections go to the overlay (enforced locally via the merged read,
         // never rendered into the public CI comment, which is public-only by construction).
         const home = store.captureHome(!!input.private);
-        const existing = home === "private" ? undefined : store.json.get("constraints", rec.id);
+        const existing = home === "private" ? store.getPrivateRec("constraints", rec.id) : store.json.get("constraints", rec.id);
         if (home === "private") store.putPrivate("constraints", rec);
         else store.json.put("constraints", rec);
         store.reindex();
@@ -675,21 +677,22 @@ export function buildServer(root: string): McpServer {
     {
       title: "Causal merge verdict: is this change safe against the recorded WHY?",
       description:
-        "Before opening or merging a PR, replay a diff against engineering memory and return ONE verdict — BLOCK / WARN / PASS. For each invariant DIRECTLY in scope it cites WHY the guard exists (the decision that motivated it + the bug whose root cause spawned it); it also lists invariants reached via blast radius (near, advisory), any deliberately-retired code the diff re-introduces, and symbols the diff adds that are already defined elsewhere in the graph (possible re-implementation/sprawl, advisory). Deterministic, no LLM. Omit base AND commit to check STAGED changes; pass base (e.g. origin/main) for a PR range, or commit for a single commit. Call this before merging a widely-scoped change.",
+        "Before opening or merging a PR, replay a diff against engineering memory and return ONE verdict — BLOCK / WARN / PASS. For each invariant DIRECTLY in scope it cites WHY the guard exists (the decision that motivated it + the bug whose root cause spawned it); it also lists invariants reached via blast radius (near, advisory), any deliberately-retired code the diff re-introduces, and symbols the diff adds that are already defined elsewhere in the graph (possible re-implementation/sprawl, advisory). Deterministic, no LLM. Omit base, commit, and working to check STAGED changes; pass working:true for all local changes, base (e.g. origin/main) for a PR range, or commit for a single commit. Call this before merging a widely-scoped change.",
       inputSchema: {
         base: z.string().optional().describe("Diff against this base ref (e.g. origin/main) — for a PR/branch."),
         commit: z.string().optional().describe("Diff a single commit (sha/ref). Omit base AND commit to check staged changes."),
+        working: z.boolean().optional().describe("Include all working-tree changes vs HEAD (staged, unstaged, and untracked files)."),
       },
     },
-    async ({ base, commit }): Promise<ToolResult> => {
+    async ({ base, commit, working }): Promise<ToolResult> => {
       try {
-        if (base && commit) return err("Pass at most one of base/commit (omit both to check staged changes).");
+        if ([base, commit, working].filter(Boolean).length > 1) return err("Pass at most one of base/commit/working (omit all to check staged changes).");
         if (base && !revExists(base, root)) return err(`base ref "${base}" does not resolve (in CI, fetch the base branch first).`);
         if (commit && !revExists(commit, root)) return err(`commit "${commit}" does not resolve.`);
-        const files = commit ? commitFiles(commit, root) : base ? rangeFiles(base, root) : stagedFiles(root);
-        const scope = commit ? `commit ${commit}` : base ? `${base}..HEAD` : "staged changes";
+        const files = commit ? commitFiles(commit, root) : base ? rangeFiles(base, root) : working ? workingFiles(root) : stagedFiles(root);
+        const scope = commit ? `commit ${commit}` : base ? `${base}..HEAD` : working ? "working changes" : "staged changes";
         if (!files.length) return ok(`VERDICT: ✅ PASS — no changed files in ${scope}.`);
-        const diff = commit ? commitDiff(commit, root) : base ? rangeDiff(base, root) : stagedDiff(root);
+        const diff = commit ? commitDiff(commit, root) : base ? rangeDiff(base, root) : working ? workingDiff(root) : stagedDiff(root);
         const report = store.buildCheckReport(files, diff, { strict: true, lastChange: (f) => lastChangeDate(f, root) });
         const v = verdict(report);
         const head = v === "block"
@@ -724,21 +727,22 @@ export function buildServer(root: string): McpServer {
     {
       title: "PR impact: the dependency + memory surface of a change",
       description:
-        "Given a change (staged, a branch vs base, or a single commit), return its IMPACT SURFACE: the files whose code transitively depends on the changed files, the invariants directly in scope and those reached via blast radius, and the recorded decisions concerning the touched files. Read-only and advisory — use hunch_merge_verdict for the gate. Call before review to know what a PR can break and which recorded intent it touches. Omit base AND commit for staged changes.",
+        "Given a change (staged, working tree, a branch vs base, or a single commit), return its IMPACT SURFACE: the files whose code transitively depends on the changed files, the invariants directly in scope and those reached via blast radius, and the recorded decisions concerning the touched files. Read-only and advisory — use hunch_merge_verdict for the gate. Call before review to know what a PR can break and which recorded intent it touches. Omit base, commit, and working for staged changes.",
       inputSchema: {
         base: z.string().optional().describe("Diff against this base ref (e.g. origin/main) — for a PR/branch."),
         commit: z.string().optional().describe("Impact of a single commit (sha/ref). Omit base AND commit for staged changes."),
+        working: z.boolean().optional().describe("Include all working-tree changes vs HEAD (staged, unstaged, and untracked files)."),
       },
     },
-    async ({ base, commit }): Promise<ToolResult> => {
+    async ({ base, commit, working }): Promise<ToolResult> => {
       try {
-        if (base && commit) return err("Pass at most one of base/commit (omit both for staged changes).");
+        if ([base, commit, working].filter(Boolean).length > 1) return err("Pass at most one of base/commit/working (omit all for staged changes).");
         if (base && !revExists(base, root)) return err(`base ref "${base}" does not resolve (in CI, fetch the base branch first).`);
         if (commit && !revExists(commit, root)) return err(`commit "${commit}" does not resolve.`);
-        const files = commit ? commitFiles(commit, root) : base ? rangeFiles(base, root) : stagedFiles(root);
-        const scope = commit ? `commit ${commit}` : base ? `${base}..HEAD` : "staged changes";
+        const files = commit ? commitFiles(commit, root) : base ? rangeFiles(base, root) : working ? workingFiles(root) : stagedFiles(root);
+        const scope = commit ? `commit ${commit}` : base ? `${base}..HEAD` : working ? "working changes" : "staged changes";
         if (!files.length) return ok(`No changed files in ${scope}.`);
-        const diff = commit ? commitDiff(commit, root) : base ? rangeDiff(base, root) : stagedDiff(root);
+        const diff = commit ? commitDiff(commit, root) : base ? rangeDiff(base, root) : working ? workingDiff(root) : stagedDiff(root);
         return ok(renderImpact(store.prImpact(files, diff), scope));
       } catch (e) {
         return err(`Failed to compute impact: ${(e as Error).message}`);
@@ -809,6 +813,242 @@ export function buildServer(root: string): McpServer {
     },
   );
 
+  // -- Hunch Constitution (read-first, agent-neutral Policy IR) ------------
+  server.registerTool(
+    "hunch_policy_candidates",
+    {
+      title: "List Constitution policy candidates",
+      description:
+        "List compiled/proposed deterministic Policy IR candidates. Read-only; candidates carry no authority and cannot block. Uses the same Git-native policy store for every MCP client.",
+      inputSchema: {
+        public_only: z.boolean().optional().describe("Exclude the private overlay from this response."),
+      },
+    },
+    async ({ public_only }): Promise<ToolResult> => {
+      try {
+        const service = new ConstitutionService(store, root);
+        const candidates = service.list({ publicOnly: public_only }).filter((p) => p.state === "compiled" || p.state === "validating" || p.state === "proposed");
+        if (!candidates.length) return ok("No Constitution policy candidates.");
+        return ok(JSON.stringify(candidates.map((p) => ({ id: p.id, state: p.state, statement: p.statement, proof: p.proof, data_class: p.data_class })), null, 2));
+      } catch (e) {
+        return err(`Failed to list policy candidates: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_policy_plan",
+    {
+      title: "Generate or inspect a Constitution proof plan",
+      description:
+        "Return the canonical Git-native ProofPlan for a policy candidate: immutable source/current commits, known-good/bad corpus, mutation operators, expectations, and budgets. Planning executes no replay, model, test, or authority transition.",
+      inputSchema: {
+        policy_id: z.string().describe("Policy id (pol_*)."),
+        public_only: z.boolean().optional().describe("Exclude private-overlay policy and evidence records."),
+      },
+    },
+    async ({ policy_id, public_only }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).plan(policy_id, { publicOnly: public_only }), null, 2));
+      } catch (e) {
+        return err(`Failed to generate policy proof plan: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_policy_card",
+    {
+      title: "Inspect a Constitution proof card",
+      description:
+        "Return the deterministic proof-card view for a policy: exact assertion/scope, raw evidence vector, uncertainty, blocking readiness, authority, limitations, and next actions. Read-only and grants no authority.",
+      inputSchema: {
+        policy_id: z.string().describe("Policy id (pol_*)."),
+        public_only: z.boolean().optional().describe("Exclude private-overlay policy and proof records."),
+      },
+    },
+    async ({ policy_id, public_only }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).card(policy_id, { publicOnly: public_only }), null, 2));
+      } catch (e) {
+        return err(`Failed to build policy proof card: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_policy_shadow",
+    {
+      title: "Inspect Constitution shadow precision",
+      description:
+        "Return the append-only shadow evaluation ledger, current human dispositions, raw precision counts, unknown/error rate, thresholds, and P4-review recommendation for one policy. Read-only: it never records a sample, changes lifecycle, activates, warns, or blocks.",
+      inputSchema: {
+        policy_id: z.string().describe("Policy id (pol_*)."),
+        public_only: z.boolean().optional().describe("Exclude private-overlay shadow records."),
+      },
+    },
+    async ({ policy_id, public_only }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).shadowReport(policy_id, {}, { publicOnly: public_only }), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect policy shadow precision: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_policy_proof",
+    {
+      title: "Inspect a Constitution policy proof",
+      description:
+        "Return the full content-addressed proof artifact for a policy. Read-only; exposes baseline, mutations, proof class, artifact hashes, and limitations without changing authority.",
+      inputSchema: {
+        policy_id: z.string().describe("Policy id (pol_*)."),
+        public_only: z.boolean().optional().describe("Exclude the private overlay from this response."),
+      },
+    },
+    async ({ policy_id, public_only }): Promise<ToolResult> => {
+      try {
+        const service = new ConstitutionService(store, root);
+        const policy = service.get(policy_id, { publicOnly: public_only });
+        if (!policy.proof) return ok(`Policy ${policy_id} has no proof yet.`);
+        return ok(JSON.stringify(service.proof(policy.proof, { publicOnly: public_only }), null, 2));
+      } catch (e) {
+        return err(`Failed to read policy proof: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_policy_evaluate",
+    {
+      title: "Evaluate Constitution policy",
+      description:
+        "Evaluate one or all deterministic Policy IR records and return canonical neutral receipts (satisfied, violated, not_applicable, unknown, error). This is the same evaluator used by CLI and strict CI; models never decide the verdict.",
+      inputSchema: {
+        policy_id: z.string().optional().describe("Optional policy id; omit for all policies."),
+        active_only: z.boolean().optional().describe("Evaluate only active advisory/blocking policies."),
+        public_only: z.boolean().optional().describe("Exclude private-overlay policies and graph records."),
+        workspace: z.enum(["staged", "working"]).optional().describe("For executable-behavior policies, evaluate the staged index or complete working snapshot in a disposable checkout."),
+        commit: z.string().optional().describe("For executable-behavior policies, evaluate an exact commit ref instead of the current committed HEAD."),
+      },
+    },
+    async ({ policy_id, active_only, public_only, workspace, commit }): Promise<ToolResult> => {
+      try {
+        if (workspace && commit) throw new Error("choose either workspace or commit for executable-behavior evaluation");
+        if (commit && !revExists(commit, root)) throw new Error(`commit ref ${JSON.stringify(commit)} does not resolve`);
+        indexRepo(store, root, { churn: false });
+        store.reindex();
+        const behavior = workspace ? { workspace }
+          : commit ? { commit: revParse(commit, root) }
+            : undefined;
+        const receipts = new ConstitutionService(store, root)
+          .evaluate({ id: policy_id, activeOnly: active_only, publicOnly: public_only, behavior })
+          .map((r) => r.evaluation);
+        return ok(JSON.stringify(receipts, null, 2));
+      } catch (e) {
+        return err(`Failed to evaluate policy: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_readiness",
+    {
+      title: "Inspect Constitution G2 readiness",
+      description:
+        "Return the exact private G2 dogfood evidence packet: human-selected policies, bound proof/corpus/shadow evidence, operational runbook rehearsals, and blockers. Read-only; it never creates evidence, signs off G2, activates policy, warns, or blocks.",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2Readiness(), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect G2 readiness: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g3_readiness",
+    {
+      title: "Inspect Constitution G3 readiness",
+      description:
+        "Return the exact private G3 advisory packet: human-selected policies and clients, immutable experiment preregistrations, proof-card comprehension/review measurements, executable adapter conformance, scorecard, and blockers. Read-only; it never records evidence, activates policy, or signs off G3.",
+      inputSchema: {},
+    },
+    async (): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g3Readiness(), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect G3 readiness: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_shadow_queue",
+    {
+      title: "Review unclassified G2 shadow violations",
+      description:
+        "Return a bounded private queue of exact-current-proof G2 shadow violations that still require human classification. Read-only; it never records an observation or disposition, changes lifecycle, grants authority, warns, or blocks.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional().describe("Maximum queue items to return (default 20)."),
+      },
+    },
+    async ({ limit }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2ShadowQueue(limit ?? 20), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect the G2 shadow queue: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_operational_drill",
+    {
+      title: "Execute one exact G2 operational drill",
+      description:
+        "Execute the selected private G2 runbook's exact safety regression and return a content-addressed hash-only receipt. Diagnostic only: it writes no rehearsal or shadow evidence, grants no authority, and never signs off G2.",
+      inputSchema: {
+        category: z.enum(G2_RUNBOOK_CATEGORIES).describe("Exact operational category selected by the current private G2 plan."),
+      },
+    },
+    async ({ category }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2OperationalDrill(category), null, 2));
+      } catch (e) {
+        return err(`Failed to execute the G2 operational drill: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_candidates",
+    {
+      title: "Review potential G2 dogfood candidates",
+      description:
+        "Return a bounded private review packet of exact structural candidates from fix-labeled git history, including the current append-only human selection/rejection when present. Read-only: proposed before/after corpus refs are not replayed evidence, and the tool creates no attestation, policy, proof, corpus, authority, warning, or block.",
+      inputSchema: {
+        since: z.string().min(1).max(100).optional().describe("Git history window (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Maximum fix-labeled commits to inspect (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Maximum ranked candidates to return (default 30)."),
+      },
+    },
+    async ({ since, max_commits, limit }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2CandidateReview({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect G2 candidates: ${(e as Error).message}`);
+      }
+    },
+  );
+
   // -- hunch_conformance ----------------------------------------------------
   server.registerTool(
     "hunch_conformance",
@@ -825,6 +1065,122 @@ export function buildServer(root: string): McpServer {
       const lines = results.map((r) => `${r.satisfied ? "✅" : "⛔"} ${r.decision} "${r.title}" — ${r.assert} ${r.subject}${r.object ? ` → ${r.object}` : ""}: ${r.detail}`);
       const head = violations.length ? `⛔ ${violations.length} intent(s) the code no longer satisfies` : "✅ the code satisfies every recorded intent";
       return ok(`Intent-conformance (${results.length - violations.length}/${results.length} satisfied):\n\n${lines.join("\n")}\n\n${head}`);
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_behavior_candidates",
+    {
+      title: "Review executable G2 behavior candidates",
+      description:
+        "Derive a bounded private review packet from human-grounded rejected structural proxies and newly added literal node:test cases in their exact fixing commits. Read-only: candidates remain unselected and create no policy, corpus, proof, authority, warning, or block.",
+      inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact current human-confirmed decision to use as the direct behavior grounding batch."),
+        since: z.string().min(1).max(100).optional().describe("Git history window (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Maximum fix-labeled commits to inspect (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Maximum behavior candidates to return (default 30)."),
+      },
+    },
+    async ({ decision_id, since, max_commits, limit }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorCandidateReview({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+          decisionId: decision_id,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to inspect G2 behavior candidates: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_behavior_replay",
+    {
+      title: "Replay one G2 behavior candidate",
+      description:
+        "Execute one exact behavior candidate without a shell in disposable known-bad and known-good worktrees, transplanting the hash-bound known-good test file into both. Diagnostic only: writes no Constitution artifact and grants no policy or G2 authority.",
+      inputSchema: {
+        candidate_id: z.string().regex(/^g2behavior_[a-f0-9]{10}$/),
+        review_hash: z.string().regex(/^sha1:[a-f0-9]{40}$/),
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact decision batch used by the reviewed candidate."),
+        since: z.string().min(1).max(100).optional().describe("Git history window used by the exact review packet (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
+        timeout_ms: z.number().int().min(1).max(120000).optional().describe("Per-leg execution timeout (default 30000ms)."),
+      },
+    },
+    async ({ candidate_id, review_hash, decision_id, since, max_commits, limit, timeout_ms }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorCandidateReplay(candidate_id, review_hash, {
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+          decisionId: decision_id,
+          timeoutMs: timeout_ms ?? 30_000,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to replay G2 behavior candidate: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_behavior_materialization",
+    {
+      title: "Assess selected G2 behavior materialization",
+      description:
+        "Bind the complete current private behavior review and exact selected attestations, then report whether their durable meanings are expressible by the supported Policy IR. Read-only and fail-closed: unsupported behavior creates no policy, corpus, plan, proof, authority, warning, or block.",
+      inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact decision batch to assess."),
+        since: z.string().min(1).max(100).optional().describe("Git history window used by the exact review packet (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
+      },
+    },
+    async ({ decision_id, since, max_commits, limit }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorMaterializationAssessment({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+          decisionId: decision_id,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to assess G2 behavior materialization: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hunch_constitution_g2_behavior_policy_materialize",
+    {
+      title: "Materialize selected G2 behavior policies",
+      description:
+        "Materialize every current exact selected behavior attestation into a separate private Policy IR v2 proposal, exact corpus and plan, and P3 executable proof. Writes private non-authoritative artifacts only; activation remains a separate explicit human action.",
+      inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/).optional().describe("Exact decision batch to materialize."),
+        since: z.string().min(1).max(100).optional().describe("Git history window used by the complete exact review packet (default 180d)."),
+        max_commits: z.number().int().min(1).max(200).optional().describe("Fix-commit bound used by the exact review packet (default 100)."),
+        limit: z.number().int().min(1).max(100).optional().describe("Item limit used by the exact review packet (default 30)."),
+        allow_install_scripts: z.array(z.string().min(1).max(214)).max(20).optional().describe("Exact dependency package names allowed to run lifecycle scripts while provisioning snapshots."),
+        dependency_timeout_ms: z.number().int().min(1).max(900000).optional().describe("Timeout for each exact dependency snapshot operation (default 300000ms)."),
+      },
+    },
+    async ({ decision_id, since, max_commits, limit, allow_install_scripts, dependency_timeout_ms }): Promise<ToolResult> => {
+      try {
+        return ok(JSON.stringify(new ConstitutionService(store, root).g2BehaviorPolicyMaterialize({
+          since: since ?? "180d",
+          maxCommits: max_commits ?? 100,
+          limit: limit ?? 30,
+          decisionId: decision_id,
+          allowInstallScripts: allow_install_scripts ?? [],
+          dependencyTimeoutMs: dependency_timeout_ms ?? 300_000,
+        }), null, 2));
+      } catch (e) {
+        return err(`Failed to materialize G2 behavior policies: ${(e as Error).message}`);
+      }
     },
   );
 

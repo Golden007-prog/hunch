@@ -7,11 +7,11 @@
  * Uses NATIVE tree-sitter (synchronous, prebuilt for Node 20 — see decision in
  * the commit history; web-tree-sitter's WASM grammars had an incompatible ABI).
  */
-import Parser from "tree-sitter";
-import TS from "tree-sitter-typescript";
+import type TreeSitterParser from "tree-sitter";
 import type { SyntaxNode } from "tree-sitter";
+import { loadNativeTreeSitter } from "./nativeTreeSitter.js";
 
-const { typescript, tsx } = TS as unknown as { typescript: unknown; tsx: unknown };
+const { Parser, typescript, tsx } = loadNativeTreeSitter();
 
 export type ParsedSymbolKind = "function" | "method" | "class" | "interface" | "type";
 
@@ -26,6 +26,7 @@ export interface ParsedSymbol {
 export interface ParsedCall {
   callee: string;
   atByte: number;
+  endByte: number;
   /** true for `x.foo()` (property access), false for a direct `foo()` call. */
   member: boolean;
 }
@@ -49,6 +50,7 @@ export interface ParsedFile {
   symbols: ParsedSymbol[];
   imports: string[];
   calls: ParsedCall[];
+  parseable: boolean;
 }
 
 /** Tree-sitter query capturing every construct we care about in one pass. */
@@ -68,8 +70,8 @@ const QUERY_SRC = `
 `;
 
 interface LangBundle {
-  parser: Parser;
-  query: Parser.Query;
+  parser: TreeSitterParser;
+  query: TreeSitterParser.Query;
 }
 const cache = new Map<string, LangBundle>();
 
@@ -140,10 +142,10 @@ export function parseSource(file: string, source: string): ParsedFile | null {
     } else if (cname === "import.src") {
       imports.push(node.text.replace(STR_QUOTES, ""));
     } else if (cname === "call.id") {
-      calls.push({ callee: node.text, atByte: node.startIndex, member: false });
+      calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: false });
     } else if (cname === "call.member") {
       // skip builtin method names to avoid false edges to similarly-named symbols
-      if (!BUILTIN_METHODS.has(node.text)) calls.push({ callee: node.text, atByte: node.startIndex, member: true });
+      if (!BUILTIN_METHODS.has(node.text)) calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: true });
     }
   }
 
@@ -157,7 +159,7 @@ export function parseSource(file: string, source: string): ParsedFile | null {
     });
   }
   symbols.sort((a, b) => a.startByte - b.startByte);
-  return { symbols, imports, calls };
+  return { symbols, imports, calls, parseable: !tree.rootNode.hasError };
 }
 
 /** Walk up to the nearest node whose type is a definition we recognize. */

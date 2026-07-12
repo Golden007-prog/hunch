@@ -152,6 +152,27 @@ test("member call to a top-level function does NOT create an edge; method calls 
   rmSync(root, { recursive: true, force: true });
 });
 
+test("unimported same-named callbacks do NOT resolve to unrelated cross-file symbols", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-callback-name-"));
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/store.ts"), `export function resolve(id){ return id; }\n`);
+  writeFileSync(
+    join(root, "src/provider.ts"),
+    `export function execute(){ return new Promise((resolve) => resolve("ok")); }\n`,
+  );
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const unrelated = store.json.loadAll("symbols").find((s) => s.file === "src/store.ts" && s.name === "resolve")!;
+  assert.ok(unrelated, "the unrelated repository symbol is indexed");
+  assert.deepEqual(store.getDependents(unrelated.id), [], "a callback parameter with the same name creates no cross-file call edge");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("indexing is deterministic — same ids on re-run", () => {
   const root = fixtureRepo();
   const store = new HunchStore(hunchPaths(root));
