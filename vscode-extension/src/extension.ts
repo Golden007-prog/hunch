@@ -29,6 +29,10 @@ import { acceptDraft, rejectDraft, acceptVerified, rejectDuplicates, openDraftFi
 import { runCommandHub } from "./commands.js";
 import { openChangeGate } from "./changeGate.js";
 import { runHunchWithProgress } from "./cli.js";
+import { openConsole } from "./console.js";
+import { openHome, refreshHome } from "./home.js";
+import { registerLmTools } from "./lmTools.js";
+import { fetchStats, renderStatusItem, showStatsPanel } from "./stats.js";
 
 function workspaceRoot(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -443,6 +447,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   context.subscriptions.push(status);
+  const statsItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  context.subscriptions.push(statsItem);
+  const refreshStats = async (): Promise<void> => renderStatusItem(statsItem, root ? await fetchStats(root) : null);
 
   const codeLens = new HunchCodeLensProvider(() => cache.get(), relPath);
   const hover = new HunchHoverProvider(() => cache.get(), relPath);
@@ -458,6 +465,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.languages.registerCodeLensProvider(SELECTOR, codeLens),
     vscode.languages.registerHoverProvider(SELECTOR, hover),
   );
+  registerLmTools(context, () => cache.get(), () => root);
 
   const refreshActive = () => {
     const ed = vscode.window.activeTextEditor;
@@ -487,6 +495,8 @@ export function activate(context: vscode.ExtensionContext): void {
     tree.refresh();
     codeLens.refresh();
     refreshActive();
+    void refreshStats();
+    refreshHome();
     const h = cache.get();
     if (h) refreshGraph(h);
   };
@@ -576,10 +586,17 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("hunch.autoReview", () => {
       if (root) void autoReview(root, showOutput, refreshAll, cache.get()?.overlay?.state === "active");
     }),
-    // --- command hub: drive the CLI from a GUI -----------------------------
+    vscode.commands.registerCommand("hunch.home", () => {
+      if (!root) return void vscode.window.showWarningMessage("No workspace folder open.");
+      openHome({ root, getHunch: () => cache.get(), lastChange: (f) => lastChangeMs(root, f), onWrite: refreshAll });
+    }),
     vscode.commands.registerCommand("hunch.runCommand", () => {
       if (!root) return void vscode.window.showWarningMessage("No workspace folder open.");
-      void runCommandHub(root, showOutput, refreshAll);
+      openConsole(root, () => cache.get(), refreshAll);
+    }),
+    vscode.commands.registerCommand("hunch.stats", async () => {
+      if (!root) return void vscode.window.showWarningMessage("No workspace folder open.");
+      showStatsPanel(await fetchStats(root));
     }),
   );
 
@@ -590,6 +607,10 @@ export function activate(context: vscode.ExtensionContext): void {
     watcher.onDidCreate(refreshAll);
     watcher.onDidDelete(refreshAll);
     context.subscriptions.push(watcher);
+    const logWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, ".hunch/events.log"));
+    logWatcher.onDidChange(() => void refreshStats());
+    logWatcher.onDidCreate(() => void refreshStats());
+    context.subscriptions.push(logWatcher);
   }
 
   // keep in-editor signal in sync with the active editor / edits
@@ -607,6 +628,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   syncOverlayWatcher();
   refreshActive();
+  void refreshStats();
 }
 
 export function deactivate(): void {

@@ -386,13 +386,28 @@ export function reviewQueue(hunch: Hunch, minGrounded: number = READY_MIN_GROUND
 /** Absolute path to a decision's JSON file (for opening the draft to edit).
  * Overlay-first mirrors HunchStore: a private draft must open from its real home,
  * never as a non-existent public `.hunch` path. */
-export function decisionFilePath(hunch: Hunch, id: string): string {
-  const privateFile = hunch.overlay?.state === "active"
+export function decisionFilePath(hunchOrRoot: Hunch | string, id: string): string {
+  const hunch = typeof hunchOrRoot === "string" ? loadHunch(hunchOrRoot) : hunchOrRoot;
+  const root = typeof hunchOrRoot === "string" ? hunchOrRoot : hunchOrRoot.root;
+  const privateFile = hunch?.overlay?.state === "active"
     ? path.join(hunch.overlay.dir, "decisions", `${id}.json`)
     : "";
   return privateFile && fs.existsSync(privateFile)
     ? privateFile
-    : path.join(hunch.root, ".hunch", "decisions", `${id}.json`);
+    : path.join(root, ".hunch", "decisions", `${id}.json`);
+}
+
+const RECORD_DIRS: Record<string, string> = { dec: "decisions", con: "constraints", bug: "bugs", comp: "components" };
+
+/** Resolve a record to the store where it actually lives, overlay-first. */
+export function recordFilePath(root: string, id: string): string | null {
+  const dir = RECORD_DIRS[id.split("_")[0] ?? ""];
+  if (!dir) return null;
+  const hunch = loadHunch(root);
+  const overlayFile = hunch?.overlay?.state === "active" ? path.join(hunch.overlay.dir, dir, `${id}.json`) : "";
+  return overlayFile && fs.existsSync(overlayFile)
+    ? overlayFile
+    : path.join(root, ".hunch", dir, `${id}.json`);
 }
 
 // ---- bug lineage chains ----------------------------------------------------

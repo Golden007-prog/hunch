@@ -58,6 +58,8 @@ import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatStructure } from "../core/format.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
+import { appendEvent, readEvents } from "../core/events.js";
+import { computeStats, formatStats } from "../core/stats.js";
 import { injectionMode } from "../core/hookcache.js";
 import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider } from "../core/agenthook.js";
 import {
@@ -2560,6 +2562,50 @@ program
   });
 
 // ---- hook (multi-agent lifecycle hook handler) ----------------------------
+function parseStatsSince(value: string): { ms: number; label: string } {
+  const match = /^(\d+)\s*([mhdw])$/.exec(value.trim());
+  if (!match) return { ms: 7 * 864e5, label: "7d" };
+  const units = { m: 6e4, h: 36e5, d: 864e5, w: 7 * 864e5 } as const;
+  const unit = match[2] as keyof typeof units;
+  return { ms: Number(match[1]) * units[unit], label: `${match[1]}${unit}` };
+}
+
+program
+  .command("stats")
+  .description("Compounding-value receipt: accumulated memory, caught violations, and payback")
+  .option("--json", "emit the hunch.stats/1 machine contract")
+  .option("--since <duration>", "recent return window (7d, 24h, 2w)", "7d")
+  .option("--private", "include the local private/shared overlay")
+  .action((opts: { json?: boolean; since: string; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (opts.private && !store.hasPrivate) return fail("--private needs a configured private/shared overlay");
+      const load = <K extends "decisions" | "constraints" | "bugs" | "components" | "runbooks">(kind: K) =>
+        opts.private ? store.recs(kind) : store.json.loadAll(kind);
+      const events = readEvents(hunchPaths(root));
+      if (opts.private && store.privateDir) events.push(...readEvents(hunchPathsForDir(store.privateDir)));
+      const since = parseStatsSince(opts.since);
+      const now = Date.now();
+      const constraints = load("constraints");
+      const staleConstraints = constraints.filter((constraint) => {
+        const verified = constraint.provenance.last_verified;
+        if (!verified || Number.isNaN(Date.parse(verified))) return false;
+        return constraint.scope.some((file) => {
+          const changed = lastChangeDate(file, root);
+          return !!changed && Date.parse(changed) > Date.parse(verified);
+        });
+      }).length;
+      const stats = computeStats({
+        decisions: load("decisions"), constraints, bugs: load("bugs"),
+        componentIds: load("components").map((component) => component.id),
+        runbooksCount: load("runbooks").length, events,
+        staleConstraints,
+        now, windowStart: now - since.ms, windowLabel: since.label,
+      });
+      console.log(opts.json ? JSON.stringify(stats, null, 2) : formatStats(stats));
+    } finally { store.close(); }
+  });
+
 program
   .command("hook")
   .description("Agent-agnostic hook handler: normalizes Claude, VS Code, Cursor, Windsurf, and Antigravity events into Hunch context and strict policy checks. Reads hook JSON on stdin.")
@@ -2688,6 +2734,7 @@ program
         const proposedLines = proposedEditLines(evt.tool_input);
         const deny = blockingInScope(store, target, proposedLines);
         if (deny) {
+          appendEvent(paths, { at: new Date().toISOString(), file: target, ...deny.event });
           emitDeny(provider, deny.reason);
           return;
         }
@@ -2696,6 +2743,7 @@ program
         // only human-confirmed tripwires deny.
         const vetoDeny = proposedLines.length ? vetoInScope(store, target, proposedLines) : null;
         if (vetoDeny) {
+          appendEvent(paths, { at: new Date().toISOString(), file: target, ...vetoDeny.event });
           emitDeny(provider, vetoDeny.reason);
           return;
         }
