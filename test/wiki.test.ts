@@ -212,7 +212,7 @@ test("generateWiki: writes pages + README + manifest; regen with unchanged graph
   const home = publicHome(root, "wiki");
 
   const first = await generateWiki(store, root, home, { now: NOW, only: "all" });
-  assert.deepEqual(first.written, ["wiki/store-layer.md", "wiki/specs.md", "wiki/now.md", "wiki/README.md"]);
+  assert.deepEqual(first.written, ["wiki/store-layer.md", "wiki/specs.md", "wiki/now.md", "wiki/graph.html", "wiki/README.md"]);
   assert.ok(existsSync(join(root, "wiki", "store-layer.md")));
   assert.ok(existsSync(join(root, "wiki", "specs.md")));
   assert.ok(existsSync(join(root, "wiki", "README.md")));
@@ -226,7 +226,7 @@ test("generateWiki: writes pages + README + manifest; regen with unchanged graph
   assert.equal(readWikiManifestAt(home.manifestPath)?.pages["wiki/store-layer.md"]?.generated, NOW, "fresh manifest entries keep their generation time");
 
   const all = await generateWiki(store, root, home, { now: "2026-07-03T00:00:00Z", only: "all" });
-  assert.equal(all.written.length, 4);
+  assert.equal(all.written.length, 5);
   assert.equal(readFileSync(join(root, "wiki", "store-layer.md"), "utf8"), pageBefore, "identical graph → byte-identical page");
 });
 
@@ -238,7 +238,7 @@ test("generateWiki: prose failure degrades to a template page, never fails gener
     now: NOW, only: "all",
     prose: async () => { throw new Error("CLI exploded"); },
   });
-  assert.equal(res.written.length, 4); // component page + specs ledger + now + index
+  assert.equal(res.written.length, 5); // component page + specs ledger + now + graph + index
   assert.doesNotMatch(readFileSync(join(root, "wiki", "store-layer.md"), "utf8"), /## Overview/);
 });
 
@@ -271,7 +271,7 @@ test("private home: pages + manifest land in the OVERLAY repo, render the union,
   assert.equal(home!.source, "all");
 
   const res = await generateWiki(store, pub, home!, { now: NOW, only: "all" });
-  assert.equal(res.written.length, 5, "public + private components + specs + now + index all get pages");
+  assert.equal(res.written.length, 6, "public + private components + specs + now + graph + index all get pages");
   const page = readFileSync(join(overlayRoot, "wiki", "store-layer.md"), "utf8");
   assert.match(page, /dec_priv/, "private wiki renders overlay records");
   assert.match(readFileSync(join(overlayRoot, "wiki", "README.md"), "utf8"), /PRIVATE/, "index carries the do-not-publish banner");
@@ -691,4 +691,27 @@ test("prose-heal: an adopted copy gains the reconciled overview; failure or abse
     adoptionProse: async () => { throw new Error("CLI exploded"); },
   });
   assert.equal(readFileSync(join(root, "wiki", "docs", "docs-durability.md"), "utf8"), plain, "prose failure degrades to the exact deterministic copy");
+});
+
+test("memory graph page: embedded data, component links, tamper tripwire, heal", async (t) => {
+  const { store, root, cleanup } = tempStore();
+  t.after(cleanup);
+  seed(store);
+  const home = publicHome(root, "wiki");
+  await generateWiki(store, root, home, { now: NOW, only: "all" });
+
+  const page = readFileSync(join(root, "wiki", "graph.html"), "utf8");
+  assert.match(page, /hunch:wiki _graph/, "carries the generated-artifact marker");
+  assert.match(page, /"Store Layer"/, "embeds the component");
+  assert.match(page, /"slug":"store-layer"/, "node click resolves to the component page slug");
+  assert.match(page, /"2026-07-02"/, "decision dates ride in for the time scrubber");
+  assert.equal(readWikiManifestAt(home.manifestPath)?.pages["wiki/graph.html"]?.component, "_graph");
+
+  // Hand edit → bytes tripwire → wiki-stale; heal regenerates byte-identically.
+  writeFileSync(join(root, "wiki", "graph.html"), page + "<!-- vandalized -->");
+  const findings = computeWikiDrift(store, root).filter((f) => f.id === "wiki/graph.html");
+  assert.equal(findings.length, 1, "hand edit grades the graph page stale");
+  await generateWiki(store, root, home, { now: NOW, only: "stale" });
+  assert.equal(readFileSync(join(root, "wiki", "graph.html"), "utf8"), page, "heal restores the derived view");
+  assert.equal(computeWikiDrift(store, root).length, 0);
 });

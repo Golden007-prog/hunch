@@ -34,6 +34,7 @@ import { hunchPaths, toPosixTarget } from "../core/paths.js";
 import { isLive } from "../core/topics.js";
 import { scanRepoDocs, type RepoDoc } from "../core/docscan.js";
 import { adoptedSlug, adoptionHash, renderAdoptedDoc } from "./adopt.js";
+import { assembleGraphData, renderGraphPage, type WikiGraphData } from "./graph.js";
 import type { Decision } from "../core/types.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import type { Component, Constraint, EntityKind, EntityFor } from "../core/types.js";
@@ -331,6 +332,7 @@ export function renderIndex(entries: Array<{ pack: WikiPack; slug: string }>, re
     L.push("", `📄 [Specs & docs ledger](specs.md) — ${docs.length} repo doc(s): ${n("grounded")} grounded, ${n("stale")} stale, ${n("unverified")} unverified.`);
   }
   L.push("", "🔥 [Now — recent activity & roadmap](now.md)");
+  L.push("", "🕸 [Memory graph](graph.html) — the interactive map: components, dependencies, and a time scrubber that replays the memory compounding.");
   if (repoWide.length) {
     L.push("", "## Repo-wide invariants", "");
     for (const k of repoWide) L.push(`- **[${k.severity}]** ${clip(k.statement, 300)} _(${k.id})_`);
@@ -441,6 +443,8 @@ const SPECS_ID = "_specs";
 const INDEX_ID = "_index";
 /** Reserved manifest component id for the NOW page (activity ledger + roadmap). */
 const NOW_ID = "_now";
+/** Reserved manifest component id for the interactive memory-graph page. */
+const GRAPH_ID = "_graph";
 /** Manifest component-id prefix for adopted (wiki-managed) doc copies. */
 const ADOPTED_PREFIX = "doc:";
 
@@ -526,6 +530,8 @@ export interface WikiStatus {
   index: { page: string; hash: string; state: WikiEntry["state"] };
   /** The NOW page (activity ledger + roadmap) — hashed over its item snapshot. */
   now: { page: string; hash: string; state: WikiEntry["state"]; recent: NowItem[]; roadmap: NowItem[]; pendingReview: number };
+  /** The interactive memory-graph page — hashed over its embedded data. */
+  graph: { page: string; hash: string; state: WikiEntry["state"]; data: WikiGraphData };
   /** Repo-wide (scope []) constraints — rendered on the index, hashed into it. */
   repoWide: Constraint[];
   /** Manifest pages no current artifact claims (deleted/renamed components, an
@@ -623,6 +629,7 @@ export function wikiStatus(store: HunchStore, home: WikiHome, srcRoot: string): 
     rows: entries.map((e) => ({ slug: e.slug, name: e.pack.component.name, responsibility: e.pack.component.responsibility, decisions: e.pack.decisions.length, constraints: e.pack.constraints.length })),
     repoWide: repoWide.map((c) => ({ id: c.id, severity: c.severity, statement: c.statement })),
     docs: { grounded: docs.filter((d) => d.status === "grounded").length, stale: docs.filter((d) => d.status === "stale").length, unverified: docs.filter((d) => d.status === "unverified").length, total: docs.length },
+    graphLink: true, // the index links graph.html — pre-graph manifests re-render once
   })));
   const index = { page: indexPage, hash: indexHash, state: pageState(home, indexPage, INDEX_ID, indexHash, manifest?.pages[indexPage]).state };
 
@@ -632,18 +639,27 @@ export function wikiStatus(store: HunchStore, home: WikiHome, srcRoot: string): 
   const nowHash = sha16(JSON.stringify(canonical({ recent, roadmap, pendingReview })));
   const now = { page: nowPage, hash: nowHash, state: pageState(home, nowPage, NOW_ID, nowHash, manifest?.pages[nowPage]).state, recent, roadmap, pendingReview };
 
+  // The memory-graph page: components + dependencies + per-component decision
+  // dates (the scrubber's timeline). Hashed over the exact embedded data — the
+  // client-side force layout is presentation and never participates.
+  const decisionDates = new Map(decisions.map((d) => [d.id, d.valid_from ?? d.date] as const));
+  const graphData = assembleGraphData(home.kind, entries, decisionDates);
+  const graphPage = `${home.dir}/graph.html`;
+  const graphHash = sha16(JSON.stringify(canonical(graphData)));
+  const graph = { page: graphPage, hash: graphHash, state: pageState(home, graphPage, GRAPH_ID, graphHash, manifest?.pages[graphPage]).state, data: graphData };
+
   // Orphans by PAGE KEY, not component id: anything the manifest tracks that no
   // current artifact claims (deleted component, renamed component whose slug
   // moved, a retired adoption) gets removed on heal — nothing generated is ever
   // stranded on disk while the manifest forgets it.
-  const expected = new Set<string>([...entries.map((e) => e.page), ...adoptions.map((a) => a.page), specsPage, indexPage, nowPage]);
+  const expected = new Set<string>([...entries.map((e) => e.page), ...adoptions.map((a) => a.page), specsPage, indexPage, nowPage, graphPage]);
   const orphans: string[] = [];
   const adoptionOrphans: string[] = [];
   for (const [page, p] of Object.entries(manifest?.pages ?? {})) {
     if (expected.has(page)) continue;
     (p.component.startsWith(ADOPTED_PREFIX) ? adoptionOrphans : orphans).push(page);
   }
-  return { home, entries, docs, adoptions, adoptionOrphans, decisions, specs, index, now, repoWide, orphans };
+  return { home, entries, docs, adoptions, adoptionOrphans, decisions, specs, index, now, graph, repoWide, orphans };
 }
 
 // ---------------------------------------------------------------------------
@@ -702,6 +718,7 @@ export async function generateWiki(
   const specsTarget = opts.only === "all" || status.specs.state !== "fresh";
   const indexTarget = opts.only === "all" || status.index.state !== "fresh";
   const nowTarget = opts.only === "all" || status.now.state !== "fresh";
+  const graphTarget = opts.only === "all" || status.graph.state !== "fresh";
   const log = opts.log ?? (() => {});
 
   const written: string[] = [];
@@ -754,6 +771,11 @@ export async function generateWiki(
     log(`  ✎ ${status.now.page}${status.now.state === "fresh" ? "" : ` (${status.now.state})`} [${status.now.recent.length} recent, ${status.now.roadmap.length} roadmap]`);
   }
 
+  if (graphTarget) {
+    put(status.graph.page, renderGraphPage(status.graph.data));
+    log(`  ✎ ${status.graph.page}${status.graph.state === "fresh" ? "" : ` (${status.graph.state})`} [${status.graph.data.nodes.length} node(s), ${status.graph.data.links.length} link(s)]`);
+  }
+
   if (indexTarget) {
     put(status.index.page, renderIndex(status.entries.map((e) => ({ pack: e.pack, slug: e.slug })), status.repoWide, home, status.docs));
     log(`  ✎ ${status.index.page}${status.index.state === "fresh" ? "" : ` (${status.index.state})`}`);
@@ -786,6 +808,7 @@ export async function generateWiki(
     entry(status.specs.page, SPECS_ID, status.specs.hash, status.specs.state);
     entry(status.index.page, INDEX_ID, status.index.hash, status.index.state);
     entry(status.now.page, NOW_ID, status.now.hash, status.now.state);
+    entry(status.graph.page, GRAPH_ID, status.graph.hash, status.graph.state);
     writeWikiManifestAt(home.manifestPath, { version: 1, dir: home.dir, pages });
   }
 
@@ -837,6 +860,13 @@ export function computeWikiDrift(store: HunchStore, root: string): DriftFinding[
         kind: "wiki-stale",
         id: status.now.page,
         detail: `the activity ledger / roadmap moved (a decision was recorded, accepted, or superseded) — regenerate with \`${heal}\`${where}`,
+      });
+    }
+    if (status.graph.state !== "fresh") {
+      findings.push({
+        kind: "wiki-stale",
+        id: status.graph.page,
+        detail: `the memory graph's inputs moved (components, dependencies, or decision dates) — regenerate with \`${heal}\`${where}`,
       });
     }
     for (const a of status.adoptions) {
