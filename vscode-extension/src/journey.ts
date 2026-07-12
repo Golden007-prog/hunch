@@ -84,7 +84,7 @@ export async function showJourney(root: string, hunch: Hunch): Promise<void> {
   // CTAs are DOORS, not features: command: links restricted to an allowlist of
   // existing commands. The page still computes and mutates nothing itself.
   const panel = vscode.window.createWebviewPanel("hunchJourney", "Hunch: Journey", vscode.ViewColumn.Beside, {
-    enableCommandUris: ["hunch.capture", "hunch.why", "hunch.search", "hunch.reviewInTerminal"],
+    enableCommandUris: ["hunch.capture", "hunch.why", "hunch.search", "hunch.reviewInTerminal", "hunch.memoryGraph"],
   });
   panel.webview.html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:8px 20px;max-width:720px}
@@ -130,6 +130,7 @@ export async function showJourney(root: string, hunch: Hunch): Promise<void> {
       <a class="btn ghost" href="command:hunch.capture">🧠 Capture a decision</a>
       <a class="btn ghost" href="command:hunch.why">❓ Why is this file?</a>
       <a class="btn ghost" href="command:hunch.search">🔍 Search memory</a>
+      <a class="btn ghost" href="command:hunch.memoryGraph">🕸 Memory graph</a>
     </div>
     <p class="honest">Honest by construction: this page computes nothing — the curve is your decisions' real timestamps, and every number is copied from the graph or <code>hunch stats --json</code>. Zeros stay zeros until the repository earns otherwise. Buttons only open existing surfaces.</p>
   </body></html>`;

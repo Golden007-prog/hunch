@@ -16,6 +16,7 @@
  * triage lives in the CLI (`hunch review`).
  */
 import * as vscode from "vscode";
+import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import {
   loadHunch, why, constraintsInScope, nearConstraints,
@@ -301,6 +302,26 @@ export function activate(context: vscode.ExtensionContext): void {
       const term = vscode.window.createTerminal({ name: "hunch review", cwd: root });
       term.show();
       term.sendText(`${cliCommand()} review`, true);
+    }),
+    // Journey door: the wiki's interactive memory graph, in the browser. The
+    // private overlay wiki wins when it has one (fuller view, never committed);
+    // otherwise the public wiki; otherwise say how to generate it.
+    vscode.commands.registerCommand("hunch.memoryGraph", () => {
+      if (!root) return void vscode.window.showWarningMessage("No workspace folder open.");
+      const wikiDir = (hunchDir: string): string => {
+        try { return (JSON.parse(fs.readFileSync(nodePath.join(hunchDir, "wiki-manifest.json"), "utf8")) as { dir?: string }).dir ?? "wiki"; }
+        catch { return "wiki"; }
+      };
+      const overlay = cache.get()?.overlay;
+      const candidates: string[] = [];
+      if (overlay?.state === "active") candidates.push(nodePath.join(nodePath.dirname(overlay.dir), wikiDir(overlay.dir), "graph.html"));
+      candidates.push(nodePath.join(root, wikiDir(nodePath.join(root, ".hunch")), "graph.html"));
+      const hit = candidates.find((p) => fs.existsSync(p));
+      if (!hit) {
+        return void vscode.window.showInformationMessage(
+          `No memory graph generated yet — run \`${cliCommand()} wiki${overlay?.state === "active" ? " --private" : ""}\` first.`);
+      }
+      void vscode.env.openExternal(vscode.Uri.file(hit));
     }),
   );
 
