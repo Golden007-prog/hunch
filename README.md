@@ -49,6 +49,8 @@ Hunch creates a local graph of:
 - **Constraints** — the invariants a change must not violate.
 - **Bug lineage** — the root cause behind fixes, recurrences, and regression guards.
 - **Architecture** — symbols, components, dependencies, blast radius, and fragility.
+  Deep code-structure parsing covers **TypeScript, JavaScript, and Python** (via a language
+  registry — each new language is one entry); the "why" layer works for any language.
 
 It then puts that context where work happens: MCP tools, the CLI, a VS Code Change Gate, git hooks,
 and an optional pull-request guard.
