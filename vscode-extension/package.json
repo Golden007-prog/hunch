@@ -108,6 +108,12 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "hunch.memory.strictness",
+        "title": "Strictness…",
+        "category": "Hunch",
+        "icon": "$(shield)"
+      },
+      {
         "command": "hunch.revertMove",
         "title": "Revert this memory move",
         "category": "Hunch",
@@ -158,6 +164,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "hunch.memory.strictness",
+          "when": "view == hunch.memory",
+          "group": "navigation@0"
+        },
         {
           "command": "hunch.memory.sync",
           "when": "view == hunch.memory",

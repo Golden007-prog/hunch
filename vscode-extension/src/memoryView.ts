@@ -139,3 +139,27 @@ export async function approveAndPush(root: string, onDone: () => void): Promise<
   const res = await runHunchWithProgress(root, ["push"], "Hunch: pushing memory…");
   if (res.ok) { vscode.window.showInformationMessage("Hunch: memory pushed to the remote."); onDone(); }
 }
+
+/** The strictness switch — how firmly the pre-edit gate enforces memory. Reads the
+ *  current level (`hunch firmness --json`), offers the four levels, and sets it. */
+export async function setFirmness(root: string, onDone: () => void): Promise<void> {
+  const res = await runHunch(root, ["firmness", "--json"]);
+  let current = "advisory";
+  let levels = ["off", "advisory", "firm", "strict"];
+  try { const j = JSON.parse(res.stdout) as { firmness?: string; levels?: string[] }; current = j.firmness ?? current; levels = j.levels ?? levels; }
+  catch { /* CLI missing/old — fall back to the built-in defaults */ }
+  const descr: Record<string, string> = {
+    off: "hooks do nothing",
+    advisory: "surface memory, never block (default)",
+    firm: "block on a direct, high-confidence invariant",
+    strict: "block on any in-scope blocking invariant",
+  };
+  const items = levels.map((l) => ({ label: `${l === current ? "$(check) " : "$(blank) "}${l}`, description: descr[l] ?? "", level: l }));
+  const pick = await vscode.window.showQuickPick(items, {
+    title: `Hunch strictness — now: ${current}`,
+    placeHolder: "How firmly should the pre-edit gate enforce memory?",
+  });
+  if (!pick || pick.level === current) return;
+  const set = await runHunchWithProgress(root, ["firmness", pick.level], "Hunch: setting strictness…");
+  if (set.ok) { vscode.window.showInformationMessage(`Hunch strictness → ${pick.level}.`); onDone(); }
+}

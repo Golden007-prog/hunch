@@ -2471,9 +2471,11 @@ program
   .command("firmness")
   .description("Get or set how firmly agent lifecycle hooks enforce Hunch before edits.")
   .argument("[level]", "off | advisory | firm | strict (omit to print the current level)")
-  .action((level: string | undefined) => {
+  .option("--json", "print the current level + choices as JSON (for the VS Code switch)")
+  .action((level: string | undefined, opts: { json?: boolean }) => {
     const paths = hunchPaths(findRoot());
     if (!level) {
+      if (opts.json) { console.log(JSON.stringify({ firmness: readConfig(paths).firmness, levels: FIRMNESS_LEVELS })); return; }
       console.log(`firmness: ${readConfig(paths).firmness}`);
       console.log(`levels:   ${FIRMNESS_LEVELS.join(" | ")}  (set with: hunch firmness <level>)`);
       return;
