@@ -375,7 +375,10 @@ const Exp01MetricsSchema = z.object({
 });
 
 const Exp03MetricsSchema = z.object({
-  decision: z.enum(["accepted_precise", "accepted_edited", "rejected", "uncompilable", "abandoned", "timeout"]),
+  // "uncompilable" is the revision-1 vocabulary; "cannot_decide" is its revision-2
+  // successor (expreg_ba6aef4ecd counts cannot-decide as its own raw category, so
+  // the recorded token must be what the reviewer actually chose — never folded).
+  decision: z.enum(["accepted_precise", "accepted_edited", "rejected", "uncompilable", "cannot_decide", "abandoned", "timeout"]),
   precise: z.boolean(),
   proof_inspected: z.boolean(),
   result_hash: z.string().regex(HASH).nullable(),
@@ -501,7 +504,7 @@ const CHOICE_TO_DECISION = {
   accept: "accepted_precise",
   edit: "accepted_edited",
   reject: "rejected",
-  cannot_decide: "uncompilable",
+  cannot_decide: "cannot_decide", // its own raw category per expreg_ba6aef4ecd — never folded into uncompilable
 } as const;
 
 export function compileExp03ReviewResponse(
@@ -697,7 +700,13 @@ export interface ExperimentArmReport {
   bootstrap_95: [number, number] | null;
   reversals: number | null;
   followups_missing: number | null;
+  /** EXP-03 only: raw count per decision token (all tokens present, zeros kept) —
+   *  the preregistered "raw use-as-written / corrected / rejected / cannot-decide /
+   *  abandoned / timeout counts" visibility (expreg_ba6aef4ecd analysis plan). */
+  decisions: Record<string, number> | null;
 }
+
+const EXP03_DECISION_TOKENS = ["accepted_precise", "accepted_edited", "rejected", "uncompilable", "cannot_decide", "abandoned", "timeout"] as const;
 
 function wilson(successes: number, total: number): [number, number] | null {
   if (!total) return null;
@@ -834,6 +843,9 @@ export function buildExperimentReport(run: ExperimentRun, bank: ExperimentCaseBa
       bootstrap_95: run.experiment === "EXP-03" ? bootstrapReviewerRate(reviews, `${run.seed}:${arm}:reviewer-rate`) : null,
       reversals: run.experiment === "EXP-03" ? measuredFollowups.filter((item) => item.reversed === true).length : null,
       followups_missing: run.experiment === "EXP-03" ? completed.length - measuredFollowups.length : null,
+      decisions: run.experiment === "EXP-03"
+        ? Object.fromEntries(EXP03_DECISION_TOKENS.map((token) => [token, reviews.filter((item) => item.decision === token).length]))
+        : null,
     };
   });
   const caseById = new Map(bank.cases.map((item) => [item.id, item]));

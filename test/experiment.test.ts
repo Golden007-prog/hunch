@@ -261,8 +261,9 @@ test("revision-2 response mapper: the four plain choices map deterministically a
   const reject = compileExp03ReviewResponse(item, "A", { choice: "reject", rule_text: null, reason: "The evidence does not support it." });
   assert.equal(reject.decision, "rejected");
   assert.equal(reject.rejection_reason, "The evidence does not support it.");
+  // cannot_decide is its OWN raw category (expreg_ba6aef4ecd) — never folded into uncompilable
   const undecided = compileExp03ReviewResponse(item, "A", { choice: "cannot_decide", rule_text: null, reason: "Evidence is ambiguous." });
-  assert.equal(undecided.decision, "uncompilable");
+  assert.equal(undecided.decision, "cannot_decide");
   assert.equal(undecided.result, null);
   assert.equal(undecided.precise, false);
 
@@ -312,6 +313,25 @@ test("revision-2 service dialects: raw submission refuses template cases and res
     if (next.assignment.arm === "A") assert.equal(metrics.semantic_edit_distance, null);
     else assert.equal(!!(metrics.semantic_edit_distance && metrics.semantic_edit_distance > 0), true);
     assert.ok(metrics.result_hash);
+
+    // the arm report exposes the preregistered RAW per-decision counts, zeros kept
+    const report = service.experimentReport(run.id);
+    const armReport = report.arms.find((a) => a.arm === next.assignment.arm)!;
+    assert.ok(armReport.decisions, "EXP-03 arms carry raw decision counts");
+    assert.equal(armReport.decisions!["accepted_edited"], 1);
+    assert.equal(armReport.decisions!["cannot_decide"], 0);
+    assert.equal(armReport.decisions!["timeout"], 0);
+
+    // non-answer terminal bookkeeping (abandoned/timeout) stays possible on a
+    // revision-2 case through the raw path — the preregistration retains them
+    const second = service.nextExperimentReview(run.id, "human:reviewer", { now: "2026-07-13T13:10:00.000Z" });
+    const abandoned = service.submitExperimentReview(run.id, second.assignment.id, {
+      reviewer: "human:reviewer", decision: "abandoned", precise: false, proof_inspected: false,
+      result: null, silent_semantic_substitution: false, rejection_reason: null,
+      confirmed_private_leak: false, data_loss_or_corruption: false, unsafe_evaluator_behavior: false,
+      reason: "Reviewer abandoned the case mid-session.",
+    }, { now: "2026-07-13T13:20:00.000Z" });
+    assert.equal((abandoned.metrics as { decision: string }).decision, "abandoned");
 
     // a revision-1 run refuses the template dialect end-to-end (fixtures compiled
     // directly — the ledger correctly allows only ONE current preregistration)

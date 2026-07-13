@@ -660,7 +660,10 @@ export class ConstitutionService {
     opts: { now?: string } = {},
   ): ExperimentOutcome {
     const { run, assignment, item } = this.resolveExp03Assignment(runId, assignmentId);
-    if (item.required_relationship) {
+    // Revision-2 reviewer ANSWERS travel only through the template; the raw path
+    // stays open solely for the non-answer terminal states the preregistration
+    // requires retained (abandoned/timeout bookkeeping — expreg_ba6aef4ecd).
+    if (item.required_relationship && input.decision !== "abandoned" && input.decision !== "timeout") {
       throw new Error(`assignment ${assignmentId} is a revision-2 plain-language case; submit it with the standardized response template (hunch experiment respond)`);
     }
     return this.completeExp03Review(run, assignment, item, input, opts);
@@ -701,7 +704,7 @@ export class ConstitutionService {
     item: Exp03Case,
     input: {
       reviewer: string;
-      decision: "accepted_precise" | "accepted_edited" | "rejected" | "uncompilable" | "abandoned" | "timeout";
+      decision: "accepted_precise" | "accepted_edited" | "rejected" | "uncompilable" | "cannot_decide" | "abandoned" | "timeout";
       precise: boolean;
       proof_inspected: boolean;
       result: string | null;
