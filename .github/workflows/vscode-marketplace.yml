@@ -53,7 +53,28 @@ jobs:
           path: vscode-extension/hunch-vscode.vsix
           if-no-files-found: error
 
-      - name: Publish to Marketplace
+      # Each registry publishes independently: a missing/expired token for one
+      # never blocks the other. A registry step runs only when its secret exists.
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
         run: npx --yes @vscode/vsce publish --packagePath hunch-vscode.vsix --pat "$VSCE_PAT"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        run: |
+          # namespace creation is one-time; an already-existing namespace must not fail the publish
+          npx --yes ovsx create-namespace davesheffer --pat "$OVSX_PAT" || true
+          npx --yes ovsx publish hunch-vscode.vsix --pat "$OVSX_PAT"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Require at least one registry
+        if: env.VSCE_PAT == '' && env.OVSX_PAT == ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          echo "No registry token configured (VSCE_PAT / OVSX_PAT) — nothing was published." >&2
+          exit 1
