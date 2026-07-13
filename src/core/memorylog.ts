@@ -9,7 +9,7 @@
  * unit-testable with canned `git log` output.
  */
 
-export type MemoryMoveKind = "capture" | "adopt" | "supersede" | "prune" | "edit";
+export type MemoryMoveKind = "capture" | "adopt" | "supersede" | "prune" | "repair" | "edit";
 
 /** One commit that changed the memory graph, ready to render as a timeline entry. */
 export interface MemoryMove {
@@ -74,7 +74,8 @@ export function parseMemoryLog(raw: string): MemoryMove[] {
 function classify(m: MemoryMove): MemoryMove {
   const s = m.subject.toLowerCase();
   m.kind =
-    /\badopt/.test(s) ? "adopt"
+    /\brepair\b/.test(s) ? "repair"
+    : /\badopt/.test(s) ? "adopt"
     : /supersed/.test(s) ? "supersede"
     : m.deleted > 0 && m.added === 0 && m.modified === 0 ? "prune"
     : m.added > 0 && m.modified === 0 && m.deleted === 0 ? "capture"

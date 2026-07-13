@@ -37,8 +37,9 @@ import {
   writeSynthesisPreference,
   type SynthPreference,
 } from "../synthesis/provider.js";
-import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch } from "../extractors/git.js";
+import { isGitRepo, headSha, logSince, lastChangeDate, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunch, gitUntrackCached, gitCommonDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges } from "../extractors/git.js";
 import { parseMemoryLog, type MemoryMove } from "../core/memorylog.js";
+import { renamesOf, planRepair, repairDecision, repairConstraint, type RepairPlan } from "../core/repair.js";
 import { writeTeamConfig, ensureTeamOverlay, readTeamConfig } from "../integrations/team.js";
 import { runbookId, decisionId } from "../core/ids.js";
 import { deriveForbids, effectiveForbids } from "../core/constraintmatch.js";
@@ -356,6 +357,13 @@ program
     const toOverlay = !!(opts.private || opts.overlay || store.unified);
     if (toOverlay && !store.hasPrivate) { store.close(); return opts.quiet ? undefined : fail("--private/--overlay needs HUNCH_PRIVATE_DIR set to an overlay store"); }
     store.json.ensureDirs();
+    // Self-repair rides every sync (Phase 5, §59.5): a commit's renames heal the
+    // exact-path bindings they break, silently, as a revertable `repair` move.
+    // Fail open — a repair error must never take the capture path down.
+    try {
+      const repaired = runRepair(store, root, sha ?? headSha(root), true);
+      if (repaired?.applied && !opts.quiet) console.log(`  ↳ repaired ${repaired.plan.rewrites.length} memory binding(s) after rename`);
+    } catch { /* repair is best-effort; drift still surfaces anything left behind */ }
     const r = await syncCommit(store, root, sha ?? headSha(root), {
       force: opts.force,
       private: toOverlay,
@@ -3288,10 +3296,61 @@ program
     const moves = parseMemoryLog(gitMemoryLog(root, limit));
     if (opts.json) { console.log(JSON.stringify(moves)); return; }
     if (!moves.length) { console.log("No memory moves yet — nothing has changed .hunch/."); return; }
-    const icon: Record<MemoryMove["kind"], string> = { capture: "✚", adopt: "✓", supersede: "↻", prune: "✗", edit: "•" };
+    const icon: Record<MemoryMove["kind"], string> = { capture: "✚", adopt: "✓", supersede: "↻", prune: "✗", repair: "🔧", edit: "•" };
     for (const m of moves) {
       const ids = [...m.decisionIds, ...m.otherIds].slice(0, 4).join(",");
       console.log(`${m.date.slice(0, 10)}  ${icon[m.kind]} ${m.kind.padEnd(9)} ${m.shortSha}  ${m.subject.slice(0, 60)}${ids ? "  " + dim(ids) : ""}`);
+    }
+  });
+
+/** Self-repair (Phase 5): heal exact-path memory bindings after a commit's renames.
+ *  Returns the plan (null when the commit renamed nothing that memory binds).
+ *  Apply mode rewrites the records in their homes, reindexes, and auto-commits each
+ *  touched home as a `repair` move on the timeline — background, revertable. */
+function runRepair(store: HunchStore, root: string, sha: string, apply: boolean): { plan: RepairPlan; applied: boolean } | null {
+  const renames = renamesOf(commitChanges(sha, root));
+  if (!renames.length) return null;
+  const plan = planRepair(renames, store.recs("decisions"), store.recs("constraints"));
+  if (!plan.rewrites.length) return null;
+  if (!apply) return { plan, applied: false };
+  let privateTouched = false, publicTouched = false;
+  for (const d of store.recs("decisions")) {
+    const healed = repairDecision(d, plan);
+    if (healed === d) continue;
+    store.putWhereItLives("decisions", healed);
+    if (store.getPrivateRec("decisions", d.id)) privateTouched = true; else publicTouched = true;
+  }
+  for (const c of store.recs("constraints")) {
+    const healed = repairConstraint(c, plan);
+    if (healed === c) continue;
+    store.putWhereItLives("constraints", healed);
+    if (store.getPrivateRec("constraints", c.id)) privateTouched = true; else publicTouched = true;
+  }
+  store.reindex();
+  if (store.autoCommit) {
+    const message = `hunch: repair ${plan.rewrites.length} binding(s) after rename (${sha.slice(0, 7)})`;
+    if (publicTouched) commitAndPushHunch(hunchPaths(root).hunch, message, { push: false });
+    if (privateTouched && store.privateDir) commitAndPushHunch(store.privateDir, message, { push: true });
+  }
+  return { plan, applied: true };
+}
+
+program
+  .command("repair")
+  .description("Self-repair: heal memory bindings (decision files, tripwire/constraint scopes) after a commit's renames — git's own rename detection, exact-path matches only, zero guessing. Dry-run unless --apply; the sync hook applies this automatically in the background.")
+  .argument("[sha]", "commit whose renames to heal (default: HEAD)")
+  .option("--apply", "rewrite the bindings (auto-commits each touched store as a `repair` move)")
+  .action((sha: string | undefined, opts: { apply?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("repair needs a git repo.");
+      const res = runRepair(store, root, sha ?? headSha(root), !!opts.apply);
+      if (!res) { console.log("✓ Nothing to repair — the commit renamed nothing that memory binds exactly."); return; }
+      console.log(`${res.applied ? "✓ Repaired" : "Would repair"} ${res.plan.rewrites.length} binding(s) across ${res.plan.records.length} record(s):`);
+      for (const r of res.plan.rewrites) console.log(`  ${r.id}  ${r.field}: ${r.from} → ${r.to}`);
+      if (!res.applied) console.log(dim("\nDry run — nothing changed. Re-run with --apply."));
+    } finally {
+      store.close();
     }
   });
 
