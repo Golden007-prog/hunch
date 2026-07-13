@@ -347,6 +347,30 @@ test("revision-2 service dialects: raw submission refuses template cases and res
   }
 });
 
+test("revision-3 single-operator guard: 48 hours must separate the bank lock from the FIRST review start", () => {
+  const { root, store, repository, cleanup } = fixture();
+  try {
+    const registration = new G3EvidenceRepository(store).putExperiment(prereg("EXP-03", 3));
+    const service = new ConstitutionService(store, root);
+    const bank = service.lockExperimentCaseBank(exp03Input(registration, "The payment action must verify the session"), { now: LOCKED });
+    const run = repository.putRun(compileExperimentRun({ sample_per_arm: 2, actor: "human:owner", reason: "Single-operator run." }, registration, bank, { now: LOCKED }));
+
+    // 47h after the lock → refused, with the remaining time named
+    assert.throws(
+      () => service.nextExperimentReview(run.id, "human:reviewer", { now: "2026-07-14T11:00:00.000Z" }),
+      /at least 48 hours between the case-bank lock/i,
+    );
+    // 48h+ after the lock → the first start is allowed
+    const next = service.nextExperimentReview(run.id, "human:reviewer", { now: "2026-07-14T12:00:00.000Z" });
+    assert.ok(next.start.id);
+    // once a start exists, resuming is never blocked by the separation rule
+    const resumed = service.nextExperimentReview(run.id, "human:reviewer", { now: "2026-07-14T12:05:00.000Z" });
+    assert.equal(resumed.start.id, next.start.id);
+  } finally {
+    cleanup();
+  }
+});
+
 test("private execution repository is idempotent, tamper-evident, and rejects duplicate runs", () => {
   const { root, privateRoot, repository, cleanup } = fixture();
   try {

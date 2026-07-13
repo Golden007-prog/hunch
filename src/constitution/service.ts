@@ -609,6 +609,17 @@ export class ConstitutionService {
     if (this.experimentReport(run.id).status === "guardrail_stopped") throw new Error("experiment is stopped by an independently recorded safety/privacy guardrail");
     const bank = this.experimentRepository.listCaseBanks().find((item) => item.id === run.case_bank_id);
     if (!bank) throw new Error(`run ${run.id} is missing exact case bank ${run.case_bank_id}`);
+    // Single-operator mitigation (expreg_9c9617cd13, revision >= 3): at least 48 hours
+    // must separate the case-bank lock from the FIRST review start — enforced, not
+    // merely auditable, so a violation is impossible rather than post-hoc visible.
+    const prereg = this.g3Repository.listExperiments().find((item) => item.id === run.preregistration_id);
+    if (prereg && prereg.revision >= 3) {
+      const elapsed = Date.parse(opts.now ?? new Date().toISOString()) - Date.parse(bank.locked_at);
+      const hasStart = this.experimentRepository.listReviewStarts().some((item) => item.run_id === run.id);
+      if (!hasStart && elapsed < 48 * 3_600_000) {
+        throw new Error(`the preregistered single-operator protocol requires at least 48 hours between the case-bank lock (${bank.locked_at}) and the first review start; ${Math.ceil((48 * 3_600_000 - elapsed) / 3_600_000)}h remain`);
+      }
+    }
     const current = new Set(currentExperimentOutcomes(this.experimentRepository.listOutcomes()).filter((item) => item.run_id === run.id).map((item) => item.assignment_id));
     const starts = this.experimentRepository.listReviewStarts().filter((item) => item.run_id === run.id);
     const existing = starts.find((item) => item.reviewer === reviewer && !current.has(item.assignment_id));
