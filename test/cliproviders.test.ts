@@ -9,6 +9,8 @@ import {
   selectWorkers,
   OpenAICompatProvider,
   probeOllamaNumCtx,
+  isMeteredHost,
+  meteredHostsAllowed,
   __resetAvailabilityCacheForTests,
 } from "../src/synthesis/provider.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -140,6 +142,92 @@ test("OpenAICompatProvider.available() is false unless BOTH HUNCH_SYNTH_BASE_URL
   process.env.HUNCH_SYNTH_MODEL = "m";
   assert.equal(await new OpenAICompatProvider().available(), false, "model alone is not enough");
   delete process.env.HUNCH_SYNTH_MODEL;
+});
+
+test("isMeteredHost recognizes known metered API hosts and their subdomains", () => {
+  for (const url of [
+    "https://api.openai.com/v1",
+    "https://api.anthropic.com",
+    "https://generativelanguage.googleapis.com/v1beta",
+    "https://api.mistral.ai/v1",
+    "https://api.cohere.ai/v1",
+    "https://openrouter.ai/api/v1",
+    "https://eu.api.openai.com/v1", // subdomain of a metered host still matches
+  ]) {
+    assert.equal(isMeteredHost(url), true, url);
+  }
+});
+
+test("isMeteredHost does not flag self-hosted/local endpoints or unparseable URLs", () => {
+  for (const url of [
+    "http://localhost:11434/v1",
+    "http://127.0.0.1:11434/v1",
+    "https://my-llm.internal.example.com/v1",
+    "not a url",
+    "",
+  ]) {
+    assert.equal(isMeteredHost(url), false, url);
+  }
+});
+
+test("meteredHostsAllowed is true only when HUNCH_SYNTH_ALLOW_METERED=1", () => {
+  assert.equal(meteredHostsAllowed({}), false);
+  assert.equal(meteredHostsAllowed({ HUNCH_SYNTH_ALLOW_METERED: "true" }), false);
+  assert.equal(meteredHostsAllowed({ HUNCH_SYNTH_ALLOW_METERED: "1" }), true);
+});
+
+test("OpenAICompatProvider.available() refuses a known metered host unless HUNCH_SYNTH_ALLOW_METERED=1", async () => {
+  process.env.HUNCH_SYNTH_BASE_URL = "https://api.openai.com/v1";
+  process.env.HUNCH_SYNTH_MODEL = "gpt-4o-mini";
+  try {
+    assert.equal(await new OpenAICompatProvider().available(), false, "blocked by default");
+
+    process.env.HUNCH_SYNTH_ALLOW_METERED = "1";
+    assert.equal(await new OpenAICompatProvider().available(), true, "explicit opt-in allows it");
+  } finally {
+    delete process.env.HUNCH_SYNTH_BASE_URL;
+    delete process.env.HUNCH_SYNTH_MODEL;
+    delete process.env.HUNCH_SYNTH_ALLOW_METERED;
+  }
+});
+
+// api.openai.com is unreachable from the test sandbox, so a rejection alone
+// wouldn't distinguish "guard fired" from "fetch failed" — assert the specific
+// guard message instead, which only run()'s pre-fetch host check can produce.
+test("OpenAICompatProvider.draftDecision throws on a metered host without HUNCH_SYNTH_ALLOW_METERED=1", async () => {
+  process.env.HUNCH_SYNTH_BASE_URL = "https://api.openai.com/v1";
+  process.env.HUNCH_SYNTH_MODEL = "gpt-4o-mini";
+  delete process.env.HUNCH_SYNTH_ALLOW_METERED;
+  try {
+    await assert.rejects(
+      new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }),
+      /refusing to call api\.openai\.com/,
+    );
+  } finally {
+    delete process.env.HUNCH_SYNTH_BASE_URL;
+    delete process.env.HUNCH_SYNTH_MODEL;
+  }
+});
+
+test("OpenAICompatProvider.draftDecision permits a metered host when HUNCH_SYNTH_ALLOW_METERED=1", async () => {
+  const server = await startFakeServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({ choices: [{ message: { content: '{"decision":"d","context":"c","nontrivial":true}' } }] }),
+    );
+  });
+  process.env.HUNCH_SYNTH_BASE_URL = server.url;
+  process.env.HUNCH_SYNTH_MODEL = "m";
+  process.env.HUNCH_SYNTH_ALLOW_METERED = "1";
+  try {
+    const draft = await new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" });
+    assert.ok(draft);
+  } finally {
+    delete process.env.HUNCH_SYNTH_BASE_URL;
+    delete process.env.HUNCH_SYNTH_MODEL;
+    delete process.env.HUNCH_SYNTH_ALLOW_METERED;
+    await server.close();
+  }
 });
 
 test("OpenAICompatProvider.draftDecision POSTs {baseUrl}/chat/completions with model/messages/response_format and maps choices[0].message.content", async () => {

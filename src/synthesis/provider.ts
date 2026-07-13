@@ -15,10 +15,11 @@
  *
  * A fourth, OPT-IN provider (name "openai-compat", alias "ollama") speaks the
  * OpenAI chat-completions format over HTTP to a self-hosted endpoint instead of a
- * subscription CLI. con_2ce3f2a547 scopes "subscription, never pay-per-token" to
- * the Anthropic API specifically — a self-hosted/local model is neither, so it
- * doesn't conflict — but it stays off unless HUNCH_SYNTH_BASE_URL and
- * HUNCH_SYNTH_MODEL are both explicitly set.
+ * subscription CLI. It stays off unless HUNCH_SYNTH_BASE_URL and HUNCH_SYNTH_MODEL
+ * are both explicitly set, and it refuses to run against a known metered API host
+ * (api.openai.com, api.anthropic.com, ...) unless HUNCH_SYNTH_ALLOW_METERED=1 is
+ * also set — con_2ce3f2a547's spirit is "never silently bill", and that env var
+ * is the escape hatch that keeps a deliberate choice deliberate.
  *
  * Every provider returns the same shape so the rest of the system never knows
  * (or cares) which one ran.
@@ -584,17 +585,56 @@ class CursorCliProvider extends PromptSynthProvider {
 // once at import time would otherwise never see env vars a test (or a long-lived
 // process) sets afterward.
 // --------------------------------------------------------------------------
+// con_2ce3f2a547 scopes "subscription, never pay-per-token" to the Anthropic API,
+// but the intent behind it is broader: nobody should get surprise-billed by their
+// memory tool. HUNCH_SYNTH_BASE_URL is meant for a self-hosted/local endpoint, but
+// nothing stops it pointing at a real metered API with HUNCH_SYNTH_API_KEY set to
+// a real key — this closes that gap by refusing known metered hosts unless the
+// user opts in explicitly and by name (HUNCH_SYNTH_ALLOW_METERED=1), which turns
+// paid usage into a deliberate, named act instead of a door left open. Matched by
+// hostname (suffix, so a regional subdomain still matches) — not exhaustive, but
+// covers the hosts a copy-pasted API key would actually point at.
+const METERED_HOSTS = [
+  "api.openai.com",
+  "api.anthropic.com",
+  "generativelanguage.googleapis.com",
+  "api.mistral.ai",
+  "api.cohere.ai",
+  "openrouter.ai",
+];
+
+export function isMeteredHost(baseUrl: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return false; // unparseable — not our call to make; the request itself will fail naturally
+  }
+  return METERED_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+}
+
+export function meteredHostsAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.HUNCH_SYNTH_ALLOW_METERED === "1";
+}
+
 export class OpenAICompatProvider extends PromptSynthProvider {
   readonly name = "openai-compat";
 
   async available(): Promise<boolean> {
-    return !!process.env.HUNCH_SYNTH_BASE_URL && !!safeModel(process.env.HUNCH_SYNTH_MODEL, undefined);
+    const baseUrl = process.env.HUNCH_SYNTH_BASE_URL;
+    if (!baseUrl || !safeModel(process.env.HUNCH_SYNTH_MODEL, undefined)) return false;
+    return meteredHostsAllowed() || !isMeteredHost(baseUrl);
   }
 
   protected async run(prompt: string): Promise<string> {
     const baseUrl = process.env.HUNCH_SYNTH_BASE_URL?.replace(/\/+$/, "");
     const model = safeModel(process.env.HUNCH_SYNTH_MODEL, undefined);
     if (!baseUrl || !model) throw new Error("openai-compat: HUNCH_SYNTH_BASE_URL/HUNCH_SYNTH_MODEL not set");
+    if (isMeteredHost(baseUrl) && !meteredHostsAllowed()) {
+      throw new Error(
+        `openai-compat: refusing to call ${new URL(baseUrl).hostname} — it looks like a metered API, and con_2ce3f2a547 blocks silent pay-per-token billing. Set HUNCH_SYNTH_ALLOW_METERED=1 if this is deliberate.`,
+      );
+    }
     const apiKey = process.env.HUNCH_SYNTH_API_KEY;
     const timeoutMs = safeTimeout(process.env.HUNCH_SYNTH_TIMEOUT_MS, 300_000);
 
