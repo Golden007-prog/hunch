@@ -21,6 +21,7 @@ import {
   compileExperimentStop,
   compileExp03ReviewResponse,
   currentExperimentOutcomes,
+  experimentReviewGuide,
   type CompileExperimentCaseBankInput,
   type Exp03Case,
   type ExperimentCaseBank,
@@ -32,6 +33,23 @@ const REGISTERED = "2026-07-11T12:00:00.000Z";
 const LOCKED = "2026-07-12T12:00:00.000Z";
 const H = (c: string): string => `sha1:${c.repeat(40)}`;
 const BASE = "a".repeat(40);
+
+test("EXP-03 review guide uses plain choices without changing experiment decisions", () => {
+  const manual = experimentReviewGuide("A");
+  assert.equal(manual.question, "Can one exact code rule be written from the requirement without guessing?");
+  assert.match(manual.action, /write one sentence/i);
+  assert.match(manual.answer_template, /must/);
+  assert.equal(manual.choices.find((choice) => choice.value === "uncompilable")?.label, "Not enough information");
+
+  const candidate = experimentReviewGuide("B");
+  assert.equal(candidate.question, "Does the proposed rule say exactly what the requirement says?");
+  assert.equal(candidate.choices.find((choice) => choice.value === "accepted_precise")?.label, "Yes — exact match");
+  assert.equal(candidate.choices.find((choice) => choice.value === "accepted_edited")?.label, "Needs editing");
+
+  const proved = experimentReviewGuide("C");
+  assert.match(proved.action, /proof card/i);
+  assert.match(proved.warning, /cannot add intent/i);
+});
 
 function prereg(experiment: "EXP-01" | "EXP-03", revision = 1): ReturnType<typeof compileExperimentPreregistration> {
   const unit = experiment === "EXP-01" ? "task" as const : "policy_candidate" as const;
@@ -135,6 +153,22 @@ function fixture() {
   const store = new HunchStore(hunchPaths(root));
   store.json.ensureDirs();
   return { root, privateRoot, store, repository: new ExperimentRepository(store), cleanup: () => { store.close(); rmSync(root, { recursive: true, force: true }); } };
+}
+
+function qualifyReviewer(
+  service: ConstitutionService,
+  registration: ReturnType<typeof prereg>,
+  reviewer = "human:reviewer",
+): void {
+  service.qualifyExperimentReviewer({
+    preregistration_id: registration.id,
+    preregistration_hash: registration.content_hash,
+    reviewer,
+    protocol: "exp03-plain-language-comprehension-v2",
+    cases_hash: H("f"),
+    passed: true,
+    reason: "Reviewer passed the excluded comprehension check.",
+  }, { now: "2026-07-12T13:00:00.000Z" });
 }
 
 test("fresh case banks fail closed on old, unstratified, mismatched, or mutable inputs", () => {
@@ -287,6 +321,11 @@ test("revision-2 service dialects: raw submission refuses template cases and res
     const service = new ConstitutionService(store, root);
     const bank = service.lockExperimentCaseBank(exp03Input(registration, "The payment action must verify the session"), { now: LOCKED });
     const run = repository.putRun(compileExperimentRun({ sample_per_arm: 2, actor: "human:owner", reason: "Plain-language review." }, registration, bank, { now: LOCKED }));
+    assert.throws(
+      () => service.nextExperimentReview(run.id, "human:reviewer", { now: "2026-07-13T13:00:00.000Z" }),
+      /must pass the excluded plain-language comprehension check/i,
+    );
+    qualifyReviewer(service, registration);
     const next = service.nextExperimentReview(run.id, "human:reviewer", { now: "2026-07-13T13:00:00.000Z" });
     const item = bank.cases.find((c) => c.id === next.assignment.case_id)! as Exp03Case;
 
@@ -354,6 +393,7 @@ test("revision-3 single-operator guard: 48 hours must separate the bank lock fro
     const service = new ConstitutionService(store, root);
     const bank = service.lockExperimentCaseBank(exp03Input(registration, "The payment action must verify the session"), { now: LOCKED });
     const run = repository.putRun(compileExperimentRun({ sample_per_arm: 2, actor: "human:owner", reason: "Single-operator run." }, registration, bank, { now: LOCKED }));
+    qualifyReviewer(service, registration);
 
     // 47h after the lock → refused, with the remaining time named
     assert.throws(
