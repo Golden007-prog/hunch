@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Changelog — Hunch</title>
+<meta name="description" content="Every Hunch release — git-native engineering memory and Architectural Conformance for AI code." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="icon" href="/hunch-mark.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/brand.css" />
+<link rel="canonical" href="https://hunch-pi.vercel.app/changelog" />
+<style>
+  :root{
+    --bg:#f7f8f7; --bg-2:#eff1ef; --surface:#fcfdfc;
+    --ink:#1c201e; --ink-2:#3c4440; --mut:#66706b; --mut-2:#8b948f;
+    --line:rgba(28,32,30,.10); --line-2:rgba(28,32,30,.055);
+    --moss:#3a6b58; --moss-ink:#2c523f; --moss-wash:rgba(58,107,88,.07);
+    --ember:#b4543e;
+    --r:12px; --maxw:900px; --ease:cubic-bezier(.25,.6,.3,1);
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+    color-scheme:light;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--moss);color:#fff}
+  :focus-visible{outline:2px solid var(--moss);outline-offset:3px;border-radius:4px}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .mono{font-family:var(--mono)}
+
+  .nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line-2)}
+  .nav-row{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{font-family:var(--mono);font-weight:500;font-size:15px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+  .nav-links{display:flex;gap:22px;font-size:14px;color:var(--mut);align-items:center}
+  .nav-links a{transition:color .15s var(--ease)}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-links a.active{color:var(--moss-ink)}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:13.5px;font-weight:500;padding:9px 16px;border-radius:9px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);transition:background .16s var(--ease)}
+  .btn:hover{background:var(--moss-ink);border-color:var(--moss-ink);color:#fff}
+  @media(max-width:760px){.nav-links{display:none}}
+
+  .masthead{padding:76px 0 22px}
+  .eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--mut);text-transform:lowercase}
+  .masthead h1{font-family:var(--mono);font-weight:300;font-size:clamp(30px,4.6vw,44px);line-height:1.15;letter-spacing:-.03em;margin:18px 0 12px}
+  .masthead h1 em{font-style:normal;font-weight:500;color:var(--moss-ink)}
+  .masthead p{color:var(--mut);font-size:16.5px;max-width:60ch;margin:0}
+
+  .clog{margin:44px 0 80px;border-top:1px solid var(--line)}
+  .clog-date{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--moss-ink);font-weight:500;padding:30px 0 8px}
+  .clog-group:first-child .clog-date{padding-top:18px}
+  .clog-row{display:grid;grid-template-columns:max-content 1fr;gap:20px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--line-2)}
+  .clog-group:last-child .clog-row:last-child{border-bottom:none}
+  .rel-tag{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--moss-ink);background:var(--moss-wash);border:1px solid var(--line-2);padding:3px 9px;border-radius:6px;white-space:nowrap;justify-self:start}
+  .clog-t{color:var(--ink-2);font-size:15px;line-height:1.65}
+  .clog-t b{color:var(--ink);font-weight:600}
+  .clog-t .mono{font-family:var(--mono);font-size:.88em;background:var(--bg-2);border:1px solid var(--line-2);padding:1px 5px;border-radius:5px}
+  @media(max-width:680px){.clog-row{grid-template-columns:1fr;gap:8px}}
+
+  footer{border-top:1px solid var(--line-2);margin-top:30px;padding:36px 0;color:var(--mut);font-size:13.5px;background:var(--bg-2)}
+  footer .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px}
+  footer a{color:var(--moss-ink)}
+  html[lang="he"]{--sans-local:"IBM Plex Sans Hebrew",system-ui,sans-serif;--mono-local:var(--sans-local);--sans:var(--sans-local)}
+  html[lang="ar"]{--sans-local:"IBM Plex Sans Arabic",system-ui,sans-serif;--mono-local:var(--sans-local);--sans:var(--sans-local)}
+  html[lang="he"] .masthead h1,html[lang="he"] .eyebrow,html[lang="he"] .clog-date,html[lang="ar"] .masthead h1,html[lang="ar"] .eyebrow,html[lang="ar"] .clog-date{font-family:var(--mono-local);letter-spacing:0}
+  html[dir="rtl"] .mono,html[dir="rtl"] .rel-tag{direction:ltr;unicode-bidi:isolate}
+</style>
+<link rel="stylesheet" href="/navigation.css" />
+</head>
+<body>
+  <nav class="nav" aria-label="Main">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>hunch</a>
+      <div class="nav-links">
+        <a href="/#how" class="hide-s">How it works</a>
+        <a href="/#inside" class="hide-s">Under the hood</a>
+        <a href="/docs" class="hide-xs">Docs</a>
+        <a href="/blog" class="hide-xs">Blog</a>
+        <a href="/changelog" class="hide-s" aria-current="page">Changelog</a>
+        <a href="https://github.com/davesheffer/hunch" class="hide-s">GitHub</a>
+        <label class="lang-picker">
+          <span class="sr-only">Language</span>
+          <select class="lang-select" id="language-switch" aria-label="Language">
+            <option value="/changelog" selected>EN</option>
+            <option value="/he/changelog">HE</option>
+            <option value="/ru/changelog">RU</option>
+            <option value="/ar/changelog">AR</option>
+            <option value="/es/changelog">ES</option>
+          </select>
+        </label>
+        <a class="btn" href="/#start">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="wrap">
+    <div class="masthead">
+      <span class="eyebrow">changelog · newest first</span>
+      <h1>Every release, since <em>v0.1</em>.</h1>
+      <p>From a git-native decision graph to deterministic Architectural Conformance — the whole arc, newest first.</p>
+    </div>
+
+    <div class="clog">
+      <div class="clog-group">
+        <div class="clog-date">Jul 22, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.9.0</span><span class="clog-t"><b>One living engineering memory for the whole team</b> — connect a codebase to a dedicated private Git memory repo once, and fresh clones, worktrees, CLI checks, and connected MCP assistants converge on the same decisions, corrections, constraints, policies, and proofs. Captures synchronize by default, concurrent structured records resolve deterministically, strict checks refuse stale or unverified team routes, and public-only receipts exclude the shared graph. Hunch still hosts nothing and grants no rule authority automatically. The npm package and VS Code 0.17.2 are validated as immutable artifacts before isolated publication; one tested VSIX reaches both editor registries unchanged.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 17, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.8.5</span><span class="clog-t"><b>npm publishing that does not expire</b> — releases now authenticate through GitHub Actions and npm's short-lived trusted publishing credentials instead of a stored write token, while retaining a verifiable link from each public package to its source workflow.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 17, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.8.4</span><span class="clog-t"><b>Strict CI that stays available</b> — Hunch guards keep running on standard GitHub Actions runners even when the host's SQLite build omits full-text search, falling back to portable keyword retrieval without weakening deterministic enforcement. Generated guard workflows pin an engine-compatible Node and exact Hunch release.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 16, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.8.3</span><span class="clog-t"><b>Reviewer-qualified experiments and a clearer market boundary</b> — independent reviews begin with a plain-language comprehension check, present clearer choices, and keep target authors out of their own timed reviews. Hunch also ships a dated competitive landscape and a repeatable <span class="mono">npm run research:competitors</span> watch command; public positioning stays category-level and grounded in verifiable properties.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 15, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.8.2</span><span class="clog-t"><b>A shorter path from install to useful memory</b> — the README is now a focused five-minute introduction instead of a full reference manual. The documentation leads with three clear paths — set up a repo, use Hunch day to day, or diagnose a problem — and the cookbook now includes a complete local/self-hosted model recipe with explicit safeguards for metered providers.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 13, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.8.1</span><span class="clog-t"><b>Python support</b> — deep code-structure parsing now covers <b>Python</b> alongside TypeScript and JavaScript: symbols (functions, classes, decorated methods), call edges, and <span class="mono">import</span>/<span class="mono">from … import</span> resolution into component dependency edges, so <span class="mono">hunch backfill</span>, blast radius, and structure queries work on Python repos. Built on a new <span class="mono">LanguageSpec</span> registry that collapses the extractor's language gates into one entry point — adding a language is now a registry entry plus a tree-sitter grammar. Contributed by <b>MrSampson</b>, who also fixed the commit synthesizer: a squash-merge whose subject says "Merge …" but whose body carries the real PR description is no longer thrown away as noise (and a latent <span class="mono">chore(deps)</span> regex bug is gone). The "why" layer — decisions, bugs, rules — was always language-agnostic; now the structure layer starts catching up.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.8.0</span><span class="clog-t"><b>Memory that runs itself</b> — the review queue is gone: every captured decision enters the graph as live advisory memory the moment it lands (auto-trust), and nothing gains blocking power until a human explicitly vouches. The rare decision only you can make is asked <em>inline</em> — <span class="mono">hunch escalations</span> lists topic conflicts, candidate rules awaiting review, and proposed rules ready to activate, each as a question with its resolution verb; normally empty. The new VS Code <b>Hunch Memory</b> panel is a source-control view of memory itself: a timeline of every move (capture · adopt · supersede · prune · repair) with click-to-diff and local revert, a Constitution section with one-click audited authority transitions (activate / demote / withdraw / retire), a strictness switch, and approve-to-push — memory auto-commits locally; publishing it is deliberately your click. Renames now <b>self-repair</b> the graph: decision bindings, tripwire and constraint scopes, and policy selectors heal automatically from git's own rename detection (exact matches only, zero guessing), landing as revertable timeline moves; a repaired policy asks once for a fresh proof. The VS Code surface is <b>conformance-certified</b>: its real spawn seam returns byte-identical policy receipts to the CLI, MCP, and CI in an executable fixture.</span></div>
+      </div>
+
+      <div class="clog-group">
+        <div class="clog-date">Jul 10, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.7.0</span><span class="clog-t"><b>Subscription choice without vendor lock-in</b> — Hunch now understands the coding-assistant CLIs available on <em>your</em> machine. Select Claude Code, Codex, or Cursor once with <span class="mono">hunch provider &lt;name&gt;</span>; an environment override still wins for a shell or CI run. If several subscriptions are installed and no choice has been made, Hunch deliberately stays on its free deterministic path instead of guessing whose plan to bill. The same policy now governs capture, verification, auto-review, and wiki prose, while Deep Synthesis remains an explicit multi-provider action.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 8, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.4.0</span><span class="clog-t"><b>The verification pipeline — delivery enforced, not hoped for</b> — measured on real zod bugs: instruction skills installed as files were read in <b>0/20</b> sessions, and pass rates matched no-skill exactly; guaranteed delivery of the same content flipped hard-bug diagnosis FAIL→PASS on every discriminating cell (Opus <em>and</em> Haiku — Haiku+skill solved what bare Opus couldn't). So the operating loop — <em>scope → evidence → change → verify → attack → report</em> — now ships in the hooks: <span class="mono">PostToolUse</span> records observable facts (product edits, verify-shaped commands), <span class="mono">Stop</span> refuses to end a turn with unverified product edits (<b>firm/strict</b> only, max twice per turn — a broken gate degrades to advisory, never a lockout), <span class="mono">SessionStart</span> injects the loop once. Facts, not claims. No new knob — firmness governs; <span class="mono">HUNCH_PIPELINE=0</span> kills. Plus a <a href="/cookbook" style="text-decoration:underline">cookbook</a> of copy-paste recipes, incl. how to write skill descriptions that actually fire.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 5, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.3.1</span><span class="clog-t"><b>A friendlier first hello</b> — the README now leads with what you gain (a repo that remembers <em>why</em>, sessions consistent with your decisions) and says the quiet part out loud: <b>advisory by default — nothing blocks until you say so</b>. Same guarantees, receipts over threats.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.3.0</span><span class="clog-t"><b>Retrieval that follows the graph, not just the keywords</b> — results now rank by what the graph <em>knows</em>: live decisions outrank superseded ones, human-vouched records outrank drafts, recent work outranks history — and when your query only matches a superseded decision, the topic's <b>current</b> decision surfaces right above it. Measured on a committed golden set: Recall@10 90→100%, MRR +14% — and that eval now gates every future retrieval change. No model in the ranking path.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.3.0</span><span class="clog-t"><b>The wiki knows what's happening — and what's next</b> — <span class="mono">hunch now</span> and the wiki's <span class="mono">now.md</span> show recent decisions and the <b>roadmap</b>: record intent as a proposed decision and it appears; ship it and it leaves by itself. Renaming a component re-renders every page that links to it; <span class="mono">--prose-heal</span> drafts a reconciled overview on adopted docs (the deterministic corrections stay authoritative); and assistants get it all over MCP via <span class="mono">hunch_now</span> and <span class="mono">hunch_wiki_status</span>.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.3.0</span><span class="clog-t"><b>A quieter, sharper agent loop</b> — identical pre-edit grounding no longer repeats: the full context arrives once per session, a one-line delta after (≈100× smaller on repeats), and sessions open with a graph orientation (recent + roadmap). Every blocking invariant is now <b>content-matched</b> — the strict gate denies the edit that actually breaks the rule, not every edit near it. Auto-drafts that duplicate a decision you already recorded are skipped before the LLM is even called, and <span class="mono">hunch review --reject-duplicates</span> sweeps any that slip through. <span class="mono">hunch_context</span> answers task phrases too, falling back to the closest graph matches instead of coming back empty.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 4, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.2.2</span><span class="clog-t"><b>The wiki takes over your docs — drift-gated, never rewriting them</b> — <span class="mono">hunch wiki</span> renders a component wiki <em>from</em> the graph, and a <b>specs ledger</b> grades every repo markdown deterministically: ✅ grounded, ⚠ stale, ◻ unverified. A stale doc is <b>adopted</b> — a wiki-managed copy healed against the graph, every superseded pin re-pinned to the current decision with the correction inline — while your original is preserved untouched and the copy retires the moment you heal it. Freshness is drift, not a schedule: <span class="mono">hunch drift</span> names the stale pages, <span class="mono">hunch wiki --heal</span> regenerates only those, <span class="mono">--check</span> gates CI, and <span class="mono">--private</span> renders the full graph into the overlay repo — nothing private ever lands in the committed wiki.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.2.2</span><span class="clog-t"><b>Honest plumbing</b> — capture replies report what the auto-commit <em>actually</em> did (a safety-backstop skip is no longer claimed as committed; a failed overlay push says so with a retry hint) · Node &lt; 22.13 gets a friendly upgrade message instead of a raw <span class="mono">ERR_UNKNOWN_BUILTIN_MODULE</span> crash — and the edit-hook stays silent-exit-0, so an old Node never blocks an edit · reindexing preserves component enrichment (curation, raised fragility) and is byte-identical when nothing changed — no more timestamp churn in committed <span class="mono">.hunch/</span> · releases publish from CI on a version-tag push, with npm provenance.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 2, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.2</span><span class="clog-t"><b>hunch structure — your agent greps; a grounded agent asks</b> — agents burn grep/glob rounds every session rediscovering structure the graph already holds. One call now serves it: the repo map, a directory’s files and symbols, a file’s outline with who-calls-what, or a symbol’s exact definition site with its callers — so the agent knows exactly which file to read, first try. Deterministic, no LLM, straight from the index.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.1.1</span><span class="clog-t"><b>Claude Code plugin + the repo demos itself</b> — install with <span class="mono">/plugin marketplace add davesheffer/hunch</span> → <span class="mono">/plugin install hunch@hunch</span>: the <span class="mono">hunch_*</span> tools plus <span class="mono">/hunch:capture</span>, <span class="mono">/hunch:heal</span>, <span class="mono">/hunch:why</span>, <span class="mono">/hunch:fix</span>, <span class="mono">/hunch:fragile</span>. And the repo now ships a curated slice of its own graph — clone it and <span class="mono">hunch why</span> answers on day one. Plus: <span class="mono">runbook --find</span> sees runbooks written out-of-band.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.1</span><span class="clog-t"><b>AGENTS.md as a drift surface — memory that gates, not just recalls</b> — Anchor a section of <span class="mono">AGENTS.md</span> / <span class="mono">CLAUDE.md</span> / any repo markdown to a decision topic: your assistant is grounded with the <em>current</em> decision (and what it rejected) whenever it edits the file, and CI can fail when prose still describes a superseded one. <span class="mono">hunch heal</span> shows exactly what to reconcile — and never rewrites your prose.</span></div>
+        <div class="clog-row"><span class="rel-tag">v1.1</span><span class="clog-t"><b><span class="mono">hunch impact</span> + <span class="mono">hunch path</span></b> — See what a change actually reaches before review — the dependent files, the invariants, the decisions concerned — and walk the shortest dependency chain between any two points in the codebase. Read-only, instant, no LLM.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 2, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.0</span><span class="clog-t"><b>1.0 — zero native dependencies for the index</b> — No install-time native builds, no <span class="mono">node-gyp</span> failures, no file-lock errors on Windows upgrades. Install is npm and nothing else. Requires <b>Node ≥ 22.13</b>.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 2, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.40</span><span class="clog-t"><b>One source of truth for memory</b> — Every capture lands in exactly one home — shared cleanly across branches, worktrees, teammates, and agents. A fresh clone connects itself to the team's store, and <span class="mono">hunch doctor</span> tells the truth about where memory lives instead of silently reading empty.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.40</span><span class="clog-t"><b>Auto-commit on by default</b> — Captures are committed to their store without being asked. Hunch never pushes or merges your code branch. Opt out per repo with <span class="mono">--no-auto-commit</span>.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.40</span><span class="clog-t"><b>Security — team discovery hardened</b> — Opening an untrusted clone can never turn into code execution: the team-store pointer is validated before anything acts on it.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jul 1, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.39</span><span class="clog-t"><b>Decision-grounding — the doc≠graph spoke</b> — The complement to Architectural Conformance: one spoke holds the code to recorded intent, this one holds the docs to the graph. The graph now resolves which decision is <em>current</em> for a topic — and which were superseded or rejected. Backward-compatible; existing graphs load unchanged.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.39</span><span class="clog-t"><b>Read-time grounding + drift gate</b> — Assistants see the current decision — follow the graph, not a stale doc — before editing, and a file still anchored to a superseded decision is caught deterministically. CI-gateable via <span class="mono">hunch drift</span>.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.39</span><span class="clog-t"><b>One live decision per topic — by construction</b> — The graph refuses to hold two live decisions on one topic; <span class="mono">/capture</span> interviews a decision to a resolved state — rationale and rejected alternatives included — before it is written; and the one case a git merge can break is caught for human resolution.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.39</span><span class="clog-t"><b><span class="mono">hunch heal</span> + <span class="mono">/capture</span> and <span class="mono">/heal</span></b> — Read-only doc↔graph reconciliation, scaffolded as slash commands. It shows where prose and graph disagree; it never rewrites your prose silently.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 27, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.38.3</span><span class="clog-t"><b>Overlay auto-commit safety</b> — Memory sync can never touch your code repo — hardened so the worst case is a skipped sync, never a surprise commit. If you use auto-commit, upgrade.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.38</span><span class="clog-t"><b>Architectural Conformance for AI code</b> — Record the semantic architectural rules a linter can't express — layering, must-reach, dependency direction — and Hunch deterministically <b>blocks any AI change that breaks them</b>, citing the decision behind the rule and the bug it prevents reopening. No model in the gate.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.37</span><span class="clog-t"><b>Enforcement at a glance + grounding everywhere</b> — <span class="mono">hunch status</span> shows what's armed, what's waiting on your confirmation, and what went stale — one screen. A rule taught once is held by <em>every</em> assistant, not just the one you taught it to.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.36</span><span class="clog-t"><b>Sharper rule matching</b> — Forbidden-dependency rules now match what the code actually imports — a comment or string can't false-positive — and stay accurate for the file's whole life. Corrections auto-derive the right rule.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 26, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.35</span><span class="clog-t"><b>Content-matched constraints + symlink-safe hooks</b> — Blocking rules fire on the actual violation and stay quiet on harmless edits in the same file. Plus reliable hook delivery on symlinked setups.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.34</span><span class="clog-t"><b>One memory across branches &amp; worktrees</b> — Edit memory anywhere in the repo; it's the same source of truth everywhere. No manual sync.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.32–0.33</span><span class="clog-t"><b>Seamless multi-branch / worktree memory</b> — Linked worktrees and concurrent branches share one memory automatically.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 25, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.31</span><span class="clog-t"><b>Google Antigravity support</b> — One graph now serves Google's agent IDE too — detected and wired automatically, only when installed.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.30</span><span class="clog-t"><b>Intent-conformance</b> — The inversion: not "did this diff touch a guarded file?" but "does the code still satisfy the recorded design?" — silent drift is caught with <b>no diff in scope</b>.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.29</span><span class="clog-t"><b>Inline intent capture</b> — Mark intent where it lives: a <span class="mono">hunch-why:</span> comment becomes a decision, a <span class="mono">hunch-rule:</span> comment becomes an enforced file rule.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.28</span><span class="clog-t"><b>hunch compare — multi-candidate verdict</b> — Give it N candidate branches (several agent solutions to one task) and it ranks them by architectural fit. The "evaluate 5 solutions in 10 minutes" check.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.25–0.27</span><span class="clog-t"><b>Runbook memory</b> — The <em>how</em> layer beside the why: reusable procedures distilled from real work, returned when the task recurs. Plus self-healing grounding that keeps every assistant's docs fresh.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.24</span><span class="clog-t"><b>Memory drift checks</b> — <span class="mono">hunch doctor</span> flags memory that fell out of sync with the code — a smoke detector for stale memory.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.23</span><span class="clog-t"><b>Retrieval eval harness</b> — Retrieval quality is a measured number in CI, not a claim.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.22</span><span class="clog-t"><b>Graph-augmented retrieval</b> — Uses your code's own connections to surface the cross-file evidence plain search misses. Measured <b>+41.7pt recall@10</b>.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 23, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.18</span><span class="clog-t"><b>Deep Synthesis</b> — Several independent readings of a change, reconciled into one more-trustworthy note. Advisory until you confirm it.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.17</span><span class="clog-t"><b>Private memory overlay</b> — Open-source your code without open-sourcing your <em>reasoning</em>: sensitive records live in a separate private repo, visible to your local queries only — public outputs can never leak them. One command to set up.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.16</span><span class="clog-t"><b>Redundancy Guard — "this already exists"</b> — A diff that re-implements something already defined elsewhere is flagged with the original's location. Advisory, tuned quiet.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 21, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.15</span><span class="clog-t"><b>Veto — the Decision Guard</b> — Re-introducing an approach you rejected — the alternative that never existed in code — is caught with a receipt: what you rejected, what you chose instead. <em>Also:</em> relicensed Apache-2.0.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 20, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.14</span><span class="clog-t"><b>Causal Merge Verdict</b> — One cited verdict per diff — <b>BLOCK / WARN / PASS</b> — showing the decision and the bug behind each rule, so a change that re-opens a closed bug is caught with its <em>why</em>.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.13</span><span class="clog-t"><b>Never Twice — corrections become enforced invariants</b> — Correct the agent once and the rule is held against every assistant, in every future session.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 18, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.12</span><span class="clog-t"><b>CI Constraint Guard</b> — A GitHub Action that comments what a PR touches and fails the check on a confirmed blocking rule. Memory that blocks a merge, not just advises.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.11</span><span class="clog-t"><b>On npm + safe strict mode</b> — <span class="mono">npm i -g @davesheffer/hunch</span>. Strict mode is safe to enable on a shared repo — it only fails on what you've confirmed.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 17, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.10</span><span class="clog-t"><b>Windsurf support</b> — Five assistants wired to one graph. <em>Also:</em> 24× faster indexing.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.9</span><span class="clog-t"><b>Time-Travel Memory + Regression Guard</b> — Query the graph as of any commit; history is closed, never deleted. And re-introducing deliberately-retired code gets blocked.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 16, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.8</span><span class="clog-t"><b>Agent hooks + firmness</b> — Memory injected before every edit; four enforcement levels, tunable at runtime.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.7</span><span class="clog-t"><b>Multi-CLI synthesis</b> — Codex &amp; Cursor join Claude — learning bills to whichever coding subscription you have.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.6</span><span class="clog-t"><b>Multi-assistant</b> — Cursor, VS Code (Copilot), Codex &amp; AGENTS.md wired to one graph.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.5</span><span class="clog-t"><b>Guardrails everywhere</b> — Pre-commit guard, blast-radius tooling, and VS Code near-violations.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 15, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.4</span><span class="clog-t"><b>Blast-radius near-violations</b> — <span class="mono">hunch check</span> flags rules you can break <em>indirectly</em>, through dependencies.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.3</span><span class="clog-t"><b>Drift repair</b> — Stale records re-verify against the code in one command.</span></div>
+        <div class="clog-row"><span class="rel-tag">v0.2</span><span class="clog-t"><b>Failure-learning loop</b> — Failing tests become bugs with suspects; recurring bugs are promoted into enforced rules.</span></div>
+      </div>
+      <div class="clog-group">
+        <div class="clog-date">Jun 14, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v0.1</span><span class="clog-t"><b>Initial release</b> — A git-native decision/bug/constraint graph, an MCP server, post-commit learning, auto-maintained grounding, and a VS Code extension.</span></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© Hunch — Architectural Conformance for AI code.</span>
+      <span><a href="/">Home</a> · <a href="/docs">Docs</a> · <a href="/blog">Blog</a> · <a href="https://github.com/davesheffer/hunch/releases" target="_blank" rel="noopener">GitHub releases</a></span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
+  <script>
+    document.getElementById("language-switch")?.addEventListener("change", event => { location.href = event.currentTarget.value; });
+  </script>
+</body>
+</html>
