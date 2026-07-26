@@ -15,6 +15,11 @@ test("CI scaffold pins an engine-compatible Hunch release and keeps public outpu
   assert.match(yaml, /hunch check .*--strict .*--public-only/);
 });
 
+test("repository Hunch Guard pins the exact package release", () => {
+  const yaml = readFileSync(new URL("../.github/workflows/hunch-guard.yml", import.meta.url), "utf8");
+  assert.match(yaml, new RegExp(`npm install -g @davesheffer/hunch@${HUNCH_VERSION.replaceAll(".", "\\.")}`));
+});
+
 test("CI scaffold is idempotent and never clobbers an existing workflow", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-ci-action-"));
   try {
