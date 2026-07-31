@@ -3,10 +3,40 @@
    global so it works on a static host with no build step. */
 window.POSTS = [
   {
+    slug: "memory-you-never-babysit",
+    title: "Hunch 1.9.4: memory you never have to babysit",
+    dek: "A memory tool that needs babysitting is a memory tool you stop trusting — and worse, one that can quietly record the wrong thing. v1.9.4 closes the two failure smells that corrode trust fastest: one assistant working across projects colliding with itself, and generated hooks running a different Hunch than the one that wrote them. 1.9 made memory shared; the point of everything since is to make it boring.",
+    date: "2026-07-31", tag: "Release", read: "6 min", pinned: true,
+    body: `
+<p class="lead">Engineering memory has a property most tools don't: <strong>its value collapses the moment you doubt it.</strong> A flaky linter is annoying. A flaky memory is worse than none — a decision that half-lands, a capture that files itself under the wrong project, a hook running last month's version against this month's graph doesn't just fail, it <em>records something untrue</em>, and every future session inherits the lie. <a class="link" href="/blog/post?slug=one-memory-for-the-whole-team">v1.9.0</a> made memory shared across a whole team. v1.9.4 is about the less glamorous obligation that creates: the substrate has to be boring.</p>
+
+<h2>Two failure smells every multi-project setup knows</h2>
+<p><strong>The assistant that works everywhere, colliding with itself.</strong> Modern MCP assistants hop between workspaces in one long-lived session. Until now, that shape could go wrong two ways: the server's idea of the repository root could drift when the client's workspace changed, and two decision captures landing at the same moment could step on each other. In a memory system both are corruption vectors, not inconveniences — a record attached to the wrong root is a graph that lies about which codebase learned the lesson.</p>
+<p><strong>"Works on my install."</strong> Hunch generates things that run later, elsewhere: MCP configs, git hooks, the editor plugin's launcher, the CI guard. Those used to execute whatever Hunch happened to be on the machine — a stale global install, or a retired GitHub-tarball path. The hook that captures your decisions could be a version behind the graph schema it writes into. Version skew in a compiler wastes an afternoon; version skew in a memory pipeline quietly writes yesterday's format into tomorrow's source of truth.</p>
+
+<h2>What v1.9.4 does about it</h2>
+<p><strong>Roots are honored, requests are pinned.</strong> The MCP server now tracks the client's roots across workspace changes, and every request runs against one stable store epoch — a request that starts on a graph finishes on that graph, no matter what the workspace does mid-flight. Multi-project sessions stop being a trust hazard.</p>
+<p><strong>Collisions are refused, iteration is not.</strong> Two human decision captures against the same commit now get refused instead of silently interleaved — while draft upgrades and same-topic refinements still pass. The guard distinguishes <em>conflict</em> from <em>iteration</em>: never two contradictory records from one moment, never a lock on the normal loop of sharpening a decision you're still writing.</p>
+<p><strong>Generated commands pin the release that generated them.</strong> Every MCP config, hook, plugin launcher, and CI command Hunch writes now executes the exact npm release that wrote it. The stale-global and tarball failure paths are gone, and installs stay deterministic end to end. The version that captures is the version the graph was designed for — always.</p>
+
+<h2>Boring is a security property here</h2>
+<p>This is the same principle that runs through the whole 1.9 line, applied inward. A gate can only carry authority if the machinery beneath it is deterministic: a graph that can be corrupted by a workspace race can't be trusted to block a commit, the same way a release you can't verify can't be trusted to run in CI. That's why the unglamorous releases between 1.9.0 and today were all substrate: one explicit public home for the editor companion on Open VSX (1.9.1), npm publishing through short-lived OIDC credentials with every long-lived token rejected (1.9.2), Sigstore-verified, content-addressed publication receipts (1.9.3), and now collision-safe, version-pinned execution (1.9.4). Shared, then verifiable, then boring — in that order, on purpose.</p>
+
+<h2>Honest limits, on the record</h2>
+<p>Two trade-offs worth stating plainly. The collision guard is scoped to what it can decide deterministically — simultaneous captures against the same commit; teammates racing across different commits are the Matrix merge layer's job, resolved by identity as before. And pinned launchers mean upgrades are explicit: a new Hunch version doesn't silently take over your hooks — re-running <code>hunch init</code> re-pins them. We'll take a visible upgrade step over an invisible skew every time.</p>
+
+<h2>Upgrade</h2>
+<pre><code>npm i -g @davesheffer/hunch@1.9.4
+cd your-repo
+hunch init     # re-pins generated MCP, hook, and CI commands to this release</code></pre>
+<p>Then forget about it. That's the feature.</p>
+`
+  },
+  {
     slug: "one-memory-for-the-whole-team",
     title: "Hunch 1.9: one living memory for the whole team",
     dek: "Matrix mode moves engineering memory into a dedicated private Git repository your team controls, then keeps every clone, worktree, CLI check, and connected assistant on the same live graph.",
-    date: "2026-07-22", tag: "Release", read: "5 min", pinned: true,
+    date: "2026-07-22", tag: "Release", read: "5 min", pinned: false,
     body: `
 <p class="lead">Hunch began with a deliberately simple home for engineering memory: plain JSON beside the code it explains. <strong>Version 1.9 adds Matrix mode</strong> for teams that need one memory spine across many repositories, clones, worktrees, operating systems, and coding assistants.</p>
 
