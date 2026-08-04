@@ -41,6 +41,18 @@ function plan(input: { decisions?: Decision[]; bugs?: Bug[]; constraints?: Const
   return new Set(p.remove.map((r) => r.id));
 }
 
+test("superseded_by protects the successor: a surviving record's pointer never dangles (issue #36)", () => {
+  // supersedeIn() sets old.superseded_by without requiring successor.supersedes.
+  // A later-rejected successor must NOT be pruned while the surviving old
+  // decision still points at it — that would leave a dangling pointer and keep
+  // the survivor permanently non-live for its topic.
+  const ids = plan({ decisions: [
+    dec({ id: "dec_old", status: "accepted", superseded_by: "dec_new", provenance: { source: "human_confirmed", confidence: 0.95, evidence: [] } }),
+    dec({ id: "dec_new", status: "rejected" }), // prunable on its own merits
+  ] });
+  assert.ok(!ids.has("dec_new"), "the successor a survivor points to is protected");
+});
+
 test("rejected drafts are pruned; accepted and human-confirmed are always kept", () => {
   const ids = plan({ decisions: [
     dec({ id: "rej", status: "rejected" }),

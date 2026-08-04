@@ -420,6 +420,13 @@ export class JsonStore {
       try {
         const text = this.readContainedFile(directory, join(directory.lexical, name), this.maxBytes(kind));
         if (text === null) continue;
+        // A 0-byte per-record file is a merge-driver TOMBSTONE, not a record:
+        // git cannot delete through a merge driver, so "both sides deleted" is
+        // materialized as an empty %A (issue #37). Human-approved refinement of
+        // con_947c578b2c's boundary (2026-08-04): an empty file holds no record
+        // to migrate or drop, and Hunch's own atomic writes (con_902759b3dc)
+        // never produce one — emptiness is unambiguous, so no warning.
+        if (text.trim() === "") continue;
         raw = JSON.parse(text);
       } catch (e) {
         console.warn(`[hunch] skipping corrupt ${kind}/${name}: ${(e as Error).message}`);

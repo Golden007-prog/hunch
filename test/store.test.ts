@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { tempStore, prov } from "./helpers.js";
 import { openMemoryDb, type DB } from "../src/store/db.js";
 
@@ -45,6 +47,24 @@ test("why() returns decisions/bugs/constraints for a file", () => {
   assert.deepEqual(w.bugs.map((b) => b.id), ["bug_1"]);
   assert.deepEqual(w.constraints.map((c) => c.id), ["con_1"]);
   cleanup();
+});
+
+test("a 0-byte per-record file (merge-driver tombstone) loads as absent — no corrupt warning, no record (issue #37)", () => {
+  const { store, root, cleanup } = seed();
+  writeFileSync(join(root, ".hunch", "decisions", "dec_tombstone.json"), "");
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (msg: string) => { warns.push(String(msg)); };
+  try {
+    const ids = store.json.loadAll("decisions").map((d) => d.id);
+    assert.ok(ids.includes("dec_1"), "real records still load");
+    assert.ok(!ids.includes("dec_tombstone"), "the tombstone contributes no record");
+    assert.deepEqual(warns.filter((w) => w.includes("tombstone")), [], "sanity");
+    assert.deepEqual(warns.filter((w) => w.includes("corrupt")), [], "no corrupt-warning treadmill for a tombstone");
+  } finally {
+    console.warn = orig;
+    cleanup();
+  }
 });
 
 test("why() matches on path segments, never a bare suffix — 'io.ts' must not pull 'scenario.ts' records (issue #32)", () => {

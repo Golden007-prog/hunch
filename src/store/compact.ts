@@ -85,6 +85,11 @@ export function planCompaction(input: CompactionInput, opts: CompactionOpts): Co
     for (const d of input.decisions) {
       if (remDec.has(d.id)) continue; // d is being removed → its references don't count
       if (d.supersedes) refDec.add(d.supersedes);
+      // superseded_by is a reference too: supersedeIn() sets old.superseded_by
+      // without requiring the successor's `supersedes`, so removing a later-
+      // rejected successor would leave the surviving record with a dangling
+      // pointer AND permanently non-live for its topic (issue #36).
+      if (d.superseded_by) refDec.add(d.superseded_by);
       if (d.caused_by_bug) refBug.add(d.caused_by_bug);
     }
     for (const b of input.bugs) {

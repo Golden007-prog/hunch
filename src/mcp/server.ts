@@ -431,10 +431,16 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           if (teamAdvertised && !matchesStartupTeamRoute()) {
             return err("The team-memory route changed during refresh. Refusing to serve a stale or redirected graph; reconnect Hunch first.");
           }
-          try {
-            if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
-          } catch { /* corrupt/churning local source — serve the last durable indexed view */ }
         }
+        // Stamp check in EVERY mode, not only shared: a CLI capture or post-commit
+        // hook in another terminal writes JSON that mtime-invalidated loadAll sees
+        // immediately, while the SQLite FTS/graph index this long-lived process
+        // serves would stay frozen at startup — split-brain answers within one
+        // session (JSON-backed tools fresh, query/structure/dependents stale)
+        // until restart (issue #49).
+        try {
+          if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
+        } catch { /* corrupt/churning local source — serve the last durable indexed view */ }
         const result = await callback(...args);
         if (teamAdvertised && !matchesStartupTeamRoute()) {
           return err("The team-memory route changed while the tool was running. Its startup destination was not published; reconnect Hunch before retrying.");
