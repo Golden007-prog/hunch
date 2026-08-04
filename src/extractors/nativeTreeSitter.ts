@@ -74,8 +74,13 @@ function copyNativeBinding(packageName: string, copyRoot: string, nodeGypBuild: 
  * or falling back to a stale binary. */
 export function loadNativeTreeSitter(): NativeTreeSitterRuntime {
   if (runtime) return runtime;
+  // Both binding spellings: prebuilds ship as tree-sitter[-typescript|-python].node,
+  // while from-source builds are named after the binding.gyp target with
+  // underscores (tree_sitter_runtime_binding.node, tree_sitter_python_binding.node,
+  // …). Missing the underscore names let an already-loaded source-built addon slip
+  // past this guard and defeat the file-lock isolation entirely (issue #52).
   const preloaded = Object.keys(runtimeRequire.cache).filter((path) =>
-    /tree-sitter(?:-typescript|-python)?\.node$/.test(path)
+    /(?:tree-sitter(?:-typescript|-python)?|tree_sitter(?:_[a-z]+)*_binding)\.node$/.test(path)
     && !new RegExp(`(?:^|[\\\\/])${COPY_PREFIX}\\d+-`).test(path));
   if (preloaded.length) {
     throw new Error(`tree-sitter native addon was loaded before Hunch could isolate it: ${preloaded.join(", ")}`);

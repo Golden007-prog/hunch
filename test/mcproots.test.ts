@@ -77,6 +77,23 @@ test("resolveActiveRoot follows one advertised worktree and falls back when none
   }
 });
 
+test("case-variant spellings of ONE repo resolve to one canonical root, not an ambiguous pair (issue #54)", () => {
+  const root = repo("hunch-roots-case-");
+  try {
+    // VS Code advertises file:///c%3A/… (lowercase drive) while the spawn cwd
+    // says C:\… — same repo, two spellings. Both single-root resolution and the
+    // multi-candidate dedup must collapse them.
+    const swapped = process.platform === "win32" && /^[A-Za-z]:/.test(root)
+      ? (root[0] === root[0]!.toLowerCase() ? root[0]!.toUpperCase() : root[0]!.toLowerCase()) + root.slice(1)
+      : root; // POSIX is case-sensitive: same spelling, test degenerates to dedup-of-identical
+    const resolved = resolveActiveRoot([pathToFileURL(root).href, pathToFileURL(swapped).href], root);
+    assert.notEqual(resolved, null, "one repo in two spellings must never read as ambiguous");
+    assert.equal(resolveActiveRoot([pathToFileURL(swapped).href], root), resolved, "either spelling resolves to the same canonical root");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("resolveActiveRoot refuses an ambiguous multi-repo list instead of choosing the wrong store", () => {
   const first = repo("hunch-roots-first-");
   const second = repo("hunch-roots-second-");

@@ -24,7 +24,7 @@
  * Every provider returns the same shape so the rest of the system never knows
  * (or cares) which one ran.
  */
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
@@ -79,6 +79,19 @@ export function pexecIn(
     let err = "";
     let outLen = 0;
     let settled = false;
+    // Windows spawns through a cmd.exe wrapper (shell:true), and child.kill()
+    // terminates only that wrapper — the actual agent CLI survives as an orphan,
+    // still burning the user's subscription after every timeout, accumulating
+    // with each post-commit hook fire (issue #44). taskkill /T fells the tree.
+    // Best-effort by design: the wrapper kill below still runs either way.
+    const killTree = (): void => {
+      if (IS_WIN && child.pid) {
+        try {
+          execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => { /* tree may already be gone */ });
+        } catch { /* taskkill unavailable — fall through to the wrapper kill */ }
+      }
+      child.kill();
+    };
     const done = (fn: () => void) => {
       if (settled) return;
       settled = true;
@@ -87,7 +100,7 @@ export function pexecIn(
     };
     const timer = opts.timeout
       ? setTimeout(() => {
-          child.kill();
+          killTree();
           done(() => reject(new Error(`"${cmd}" timed out after ${opts.timeout}ms`)));
         }, opts.timeout)
       : null;
@@ -95,7 +108,7 @@ export function pexecIn(
     child.stdout.on("data", (d: Buffer) => {
       outLen += d.length;
       if (outLen > max) {
-        child.kill();
+        killTree();
         done(() => reject(new Error(`"${cmd}" exceeded maxBuffer (${max} bytes)`)));
         return;
       }

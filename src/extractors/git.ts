@@ -1510,6 +1510,12 @@ function waitForCommitLockHandoff(
     Atomics.wait(sleeper, 0, 0, Math.min(25, deadline - Date.now()));
     attempt = acquireCommitLock(lock);
   }
+  // The deadline can expire DURING the final wait+acquire; without this check an
+  // acquire that succeeded on that last iteration returned false while this
+  // process's owner directory held the lock — never released (the caller bails
+  // before its try/finally), wedging every flush in every process until this one
+  // exited (issue #48).
+  if (attempt.state === "acquired") return true;
   return false;
 }
 

@@ -11,7 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { hunchPaths, findRoot, toPosixTarget } from "../core/paths.js";
-import { resolveActiveRoot } from "./roots.js";
+import { canonicalRootPath, resolveActiveRoot } from "./roots.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { selectEmbedder } from "../store/embedder.js";
 import { decisionId, findingId } from "../core/ids.js";
@@ -310,8 +310,11 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
   let closed = false;
 
   const activateRoot = (next: string): void => {
-    const canonical = findRoot(next);
-    if (canonical === root) return;
+    // canonicalRootPath: a case/8.3 spelling difference must not read as a
+    // DIFFERENT repo — that closed the live store and re-prepared everything
+    // on every same-repo client connect (issue #54).
+    const canonical = canonicalRootPath(findRoot(next));
+    if (canonical === canonicalRootPath(root)) return;
     const prepared = prepareRoot(canonical, explicitOverlay, true);
     const previous = store;
     root = prepared.root;

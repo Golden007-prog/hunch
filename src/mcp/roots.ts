@@ -5,10 +5,26 @@
  * another workspace or linked worktree. MCP roots are the client-neutral protocol
  * mechanism for following that change.
  */
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRoot, HUNCH_DIR, isDir } from "../core/paths.js";
+
+/** One canonical spelling per directory. `findRoot` only resolve()s, but a
+ *  client's roots/list URI can spell the same repo differently — VS Code sends
+ *  a lowercase drive letter (`c:\…`) while the spawn cwd has `C:\…`, and Git
+ *  for Windows can surface 8.3/short names. Raw string comparison then treats
+ *  ONE repo as different roots: a full re-prepare (new store + reindex) on
+ *  every connect, or a false "multiple roots equally plausible" refusal
+ *  (issue #54). realpathSync.native returns the on-disk spelling for all of
+ *  these; fall back to the input when the path is transiently unreadable. */
+export function canonicalRootPath(root: string): string {
+  try {
+    return realpathSync.native(root);
+  } catch {
+    return root;
+  }
+}
 
 function toPath(uri: string): string {
   if (!uri.startsWith("file:")) return "";
@@ -41,11 +57,11 @@ export function resolveActiveRoot(rootUris: readonly string[], fallbackCwd: stri
   for (const uri of rootUris) {
     const start = rootStart(toPath(uri));
     if (!start) continue;
-    const root = findRoot(start);
+    const root = canonicalRootPath(findRoot(start));
     if (!candidates.includes(root)) candidates.push(root);
   }
 
-  if (!candidates.length) return findRoot(fallbackCwd);
+  if (!candidates.length) return canonicalRootPath(findRoot(fallbackCwd));
   if (candidates.length === 1) return candidates[0]!;
 
   const withStore = candidates.filter((candidate) => isDir(join(candidate, HUNCH_DIR)));
