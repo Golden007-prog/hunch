@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tempStore } from "./helpers.js";
 import { scaffoldProviders, writeCursorMcp, writeVscodeMcp, writeCodexConfig, writeWindsurfMcp, writeAntigravityWorkspaceMcp } from "../src/integrations/providers.js";
+import { writeSlashCommands } from "../src/integrations/scaffold.js";
 import { publishedMcpInvocation } from "../src/cli/invocation.js";
 
 const inv = { command: "C:\\Program Files\\nodejs\\node.exe", args: ["C:\\repo\\dist\\cli\\index.js"] };
@@ -95,6 +96,39 @@ test("workspace Antigravity MCP config MERGES and lifecycle hooks preserve forei
     const cursor = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
     assert.ok(cursor.hooks.stop.some((entry: { command: string }) => entry.command === "./keep-me"), "foreign Cursor hook preserved");
     assert.equal(cursor.hooks.stop.filter((entry: { command: string }) => /--provider.*cursor/.test(entry.command)).length, 1, "one managed Cursor hook");
+  } finally { cleanup(); }
+});
+
+test("a foreign hook whose command merely CONTAINS index.js + 'hook' is never deleted (issue #41)", () => {
+  const { root, store, cleanup } = tempStore();
+  try {
+    mkdirSync(join(root, ".cursor"), { recursive: true });
+    writeFileSync(join(root, ".cursor/hooks.json"), JSON.stringify({ version: 1, hooks: { stop: [
+      { command: "node ./hook/index.js" },                 // foreign: unquoted path, no trailing "hook"
+      { command: "node /opt/tool/index.js --mode hook" },  // foreign: 'hook' as a flag value
+    ] } }));
+    scaffoldProviders(root, inv, store, { home: root });
+    scaffoldProviders(root, inv, store, { home: root }); // idempotency must also hold
+    const cursor = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
+    assert.ok(cursor.hooks.stop.some((e: { command: string }) => e.command === "node ./hook/index.js"), "foreign index.js hook preserved");
+    assert.ok(cursor.hooks.stop.some((e: { command: string }) => e.command === "node /opt/tool/index.js --mode hook"), "foreign --mode hook preserved");
+    assert.equal(cursor.hooks.stop.filter((e: { command: string }) => /--provider.*cursor/.test(e.command)).length, 1, "exactly one managed Hunch hook");
+  } finally { cleanup(); }
+});
+
+test("writeSlashCommands keeps a user-owned capture.md and refreshes marker-carrying files (issue #42)", () => {
+  const { root, cleanup } = tempStore();
+  try {
+    const dir = join(root, ".claude", "commands");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "capture.md"), "MY OWN capture command\n"); // user-owned, no marker
+    const first = writeSlashCommands(root);
+    assert.ok(first.skipped.some((p) => p.endsWith("capture.md")), "user-owned generic name skipped");
+    assert.equal(readFileSync(join(dir, "capture.md"), "utf8"), "MY OWN capture command\n", "user content untouched");
+    assert.ok(readFileSync(join(dir, "heal.md"), "utf8").includes("hunch:generated"), "generated files carry the ownership marker");
+    const second = writeSlashCommands(root); // marker-carrying files refresh without complaint
+    assert.ok(second.written.some((p) => p.endsWith("heal.md")), "marked file refreshed");
+    assert.ok(second.skipped.some((p) => p.endsWith("capture.md")), "user file skipped again");
   } finally { cleanup(); }
 });
 

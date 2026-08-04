@@ -3,7 +3,8 @@
  *   - .mcp.json          → registers the `hunch` MCP server with Claude Code
  *   - .claude/commands/* → user-triggered slash commands for the §5 workflows
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileAtomic } from "../core/io.js";
 import { join, dirname } from "node:path";
 
 export interface Invocation {
@@ -32,7 +33,9 @@ export function writeMcpJson(root: string, inv: Invocation): string {
   }
   json.mcpServers = json.mcpServers ?? {};
   json.mcpServers.hunch = { command: inv.command, args: [...inv.args, "mcp"] };
-  writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+  // Atomic: .mcp.json holds the user's other servers — a torn write would leave
+  // it unparseable, which this writer then refuses to touch (issue #43).
+  writeFileAtomic(file, JSON.stringify(json, null, 2) + "\n");
   return file;
 }
 
@@ -189,14 +192,19 @@ export function installClaudeHooks(root: string, hookCmd: string): ClaudeHookIns
   const next = JSON.stringify(json, null, 2) + "\n";
   if (existed && before === next) return { path: file, action: "unchanged" };
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, next);
+  writeFileAtomic(file, next);
   return { path: file, action: existed ? "updated" : "created" };
 }
 
-export function writeSlashCommands(root: string): string[] {
+/** Ownership marker for generated slash commands: its presence means Hunch may
+ *  refresh the file; deleting the line hands the file to the user for good. */
+const CMD_MARKER = "<!-- hunch:generated — refreshed by hunch init; delete this line to take ownership -->";
+
+export function writeSlashCommands(root: string): { written: string[]; skipped: string[] } {
   const dir = join(root, ".claude", "commands");
   mkdirSync(dir, { recursive: true });
   const written: string[] = [];
+  const skipped: string[] = [];
   const files: Array<[string, string]> = [
     ["hunch-why.md", WHY_CMD],
     ["hunch-fix.md", FIX_CMD],
@@ -207,8 +215,17 @@ export function writeSlashCommands(root: string): string[] {
   ];
   for (const [name, body] of files) {
     const p = join(dir, name);
-    writeFileSync(p, body);
+    // Generic names (capture/heal/audit) are plausibly the USER'S OWN commands;
+    // hunch-prefixed names are namespaced ours. Overwrite an existing file only
+    // when it carries the ownership marker or the hunch- namespace — never
+    // silently replace user content (issue #42). Pre-marker Hunch installs skip
+    // once and report; re-adopt by deleting the file and re-running init.
+    if (existsSync(p) && !name.startsWith("hunch-") && !readFileSync(p, "utf8").includes("hunch:generated")) {
+      skipped.push(p);
+      continue;
+    }
+    writeFileAtomic(p, `${body}\n${CMD_MARKER}\n`);
     written.push(p);
   }
-  return written;
+  return { written, skipped };
 }

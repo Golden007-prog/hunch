@@ -259,10 +259,25 @@ program
     // the gitignored local.json (merge — never clobber an existing overlay pointer).
     if (opts.autoCommit === false) {
       const localFile = join(paths.hunch, "local.json");
-      let existing: Record<string, unknown> = {};
-      try { existing = JSON.parse(readFileSync(localFile, "utf8")) as Record<string, unknown>; } catch { /* absent/invalid → fresh */ }
-      writeFileAtomic(localFile, JSON.stringify({ ...existing, autoCommit: false }, null, 2) + "\n");
-      console.log("  ✓ auto-commit OFF (captures stay uncommitted; commit .hunch/ yourself)");
+      let existing: Record<string, unknown> | null = {};
+      if (existsSync(localFile)) {
+        // Same contract as every other writer of this file (issue #40): an
+        // unparseable or non-object local.json may hold the private-overlay
+        // pointer — rewriting it from a swallowed parse failure silently
+        // re-routes private captures into the committed public store.
+        try {
+          const parsed: unknown = JSON.parse(readFileSync(localFile, "utf8"));
+          existing = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+        } catch {
+          existing = null;
+        }
+      }
+      if (existing === null) {
+        console.warn(`  ⚠ refusing to rewrite ${localFile}: it is not a JSON object and may hold your private-overlay pointer. Fix or remove it, then re-run \`hunch init --no-auto-commit\`.`);
+      } else {
+        writeFileAtomic(localFile, JSON.stringify({ ...existing, autoCommit: false }, null, 2) + "\n");
+        console.log("  ✓ auto-commit OFF (captures stay uncommitted; commit .hunch/ yourself)");
+      }
     }
 
     if (isGitRepo(root)) {
@@ -294,7 +309,10 @@ program
       console.log(`  ⚠ skipped .mcp.json: ${(e as Error).message}`);
     }
     const cmds = writeSlashCommands(root);
-    console.log(`  ✓ wrote ${cmds.length} slash commands (/hunch-why, /hunch-fix, /hunch-fragile)`);
+    console.log(`  ✓ wrote ${cmds.written.length} slash commands (/hunch-why, /hunch-fix, /hunch-fragile, /capture, /heal, /audit)`);
+    for (const s of cmds.skipped) {
+      console.log(`  ⚠ kept your existing ${rel(root, s)} (no hunch:generated marker — delete the file and re-run init to adopt Hunch's version)`);
+    }
     const cmd = updateClaudeMd(root, store);
     console.log(`  ✓ updated ${rel(root, cmd)} with ambient Hunch context`);
 

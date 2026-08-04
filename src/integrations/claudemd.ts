@@ -3,7 +3,8 @@
  * context loaded every session for free"). We own ONLY the region between the
  * HUNCH markers — any user-authored content outside it is preserved verbatim.
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileAtomic } from "../core/io.js";
 import { basename, join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { wikiSummary } from "../wiki/wiki.js";
@@ -109,7 +110,9 @@ export function upsertSection(file: string, section: string, fallbackTitle: stri
     content = `${fallbackTitle}\n\n${section}\n`;
   }
   mkdirSync(dirname(file), { recursive: true }); // e.g. .github/ for copilot-instructions
-  writeFileSync(file, content);
+  // Atomic: this file carries the USER'S prose around the managed block — a torn
+  // write must not be able to truncate it (issue #43).
+  writeFileAtomic(file, content);
   return file;
 }
 

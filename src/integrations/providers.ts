@@ -17,7 +17,8 @@
  * Every writer MERGES into existing files (preserving other servers / user prose)
  * and is idempotent, so re-running `hunch init` is safe.
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileAtomic } from "../core/io.js";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
@@ -109,7 +110,9 @@ function tomlStr(s: string): string {
 }
 function writeJson(file: string, obj: unknown): string {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(obj, null, 2) + "\n");
+  // Atomic: these files hold the USER'S merged servers/hooks — a torn write would
+  // leave them unparseable, which every writer here then refuses to touch (#43).
+  writeFileAtomic(file, JSON.stringify(obj, null, 2) + "\n");
   return file;
 }
 
@@ -124,7 +127,14 @@ function hookCommand(inv: Invocation, provider: HookProvider): string {
 function isHunchProviderHook(entry: unknown): boolean {
   const e = entry && typeof entry === "object" ? entry as Record<string, unknown> : null;
   const command = typeof e?.command === "string" ? e.command : "";
-  return /(?:@davesheffer\/hunch|[\\/]index\.(?:js|ts))/.test(command) && /\bhook\b/.test(command);
+  // Anchored to the exact shape hookCommand() writes — JSON-quoted parts ending
+  // in "hook" "--provider" "<name>" — plus a Hunch launcher (the pinned npm
+  // package spec, or a quoted …/index.js|ts path for source installs). The old
+  // unanchored /index\.(js|ts)/ + /\bhook\b/ pair classified FOREIGN entries
+  // like `node ./hook/index.js` as ours and silently deleted them, violating
+  // the leave-every-foreign-hook-in-place contract (con_8460b6770f, issue #41).
+  return /(?:@davesheffer\/hunch|[\\/]index\.(?:js|ts)")/.test(command)
+    && /\s"hook"(?:\s+"--provider"\s+"[a-z]+")?\s*$/.test(command);
 }
 
 /** Merge our command entries into a standard `{ hooks: { Event: [] } }` file.
@@ -234,7 +244,7 @@ export function writeCodexConfig(root: string, inv: Invocation): string {
 
   base = base.trimEnd();
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, base ? `${base}\n\n${block}\n` : `${block}\n`);
+  writeFileAtomic(file, base ? `${base}\n\n${block}\n` : `${block}\n`);
   return file;
 }
 
@@ -255,7 +265,7 @@ export function writeCursorRule(root: string, store: HunchStore): string {
   const file = join(root, ".cursor", "rules", "hunch.mdc");
   const body = `---\ndescription: Hunch engineering memory — consult the hunch_* MCP tools before editing\nalwaysApply: true\n---\n\n${renderHunchSection(store, root)}\n`;
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, body);
+  writeFileAtomic(file, body);
   return file;
 }
 
@@ -293,7 +303,7 @@ export function writeWindsurfRule(root: string, store: HunchStore): string {
   const file = join(root, ".windsurf", "rules", "hunch.md");
   const body = `---\ntrigger: always_on\ndescription: Hunch engineering memory — consult the hunch_* MCP tools before editing\n---\n\n${renderHunchSection(store, root)}\n`;
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, body);
+  writeFileAtomic(file, body);
   return file;
 }
 
