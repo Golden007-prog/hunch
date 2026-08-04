@@ -107,6 +107,10 @@
 
     <div class="clog">
       <div class="clog-group">
+        <div class="clog-date">Aug 4, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.10.0</span><span class="clog-t"><b>Findings — memory for what you observed but haven't fixed</b> — a new record kind anchored to a date and evidence instead of a commit: an audit that surfaced a gap, a measured number, an incident with no code change. Findings ground future edits to the affected files automatically, ride the same search as every record, and resolve only with the fixing commit (<span class="mono">/audit</span>, <span class="mono">hunch findings</span>, <span class="mono">hunch_record_finding</span>). Also in this release: memory JSON stays byte-exact on Windows regardless of the installer's CRLF default, the test suite runs honestly on stock Windows hosts, and every production dependency advisory is closed at zero.</span></div>
+      </div>
+      <div class="clog-group">
         <div class="clog-date">Jul 26, 2026</div>
         <div class="clog-row"><span class="rel-tag">v1.9.4</span><span class="clog-t"><b>Collision-safe MCP, reproducible installs</b> — MCP assistants keep repository roots and simultaneous decision captures isolated across projects, while generated MCP, hook, plugin, and CI commands execute the exact Hunch npm release that created them. This removes stale-global and retired GitHub-tarball failure paths without sacrificing deterministic installs.</span></div>
       </div>
