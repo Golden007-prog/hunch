@@ -28,9 +28,10 @@ import {
 } from "../src/constitution/g2BehaviorCandidates.js";
 import { PolicySpecSchema } from "../src/constitution/schema.js";
 import { shortHash } from "../src/core/ids.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 test("dependency materialization preserves internal relative symlinks but rejects escaping links", {
-  skip: process.platform === "win32" ? "creating test symlinks may require Windows developer mode" : false,
+  skip: SYMLINK_SKIP, // probe-based: runs on Windows when Developer Mode grants symlink creation
 }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-dependency-symlink-"));
   try {

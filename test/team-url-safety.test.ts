@@ -17,6 +17,7 @@ import {
   safeGitUrl,
   writeTeamConfig,
 } from "../src/integrations/team.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 test("shared Git environment drops executable transport, prompt, template, and repository selectors", () => {
   const keys = [
@@ -150,7 +151,7 @@ test("team repository config read and valid canonical write share the same gate"
   }
 });
 
-test("team repository config read refuses links and oversized startup input", () => {
+test("team repository config read refuses links and oversized startup input", { skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-config-file-safety-"));
   try {
     const root = join(base, "repo");

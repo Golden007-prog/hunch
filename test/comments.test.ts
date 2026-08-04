@@ -9,6 +9,7 @@ import { decisionId } from "../src/core/ids.js";
 import { hunchPaths } from "../src/core/paths.js";
 import type { Decision } from "../src/core/types.js";
 import { HunchStore } from "../src/store/hunchStore.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -42,7 +43,7 @@ test("extractInlineIntent lifts tagged comments (comment-gated; ignores string l
   }
 });
 
-test("extractInlineIntent never follows a tracked source symlink", () => {
+test("extractInlineIntent never follows a tracked source symlink", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-cmt-symlink-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-cmt-symlink-outside-"));
   try {

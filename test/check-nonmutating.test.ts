@@ -14,6 +14,7 @@ import { MAX_REPO_SOURCE_FILE_BYTES } from "../src/core/safeRepoFile.js";
 import type { Decision } from "../src/core/types.js";
 import { indexRepo, scanRepo } from "../src/extractors/indexer.js";
 import { HunchStore } from "../src/store/hunchStore.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -372,7 +373,7 @@ test("source receipts distinguish body-only staged byte changes with identical g
 });
 
 for (const unsafe of ["symlink", "oversized"] as const) {
-  test(`strict staged semantic scan fails closed on a supported-code ${unsafe}`, () => {
+  test(`strict staged semantic scan fails closed on a supported-code ${unsafe}`, { skip: unsafe === "symlink" && SYMLINK_SKIP }, () => {
     const f = fixture();
     try {
       git(f.root, "add", "-A");
@@ -482,7 +483,7 @@ test("raw non-UTF-8 Git paths remain distinct and make strict staged scans fail 
   }
 });
 
-test("live policy evaluation and shadow recording fail closed on an incomplete working source graph", () => {
+test("live policy evaluation and shadow recording fail closed on an incomplete working source graph", { skip: SYMLINK_SKIP }, () => {
   const f = fixture();
   try {
     git(f.root, "add", "-A");

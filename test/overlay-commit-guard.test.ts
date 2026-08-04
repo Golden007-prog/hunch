@@ -14,6 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { commitAndPushHunch, repositoryUsesRemote, sameGitPublication } from "../src/extractors/git.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const projectRoot = process.cwd();
 const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
@@ -168,7 +169,7 @@ test("commitAndPushHunch REFUSES the protected repository's direct public .hunch
   } finally { cleanup(); }
 });
 
-test("commitAndPushHunch REFUSES a symlink that resolves to the protected public .hunch", () => {
+test("commitAndPushHunch REFUSES a symlink that resolves to the protected public .hunch", { skip: SYMLINK_SKIP }, () => {
   const { root, git, cleanup } = repo("hunch-symlink-public-");
   try {
     writeFileSync(join(root, "app.ts"), "export const publicCode = true;\n");
@@ -535,7 +536,7 @@ test("hunch private --repo resolves an existing overlay's relative remote before
   }
 });
 
-test("hunch private accepts a final-component symlink to a distinct overlay and configures only its physical repository", () => {
+test("hunch private accepts a final-component symlink to a distinct overlay and configures only its physical repository", { skip: SYMLINK_SKIP }, () => {
   const project = repo("hunch-symlink-setup-project-");
   const physicalRoot = mkdtempSync(join(tmpdir(), "hunch-symlink-setup-real-"));
   const lexicalHolder = mkdtempSync(join(tmpdir(), "hunch-symlink-setup-holder-"));

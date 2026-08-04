@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -83,8 +83,8 @@ function privateFixture(label: string, autoCommit = false): {
   env: NodeJS.ProcessEnv;
   cleanup: () => void;
 } {
-  const root = execFileSync("mktemp", ["-d", join(tmpdir(), `hunch-private-${label}-public-XXXXXX`)], { encoding: "utf8" }).trim();
-  const overlayRoot = execFileSync("mktemp", ["-d", join(tmpdir(), `hunch-private-${label}-overlay-XXXXXX`)], { encoding: "utf8" }).trim();
+  const root = mkdtempSync(join(tmpdir(), `hunch-private-${label}-public-`));
+  const overlayRoot = mkdtempSync(join(tmpdir(), `hunch-private-${label}-overlay-`));
   const privateRoot = join(overlayRoot, ".hunch");
   initializeRepo(root);
   initializeRepo(overlayRoot);
@@ -124,7 +124,7 @@ function privateFixture(label: string, autoCommit = false): {
   assert.equal(realpathSync(git(root, "rev-parse", "--show-toplevel")), realpathSync(root));
   assert.equal(realpathSync(git(overlayRoot, "rev-parse", "--show-toplevel")), realpathSync(overlayRoot));
   assert.notEqual(realpathSync(root), realpathSync(overlayRoot));
-  assert.match(relative(root, privateRoot), /^\.\.(?:\/|$)/, "private home is outside the public repository");
+  assert.match(relative(root, privateRoot), /^\.\.(?:[\\/]|$)/, "private home is outside the public repository");
 
   return {
     root,

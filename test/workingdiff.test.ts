@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workingDiff, workingFiles } from "../src/extractors/git.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 function git(root: string, args: string[]): void {
   execFileSync("git", args, { cwd: root, stdio: "ignore" });
@@ -33,7 +34,7 @@ test("working change surface includes staged, unstaged, and untracked files", ()
   }
 });
 
-test("workingDiff reports an untracked symlink path without reading its external target", () => {
+test("workingDiff reports an untracked symlink path without reading its external target", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-working-symlink-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-working-symlink-outside-"));
   try {

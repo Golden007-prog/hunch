@@ -19,6 +19,7 @@ import { ensureGitignore } from "../src/integrations/gitignore.js";
 import { installMergeDriver } from "../src/integrations/mergeDriver.js";
 import { mainWorktreeRoot } from "../src/extractors/git.js";
 import type { Decision } from "../src/core/types.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const g = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -211,7 +212,7 @@ test("team.json URL gate: flag smuggling, ext:: transport, and file:// never rea
   } finally { cleanup(); }
 });
 
-test("team overlay clone rejects symlink entries before any integration write can escape the overlay", () => {
+test("team overlay clone rejects symlink entries before any integration write can escape the overlay", { skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-symlink-"));
   try {
     withoutPrivateEnv(() => {
@@ -243,7 +244,7 @@ test("team overlay clone rejects symlink entries before any integration write ca
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
-test("team overlay clone rejects a symlinked .hunch before ensureDirs can create external state", () => {
+test("team overlay clone rejects a symlinked .hunch before ensureDirs can create external state", { skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-hunchlink-"));
   try {
     withoutPrivateEnv(() => {
@@ -272,7 +273,7 @@ test("team overlay clone rejects a symlinked .hunch before ensureDirs can create
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
-test("team overlay clone rejects symlinked Hunch children so later record writes stay contained", () => {
+test("team overlay clone rejects symlinked Hunch children so later record writes stay contained", { skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-childlink-"));
   try {
     withoutPrivateEnv(() => {
@@ -303,7 +304,7 @@ test("team overlay clone rejects symlinked Hunch children so later record writes
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
-test("integration capability writers independently refuse symlinked top-level files", () => {
+test("integration capability writers independently refuse symlinked top-level files", { skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-writers-"));
   try {
     const root = join(base, "overlay");

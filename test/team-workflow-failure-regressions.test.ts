@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -357,7 +358,7 @@ test("an existing shared-overlay CLI check refreshes a teammate's new blocking c
   }
 });
 
-test("explicit shared setup rejects an unsafe cloned overlay before integration writes", { timeout: 60_000 }, () => {
+test("explicit shared setup rejects an unsafe cloned overlay before integration writes", { timeout: 60_000, skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-shared-unsafe-clone-"));
   try {
     const victim = join(base, "outside.txt");
@@ -396,7 +397,7 @@ test("explicit shared setup rejects an unsafe cloned overlay before integration 
   }
 });
 
-test("explicit shared attach rejects an unsafe fetched tree before merge or integration writes", { timeout: 60_000 }, () => {
+test("explicit shared attach rejects an unsafe fetched tree before merge or integration writes", { timeout: 60_000, skip: SYMLINK_SKIP }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-shared-unsafe-fetch-"));
   try {
     const victim = join(base, "outside.json");

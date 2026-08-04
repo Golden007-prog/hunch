@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { indexRepo } from "../src/extractors/indexer.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 function fixtureRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-"));
@@ -129,7 +130,7 @@ test("GIT-TRACKED vendored dirs (node_modules, dist) are excluded from indexing"
   rmSync(root, { recursive: true, force: true });
 });
 
-test("a Git-tracked source symlink is skipped without reading its external target", () => {
+test("a Git-tracked source symlink is skipped without reading its external target", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-symlink-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-idx-symlink-outside-"));
   const outsideFile = join(outside, "outside.ts");

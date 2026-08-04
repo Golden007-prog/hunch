@@ -21,6 +21,7 @@ import {
   MAX_JSON_RECORD_BYTES,
 } from "../src/store/jsonStore.js";
 import { buildServer } from "../src/mcp/server.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -77,7 +78,7 @@ function linkDirectory(target: string, path: string): void {
   symlinkSync(target, path, process.platform === "win32" ? "junction" : "dir");
 }
 
-test("real init refuses a public .hunch symlink without scaffolding its target", () => {
+test("real init refuses a public .hunch symlink without scaffolding its target", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-json-root-link-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-json-root-link-outside-"));
   try {
@@ -97,7 +98,7 @@ test("real init refuses a public .hunch symlink without scaffolding its target",
   }
 });
 
-test("real init refuses a committed kind-directory symlink without touching its target", () => {
+test("real init refuses a committed kind-directory symlink without touching its target", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-json-init-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-json-init-outside-"));
   try {
@@ -119,7 +120,7 @@ test("real init refuses a committed kind-directory symlink without touching its 
   }
 });
 
-test("real index refuses a symbols kind symlink without rewriting the outside index", () => {
+test("real index refuses a symbols kind symlink without rewriting the outside index", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-json-index-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-json-index-outside-"));
   try {
@@ -143,7 +144,7 @@ test("real index refuses a symbols kind symlink without rewriting the outside in
   }
 });
 
-test("JsonStore skips record symlinks and refuses every write/delete path that targets one", () => {
+test("JsonStore skips record symlinks and refuses every write/delete path that targets one", { skip: SYMLINK_SKIP }, () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-json-record-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-json-record-outside-"));
   const store = new JsonStore(hunchPaths(root));
@@ -207,7 +208,7 @@ test("JsonStore rejects traversal IDs and oversized record reads, writes, and de
   }
 });
 
-test("MCP startup and query do not ingest an external record through a symlink", async (t) => {
+test("MCP startup and query do not ingest an external record through a symlink", { skip: SYMLINK_SKIP }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "hunch-json-mcp-root-"));
   const outside = mkdtempSync(join(tmpdir(), "hunch-json-mcp-outside-"));
   const previousPrivate = process.env.HUNCH_PRIVATE_DIR;

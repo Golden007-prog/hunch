@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { commitAndPushHunch, pullHunch, pullHunchStatus, syncExistingHunch } from "../src/extractors/git.js";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const g = (cwd: string, ...a: string[]): void => { execFileSync("git", a, { cwd, stdio: ["ignore", "ignore", "ignore"] }); };
 const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
@@ -308,7 +309,7 @@ test("read-side sync refuses dirty memory without invoking the structured merge 
   }
 });
 
-test("read-side sync rejects a later unsafe remote tree and preserves the prior checked-out bytes", () => {
+test("read-side sync rejects a later unsafe remote tree and preserves the prior checked-out bytes", { skip: SYMLINK_SKIP }, () => {
   const { A, B, cleanup } = setup();
   try {
     const ah = join(A, ".hunch"), bh = join(B, ".hunch");
