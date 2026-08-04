@@ -52,6 +52,8 @@ const MEM_ENTRIES = [
   ".hunch/shadow/",
   ".hunch/symbols/",
   ".hunch/edges/",
+  ".hunch/runbooks/",
+  ".hunch/findings/",
 ];
 
 export interface GitignoreResult {
