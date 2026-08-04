@@ -544,7 +544,7 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: Hunc
       // remote .gitignore, local info/exclude, or ambient excludesFile must not
       // be able to silently stop the shared graph's heartbeat.
       for (let index = 0; index < paths.length; index += 128) {
-        if (!run(["-c", `core.attributesFile=${gitNullDevice()}`, "add", "-f", "--", ...paths.slice(index, index + 128)])) {
+        if (!run(["-c", `core.attributesFile=${gitNullDevice()}`, "-c", "core.autocrlf=false", "add", "-f", "--", ...paths.slice(index, index + 128)])) {
           run(["reset", "-q", "--", "."]);
           return null;
         }
@@ -577,9 +577,12 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: Hunc
     // docs the caller verified git-clean BEFORE rewriting, so it can neither weaken the
     // bug_overlay_clobber detection above nor sweep user edits.
     for (const file of opts.alsoStage ?? []) {
+      // core.autocrlf=false on every memory add/checkout: the Git-for-Windows
+      // installer default (system gitconfig autocrlf=true) would re-encode the
+      // graph's JSON bytes in transit, breaking byte-exact content hashes.
       run(opts.push === false
-        ? ["add", "--", file]
-        : ["-c", `core.attributesFile=${gitNullDevice()}`, "add", "--", file]);
+        ? ["-c", "core.autocrlf=false", "add", "--", file]
+        : ["-c", `core.attributesFile=${gitNullDevice()}`, "-c", "core.autocrlf=false", "add", "--", file]);
     }
     // Only sync+push when a memory commit was actually created — never run pull/push against the
     // enclosing repo on an empty stage. Two-way sync: MERGE the remote BEFORE pushing so a push
@@ -603,6 +606,7 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: Hunc
         "-C", hunchDir,
         "-c", `core.hooksPath=${hooksDir}`,
         ...(opts.push === false ? [] : ["-c", `core.attributesFile=${gitNullDevice()}`]),
+        "-c", "core.autocrlf=false",
         "-c", "commit.gpgsign=false",
         "commit", "--no-gpg-sign", "--only", "-m", message, "--", ...commitPaths,
       ], { stdio: "ignore", env, timeout: 15_000 });
@@ -1025,6 +1029,7 @@ function adoptContractHead(
       "-C", hunchDir,
       "-c", `core.hooksPath=${hooksDir}`,
       "-c", `core.attributesFile=${gitNullDevice()}`,
+      "-c", "core.autocrlf=false",
       "reset", "--hard", fetchedHead,
     ], {
       stdio: "ignore", env, timeout: 5_000,
@@ -1074,6 +1079,7 @@ function mergeRemote(
         "-C", hunchDir,
         "-c", `core.hooksPath=${hooksDir}`,
         "-c", `core.attributesFile=${gitNullDevice()}`,
+        "-c", "core.autocrlf=false",
         "-c", "commit.gpgsign=false",
         ...args,
       ], {

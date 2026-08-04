@@ -592,6 +592,7 @@ function materializeValidatedClone(
     "-C", overlayRoot,
     "-c", `core.hooksPath=${emptyHooks}`,
     "-c", `core.attributesFile=${gitNullDevice()}`,
+    "-c", "core.autocrlf=false",
     "reset", "--hard", oid,
   ], {
     stdio: "ignore",
