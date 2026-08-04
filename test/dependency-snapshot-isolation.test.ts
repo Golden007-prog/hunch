@@ -44,7 +44,8 @@ test("dependency materialization preserves internal relative symlinks but reject
     const treeHash = dependencySnapshotTreeHash(source);
 
     assert.equal(materializeDependencyTree(source, destination), treeHash);
-    assert.equal(readlinkSync(join(destination, ".bin", "tool")), "../pkg/tool.js");
+    // Windows readlink reports the target with backslashes; the link is the same.
+    assert.equal(readlinkSync(join(destination, ".bin", "tool")).replace(/\\/g, "/"), "../pkg/tool.js");
     writeFileSync(join(destination, ".bin", "tool"), "changed only in the run\n");
     assert.equal(readFileSync(join(source, "pkg", "tool.js"), "utf8"), "original\n");
 

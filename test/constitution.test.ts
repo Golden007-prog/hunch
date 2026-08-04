@@ -3835,7 +3835,25 @@ test("source mutation independently refuses a symlink and preserves the external
     const symlinkHead = commitFiles(root, ["src/api/orders.ts"], "fixture: track source symlink");
 
     const outcome = runSourceMutation(root, policy, { ...regularBase, head: symlinkHead });
-    assert.equal(outcome.error_code, "mutation-source-symlink-unsupported");
+    // Where Git materializes symlinks (POSIX; Windows with core.symlinks=true) the
+    // fresh mutation worktree contains a real symlink and the dedicated guard fires.
+    // Default Git-for-Windows (core.symlinks=false) checks the mode-120000 entry out
+    // as a PLAIN TEXT FILE holding the target path — there is no symlink to refuse,
+    // and the mutation still fails closed at the source layer: the path string
+    // either fails to parse or parses to nothing the subject can resolve to (which
+    // of the two depends on the literal bytes of the temp path). Never a mutation.
+    const gitMaterializesSymlinks = execFileSync(
+      "git", ["-C", root, "config", "--type=bool", "--default", process.platform === "win32" ? "false" : "true", "core.symlinks"],
+      { encoding: "utf8" },
+    ).trim() === "true";
+    if (gitMaterializesSymlinks) {
+      assert.equal(outcome.error_code, "mutation-source-symlink-unsupported");
+    } else {
+      assert.ok(
+        outcome.error_code === "mutation-source-unparseable" || outcome.error_code === "mutation-subject-definition-unresolved",
+        `expected a fail-closed source error, got ${outcome.error_code}`,
+      );
+    }
     assert.equal(outcome.snapshot, undefined);
     assert.equal(outcome.source_patch, undefined);
     assert.equal(readFileSync(outsideFile, "utf8"), outsideBytes);
