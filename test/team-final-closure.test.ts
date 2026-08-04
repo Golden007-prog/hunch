@@ -331,7 +331,7 @@ test("a live MCP refuses when team.json appears instead of serving its startup p
     assert.equal(bareRefs(memoryRemote), memoryBefore, "the refused request never fetches from or publishes to team memory");
   } finally {
     if (client) await client.close().catch(() => undefined);
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -393,7 +393,7 @@ test("an explicit HUNCH_PRIVATE_DIR remains authoritative when committed team ro
     assert.equal(bareRefs(memoryB), memoryBBefore, "neither advertised team remote is touched by the explicit-overlay process");
   } finally {
     if (client) await client.close().catch(() => undefined);
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -448,7 +448,7 @@ test("a live advertised-team MCP refuses a coherent team URL and overlay-origin 
     assert.equal(bareRefs(memoryB), memoryBBefore, "the stale process publishes to neither old nor new memory remote");
   } finally {
     if (client) await client.close().catch(() => undefined);
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -499,7 +499,7 @@ test("a live advertised-team MCP refuses a coherent shared_ref semantic reroute"
     assert.equal(bareRefs(fixture.memoryRemote), memoryBefore);
   } finally {
     if (client) await client.close().catch(() => undefined);
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -590,7 +590,7 @@ test("an MCP write pins its startup contract when routing changes after the reco
     assert.notEqual(leaked.status, 0, "the refused race sentinel remains absent from graph B after reconnect/capture attempts");
   } finally {
     if (client) await client.close().catch(() => undefined);
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -623,7 +623,7 @@ test("automatic shared capture pushes with repository pre-push hooks disabled", 
     assert.equal(git(fixture.root, "rev-parse", "HEAD"), codeHeadBefore);
     assert.equal(bareRefs(fixture.codeRemote), codeRemoteBefore, "memory automation never pushes code history");
   } finally {
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -696,7 +696,7 @@ test("a truly empty shared remote boots on the first unified capture and auto-jo
     assert.equal(bareRefs(code.codeRemote), codeBeforeJoin, "auto-join never mutates the code remote");
     assert.equal(existsSync(join(secondRoot, ".hunch/constraints")), false, "the second actor also has no public rule copy");
   } finally {
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -747,7 +747,7 @@ test("the real shared post-commit hook clears code-repository Git env and publis
     assert.deepEqual(jsonSnapshot(code.root), publicBefore, "the hook creates no public memory copy");
     assert.equal(bareRefs(code.codeRemote), codeRemoteBefore, "the hook never pushes the code repository");
   } finally {
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -777,7 +777,7 @@ test("explicit shared attach merges and pushes with repository pre-push hooks di
     assert.equal(git(code.root, "rev-parse", "HEAD"), codeHeadBefore);
     assert.equal(bareRefs(code.codeRemote), codeRemoteBefore, "explicit attach never pushes the code repository");
   } finally {
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
 
@@ -843,6 +843,6 @@ test("migrate in unified shared mode upgrades only overlay JSON and publishes th
     assert.equal(bareFile(memoryRemote, ".hunch/manifest.json"), readFileSync(overlayManifest, "utf8"));
     assert.equal(bareFile(memoryRemote, `.hunch/decisions/${overlayId}.json`), readFileSync(overlayRecord, "utf8"));
   } finally {
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); // ride out Windows handle lag from just-killed children
   }
 });
