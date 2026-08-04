@@ -44,7 +44,7 @@ function reviewedReport() {
         isDirect: true,
         via: ["@hono/node-server"],
         effects: [],
-        range: ">=1.25.0",
+        range: "1.25.0 - 1.29.0",
         nodes: ["node_modules/@modelcontextprotocol/sdk"],
         fixAvailable: {
           name: "@modelcontextprotocol/sdk",

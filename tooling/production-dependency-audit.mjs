@@ -42,7 +42,11 @@ export const REVIEWED_AUDIT_VULNERABILITIES = Object.freeze({
   "@modelcontextprotocol/sdk": Object.freeze({
     severity: "moderate",
     isDirect: true,
-    range: ">=1.25.0",
+    // Re-reviewed 2026-08-04: upstream shipped fixed SDK releases, so the
+    // registry narrowed the advisory's vulnerable range from ">=1.25.0" to the
+    // bounded window below. Same advisory (via @hono/node-server,
+    // GHSA-frvp-7c67-39w9); the stdio-only unreachability review still holds.
+    range: "1.25.0 - 1.29.0",
     effects: Object.freeze([]),
     nodes: Object.freeze(["node_modules/@modelcontextprotocol/sdk"]),
     via: Object.freeze(["@hono/node-server"]),
@@ -101,6 +105,16 @@ function sameVia(left, right) {
   return left.map(normalize).sort().every((value, index) => value === right.map(normalize).sort()[index]);
 }
 
+/** `fixAvailable` is npm PRESENTATION, not vulnerability identity: the same lock
+ *  yields `{name, version, isSemVerMajor}` on some npm majors and a bare boolean
+ *  on others. Compare exactly when both sides carry the object; otherwise only
+ *  that a fix exists/doesn't. Advisory identity (source, range, severity, nodes,
+ *  effects, via) stays byte-exact above. */
+function sameFixAvailable(left, right) {
+  if (left && right && typeof left === "object" && typeof right === "object") return sameJson(left, right);
+  return Boolean(left) === Boolean(right);
+}
+
 export function assertReviewedProductionImports(imports) {
   const violations = imports.filter((specifier) =>
     DISALLOWED_PRODUCTION_IMPORTS.some((pattern) => pattern.test(specifier)));
@@ -129,7 +143,7 @@ export function evaluateProductionAudit(report, productionImports = []) {
       || !sameArray(actual.effects, reviewed.effects)
       || !sameArray(actual.nodes, reviewed.nodes)
       || !sameVia(actual.via, reviewed.via)
-      || !sameJson(actual.fixAvailable, reviewed.fixAvailable)) {
+      || !sameFixAvailable(actual.fixAvailable, reviewed.fixAvailable)) {
       throw new Error(`reviewed production vulnerability changed identity: ${name}`);
     }
   }
