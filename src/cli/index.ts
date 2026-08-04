@@ -3191,6 +3191,13 @@ const vetoCmd = program
       store.close();
       return fail(`--base ref "${opts.base}" does not resolve. In CI, fetch the base branch first (git fetch origin <branch>).`);
     }
+    // Same guard for --commit: an unfetched/mistyped sha would enumerate zero
+    // files and exit 0 — a vacuous pass where CI expects the Decision Guard
+    // to have actually looked (issue #45).
+    if (opts.commit && !revExists(opts.commit, root)) {
+      store.close();
+      return fail(`--commit sha "${opts.commit}" does not resolve. In CI, ensure the commit is fetched (git fetch --depth=... or fetch-depth: 0).`);
+    }
     store.reindex();
     const files = opts.commit ? commitFiles(opts.commit, root)
       : opts.base ? rangeFiles(opts.base, root)
@@ -3418,7 +3425,7 @@ program
       firm: "surfaces + warns on a violating edit",
       strict: "edit-time DENY + CI guard — the teeth are on",
     };
-    console.log(`\nHunch — enforcement status (${root.split("/").pop()})\n`);
+    console.log(`\nHunch — enforcement status (${basename(root)})\n`);
     console.log(`  firmness: ${firmness}   ← ${fnote[firmness] ?? ""}\n`);
     console.log(`  ✓ ARMED        ${blocking.length} confirmed blocking invariant(s) — held against every assistant`);
     if (blocking.length) {

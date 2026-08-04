@@ -1639,7 +1639,9 @@ const RRF_W_GRAPH = numEnv("HUNCH_RRF_W_GRAPH", 0.5);
 const GRAPH_GAMMA = numEnv("HUNCH_GRAPH_GAMMA", 0.25);
 function numEnv(name: string, dflt: number): number {
   const v = Number(process.env[name]);
-  return Number.isFinite(v) && v > 0 ? v : dflt;
+  // >= 0, not > 0: zero is the documented kill-switch (HUNCH_RRF_W_*=0 disables
+  // a stream); rejecting it silently re-enabled the default weight (issue #33).
+  return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
 /** Pack a vector's exact bytes for SQLite. Explicit offset+length so a SUBARRAY

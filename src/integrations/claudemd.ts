@@ -4,7 +4,7 @@
  * HUNCH markers — any user-authored content outside it is preserved verbatim.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { basename, join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { wikiSummary } from "../wiki/wiki.js";
 import { PolicyRepository } from "../constitution/repository.js";
@@ -115,7 +115,7 @@ export function upsertSection(file: string, section: string, fallbackTitle: stri
 
 /** Insert/replace the HUNCH section in CLAUDE.md, preserving everything else. */
 export function updateClaudeMd(root: string, store: HunchStore): string {
-  return upsertSection(join(root, "CLAUDE.md"), renderHunchSection(store, root), `# ${root.split("/").pop()}`);
+  return upsertSection(join(root, "CLAUDE.md"), renderHunchSection(store, root), `# ${basename(root)}`);
 }
 
 function sev(s: string): number {

@@ -13,7 +13,7 @@
  *                 `hunch wiki --heal`, never a gate.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { toPosixTarget } from "./paths.js";
 import { currentForTopic, isLive } from "./topics.js";
@@ -178,7 +178,10 @@ function referenceExists(store: HunchStore, root: string, decisionId: string, re
   // A private-scoped reference is an overlay-repo-relative path, not an escape
   // hatch into arbitrary local files.
   const rel = relative(privateRoot, candidate);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\\\" : "/"}`) || isAbsolute(rel)) return false;
+  // NOTE: sep, not an escaped literal — `"\\\\"` in a template is the TWO-char
+  // string `\\`, which `relative()` never produces, silently disabling the
+  // containment check on Windows (issue #31).
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false;
   return existsSync(candidate);
 }
 
