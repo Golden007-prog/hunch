@@ -1590,7 +1590,7 @@ export function currentBranch(cwd: string): string {
 /** Files changed in a single commit. `--root` makes the initial commit (which
  *  has no parent) report its files as additions instead of returning nothing. */
 export function commitFiles(sha: string, cwd: string): string[] {
-  const out = gitSafe(["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha], cwd);
+  const out = gitSafe(["-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha], cwd);
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
@@ -2013,7 +2013,7 @@ export function fileGitMetrics(
 
   // churn — one windowed log; tally each wanted path's appearances (= commits).
   if (days > 0) {
-    const raw = gitSafe(["log", `--since=${days}.days.ago`, "--name-only", "--format="], cwd);
+    const raw = gitSafe(["-c", "core.quotePath=false", "log", `--since=${days}.days.ago`, "--name-only", "--format="], cwd);
     if (raw) {
       for (const line of raw.split("\n")) {
         const e = line && out.get(line);
@@ -2025,7 +2025,7 @@ export function fileGitMetrics(
   // last commit — one newest-first log; the FIRST time a path appears is its most
   // recent commit. NUL-prefixed lines mark commit boundaries; the rest are paths.
   // 256MB buffer for the all-history name-only stream on large repos.
-  const raw = gitSafe(["log", "--name-only", "--format=%x00%h"], cwd, 256 * 1024 * 1024);
+  const raw = gitSafe(["-c", "core.quotePath=false", "log", "--name-only", "--format=%x00%h"], cwd, 256 * 1024 * 1024);
   if (raw) {
     let remaining = out.size;
     let sha = "";
@@ -2042,9 +2042,15 @@ export function fileGitMetrics(
   return out;
 }
 
-/** Files staged for commit (for `hunch check` pre-commit enforcement). */
+/** Files staged for commit (for `hunch check` pre-commit enforcement).
+ *
+ *  Every path enumerator here pins `core.quotePath=false` (issue #50): with
+ *  git's default quotePath, any path holding bytes > 0x7F comes back
+ *  octal-quoted (`"src/caf\303\251.ts"`), which matches neither the store's
+ *  POSIX paths nor constraint scope globs — a blocking constraint over such a
+ *  file graded as a vacuous PASS, and its churn/last-commit metrics read zero. */
 export function stagedFiles(cwd: string): string[] {
-  const out = gitSafe(["diff", "--cached", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR"], cwd);
+  const out = gitSafe(["-c", "core.quotePath=false", "diff", "--cached", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR"], cwd);
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
@@ -2052,8 +2058,8 @@ export function stagedFiles(cwd: string): string[] {
  * and unstaged tracked files, plus untracked files. This powers the local,
  * pre-commit Change Gate; it never mutates the index or asks an agent/model. */
 export function workingFiles(cwd: string): string[] {
-  const changed = gitSafe(["diff", "HEAD", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR"], cwd).split("\n").filter(Boolean);
-  const untracked = gitSafe(["ls-files", "--others", "--exclude-standard"], cwd).split("\n").filter(Boolean);
+  const changed = gitSafe(["-c", "core.quotePath=false", "diff", "HEAD", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR"], cwd).split("\n").filter(Boolean);
+  const untracked = gitSafe(["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"], cwd).split("\n").filter(Boolean);
   return [...new Set([...changed, ...untracked])].sort();
 }
 
@@ -2067,7 +2073,7 @@ export function revExists(ref: string, cwd: string): boolean {
 /** Files a PR/branch changes vs `base` (3-dot: changes on HEAD since the merge-base,
  *  i.e. exactly the PR's own commits — the CI Constraint Guard's surface). */
 export function rangeFiles(base: string, cwd: string, head = "HEAD"): string[] {
-  const out = gitSafe(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR", `${base}...${head}`], cwd);
+  const out = gitSafe(["-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR", `${base}...${head}`], cwd);
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
@@ -2100,8 +2106,8 @@ export function stagedDiff(cwd: string, maxBytes = 60_000): string {
  * intentionally contribute no synthetic content to regression analysis. */
 export function workingDiff(cwd: string, maxBytes = 60_000): string {
   let out = gitSafe(["diff", "HEAD", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=2", "--", ...DIFF_NOISE], cwd);
-  const tracked = new Set(gitSafe(["diff", "HEAD", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR"], cwd).split("\n").filter(Boolean));
-  const untracked = gitSafe(["ls-files", "--others", "--exclude-standard"], cwd).split("\n").filter((f) => f && !tracked.has(f));
+  const tracked = new Set(gitSafe(["-c", "core.quotePath=false", "diff", "HEAD", "--no-ext-diff", "--no-textconv", "--name-only", "--diff-filter=ACMR"], cwd).split("\n").filter(Boolean));
+  const untracked = gitSafe(["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"], cwd).split("\n").filter((f) => f && !tracked.has(f));
   const readWorkingFile = createRepoFileReader(cwd);
   for (const file of untracked) {
     try {
@@ -2152,7 +2158,7 @@ export function fixCommits(spec: string, cwd: string, max = 200): string[] {
 
 /** All tracked files matching the given extensions. */
 export function trackedFiles(cwd: string, exts: string[]): string[] {
-  const out = gitSafe(["ls-files"], cwd);
+  const out = gitSafe(["-c", "core.quotePath=false", "ls-files"], cwd);
   const all = out ? out.split("\n").filter(Boolean) : [];
   return all.filter((f) => exts.some((e) => f.endsWith(e)));
 }
