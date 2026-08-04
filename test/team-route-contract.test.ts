@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { repositoryUsesRemote, sameRemoteUrl } from "../src/extractors/git.js";
+import { shPath } from "./helpers.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -335,9 +336,11 @@ test("a CLI command refuses all handlers when its route changes during the start
 function markerProgram(base: string, name: string): { program: string; marker: string } {
   const marker = join(base, `${name}-ran`);
   const program = join(base, `${name}.sh`);
-  writeFileSync(program, `#!/bin/sh\n: > ${JSON.stringify(marker)}\nexit 1\n`);
+  // Both the command git hands to sh and the path embedded in the script must be
+  // forward-slashed — sh eats backslashes on Windows.
+  writeFileSync(program, `#!/bin/sh\n: > ${JSON.stringify(shPath(marker))}\nexit 1\n`);
   chmodSync(program, 0o755);
-  return { program, marker };
+  return { program: shPath(program), marker };
 }
 
 function makeExistingSameOriginOverlay(fixture: Fixture, memoryRemote: string): string {
@@ -715,7 +718,7 @@ const routeCases: Array<{
       const alternate = makeMemoryRemote(base, "alternate-push-memory");
       const marker = join(base, "alternate-push-ran");
       const hook = join(alternate, "hooks/pre-receive");
-      writeFileSync(hook, `#!/bin/sh\n: > ${JSON.stringify(marker)}\nexit 1\n`);
+      writeFileSync(hook, `#!/bin/sh\n: > ${JSON.stringify(shPath(marker))}\nexit 1\n`);
       chmodSync(hook, 0o755);
       git(fixture.overlay, "remote", "set-url", "--push", "origin", alternate);
       return [marker];

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { commitAndPushHunch, pullHunch, pullHunchStatus, syncExistingHunch } from "../src/extractors/git.js";
-import { SYMLINK_SKIP } from "./helpers.js";
+import { SYMLINK_SKIP, shPath } from "./helpers.js";
 
 const g = (cwd: string, ...a: string[]): void => { execFileSync("git", a, { cwd, stdio: ["ignore", "ignore", "ignore"] }); };
 const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
@@ -30,7 +30,23 @@ function setup(): { A: string; B: string; cleanup: () => void } {
   const A = join(base, "A"), B = join(base, "B");
   g(base, "clone", "-q", remote, A); cfg(A);
   g(base, "clone", "-q", remote, B); cfg(B);
-  return { A, B, cleanup: () => rmSync(base, { recursive: true, force: true }) };
+  return { A, B, cleanup: () => cleanupDir(base) };
+}
+
+/** Remove a fixture tree, riding out Windows handle lag: a timeout-killed git
+ *  child's sh/sleep grandchildren can briefly outlive the kill and hold the cwd
+ *  (EPERM on rm). Bounded blocking retry — never masks a persistent leak. */
+function cleanupDir(dir: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if (attempt >= 20) throw e;
+      const until = Date.now() + 250;
+      while (Date.now() < until) { /* sync wait — node:test has no async cleanup here */ }
+    }
+  }
 }
 
 /** A local overlay with one commit-capable branch pointing at a genuinely empty bare remote. */
@@ -113,18 +129,20 @@ test("two-way sync: one bounded retry closes a remote advance between B's pull a
     const marker = join(B, "race-receive-pack-fired");
     const invocations = join(B, "race-receive-pack-invocations");
     const receivePack = join(B, "race-receive-pack");
+    // Paths that reach sh (the config value AND the ones embedded in the script)
+    // must be forward-slashed — sh eats backslashes outside quotes on Windows.
     writeFileSync(receivePack, [
       "#!/bin/sh",
-      `echo x >> '${invocations}'`,
-      `if [ ! -f '${marker}' ]; then`,
-      `  : > '${marker}'`,
-      `  git -C '${A}' push -q origin main`,
+      `echo x >> '${shPath(invocations)}'`,
+      `if [ ! -f '${shPath(marker)}' ]; then`,
+      `  : > '${shPath(marker)}'`,
+      `  git -C '${shPath(A)}' push -q origin main`,
       "fi",
       "exec git-receive-pack \"$1\"",
       "",
     ].join("\n"));
     chmodSync(receivePack, 0o755);
-    g(B, "config", "remote.origin.receivepack", receivePack);
+    g(B, "config", "remote.origin.receivepack", shPath(receivePack));
 
     writeDec(B, "dec_b");
     const result = commitAndPushHunch(bh, "B: race dec_b", { push: true, protectedRepoRoot: join(B, "..") });
@@ -147,9 +165,9 @@ test("two-way sync: an unchanged-upstream transport rejection is not retried", (
     const bh = join(B, ".hunch");
     const invocations = join(B, "reject-receive-pack-invocations");
     const receivePack = join(B, "reject-receive-pack");
-    writeFileSync(receivePack, ["#!/bin/sh", `echo x >> '${invocations}'`, "exit 1", ""].join("\n"));
+    writeFileSync(receivePack, ["#!/bin/sh", `echo x >> '${shPath(invocations)}'`, "exit 1", ""].join("\n"));
     chmodSync(receivePack, 0o755);
-    g(B, "config", "remote.origin.receivepack", receivePack);
+    g(B, "config", "remote.origin.receivepack", shPath(receivePack));
     writeDec(B, "dec_rejected");
     const result = commitAndPushHunch(bh, "B: rejected", { push: true, protectedRepoRoot: join(B, "..") });
     assert.equal(result, "committed");
@@ -505,7 +523,7 @@ test("read-side sync times out a slow remote and releases its lock cleanly", () 
     const started = Date.now();
     const status = pullHunchStatus(bh, {
       timeoutMs: 100,
-      env: { ...process.env, GIT_SSH_COMMAND: fakeSsh },
+      env: { ...process.env, GIT_SSH_COMMAND: shPath(fakeSsh) },
     });
     const elapsed = Date.now() - started;
     assert.equal(status, "failed");

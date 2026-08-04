@@ -39,3 +39,9 @@ export function canSymlink(): boolean {
  *  else the reason string node:test prints. */
 export const SYMLINK_SKIP: boolean | string =
   canSymlink() ? false : "symlink creation unavailable (Windows without Developer Mode/elevation)";
+
+/** A path git will hand to `sh -c` (receive-pack/upload-pack overrides, filter
+ *  commands, hook scripts, paths embedded in fixture shell scripts). Windows
+ *  backslashes are eaten as sh escapes ("C:\\Users\\…" → "C:Users…"); the
+ *  forward-slash spelling works in every sh, including Git-for-Windows. */
+export const shPath = (p: string): string => p.replace(/\\/g, "/");

@@ -249,6 +249,11 @@ test("clone-local replacement refs cannot move a docs-only static baseline or pr
     git(root, "init", "-q", "-b", "main");
     configure(root);
     mkdirSync(join(root, "src/api"), { recursive: true });
+    // Real repos always gitignore the derived sqlite index (ensureGitignore).
+    // Without this, the later `add -A` commits the LIVE WAL files and the
+    // `reset --hard` cannot unlink them while the store holds them mapped
+    // (EINVAL on Windows).
+    writeFileSync(join(root, ".gitignore"), ".hunch/hunch.sqlite*\n");
     writeFileSync(join(root, "src/api/orders.ts"), [
       "export function dbQuery(sql: string){ return sql; }",
       "export function listOrders(user: string){ return user; }",

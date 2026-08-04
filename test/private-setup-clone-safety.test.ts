@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { shPath } from "./helpers.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -130,13 +131,15 @@ function installCheckoutAttack(fixture: Fixture, base: string, globalAttributes:
   const filter = join(fixture.home, "smudge-filter");
   mkdirSync(hooks, { recursive: true });
   const hook = join(hooks, "post-checkout");
-  writeFileSync(hook, `#!/bin/sh\nprintf ran > ${JSON.stringify(hookMarker)}\n`);
+  // Everything sh will see — the filter command, hooksPath, and the marker paths
+  // inside the scripts — must be forward-slashed on Windows (sh eats backslashes).
+  writeFileSync(hook, `#!/bin/sh\nprintf ran > ${JSON.stringify(shPath(hookMarker))}\n`);
   chmodSync(hook, 0o755);
-  writeFileSync(filter, `#!/bin/sh\nprintf ran > ${JSON.stringify(filterMarker)}\ncat\n`);
+  writeFileSync(filter, `#!/bin/sh\nprintf ran > ${JSON.stringify(shPath(filterMarker))}\ncat\n`);
   chmodSync(filter, 0o755);
-  installGlobalConfig(fixture, "core.hooksPath", hooks);
+  installGlobalConfig(fixture, "core.hooksPath", shPath(hooks));
   installGlobalConfig(fixture, "filter.pwn.clean", "cat");
-  installGlobalConfig(fixture, "filter.pwn.smudge", filter);
+  installGlobalConfig(fixture, "filter.pwn.smudge", shPath(filter));
   installGlobalConfig(fixture, "filter.pwn.required", "true");
   if (globalAttributes) {
     const attributes = join(fixture.home, "global-attributes");
@@ -233,7 +236,7 @@ test("existing private attach rejects info attributes before fetch, checkout, or
     const markers = installCheckoutAttack(fixture, base, false);
     mkdirSync(join(overlay, ".git", "info"), { recursive: true });
     writeFileSync(join(overlay, ".git", "info", "attributes"), "*.json filter=pwn\n");
-    git(overlay, "config", "filter.pwn.smudge", markers.filter);
+    git(overlay, "config", "filter.pwn.smudge", shPath(markers.filter));
     git(overlay, "config", "filter.pwn.clean", "cat");
     git(overlay, "config", "filter.pwn.required", "true");
     advanceMemoryRemote(base, remote);
