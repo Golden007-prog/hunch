@@ -13,7 +13,7 @@
 import { resolve, join, dirname, isAbsolute, relative } from "node:path";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { toPosixTarget, hunchPathsForDir, type HunchPaths } from "../core/paths.js";
-import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type RejectedTripwire, type EntityKind, type EntityFor } from "../core/types.js";
+import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type Finding, type RejectedTripwire, type EntityKind, type EntityFor } from "../core/types.js";
 import { openDb, withTx, type DB } from "./db.js";
 import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
@@ -401,6 +401,15 @@ export class HunchStore {
         fts(r.id, "runbooks", r.task, `${r.trigger.join(" ")} ${r.steps.join(" ")} ${r.gotchas.join(" ")} ${r.outcome} ${r.files.join(" ")}`);
       }
       counts.runbooks = runbooks.length;
+
+      // Findings (observations — audited, no diff): advisory records, same
+      // FTS-only ride as runbooks (dec_d32af7b821) — no dedicated SQL table.
+      const fnds = this.recs("findings");
+      for (const f of fnds) {
+        fts(f.id, "findings", f.title,
+          `${f.observation} ${f.evidence.join(" ")} ${f.affected_files.join(" ")} ${f.affected_symbols.join(" ")} ${f.triage}`);
+      }
+      counts.findings = fnds.length;
       void j;
     });
     // Reconcile embeddings AFTER the FTS rebuild (model-free): drop vectors whose
@@ -1043,6 +1052,22 @@ export class HunchStore {
       .sort((a, b) => sev(b.severity) - sev(a.severity));
   }
 
+  /** LIVE findings (observations — audited, no diff yet) concerning a file/scope:
+   *  triage open / accepted-risk / scheduled; resolved and stale stay silent. The
+   *  matcher mirrors checkConstraints: an affected entry may be a concrete path or a
+   *  glob, and the queried scope may be either too. Advisory only — findings never
+   *  enter any block path. Sorted worst-first, then id for stable output. */
+  liveFindingsFor(scope: string): Finding[] {
+    const t = toPosixTarget(scope);
+    const live = (f: Finding): boolean => f.triage === "open" || f.triage === "accepted-risk" || f.triage === "scheduled";
+    return this.recs("findings")
+      .filter(live)
+      .filter((f) =>
+        f.affected_files.some((af) => pathMatchesGlob(t, af) || pathMatchesGlob(af, t) || pathRelated(toPosixTarget(af), t))
+        || f.affected_symbols.some((s) => s === scope))
+      .sort((a, b) => (SEV_FINDING[b.severity] ?? 0) - (SEV_FINDING[a.severity] ?? 0) || a.id.localeCompare(b.id));
+  }
+
   /** The causal chain behind a constraint — the WHY a diff-only reviewer can't see.
    *  Deterministic graph join: constraint → source_decision (the decision that
    *  motivated the guard) → the bug whose root cause spawned it (via
@@ -1465,6 +1490,12 @@ export class HunchStore {
     };
     for (const d of this.recs("decisions")) check("decision", d.id, d.related_files, d.provenance.last_verified);
     for (const c of this.recs("constraints")) check("constraint", c.id, c.scope, c.provenance.last_verified);
+    // A LIVE finding whose affected files changed after it was observed/verified may
+    // be silently fixed (or worse) — flag for re-verification (re-run its method).
+    for (const f of this.recs("findings")) {
+      if (f.triage === "resolved" || f.triage === "stale") continue;
+      check("finding", f.id, f.affected_files, f.provenance.last_verified ?? f.observed_at);
+    }
     return out.sort((a, b) => b.changed_at.localeCompare(a.changed_at));
   }
 
@@ -1491,6 +1522,7 @@ export class HunchStore {
       bugs,
       blast_radius: [...blast.values()].sort((a, b) => a.depth - b.depth).slice(0, 12),
       components: w.components,
+      findings: this.liveFindingsFor(target).slice(0, 8),
       budget_tokens: budget,
     };
     return ctx;
@@ -1561,12 +1593,15 @@ export interface AssembledContext {
   bugs: Bug[];
   blast_radius: Array<{ id: string; depth: number; via: string }>;
   components: Component[];
+  findings: Finding[];
   budget_tokens: number;
 }
 
 function sev(s: string): number {
   return ({ blocking: 3, warning: 2, advisory: 1 } as Record<string, number>)[s] ?? 0;
 }
+
+const SEV_FINDING: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
 /** Is a valid-time window open at `asOf`? `valid_from` undefined = always-started
  *  (legacy records). `valid_to` null = still in force. `asOf` undefined disables

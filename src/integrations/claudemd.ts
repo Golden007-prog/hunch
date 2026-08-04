@@ -23,6 +23,7 @@ export function renderHunchSection(store: HunchStore, root?: string): string {
     constraints: store.json.loadAll("constraints").length,
     components: store.json.loadAll("components").length,
     policies: root ? new PolicyRepository(root, store).listPolicies({ publicOnly: true }).length : 0,
+    findings: store.json.loadAll("findings").filter((f) => f.triage === "open" || f.triage === "accepted-risk" || f.triage === "scheduled").length,
   };
 
   const lines: string[] = [];
@@ -32,7 +33,7 @@ export function renderHunchSection(store: HunchStore, root?: string): string {
   lines.push(
     "This repo has **Hunch** — a curated graph of *why* the code is the way it is " +
       "(decisions, bug history, invariants). It currently holds " +
-      `**${counts.decisions} decisions, ${counts.bugs} bugs, ${counts.constraints} constraints, ${counts.components} components, ${counts.policies} policies**.`,
+      `**${counts.decisions} decisions, ${counts.bugs} bugs, ${counts.constraints} constraints, ${counts.components} components, ${counts.policies} policies${counts.findings ? `, ${counts.findings} open findings` : ""}**.`,
   );
   lines.push("");
   lines.push("**Consult Hunch via the `hunch_*` MCP tools — pick by MOMENT, not from memory:**");
@@ -53,6 +54,7 @@ export function renderHunchSection(store: HunchStore, root?: string): string {
   lines.push("");
   lines.push("**Before editing:**");
   lines.push("- `hunch_check_constraints(scope)` and `hunch_get_dependents(symbol)` / `hunch_blast_radius(target)` — invariants in scope + who you'd break. (The pre-edit hook injects this per file automatically; call these for PLANNING breadth.)");
+  lines.push("- `hunch_findings(scope?)` — known-but-unfixed gaps in the area (past audits, measurements, incidents) so you inherit them instead of re-discovering them.");
   lines.push("");
   lines.push("**Before committing / merging:**");
   lines.push("- `hunch_conformance()` — does the code still SATISFY recorded intent? Run before and after a refactor.");
@@ -66,6 +68,7 @@ export function renderHunchSection(store: HunchStore, root?: string): string {
   lines.push("**After deciding / when corrected:**");
   lines.push("- `hunch_capture_decision(topic?)` → `hunch_record_decision(...)` — interview first, then write; status `proposed` = roadmap intent (shows in `hunch now`).");
   lines.push("- `hunch_record_correction(...)` — a human correction becomes an ENFORCED rule (Never Twice), not a one-session memory.");
+  lines.push("- `hunch_record_finding(...)` — an OBSERVATION with no code change (an audit that found a gap, a measured number, an incident) becomes durable memory anchored to a date + evidence; `/audit` runs the ritual.");
   lines.push("- `hunch_timeline(target)` — decision history when investigating how something evolved.");
   const wiki = root ? wikiSummary(root) : null;
   if (wiki) {

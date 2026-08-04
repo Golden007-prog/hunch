@@ -248,8 +248,33 @@ export const RunbookSchema = z.object({
 });
 export type Runbook = z.infer<typeof RunbookSchema>;
 
+/** An OBSERVATION — audited knowledge with no diff (the anchor is a date + evidence,
+ *  not a commit). Fills the gap between Bug (broke and got fixed) and Decision (chose
+ *  and changed code): "we looked, we found, we haven't acted yet". Examples: an audit
+ *  that surfaced unscoped tenant queries, a measured perf number, a vendor limit, an
+ *  incident with no code fix. ADVISORY retrieval context (pre-edit grounding + MCP);
+ *  never enters any block path. Lifecycle is `triage`, not valid-time: a finding is
+ *  resolved/stale-marked, never superseded. */
+export const FindingSchema = z.object({
+  id: z.string().describe("fnd_*"),
+  title: z.string(),
+  observation: z.string().default("").describe("what was observed, in plain words"),
+  evidence: z.array(z.string()).default([]).describe("the query/command run + representative output — a finding without evidence is an opinion"),
+  method: z.string().nullable().default(null).describe("rb_* runbook that re-runs the audit (makes the finding re-verifiable)"),
+  severity: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+  triage: z.enum(["open", "accepted-risk", "scheduled", "resolved", "stale"]).default("open"),
+  affected_files: z.array(z.string()).default([]).describe("concrete paths or globs the observation concerns"),
+  affected_symbols: z.array(z.string()).default([]).describe("symbols/objects concerned (e.g. dbo.GetOrders)"),
+  violates_constraint: z.string().nullable().default(null).describe("con_* this finding is a known violation of"),
+  spawned_decision: z.string().nullable().default(null).describe("dec_* recorded in response to this finding"),
+  observed_at: z.string().describe("ISO instant the observation was made — the anchor (findings have no commit)"),
+  resolved_commit: z.string().nullable().default(null).describe("the commit that fixed it (set when triage becomes resolved)"),
+  provenance: ProvenanceSchema,
+});
+export type Finding = z.infer<typeof FindingSchema>;
+
 /** The entity collections, keyed by their on-disk directory name. */
-export const ENTITY_KINDS = ["components", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks"] as const;
+export const ENTITY_KINDS = ["components", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings"] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export const SCHEMAS = {
@@ -260,6 +285,7 @@ export const SCHEMAS = {
   bugs: BugSchema,
   constraints: ConstraintSchema,
   runbooks: RunbookSchema,
+  findings: FindingSchema,
 } as const;
 
 export type EntityFor = {
@@ -270,6 +296,7 @@ export type EntityFor = {
   bugs: Bug;
   constraints: Constraint;
   runbooks: Runbook;
+  findings: Finding;
 };
 
 /** Default provenance helper for deterministic (extracted) records. */

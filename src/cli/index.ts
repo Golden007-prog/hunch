@@ -105,7 +105,7 @@ import { subscriptionCliVersion } from "../constitution/experimentRunner.js";
 import type { CompileExperimentCaseBankInput } from "../constitution/experiment.js";
 import { draftTripwires, knownRepoDeps } from "../synthesis/tripwires.js";
 import { constraintId } from "../core/ids.js";
-import type { Constraint, Decision } from "../core/types.js";
+import type { Constraint, Decision, Finding } from "../core/types.js";
 import { readManifest, writeManifest, SCHEMA_VERSION } from "../core/migrate.js";
 import { mergeHunchJson } from "../store/merge.js";
 import { movePublicMemoryToPrivate } from "../store/privateMigrate.js";
@@ -3665,7 +3665,7 @@ program
       // not a block; the commit-time `hunch check` does the actual gating.
       const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
       const hasContent =
-        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length || retired.length || docGround;
+        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length || ctx.findings.length || retired.length || docGround;
       if (!hasContent) return; // no noise on files Hunch hasn't learned yet
       let text = formatContext(ctx).trim();
       if (firmness !== "advisory" && ctx.constraints.length) {
@@ -4274,6 +4274,34 @@ program
       const anchor = findings.filter((f) => f.kind === "anchor-stale" || f.kind === "doc-anchor-stale").length;
       console.log(`\n${findings.length} finding(s)${anchor ? `, ${anchor} doc≠graph (anchor-stale)` : ""}${collisions.size ? `, ${collisions.size} topic-collision(s)` : ""}.`);
       if (anchor || collisions.size) process.exitCode = 1;
+    } finally {
+      store.close();
+    }
+  });
+
+// ---- findings (the open-observations ledger) --------------------------------
+program
+  .command("findings")
+  .description("LIVE findings — observed gaps/debt with no fix landed yet (audits, measurements, incidents; anchored to a date + evidence, not a commit). Same store method as the hunch_findings MCP tool. Read-only, advisory.")
+  .argument("[scope]", "a path, glob, or symbol (e.g. src/procs/** or dbo.GetOrders); omit for all")
+  .option("--all", "include resolved/stale findings (the full history)")
+  .action((scope: string | undefined, opts: { all?: boolean }) => {
+    const { store } = storeFor();
+    try {
+      const live = (f: Finding): boolean => f.triage === "open" || f.triage === "accepted-risk" || f.triage === "scheduled";
+      const list = (scope ? store.liveFindingsFor(scope) : store.recs("findings").filter(opts.all ? () => true : live))
+        .filter(opts.all ? () => true : live);
+      if (!list.length) {
+        console.log(`No ${opts.all ? "" : "live "}findings${scope ? ` for "${scope}"` : ""}. Record one after an audit: /audit (or hunch_record_finding via MCP).`);
+        return;
+      }
+      for (const f of list) {
+        const links = [f.violates_constraint ? `violates ${f.violates_constraint}` : "", f.method ? `re-verify via ${f.method}` : "", f.resolved_commit ? `fixed in ${f.resolved_commit.slice(0, 9)}` : ""].filter(Boolean).join(" · ");
+        console.log(`• [${f.triage}/${f.severity}] ${f.title} (${f.id}, observed ${f.observed_at.slice(0, 10)})`);
+        console.log(`    ${f.observation}`);
+        console.log(`    concerns: ${[...f.affected_files, ...f.affected_symbols].join(", ") || "(unscoped)"}${links ? `\n    ${links}` : ""}`);
+      }
+      console.log(`\n${list.length} finding(s).`);
     } finally {
       store.close();
     }

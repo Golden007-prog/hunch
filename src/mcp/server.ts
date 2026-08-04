@@ -14,7 +14,7 @@ import { hunchPaths, findRoot, toPosixTarget } from "../core/paths.js";
 import { resolveActiveRoot } from "./roots.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { selectEmbedder } from "../store/embedder.js";
-import { decisionId } from "../core/ids.js";
+import { decisionId, findingId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
@@ -32,7 +32,7 @@ import { renderMarkdown, renderImpact, verdict } from "../core/checkreport.js";
 import { nowData, wikiStatus, publicHome, readWikiManifestAt } from "../wiki/wiki.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import { assertCompleteRepoScan, indexRepo, scanRepo } from "../extractors/indexer.js";
-import type { Decision, Symbol } from "../core/types.js";
+import type { Decision, Finding, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
 import { pendingEscalations, policyEscalations, type Escalation } from "../core/escalations.js";
 import { issueCaptureToken as issueToken, consumeCaptureToken as consumeToken } from "../core/capturetoken.js";
@@ -62,6 +62,7 @@ const flushNote = (flush: "pushed" | "committed" | null, home: "public" | "priva
 const WHY_CAP = 6; // per record-type in hunch_why
 const DEP_CAP = 25; // dependents in hunch_get_dependents
 const QUERY_HITS = 8; // hunch_query matches (was 12)
+const FINDINGS_CAP = 12; // hunch_findings listing
 const SEV_CONSTRAINT: Record<string, number> = { blocking: 3, warning: 2, advisory: 1 };
 const SEV_BUG: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 const more = (total: number, cap: number, hint = ""): string =>
@@ -1024,6 +1025,104 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
       } catch (e) {
         return err(`Failed to record correction: ${(e as Error).message}`);
       }
+    },
+  );
+
+  // -- hunch_record_finding (write-back: observations, no diff) ---------------
+  server.registerTool(
+    "hunch_record_finding",
+    {
+      title: "Record a finding (an observation with no code change)",
+      description:
+        "Persist an OBSERVATION into Hunch — audited knowledge with no diff: an audit that surfaced a gap (e.g. queries missing tenant scoping), a measured number, a vendor/platform fact, an incident with no code fix. The anchor is a date + evidence, not a commit. Advisory: it grounds future edits to the affected files/symbols (pre-edit hook + hunch_context) and is listed by hunch_findings; it never blocks. Re-record the SAME title to update triage (e.g. triage:'resolved' + resolved_commit once fixed). If the finding is a violation of a rule that ISN'T recorded yet, record the rule first (hunch_record_correction) and link it via violates_constraint.",
+      inputSchema: {
+        finding: z.object({
+          title: z.string().describe("stable one-line name — re-recording the same title updates the finding"),
+          observation: z.string().describe("what was observed, in plain words"),
+          evidence: z.array(z.string()).optional().describe("the query/command run + representative output — a finding without evidence is an opinion"),
+          method: z.string().optional().describe("rb_* runbook that re-runs the audit (makes it re-verifiable)"),
+          severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+          triage: z.enum(["open", "accepted-risk", "scheduled", "resolved", "stale"]).optional().describe("default 'open'. 'resolved' should carry resolved_commit."),
+          affected_files: z.array(z.string()).optional().describe("paths or globs the observation concerns"),
+          affected_symbols: z.array(z.string()).optional().describe("symbols/objects concerned (e.g. dbo.GetOrders)"),
+          violates_constraint: z.string().optional().describe("con_* this finding is a known violation of"),
+          spawned_decision: z.string().optional().describe("dec_* recorded in response"),
+          resolved_commit: z.string().optional().describe("the commit that fixed it (with triage:'resolved')"),
+          private: z.boolean().optional().describe("write into the PRIVATE overlay store instead of the committed repo. Errors if no private store is configured."),
+        }),
+      },
+    },
+    async ({ finding }): Promise<ToolResult> => {
+      try {
+        if (!finding.title.trim()) return err("title is required.");
+        if (!finding.observation.trim()) return err("observation is required — state what you saw.");
+        const id = findingId(finding.title);
+        const home = store.captureHome(!!finding.private);
+        const existing = home === "private" ? store.getPrivateRec("findings", id) : store.json.get("findings", id);
+        const now = new Date().toISOString();
+        const triage = finding.triage ?? existing?.triage ?? "open";
+        if (triage === "resolved" && !(finding.resolved_commit ?? existing?.resolved_commit)) {
+          return err(`Refusing to mark ${id} resolved without resolved_commit — a resolution claim needs the fixing commit (or use triage:'stale' if it no longer applies).`);
+        }
+        const rec: Finding = {
+          id,
+          title: finding.title,
+          observation: finding.observation,
+          evidence: finding.evidence ?? existing?.evidence ?? [],
+          method: finding.method ?? existing?.method ?? null,
+          severity: finding.severity ?? existing?.severity ?? "medium",
+          triage,
+          affected_files: (finding.affected_files ?? existing?.affected_files ?? []).map(toPosixTarget),
+          affected_symbols: finding.affected_symbols ?? existing?.affected_symbols ?? [],
+          violates_constraint: finding.violates_constraint ?? existing?.violates_constraint ?? null,
+          spawned_decision: finding.spawned_decision ?? existing?.spawned_decision ?? null,
+          observed_at: existing?.observed_at ?? now, // first observation wins — updates re-verify, not re-date
+          resolved_commit: finding.resolved_commit ?? existing?.resolved_commit ?? null,
+          provenance: { source: "human_confirmed", confidence: 0.95, evidence: finding.evidence ?? existing?.provenance.evidence ?? [], last_verified: now },
+        };
+        store.putCapture("findings", rec, !!finding.private);
+        store.reindex();
+        const flush = flushCapture(store, hunchPaths(root).hunch, !!finding.private, `hunch: capture ${id}`, startupTeamRoute ?? undefined);
+        const flushed = flushNote(flush, home, store.mode);
+        const where = finding.private
+          ? ` [PRIVATE overlay — not committed to this repo]${flushed}`
+          : home === "private" ? ` [SHARED store — one source of truth for the whole team]${flushed}` : flushed;
+        // Advisory nudges, never gates: an unresolvable constraint link and missing
+        // evidence both record fine, but say so.
+        const danglingCon = rec.violates_constraint && !store.getRec("constraints", rec.violates_constraint)
+          ? `\n\n△ violates_constraint ${rec.violates_constraint} resolves to no known constraint — if the rule isn't recorded yet, hunch_record_correction it and re-record this finding with the real id.`
+          : "";
+        const noEvidence = rec.evidence.length ? "" : "\n\n△ No evidence attached — a finding without the query/output that produced it is an opinion. Re-record with evidence when you have it.";
+        return ok(`${existing ? "Updated" : "Recorded"} finding ${id}: "${rec.title}" (${rec.triage}/${rec.severity}, observed ${rec.observed_at.slice(0, 10)}).${where} It now grounds edits to: ${[...rec.affected_files, ...rec.affected_symbols].join(", ") || "(nothing — add affected_files/symbols so it surfaces at edit time)"}.${danglingCon}${noEvidence}`);
+      } catch (e) {
+        return err(`Failed to record finding: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  // -- hunch_findings (read: the open-observations ledger) --------------------
+  server.registerTool(
+    "hunch_findings",
+    {
+      title: "Open findings for a scope",
+      description:
+        "List LIVE findings (observed gaps/debt with no fix yet — triage open/accepted-risk/scheduled) concerning a file, glob, or symbol; omit scope for the whole ledger. Call before planning work in an area to inherit past audits instead of re-discovering them. Advisory; resolved/stale findings are excluded unless all:true.",
+      inputSchema: {
+        scope: z.string().optional().describe("a path, glob, or symbol (e.g. src/procs/** or dbo.GetOrders); omit for all"),
+        all: z.boolean().optional().describe("include resolved/stale findings (the full history)"),
+      },
+    },
+    async ({ scope, all }): Promise<ToolResult> => {
+      const live = (f: Finding): boolean => f.triage === "open" || f.triage === "accepted-risk" || f.triage === "scheduled";
+      const list = (scope ? store.liveFindingsFor(scope) : store.recs("findings").filter(all ? () => true : live))
+        .filter(all ? () => true : live)
+        .sort((a, b) => (SEV_BUG[b.severity] ?? 0) - (SEV_BUG[a.severity] ?? 0) || a.id.localeCompare(b.id));
+      if (!list.length) return ok(`No ${all ? "" : "live "}findings${scope ? ` for "${scope}"` : ""}. (Record one after an audit with hunch_record_finding.)`);
+      const L = list.slice(0, FINDINGS_CAP).map((f) => {
+        const links = [f.violates_constraint ? `violates ${f.violates_constraint}` : "", f.method ? `re-verify via ${f.method}` : "", f.resolved_commit ? `fixed in ${f.resolved_commit.slice(0, 9)}` : ""].filter(Boolean).join("; ");
+        return `• [${f.triage}/${f.severity}] ${f.title} (${f.id}, observed ${f.observed_at.slice(0, 10)})\n    ${f.observation}\n    concerns: ${[...f.affected_files, ...f.affected_symbols].join(", ") || "(unscoped)"}${links ? `\n    ${links}` : ""}`;
+      });
+      return ok(`${list.length} finding(s)${scope ? ` for "${scope}"` : ""}:\n${L.join("\n")}${more(list.length, FINDINGS_CAP)}`);
     },
   );
 

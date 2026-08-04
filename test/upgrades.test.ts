@@ -201,7 +201,7 @@ test("formatContext degrades gracefully and respects the budget", () => {
   store.reindex();
   const text = formatContext(store.assembleContext("nope.ts", 1500));
   assert.ok(text.includes("still learning"), "graceful empty message");
-  const tiny = formatContext({ target: "x", constraints: [], decisions: [], bugs: [], blast_radius: [], components: [], budget_tokens: 1 });
+  const tiny = formatContext({ target: "x", constraints: [], decisions: [], bugs: [], blast_radius: [], components: [], findings: [], budget_tokens: 1 });
   assert.ok(tiny.length <= 60, "budget trims output");
   cleanup();
 });

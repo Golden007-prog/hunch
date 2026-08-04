@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
 export const FTS_SEARCH_SCHEMA_SQL = /* sql */ `
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
   ref UNINDEXED,   -- entity id
-  kind UNINDEXED,  -- components | edges | symbols | decisions | bugs | constraints
+  kind UNINDEXED,  -- components | edges | symbols | decisions | bugs | constraints | runbooks | findings
   title,
   body,
   tokenize = 'porter unicode61'

@@ -52,3 +52,10 @@ export function runbookId(seed: string): string {
 export function constraintId(statement: string): string {
   return "con_" + shortHash(statement.trim().toLowerCase());
 }
+
+/** Finding id seeded by its title (trim + lowercase, same idiom as constraints):
+ *  re-recording the same observation UPDATES it (e.g. a triage change) instead of
+ *  minting a duplicate. A genuinely new observation deserves a new title. */
+export function findingId(title: string): string {
+  return "fnd_" + shortHash(title.trim().toLowerCase());
+}

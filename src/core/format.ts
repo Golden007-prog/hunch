@@ -24,6 +24,12 @@ export function formatContext(ctx: AssembledContext): string {
     out.push(`\n## 🐞 Bug history (don't reintroduce)`);
     for (const b of ctx.bugs) out.push(`- [${b.status}/${b.severity}] ${b.title} — root cause: ${b.root_cause}${prov(b.provenance)}`);
   }
+  if (ctx.findings.length) {
+    out.push(`\n## 🔍 Known findings (observed, unresolved — no fix landed yet)`);
+    for (const f of ctx.findings) {
+      out.push(`- [${f.triage}/${f.severity}] ${f.title} — ${f.observation}${prov(f.provenance)}\n  (${f.id}; observed ${f.observed_at.slice(0, 10)}${f.violates_constraint ? `; violates ${f.violates_constraint}` : ""}${f.method ? `; re-verify via ${f.method}` : ""})`);
+    }
+  }
   if (ctx.blast_radius.length) {
     out.push(`\n## 💥 Blast radius (transitive dependents)`);
     out.push(ctx.blast_radius.map((d) => `- [d${d.depth}] ${d.via}`).join("\n"));

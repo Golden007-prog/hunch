@@ -21,7 +21,7 @@ import { parseDocAnchors } from "./docanchors.js";
 import { markdownDocs, STALE_MARKER, SRC_REF } from "./docscan.js";
 import { computeWikiDrift } from "../wiki/wiki.js";
 
-export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling" | "wiki-stale";
+export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling" | "wiki-stale" | "finding-stale";
 
 export interface DriftFinding {
   kind: DriftKind;
@@ -134,6 +134,29 @@ export function computeDrift(store: HunchStore, root: string): DriftReport {
   //    component vanished). Deterministic hash comparison against the manifest;
   //    fires only when a wiki was adopted. Advisory like every other kind here.
   findings.push(...computeWikiDrift(store, root));
+
+  // 7. FINDING-STALE — a LIVE finding (observation, no diff) whose anchor evaporated:
+  //    an affected file that no longer exists, or a violates_constraint pointing at a
+  //    retired/missing rule. Deterministic + advisory (never the exit-code class):
+  //    the observation may be fixed, moved, or moot — re-verify (re-run its method)
+  //    and re-record with triage resolved/stale, or refresh its paths.
+  for (const f of store.recs("findings")) {
+    if (f.triage === "resolved" || f.triage === "stale") continue;
+    for (const file of f.affected_files) {
+      if (!file || file.includes("*")) continue; // globs can't dead-ref
+      if (!existsSync(join(root, file))) {
+        findings.push({ kind: "finding-stale", id: f.id, detail: `live finding "${f.title}" references missing file "${file}" — re-verify${f.method ? ` (${f.method})` : ""} and re-record, or mark it stale` });
+      }
+    }
+    if (f.violates_constraint) {
+      const con = store.getRec("constraints", f.violates_constraint);
+      if (!con) {
+        findings.push({ kind: "finding-stale", id: f.id, detail: `live finding "${f.title}" claims to violate ${f.violates_constraint}, which does not exist — link the real rule or record it (hunch_record_correction)` });
+      } else if (con.status === "retired") {
+        findings.push({ kind: "finding-stale", id: f.id, detail: `live finding "${f.title}" violates ${f.violates_constraint}, but that constraint is RETIRED — resolve the finding or re-link it` });
+      }
+    }
+  }
 
   return { findings };
 }
