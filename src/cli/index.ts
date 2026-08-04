@@ -433,7 +433,11 @@ program
     // commit is drafted — not per-commit, and not under --deep (an ensemble may
     // fan out to several distinct workers, each with its own configuration).
     if (!opts.deep && commits.length > 0) {
-      const ctxProvider = await selectProvider();
+      // { root }: the advisory must resolve the SAME provider the synthesis
+      // inside syncCommit resolves (persisted local.json preference included) —
+      // rootless resolution could grade a different provider and swallow the
+      // num_ctx warning for an actual Ollama run (issue #46).
+      const ctxProvider = await selectProvider({ root });
       const ctxWarning = await maybeWarnOllamaContext(ctxProvider.name, process.env);
       if (ctxWarning) console.log(ctxWarning);
     }

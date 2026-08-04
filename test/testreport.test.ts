@@ -23,6 +23,27 @@ not ok 2 - divides correctly
 ok 3 - pending feature # SKIP not built yet
 1..3`;
 
+test("TAP-looking text QUOTED inside a failure's diagnostic never fabricates results (issue #51)", () => {
+  // This repo's own tests assert on TAP text, so an assertion diff legitimately
+  // quotes "ok N - …" / "not ok N - …" lines inside the YAML error block.
+  const quoted = [
+    "TAP version 13",
+    "not ok 1 - parser handles TAP output",
+    "  ---",
+    "  error: |-",
+    "    Expected output to contain:",
+    "    ok 2 - passes constraint check",
+    "    not ok 3 - phantom failure line",
+    "  ...",
+    "1..1",
+  ].join("\n");
+  const r = parseTestReport(quoted);
+  assert.equal(r.recognized, true);
+  assert.deepEqual(r.passed, [], "a quoted 'ok' line must not become a phantom pass (it could close an un-rerun bug)");
+  assert.equal(r.failures.length, 1, "a quoted 'not ok' line must not become a second failure");
+  assert.equal(r.failures[0]!.test, "parser handles TAP output");
+});
+
 test("parseTap splits passes from failures and captures the diagnostic block", () => {
   const r = parseTestReport(TAP);
   assert.equal(r.recognized, true);

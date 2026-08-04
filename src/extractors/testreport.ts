@@ -73,7 +73,8 @@ export function parseTestReport(output: string): TestReport {
     // Collect the following more-indented diagnostic block as the message.
     const baseIndent = leadingSpaces(raw);
     const block: string[] = [];
-    for (let j = i + 1; j < lines.length; j++) {
+    let j = i + 1;
+    for (; j < lines.length; j++) {
       const ln = lines[j]!;
       if (ln.trim() === "") {
         block.push("");
@@ -84,6 +85,11 @@ export function parseTestReport(output: string): TestReport {
     }
     const diag = block.join("\n").trim();
     failMap.set(name, { test: name, message: diag ? `${name}\n${diag}` : name });
+    // Skip the consumed diagnostic block (issue #51): re-visiting it let
+    // TAP-looking text QUOTED INSIDE an error message (assertion diffs in this
+    // very repo quote "ok N - …" lines) parse as real results — a phantom pass
+    // can mark a previously-open bug fixed without any test having re-run.
+    i = j - 1;
   }
 
   // A test can legitimately appear as both (flaky retry) — trust the failure.

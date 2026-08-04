@@ -503,6 +503,18 @@ class ClaudeCliProvider extends PromptSynthProvider {
     const childEnv = { ...process.env };
     delete childEnv.ANTHROPIC_API_KEY;
     delete childEnv.ANTHROPIC_AUTH_TOKEN;
+    // Gateway ROUTING is metered per-token exactly like a raw API key: with
+    // CLAUDE_CODE_USE_BEDROCK/VERTEX set (common in enterprise shell profiles
+    // for interactive use), headless `claude -p` bills AWS/GCP on every
+    // significant commit — silently, from a post-commit hook (issue #39,
+    // con_2ce3f2a547). Strip the routing switches and their endpoint overrides
+    // so the CLI falls through to subscription auth here too.
+    delete childEnv.CLAUDE_CODE_USE_BEDROCK;
+    delete childEnv.CLAUDE_CODE_USE_VERTEX;
+    delete childEnv.ANTHROPIC_BEDROCK_BASE_URL;
+    delete childEnv.ANTHROPIC_VERTEX_BASE_URL;
+    delete childEnv.ANTHROPIC_VERTEX_PROJECT_ID;
+    delete childEnv.CLOUD_ML_REGION;
 
     // Single-shot text synthesis: no tools, no agentic loop. The prompt carries
     // all needed context inline, so run from a neutral cwd to avoid loading this
