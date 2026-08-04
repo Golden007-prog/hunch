@@ -30,6 +30,10 @@ const SINGLE_FILE: Partial<Record<EntityKind, string>> = { symbols: "index.json"
 
 const encode = (v: unknown): string => JSON.stringify(v, null, 2) + "\n";
 
+// Sleep primitive for the single-file RMW lock's bounded spin (issue #35);
+// same idiom as core/io.ts's rename backoff.
+const RMW_LOCK_WAITER = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+
 /** Curated entities are intentionally small, human-reviewable records. Symbols
  * and edges are dense indexes, so they get a much larger but still finite cap. */
 export const MAX_JSON_RECORD_BYTES = 8 * 1024 * 1024;
@@ -439,6 +443,42 @@ export class JsonStore {
     return out;
   }
 
+  /** Cross-process mutex for single-file index read-modify-write (issue #35).
+   *  The long-lived MCP server and CLI hooks write the same `.hunch/` concurrently;
+   *  two unsynchronized RMWs over index.json each read the same base array and the
+   *  second rename silently erases the first's record. `mkdirSync` is the atomic
+   *  acquire (EEXIST = held). A stale lock (killed process) is taken over by age;
+   *  against a live contender we wait briefly and then proceed WITH a warning —
+   *  never worse than the historical lockless behavior, and capture paths must not
+   *  start throwing on lock contention. */
+  private withSingleFileLock<T>(kind: EntityKind, directory: SafeDirectory, fn: () => T): T {
+    const lock = join(directory.lexical, ".rmw-lock");
+    const deadline = Date.now() + 2_000;
+    for (;;) {
+      try {
+        mkdirSync(lock);
+        break;
+      } catch {
+        try {
+          if (Date.now() - lstatSync(lock).mtimeMs > 10_000) {
+            rmSync(lock, { recursive: true, force: true }); // no live spawn holds a lock this old
+            continue;
+          }
+        } catch { continue; /* vanished between attempts — retry the acquire */ }
+        if (Date.now() >= deadline) {
+          console.warn(`[hunch] proceeding without the ${kind} index lock (still held: ${lock})`);
+          return fn();
+        }
+        Atomics.wait(RMW_LOCK_WAITER, 0, 0, 25);
+      }
+    }
+    try {
+      return fn();
+    } finally {
+      try { rmSync(lock, { recursive: true, force: true }); } catch { /* stale-takeover reclaims it */ }
+    }
+  }
+
   /** Write a single record (validated) to its JSON file / into the index array. */
   put<K extends EntityKind>(kind: K, record: EntityFor[K]): EntityFor[K] {
     const schema = SCHEMAS[kind];
@@ -451,11 +491,14 @@ export class JsonStore {
       // record can't silently drop schema-invalid / future-schema siblings — the
       // same reason delete() reads raw. Keep the index sorted by id (stable diff,
       // and agrees with the merge driver so a re-index after a merge is a no-op).
-      const f = this.fileFor(kind, validated.id);
-      const arr = this.readRawArray(kind, directory, f).filter((r) => (r as { id?: string })?.id !== validated.id);
-      arr.push(validated);
-      arr.sort((a, b) => String((a as { id?: string })?.id).localeCompare(String((b as { id?: string })?.id)));
-      this.writeContainedFile(directory, f, encode(arr), this.maxBytes(kind));
+      // Locked: the read-modify-write below is what issue #35 races.
+      this.withSingleFileLock(kind, directory, () => {
+        const f = this.fileFor(kind, validated.id);
+        const arr = this.readRawArray(kind, directory, f).filter((r) => (r as { id?: string })?.id !== validated.id);
+        arr.push(validated);
+        arr.sort((a, b) => String((a as { id?: string })?.id).localeCompare(String((b as { id?: string })?.id)));
+        this.writeContainedFile(directory, f, encode(arr), this.maxBytes(kind));
+      });
     } else {
       this.writeContainedFile(directory, this.fileFor(kind, validated.id), encode(validated), this.maxBytes(kind));
     }
@@ -480,18 +523,25 @@ export class JsonStore {
       this.writeContainedFile(directory, this.fileFor(kind, "index"), encode(validated), this.maxBytes(kind));
       return;
     }
-    // One file per record: preflight EVERY existing JSON file before deleting
+    // One file per record: preflight EVERY existing JSON file before touching
     // any, so one malicious symlink cannot cause a partially-cleared store.
     const existing = this.jsonFileNames(kind);
     for (const name of existing) {
       this.validateExistingFile(directory, join(directory.lexical, name), this.maxBytes(kind));
     }
-    for (const name of existing) {
-      this.removeContainedFile(directory, join(directory.lexical, name), this.maxBytes(kind));
-    }
+    // WRITE-FIRST, delete-stale-LAST (issue #30). The old delete-all-then-rewrite
+    // sequence had a crash window in which the kind directory held nothing — and
+    // `hunch private --migrate` runs replaceAll on the OVERLAY, so that window
+    // covered private-only records existing nowhere else. Now a crash mid-write
+    // leaves old ∪ new (same id → same file, so no duplicates), and a crash
+    // mid-delete leaves only stale extras — no state loses records.
+    const keep = new Set(validated.map((r) => `${(r as { id: string }).id}.json`));
     for (const r of validated) {
       const id = (r as { id: string }).id;
       this.writeContainedFile(directory, this.fileFor(kind, id), encode(r), this.maxBytes(kind));
+    }
+    for (const name of existing) {
+      if (!keep.has(name)) this.removeContainedFile(directory, join(directory.lexical, name), this.maxBytes(kind));
     }
   }
 
@@ -524,14 +574,18 @@ export class JsonStore {
     if (single) {
       const directory = this.safeKindDirectory(kind, false);
       if (!directory) return false;
-      const f = this.fileFor(kind, "index");
-      const arr = this.readRawArray(kind, directory, f);
-      if (!this.validateExistingFile(directory, f, this.maxBytes(kind))) return false;
-      const next = arr.filter((r) => (r as { id?: string })?.id !== id);
-      if (next.length === arr.length) return false;
-      this.writeContainedFile(directory, f, encode(next), this.maxBytes(kind));
-      this.invalidate(kind);
-      return true;
+      // Locked like put(): an unsynchronized delete racing a concurrent put
+      // over the same index would resurrect or drop records (issue #35).
+      return this.withSingleFileLock(kind, directory, () => {
+        const f = this.fileFor(kind, "index");
+        const arr = this.readRawArray(kind, directory, f);
+        if (!this.validateExistingFile(directory, f, this.maxBytes(kind))) return false;
+        const next = arr.filter((r) => (r as { id?: string })?.id !== id);
+        if (next.length === arr.length) return false;
+        this.writeContainedFile(directory, f, encode(next), this.maxBytes(kind));
+        this.invalidate(kind);
+        return true;
+      });
     }
     this.assertSafeRecordId(id);
     const directory = this.safeKindDirectory(kind, false);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempStore, prov } from "./helpers.js";
 import { openMemoryDb, type DB } from "../src/store/db.js";
@@ -78,6 +78,41 @@ test("why() matches on path segments, never a bare suffix — 'io.ts' must not p
   // Segment-anchored suffix still works: the intended convenience is intact.
   const anchored = store.why("x/scenario.ts");
   assert.deepEqual(anchored.decisions.map((d) => d.id), ["dec_scen"]);
+  cleanup();
+});
+
+test("replaceAll writes new records BEFORE deleting stale ones — a mid-operation failure never empties the kind (issue #30)", () => {
+  const { store, root, cleanup } = seed();
+  store.json.put("decisions", { id: "dec_keeper", title: "keeper", status: "accepted", context: "", decision: "", consequences: [], alternatives_rejected: [], related_components: [], related_files: [], supersedes: null, caused_by_bug: null, commit: null, provenance: prov(0.9), date: "2026-06-01T00:00:00Z" } as never);
+  // Second record is oversized: with write-first ordering the operation throws
+  // DURING the write phase, before any delete ran — every pre-existing record
+  // must still be on disk (the old delete-all-first ordering left the kind empty).
+  const huge = "x".repeat(9 * 1024 * 1024);
+  assert.throws(() => store.json.replaceAll("decisions", [
+    { id: "dec_new_ok", title: "ok", status: "accepted", context: "", decision: "", consequences: [], alternatives_rejected: [], related_components: [], related_files: [], supersedes: null, caused_by_bug: null, commit: null, provenance: prov(0.9), date: "2026-06-01T00:00:00Z" },
+    { id: "dec_new_huge", title: "huge", status: "accepted", context: huge, decision: "", consequences: [], alternatives_rejected: [], related_components: [], related_files: [], supersedes: null, caused_by_bug: null, commit: null, provenance: prov(0.9), date: "2026-06-01T00:00:00Z" },
+  ] as never));
+  const ids = store.json.loadAll("decisions").map((d) => d.id);
+  assert.ok(ids.includes("dec_1"), "pre-existing record survives the failed replace");
+  assert.ok(ids.includes("dec_keeper"), "pre-existing record survives the failed replace");
+  // And a SUCCESSFUL replace still removes stale records and lands the new set.
+  store.json.replaceAll("decisions", [
+    { id: "dec_only", title: "only", status: "accepted", context: "", decision: "", consequences: [], alternatives_rejected: [], related_components: [], related_files: [], supersedes: null, caused_by_bug: null, commit: null, provenance: prov(0.9), date: "2026-06-01T00:00:00Z" },
+  ] as never);
+  assert.deepEqual(store.json.loadAll("decisions").map((d) => d.id), ["dec_only"]);
+  void root;
+  cleanup();
+});
+
+test("single-file RMW lock: a stale .rmw-lock is taken over and the write lands; the lock is released after (issue #35)", () => {
+  const { store, root, cleanup } = seed();
+  const lock = join(root, ".hunch", "edges", ".rmw-lock");
+  mkdirSync(lock, { recursive: true });
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(lock, old, old); // provably ownerless — every RMW holds it for milliseconds
+  store.json.put("edges", { id: "e_lock", from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() } as never);
+  assert.ok(store.json.loadAll("edges").some((e) => e.id === "e_lock"), "the write proceeded through the stale lock");
+  assert.equal(existsSync(lock), false, "the lock is released after the write");
   cleanup();
 });
 
