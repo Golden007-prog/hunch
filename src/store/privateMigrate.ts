@@ -30,6 +30,20 @@ export function movePublicMemoryToPrivate(pub: JsonStore, priv: JsonStore): Move
   let total = 0;
   for (const kind of ENTITY_KINDS) {
     const pubRecs = pub.loadAll(kind) as Array<Record<string, unknown>>;
+    // The validating loader SKIPS corrupt/invalid/future-schema records with a
+    // warning — but the CLI empties the public store right after this returns,
+    // which would silently DELETE exactly those skipped records (and then
+    // untrack + gitignore their only git history). Refuse instead: prove every
+    // on-disk record actually loaded before anything becomes deletable
+    // (issue #29). A kind whose only records are invalid also stops here, so
+    // the "0 loaded → skip merge" path below can never precede a wipe.
+    const rawCount = pub.rawRecordCount(kind);
+    if (rawCount !== pubRecs.length) {
+      throw new Error(
+        `refusing to migrate ${kind}: ${rawCount - pubRecs.length} on-disk record(s) failed to load (see the warnings above) `
+        + `and would be deleted without ever reaching the overlay. Fix or remove them, then re-run \`hunch private --migrate\`.`,
+      );
+    }
     if (pubRecs.length === 0) continue;
     const privRecs = priv.loadAll(kind) as Array<Record<string, unknown>>;
     // base=[] so both sides' records are treated as additions; collisions resolved

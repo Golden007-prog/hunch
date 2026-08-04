@@ -39,6 +39,39 @@ function stores(): { pub: JsonStore; priv: JsonStore; roots: string[]; cleanup: 
   };
 }
 
+test("private --migrate REFUSES when an on-disk record failed to load — never silently deletes it (issue #29)", () => {
+  const { pub, priv, roots, cleanup } = stores();
+  try {
+    pub.put("decisions", DEC("dec_ok", "loads fine"));
+    // A record the validating loader will SKIP with a warning: syntax error.
+    // Post-migrate dropAll would have deleted it forever.
+    writeFileSync(join(roots[0]!, ".hunch", "decisions", "dec_broken.json"), '{"id": "dec_broken",');
+    const warn = console.warn; console.warn = () => { /* silence the expected skip warning */ };
+    try {
+      assert.throws(() => movePublicMemoryToPrivate(pub, priv), /refusing to migrate decisions.*1 on-disk record/s);
+    } finally {
+      console.warn = warn;
+    }
+    assert.equal(existsSync(join(roots[0]!, ".hunch", "decisions", "dec_broken.json")), true, "the unloadable record is untouched");
+    assert.deepEqual(priv.loadAll("decisions"), [], "nothing was absorbed for the refused kind");
+    // A kind whose ONLY records are invalid must also refuse (the old 0-loaded
+    // fast path skipped the merge entirely while the wipe still ran).
+    rmSync(join(roots[0]!, ".hunch", "decisions", "dec_ok.json"), { force: true });
+    const warn2 = console.warn; console.warn = () => { /* expected skip warning */ };
+    try {
+      assert.throws(() => movePublicMemoryToPrivate(pub, priv), /refusing to migrate decisions/);
+    } finally {
+      console.warn = warn2;
+    }
+    // A 0-byte merge tombstone is an intentional absence, not a load failure.
+    rmSync(join(roots[0]!, ".hunch", "decisions", "dec_broken.json"), { force: true });
+    writeFileSync(join(roots[0]!, ".hunch", "decisions", "dec_tomb.json"), "");
+    assert.doesNotThrow(() => movePublicMemoryToPrivate(pub, priv));
+  } finally {
+    cleanup();
+  }
+});
+
 test("private --migrate: unions public records into the overlay, preserving private-only records", () => {
   const { pub, priv, cleanup } = stores();
   try {

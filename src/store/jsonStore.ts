@@ -566,6 +566,27 @@ export class JsonStore {
     return this.loadAll(kind).find((r) => (r as { id: string }).id === id);
   }
 
+  /** On-disk record count, independent of validation: per-record kinds count
+   *  every non-tombstone .json file (a 0-byte merge tombstone is an intentional
+   *  absence), single-file kinds count raw array entries (a corrupt index file
+   *  throws readRawArray's own actionable refusal). Lets a caller about to
+   *  DELETE the kind — `hunch private --migrate` — prove the validating loader
+   *  dropped nothing first, instead of silently destroying the records loadAll
+   *  skipped (issue #29, the same never-silently-drop contract as
+   *  con_947c578b2c). */
+  rawRecordCount(kind: EntityKind): number {
+    const directory = this.safeKindDirectory(kind, false);
+    if (!directory) return 0;
+    const single = SINGLE_FILE[kind];
+    if (single) return this.readRawArray(kind, directory, join(directory.lexical, single)).length;
+    let count = 0;
+    for (const name of this.jsonFileNames(kind)) {
+      const text = this.readContainedFile(directory, join(directory.lexical, name), this.maxBytes(kind));
+      if (text !== null && text.trim() !== "") count++;
+    }
+    return count;
+  }
+
   /** Remove a record (used by the curate/reject flow). Returns true if removed.
    *  For single-file kinds we operate on the RAW JSON array (not the validating
    *  loader) so deleting one record can't silently drop schema-invalid siblings. */
