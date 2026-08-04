@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, lstatSync, mkdtempSync, rmSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { chmodSync, lstatSync, mkdtempSync, rmSync, mkdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -173,6 +173,42 @@ test("two-way sync: an unchanged-upstream transport rejection is not retried", (
     assert.equal(result, "committed");
     assert.equal(readFileSync(invocations, "utf8").trim().split("\n").length, 1,
       "a policy/auth rejection with no upstream movement must not loop");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a stale index.lock stranded by an earlier interrupted git is healed and the flush commits (issue #53)", () => {
+  const { B, cleanup } = setup();
+  try {
+    const bh = join(B, ".hunch");
+    writeDec(B, "dec_after_stranding");
+    // A lock left by a crashed/killed git: old mtime proves no living owner
+    // (every Hunch git spawn times out far sooner than the staleness window).
+    const lock = join(B, ".git", "index.lock");
+    writeFileSync(lock, "");
+    const old = new Date(Date.now() - 5 * 60_000);
+    utimesSync(lock, old, old);
+
+    const result = commitAndPushHunch(bh, "B: heal the wedge", { push: true, protectedRepoRoot: join(B, "..") });
+    assert.equal(result, "pushed", "the flush must heal the stale lock and commit, not silently no-op");
+    assert.equal(existsSync(lock), false, "the stranded lock is gone");
+    assert.ok(decFiles(bh).includes("dec_after_stranding.json"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("a FRESH index.lock (a live git may own it) is never removed by the flush", () => {
+  const { B, cleanup } = setup();
+  try {
+    const bh = join(B, ".hunch");
+    writeDec(B, "dec_live_lock");
+    const lock = join(B, ".git", "index.lock");
+    writeFileSync(lock, ""); // just created — could belong to a running git
+    const result = commitAndPushHunch(bh, "B: must not steal a live lock", { push: true, protectedRepoRoot: join(B, "..") });
+    assert.equal(result, null, "with a possibly-live lock the flush stays a quiet no-op");
+    assert.equal(existsSync(lock), true, "a fresh lock is left for its owner");
   } finally {
     cleanup();
   }

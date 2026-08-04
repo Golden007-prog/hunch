@@ -806,13 +806,16 @@ export class HunchStore {
     const components = this.recs("components");
     const asOf = opts.asOf;
 
-    const matchedSymbols = symbols.filter((s) => s.file === target || s.name === target || s.id === target || s.file.endsWith(target));
+    // pathRelated, not bare endsWith: "scenario.ts".endsWith("io.ts") is true,
+    // so an unanchored suffix pulled unrelated files' records into why()/the
+    // pre-edit grounding block (issue #32). Segment-anchored matching only.
+    const matchedSymbols = symbols.filter((s) => s.file === target || s.name === target || s.id === target || pathRelated(s.file, target));
     const symIds = new Set(matchedSymbols.map((s) => s.id));
     const fileSet = new Set(matchedSymbols.map((s) => s.file));
     const isPath = target.includes("/") || target.includes(".");
 
     const fileMatch = (files: string[]) =>
-      files.some((f) => f === target || (isPath && (f.endsWith(target) || target.endsWith(f))) || fileSet.has(f));
+      files.some((f) => f === target || (isPath && pathRelated(f, target)) || fileSet.has(f));
 
     return {
       target,

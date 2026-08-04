@@ -47,6 +47,20 @@ test("why() returns decisions/bugs/constraints for a file", () => {
   cleanup();
 });
 
+test("why() matches on path segments, never a bare suffix — 'io.ts' must not pull 'scenario.ts' records (issue #32)", () => {
+  const { store, cleanup } = seed();
+  store.json.put("symbols", { id: "sym_scen", file: "src/x/scenario.ts", name: "scen", kind: "function", signature_hash: "", calls: [], called_by: [], metrics: { loc: 5, churn_90d: 0, bug_count: 0, fan_in: 0, fan_out: 0 }, last_changed: "" } as never);
+  store.json.put("decisions", { id: "dec_scen", title: "Scenario decision", status: "accepted", context: "", decision: "x", consequences: [], alternatives_rejected: [], related_components: [], related_files: ["src/x/scenario.ts"], supersedes: null, caused_by_bug: null, commit: null, provenance: prov(0.9), date: "2026-06-01T00:00:00Z" } as never);
+  store.reindex();
+  const w = store.why("io.ts"); // "scenario.ts".endsWith("io.ts") is true — must NOT match
+  assert.deepEqual(w.symbols.map((s) => s.id), [], "no symbol matches a bare suffix");
+  assert.deepEqual(w.decisions.map((d) => d.id), [], "no decision matches a bare suffix");
+  // Segment-anchored suffix still works: the intended convenience is intact.
+  const anchored = store.why("x/scenario.ts");
+  assert.deepEqual(anchored.decisions.map((d) => d.id), ["dec_scen"]);
+  cleanup();
+});
+
 test("getDependents walks the graph backward (blast radius)", () => {
   const { store, cleanup } = seed();
   const deps = store.getDependents("sym_a").map((d) => d.id).sort();

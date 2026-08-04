@@ -167,6 +167,39 @@ export function gitNullDevice(): string {
   return process.platform === "win32" ? "NUL" : devNull;
 }
 
+/** How long a live gitindex.lock can plausibly be held: every Hunch git spawn
+ *  carries a timeout well under this, so an OLDER lock provably has no living
+ *  owner in any Hunch flow. */
+const STALE_INDEX_LOCK_MS = 30_000;
+
+/** Heal a stranded `.git/index.lock` (issue #53). Two ways one appears:
+ *  (a) THIS call's git was timeout-killed — TerminateProcess on Windows skips
+ *      git's cleanup, so a lock created at/after this attempt started is ours;
+ *  (b) a PREVIOUS run crashed/was killed — git then fails FAST forever after,
+ *      and the best-effort flush paths swallow it, so captures keep "succeeding"
+ *      while nothing commits. A pre-existing lock older than any live git's
+ *      possible hold time has no living owner and is safe to remove.
+ *  Returns true when a lock was removed (a retry is then sensible). */
+function clearStrandedIndexLock(repoDir: string, env: NodeJS.ProcessEnv, sinceMs: number, error: unknown): boolean {
+  const killed = (error as NodeJS.ErrnoException)?.code === "ETIMEDOUT" || !!(error as { signal?: string | null })?.signal;
+  try {
+    const rel = execFileSync("git", ["-C", repoDir, "rev-parse", "--git-path", "index.lock"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: 5_000,
+    }).trim();
+    const lockPath = isAbsolute(rel) ? rel : join(repoDir, rel);
+    const mtimeMs = statSync(lockPath).mtimeMs;
+    const stranded = killed
+      ? mtimeMs >= sinceMs                          // created by the git we just killed
+      : mtimeMs <= Date.now() - STALE_INDEX_LOCK_MS; // left behind long before this attempt
+    if (!stranded) return false;
+    rmSync(lockPath, { force: true });
+    console.error(`hunch: removed a stranded index.lock at "${repoDir}" (${killed ? "this git operation timed out" : "left by an earlier interrupted git"}); retrying.`);
+    return true;
+  } catch {
+    return false; // no lock present, or git itself unavailable — nothing to heal
+  }
+}
+
 /** Compare physical directory identity before path text. Git for Windows can
  * return an 8.3/short or differently-cased spelling for the same top-level
  * directory that Node reached through its long path. A nonzero file ID keeps
@@ -526,12 +559,19 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: Hunc
       GIT_ATTR_NOSYSTEM: "1",
     });
     const run = (args: string[]): boolean => {
-      try {
-        execFileSync("git", ["-C", hunchDir, ...args], { stdio: "ignore", env });
-        return true;
-      } catch {
-        return false; // best-effort: nothing staged / not a repo / offline
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const startedAt = Date.now();
+        try {
+          execFileSync("git", ["-C", hunchDir, ...args], { stdio: "ignore", env });
+          return true;
+        } catch (error) {
+          // best-effort: nothing staged / not a repo / offline — EXCEPT a
+          // stranded index.lock, which would otherwise fail every future
+          // flush silently (issue #53); heal it and retry once.
+          if (!clearStrandedIndexLock(hunchDir, env, startedAt, error)) return false;
+        }
       }
+      return false;
     };
     if (opts.push !== false) {
       if (!overlayAttributeSourcesAreSafe(hunchDir, env)) {
@@ -601,17 +641,27 @@ export function commitAndPushHunch(hunchDir: string, message: string, opts: Hunc
     const hooksDir = disabledHooksDir(hunchDir);
     if (!hooksDir) return null;
     const commitPaths = [...memoryPaths, ...(opts.alsoStage ?? [])];
-    try {
-      execFileSync("git", [
-        "-C", hunchDir,
-        "-c", `core.hooksPath=${hooksDir}`,
-        ...(opts.push === false ? [] : ["-c", `core.attributesFile=${gitNullDevice()}`]),
-        "-c", "core.autocrlf=false",
-        "-c", "commit.gpgsign=false",
-        "commit", "--no-gpg-sign", "--only", "-m", message, "--", ...commitPaths,
-      ], { stdio: "ignore", env, timeout: 15_000 });
-      committed = true;
-    } catch { /* nothing staged / not a repo */ }
+    // One retry after healing a stranded index.lock (issue #53): a lock left by
+    // a timeout-killed or crashed git otherwise fails EVERY later flush fast and
+    // silently — captures keep reporting success while nothing commits.
+    for (let attempt = 0; attempt < 2 && !committed; attempt++) {
+      const commitStartedAt = Date.now();
+      try {
+        execFileSync("git", [
+          "-C", hunchDir,
+          "-c", `core.hooksPath=${hooksDir}`,
+          ...(opts.push === false ? [] : ["-c", `core.attributesFile=${gitNullDevice()}`]),
+          "-c", "core.autocrlf=false",
+          "-c", "commit.gpgsign=false",
+          "commit", "--no-gpg-sign", "--only", "-m", message, "--", ...commitPaths,
+        ], { stdio: "ignore", env, timeout: 15_000 });
+        committed = true;
+      } catch (error) {
+        // Nothing staged / not a repo stays quiet, as before; only a healed
+        // stranded lock earns the single retry.
+        if (!clearStrandedIndexLock(hunchDir, env, commitStartedAt, error)) break;
+      }
+    }
     if (!committed) return null;
     if (opts.push !== false) {
       // The overlay remote is mutable process state. Re-prove the publication
@@ -1074,6 +1124,7 @@ function mergeRemote(
   const hooksDir = disabledHooksDir(hunchDir);
   if (!hooksDir) return "failed";
   const tryGit = (args: string[], timeout = timeoutMs): boolean => {
+    const startedAt = Date.now();
     try {
       execFileSync("git", [
         "-C", hunchDir,
@@ -1087,7 +1138,12 @@ function mergeRemote(
       });
       return true;
     }
-    catch { return false; }
+    catch (error) {
+      // Same stranding class as the commit path: a timeout-killed merge/fetch
+      // leaves index.lock behind and wedges every later sync (issue #53).
+      clearStrandedIndexLock(hunchDir, env, startedAt, error);
+      return false;
+    }
   };
   let fetchedHead = "";
   if (contract) {
