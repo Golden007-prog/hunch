@@ -28,7 +28,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { writeFileAtomic } from "../core/io.js";
 import { compareCodeUnits } from "../core/canonicalOrder.js";
 import { hunchPaths, toPosixTarget } from "../core/paths.js";
@@ -59,17 +59,58 @@ export interface WikiHome {
   source: WikiSource;
 }
 
+/** A wiki directory that is safe to join against the pages root: relative, POSIX,
+ *  no trailing slash, and free of any "." / ".." / empty segment. `.` would alias
+ *  the pages root itself (clobbering tracked files like README.md) and `..` writes
+ *  the rendered graph — which for the private home is the FULL overlay union —
+ *  outside the repository entirely. Returns undefined for anything unsafe. */
+function validDir(d: string | undefined): string | undefined {
+  if (!d) return undefined;
+  const v = toPosixTarget(d).replace(/\/+$/, "");
+  if (!v || isAbsolute(v) || /^[a-zA-Z]:/.test(v)) return undefined;
+  if (v.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) return undefined;
+  return v;
+}
+
 /** Normalize a --dir override: POSIX separators, no trailing slash — the dir is
- *  a committed manifest key prefix, so it must hash identically on every OS. */
-const normDir = (d: string | undefined): string | undefined =>
-  d ? toPosixTarget(d).replace(/\/+$/, "") || undefined : undefined;
+ *  a committed manifest key prefix, so it must hash identically on every OS.
+ *  An unsafe override THROWS rather than silently falling back, so a rejected flag
+ *  can never quietly write somewhere else. */
+const normDir = (d: string | undefined): string | undefined => {
+  if (d === undefined) return undefined;
+  const v = validDir(d);
+  if (!v) {
+    throw new Error(`refusing --dir ${JSON.stringify(d)}: the wiki directory must be a relative path inside the repository (no "." or ".." segments, not absolute).`);
+  }
+  return v;
+};
+
+/** Resolve a manifest page key to an absolute path INSIDE this home's page
+ *  directory, or null when it escapes.
+ *
+ *  Both inputs that reach the join are untrusted. `.hunch/wiki-manifest.json` is a
+ *  COMMITTED file (so CI can gate on it), which makes every page KEY inside it
+ *  PR- and merge-influenceable — and `wikiStatus` classifies any key no current
+ *  artifact claims as an orphan to be deleted. Without this check a key like
+ *  "../../id_rsa" turned a plain `hunch wiki` into arbitrary file deletion, with
+ *  `hunch drift` politely instructing the maintainer to run it. Re-checked at BOTH
+ *  the write and the delete site, so a manifest written before this guard existed
+ *  still cannot escape. */
+function containedPagePath(home: WikiHome, page: string): string | null {
+  if (!page || page.includes("\0") || isAbsolute(page) || /^[a-zA-Z]:/.test(page)) return null;
+  const baseDir = resolve(join(home.pagesRoot, home.dir));
+  const abs = resolve(join(home.pagesRoot, ...page.split("/")));
+  const rel = relative(baseDir, abs);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  return abs;
+}
 
 export function publicHome(root: string, dirOverride?: string): WikiHome {
   const manifestPath = join(hunchPaths(root).hunch, "wiki-manifest.json");
   return {
     kind: "public",
     pagesRoot: root,
-    dir: normDir(dirOverride) ?? readWikiManifestAt(manifestPath)?.dir ?? "wiki",
+    dir: normDir(dirOverride) ?? validDir(readWikiManifestAt(manifestPath)?.dir) ?? "wiki",
     manifestPath,
     source: "public",
   };
@@ -85,7 +126,7 @@ export function privateHome(store: HunchStore, dirOverride?: string): WikiHome |
   return {
     kind: "private",
     pagesRoot: dirname(store.privateDir),
-    dir: normDir(dirOverride) ?? readWikiManifestAt(manifestPath)?.dir ?? "wiki",
+    dir: normDir(dirOverride) ?? validDir(readWikiManifestAt(manifestPath)?.dir) ?? "wiki",
     manifestPath,
     source: "all",
   };
@@ -669,6 +710,10 @@ export function wikiStatus(store: HunchStore, home: WikiHome, srcRoot: string): 
   const adoptionOrphans: string[] = [];
   for (const [page, p] of Object.entries(manifest?.pages ?? {})) {
     if (expected.has(page)) continue;
+    // The manifest is committed, so a key is attacker-influenceable through an
+    // ordinary PR — and reaching this list means "delete this file". Only a key
+    // that resolves inside this home's page directory may be classified at all.
+    if (!containedPagePath(home, page)) continue;
     (p.component.startsWith(ADOPTED_PREFIX) ? adoptionOrphans : orphans).push(page);
   }
   return { home, entries, docs, adoptions, adoptionOrphans, decisions, specs, index, now, graph, repoWide, orphans };
@@ -737,7 +782,9 @@ export async function generateWiki(
   /** Written-bytes ledger — the hand-edit tripwire recorded per page. */
   const bytesByPage = new Map<string, string>();
   const put = (page: string, content: string): void => {
-    writeFileAtomic(join(home.pagesRoot, ...page.split("/")), content);
+    const abs = containedPagePath(home, page);
+    if (!abs) throw new Error(`refusing to write wiki page ${JSON.stringify(page)}: it resolves outside ${join(home.pagesRoot, home.dir)}`);
+    writeFileAtomic(abs, content);
     bytesByPage.set(page, sha16(content));
     written.push(page);
   };
@@ -799,8 +846,16 @@ export async function generateWiki(
   const removed: string[] = [];
   for (const [pages, why] of [[status.orphans, "component gone"], [status.adoptionOrphans, "original healed or removed — copy retired"]] as const) {
     for (const page of pages) {
+      // Re-assert containment at the DELETE site too: wikiStatus already filters
+      // escaping manifest keys, but this is the primitive that removes files, so it
+      // must not depend on an upstream filter having run.
+      const abs = containedPagePath(home, page);
+      if (!abs) {
+        log(`  ⚠ ${page} — refusing to remove a manifest entry that resolves outside ${join(home.pagesRoot, home.dir)}`);
+        continue;
+      }
       try {
-        rmSync(join(home.pagesRoot, ...page.split("/")), { force: true });
+        rmSync(abs, { force: true });
       } catch {
         /* best effort */
       }

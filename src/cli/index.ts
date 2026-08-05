@@ -4429,7 +4429,8 @@ program
   .option("--no-llm", "skip LLM prose; deterministic template pages only")
   .option("--prose-heal", "also LLM-rewrite each adopted copy's reconciled overview (subscription; the deterministic corrections always remain)")
   .option("--private", "render the FULL graph (private overlay included) and write the wiki into the OVERLAY repo — nothing lands in this repo")
-  .action(async (opts: { dir?: string; heal?: boolean; check?: boolean; llm?: boolean; proseHeal?: boolean; private?: boolean }) => {
+  .option("--private-prose", "opt in to LLM prose for a PRIVATE-split overlay wiki — this SENDS overlay records (decision text, private constraints, private bug root causes) to the configured provider. Off by default.")
+  .action(async (opts: { dir?: string; heal?: boolean; check?: boolean; llm?: boolean; proseHeal?: boolean; private?: boolean; privateProse?: boolean }) => {
     const { store, root } = storeFor();
     try {
       store.reindex(); // reflect out-of-band JSON edits before reading the graph
@@ -4488,7 +4489,21 @@ program
       if (opts.proseHeal && opts.llm === false) return fail("--prose-heal needs the LLM — drop --no-llm.");
       let prose: ((pack: WikiPack, excerpts: string) => Promise<string | null>) | undefined;
       let adoptionProse: ((doc: Parameters<typeof adoptProsePrompt>[0], content: string) => Promise<string | null>) | undefined;
-      if (opts.llm !== false) {
+      // A PRIVATE-SPLIT overlay's packs carry the full union (source: "all") — overlay
+      // decision context/rationale/rejected alternatives, private constraint statements,
+      // private bug root causes. Sending that to an external subscription CLI would
+      // silently break the storage-private promise every other path here enforces
+      // (public-only CI comments, public-only grounding, public-only wiki manifests), in
+      // the very command documented as the way to build the private wiki. So prose is OFF
+      // by default for that home and needs an explicit --private-prose. A SHARED overlay
+      // is deliberately excluded: there the team already routes captures through the
+      // configured provider by recorded policy.
+      const privateSplit = home.kind === "private" && store.mode === "private";
+      const proseBlockedForPrivacy = privateSplit && !opts.privateProse;
+      if (opts.llm !== false && proseBlockedForPrivacy) {
+        console.log("Private overlay: LLM prose is OFF (pages would send overlay records to the configured provider). Deterministic template pages; pass --private-prose to opt in.");
+      }
+      if (opts.llm !== false && !proseBlockedForPrivacy) {
         const provider = await selectProvider({ root });
         if (provider.draftProse) {
           console.log(`Prose via ${provider.name}; the drift-bearing skeleton stays deterministic.`);

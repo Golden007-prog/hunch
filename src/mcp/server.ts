@@ -249,6 +249,10 @@ export type RootControlledServer = {
   server: McpServer;
   getRoot: () => string;
   setRoot: (next: string) => void;
+  /** Drop a swap parked by `setRoot` while a request was in flight. The roots
+   *  wiring calls this when a LATER resolution is ambiguous, so a stale parked
+   *  swap can never apply after the client stopped unambiguously advertising it. */
+  cancelPendingRoot: () => void;
 };
 
 export function buildServerWithRootControl(initialRoot: string): RootControlledServer {
@@ -1754,6 +1758,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
     server,
     getRoot: () => root,
     setRoot,
+    cancelPendingRoot: () => { pendingRoot = null; },
   };
 }
 
@@ -1782,6 +1787,14 @@ export function wireClientRoots(control: RootControlledServer, fallback: string)
       if (mine !== generation) return;
       const next = resolveActiveRoot((response?.roots ?? []).map((root) => root.uri), fallback);
       if (!next) {
+        // Cancel a swap parked by an EARLIER generation. setRoot defers when a tool
+        // request is in flight; if the client's advertised set has since become
+        // ambiguous, applying that stale swap once the request drains would re-home
+        // to a repo the client no longer unambiguously advertises — writing (and
+        // auto-committing) a capture into the wrong repository, which is precisely
+        // what this refusal exists to prevent. Without this the message below was
+        // also a lie: the root did NOT stay put.
+        control.cancelPendingRoot();
         console.error("[hunch-mcp] multiple client roots are equally plausible; keeping the current Hunch root");
         return;
       }
