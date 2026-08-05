@@ -107,6 +107,10 @@
 
     <div class="clog">
       <div class="clog-group">
+        <div class="clog-date">Aug 5, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.10.1</span><span class="clog-t"><b>The audit wave — 28 defects closed in a day</b> — a multi-agent code audit filed 29 issues against the released code; 28 are fixed here, each with a receipt and a regression test. The ones you'd feel: memory can no longer be lost to a crashed migration, an interrupted rewrite, or a torn config write; synthesis can no longer silently bill a metered Bedrock/Vertex gateway from your shell profile; non-ASCII file paths no longer slip past constraint checks; stranded git locks self-heal instead of silently wedging auto-commit; and your own hooks and slash commands are never overwritten by <span class="mono">hunch init</span>.</span></div>
+      </div>
+      <div class="clog-group">
         <div class="clog-date">Aug 4, 2026</div>
         <div class="clog-row"><span class="rel-tag">v1.10.0</span><span class="clog-t"><b>Findings — memory for what you observed but haven't fixed</b> — a new record kind anchored to a date and evidence instead of a commit: an audit that surfaced a gap, a measured number, an incident with no code change. Findings ground future edits to the affected files automatically, ride the same search as every record, and resolve only with the fixing commit (<span class="mono">/audit</span>, <span class="mono">hunch findings</span>, <span class="mono">hunch_record_finding</span>). Also in this release: memory JSON stays byte-exact on Windows regardless of the installer's CRLF default, the test suite runs honestly on stock Windows hosts, and every production dependency advisory is closed at zero.</span></div>
       </div>
