@@ -45,6 +45,12 @@ const TS_QUERY = `
   (import_statement source: (string) @import.src)
   (call_expression function: (identifier) @call.id)
   (call_expression function: (member_expression property: (property_identifier) @call.member))
+  ;; Construction IS a call. Without these, \`new Foo()\` produced no edge at all, so
+  ;; every class in a TS/JS repo had fan_in 0: blast radius before a constructor
+  ;; change came back empty, and a \`not-calls\` conformance predicate over a class
+  ;; could never see its own counterexample.
+  (new_expression constructor: (identifier) @call.id)
+  (new_expression constructor: (member_expression property: (property_identifier) @call.member))
 `;
 
 const TS_BUILTIN_METHODS = new Set([
@@ -104,6 +110,13 @@ const PY_QUERY = `
         (function_definition name: (identifier) @method.name) @method.def
         (decorated_definition definition: (function_definition name: (identifier) @method.name) @method.def)
       ])) @class.def
+  ;; Every class, including one with no directly-nested def: dataclasses, Exception
+  ;; subclasses, Enums, TypedDicts and pydantic models are method-less by design and
+  ;; were invisible to the entire graph (no symbol, no component, no edges), so
+  ;; \`hunch why\` and blast radius came back empty for exactly the classes a refactor
+  ;; breaks. parse.ts keys pendingDefs by node id and keeps the first classification,
+  ;; so a class that ALSO matches the method-bearing pattern above is not duplicated.
+  (class_definition name: (identifier) @class.name) @class.def
   (function_definition name: (identifier) @fn.name) @fn.def
   (import_statement name: (dotted_name) @import.src)
   (import_statement name: (aliased_import name: (dotted_name) @import.src))
