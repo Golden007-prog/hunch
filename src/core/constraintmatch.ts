@@ -38,8 +38,15 @@ export function matchForbids(f: Forbids, addedDeps: Set<string>, scopedAdded: st
   // tripping an in-scope edit.
   const hitDeps: string[] = [];
   for (const dep of f.deps) {
-    const added = [...addedDeps].find((d) => d === dep || d.startsWith(`${dep}/`));
-    if (added && codeLines.some((l) => importsDep(l, added))) hitDeps.push(added);
+    // EVERY added specifier that satisfies the forbid, not just the first: one commit
+    // can add `lodash` in an out-of-scope file and `lodash/groupBy` in the scoped one.
+    // Taking only `.find`'s first match meant the out-of-scope spelling shadowed the
+    // real in-scope violation and the blocking rule failed OPEN — with the outcome
+    // depending on diff order, i.e. on an unrelated file's name.
+    for (const added of addedDeps) {
+      if (added !== dep && !added.startsWith(`${dep}/`)) continue;
+      if (codeLines.some((l) => importsDep(l, added))) hitDeps.push(added);
+    }
   }
   if (hitDeps.length) return { tier: "dep", evidence: hitDeps.map((d) => `+import ${d}`) };
 

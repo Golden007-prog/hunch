@@ -11,6 +11,7 @@
  * a later refinement. The point this proves: code can be checked AGAINST intent.
  */
 import type { HunchStore } from "../store/hunchStore.js";
+import { externalImportNodeId } from "./externalImports.js";
 import type { Decision, ConformancePredicate, Edge, Symbol as HunchSymbol } from "./types.js";
 
 export interface ConformanceResult {
@@ -74,17 +75,30 @@ function evalPredicate(graph: ConformanceGraph, d: Decision, p: ConformancePredi
 
   const wantReach = p.assert === "calls" || p.assert === "imports";
   const objects = p.object ? resolveSymbols(graph, p.object) : [];
-  if (!objects.length) {
-    // a required target gone ⇒ the link can't hold (violated); a forbidden one trivially holds.
+  // An external package is a VIRTUAL graph node (`ext_<hash>`, see core/externalImports.ts),
+  // never a Symbol record — so resolveSymbols can NEVER find one. Without this, every
+  // `not-imports <symbol> <package>` predicate fell straight into the "target not found ⇒
+  // a forbidden relation trivially holds" branch below and reported ✅ forever, while the
+  // graph right beside it recorded the violating `imports` edge. Resolve the package from
+  // the edge set instead, which is where the indexer actually puts it.
+  const externalId = p.object ? externalImportNodeId(p.object) : null;
+  const objectIds = objects.length
+    ? objects.map((o) => o.id)
+    : externalId && graph.edges.some((e) => e.to === externalId)
+      ? [externalId]
+      : [];
+  if (!objectIds.length) {
+    // a required target gone ⇒ the link can't hold (violated); a forbidden one trivially
+    // holds — nothing can reach a node the graph does not contain.
     return { ...base, satisfied: !wantReach, detail: `target "${p.object ?? ""}" not found in the graph` };
   }
   // A required relation cannot guess which same-name symbol carries the intent.
   // Force qualification instead of accidentally proving a different binding.
-  if (wantReach && (subjects.length !== 1 || objects.length !== 1)) {
+  if (wantReach && (subjects.length !== 1 || objectIds.length !== 1)) {
     return {
       ...base,
       satisfied: false,
-      detail: `ambiguous required binding (${subjects.length} subject, ${objects.length} target matches) — qualify as file:symbol; intent VIOLATED`,
+      detail: `ambiguous required binding (${subjects.length} subject, ${objectIds.length} target matches) — qualify as file:symbol; intent VIOLATED`,
     };
   }
   // A forbidden relation is conservative in the other direction: ANY matching
@@ -92,7 +106,7 @@ function evalPredicate(graph: ConformanceGraph, d: Decision, p: ConformancePredi
   // only the first target lets a duplicate symbol hide a violation.
   const linked = subjects.some((subject) => {
     const reached = reaches(graph, subject.id, p.transitive);
-    return objects.some((object) => reached.has(object.id));
+    return objectIds.some((id) => reached.has(id));
   });
   const satisfied = wantReach ? linked : !linked;
   const via = p.transitive ? " (transitively)" : "";

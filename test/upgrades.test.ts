@@ -142,8 +142,15 @@ test("analyzeDiff captures added line bodies per file (veto: call sites, not jus
   // the call site is in the added-line text even though it is not a declaration
   assert.ok(lines!.some((l) => l.includes("axios.get")), "call site captured");
   assert.ok(!a.addedSymbols.some((s) => s.name === "data"), "await-call const is not classified as an added symbol");
-  // non-code files are excluded, same as the rest of the analyzer
-  assert.equal(a.addedLinesByFile.has("README.md"), false);
+  // CONTRACT CHANGE (round-2 audit, see test/failopen.test.ts): raw added lines are now
+  // captured for NON-CODE files too. This assertion previously required the opposite,
+  // which was the defect: content-matched constraints and Veto tripwires legitimately
+  // scope non-code paths (.github/workflows/**, *.sql, Dockerfile), and an empty
+  // scoped-line set is read by buildCheckReport as "cannot prove a violation ⇒ complies"
+  // — so the pre-edit hook denied such an edit while `hunch check --strict` passed the
+  // commit. Code-only accounting (addedSymbols/addedDeps/addedLines) is unchanged.
+  assert.deepEqual(a.addedLinesByFile.get("README.md"), ["docs only, not a code file"]);
+  assert.ok(!a.addedSymbols.length || !a.addedSymbols.some((s) => s.name === "docs"), "a prose line is still never a symbol");
 });
 
 test("moving a symbol between files is added+removed, not 'changed' (regression: per-file classification)", () => {

@@ -3101,25 +3101,29 @@ program
         console.log("   Strict mode fails closed because an omitted source file could hide a semantic violation.");
       }
     }
-    if (!files.length) {
-      console.log(markdown ? renderMarkdown(emptyReport) : "No changed files to check.");
-      if (teamFreshnessFailure) fail(teamFreshnessFailure);
-      if (opts.strict && semanticIssues.length) process.exitCode = 1;
-      store.close();
-      return;
-    }
     // DIRECT (scope match) + NEAR (blast radius) + REGRESSION (re-added retired
     // code) + REDUNDANT (adds a symbol already defined elsewhere — advisory) + the
     // hardened strict gate + causal `why` citations — all assembled by the shared
     // store.buildCheckReport (also used by the hunch_merge_verdict tool).
-    const diff = exactCommit ? commitDiff(exactCommit, root) : opts.base ? rangeDiff(opts.base, root) : opts.working ? workingDiff(root) : stagedDiff(root);
-    const report: CheckReport = store.buildCheckReport(files, diff, {
-      strict: !!opts.strict,
-      lastChange: (f) => lastChangeDate(f, root),
-      publicOnly: !!opts.publicOnly,
-    });
-
-    if (opts.blast && !markdown) {
+    //
+    // A ZERO-FILE diff must NOT short-circuit the run: the per-file report has nothing
+    // to say, but the GRAPH-WIDE gates below (Architectural Conformance and Constitution
+    // policy) ask "does the code, right now, still satisfy recorded intent?" — a question
+    // independent of what this diff touched. Returning early here made a delete-only PR a
+    // vacuous green (deletions are excluded by the enumerators' --diff-filter=ACMR, so
+    // such a PR enumerates zero files) — including a deletion of the very symbol a
+    // blocking conformance predicate or an active policy guards.
+    const diff = files.length
+      ? (exactCommit ? commitDiff(exactCommit, root) : opts.base ? rangeDiff(opts.base, root) : opts.working ? workingDiff(root) : stagedDiff(root))
+      : "";
+    const report: CheckReport = files.length
+      ? store.buildCheckReport(files, diff, {
+        strict: !!opts.strict,
+        lastChange: (f) => lastChangeDate(f, root),
+        publicOnly: !!opts.publicOnly,
+      })
+      : emptyReport;
+    if (opts.blast && !markdown && files.length) {
       console.log(`Blast radius of ${files.length} changed file(s):`);
       for (const f of files) {
         const b = store.blastRadiusFiles(f);
@@ -3129,7 +3133,9 @@ program
       console.log("");
     }
 
-    console.log(markdown ? renderMarkdown(report) : renderText(report));
+    console.log(files.length
+      ? (markdown ? renderMarkdown(report) : renderText(report))
+      : (markdown ? renderMarkdown(emptyReport) : "No changed files to check."));
 
     // ARCHITECTURAL CONFORMANCE: does the RESULTING code still satisfy every recorded
     // architectural invariant? This is graph-reachability, not a diff — so it catches semantic

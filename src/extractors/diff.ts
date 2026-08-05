@@ -162,13 +162,21 @@ export function analyzeDiff(diff: string): DiffAnalysis {
 
     // ---- inside a hunk: content lines ----
     if (raw.startsWith("+")) {
-      if (!isCode(curFile)) continue;
-      addedLines++;
-      if (!curAdded && !curDeleted) filesModified.add(curFile);
       const body = raw.slice(1);
+      // Raw added lines are captured for EVERY file, before the code-only gate:
+      // content-matched constraints and Veto tripwires are not code-only rules
+      // (a blocking invariant legitimately scopes .github/workflows/**, *.sql,
+      // Dockerfile). Skipping them here left `scopedAdded` empty, which
+      // buildCheckReport reads as "cannot prove a violation ⇒ complies" — so the
+      // pre-edit hook denied the edit while `hunch check --strict` passed the
+      // very commit that landed it. Symbol/import extraction and the churn
+      // counters below stay code-only, unchanged.
       let lines = addedLinesBy.get(curFile);
       if (!lines) { lines = []; addedLinesBy.set(curFile, lines); }
       lines.push(body);
+      if (!isCode(curFile)) continue;
+      addedLines++;
+      if (!curAdded && !curDeleted) filesModified.add(curFile);
       const d = declOf(body);
       if (d) declsFor(curFile)?.added.set(d.name, d);
       const imp = importOf(body);
