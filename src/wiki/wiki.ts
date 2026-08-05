@@ -867,8 +867,26 @@ export async function generateWiki(
   if (written.length || removed.length) {
     const pages: WikiManifest["pages"] = {};
     const entry = (page: string, component: string, hash: string, state: WikiEntry["state"]): void => {
-      const keep = state === "fresh" ? prior?.pages[page] : undefined;
-      pages[page] = keep ?? { component, hash, generated: opts.now, bytes: bytesByPage.get(page) };
+      const prev = prior?.pages[page];
+      const justWritten = bytesByPage.get(page);
+      // Carry the prior entry forward ONLY for a fresh page this run did not rewrite.
+      // A full regen (`only: "all"`) rewrites every page, so reusing the prior entry
+      // there recorded the OLD bytes against freshly written content — making the
+      // hand-edit tripwire fire on Hunch's own output, so `hunch wiki --check` exited
+      // 1 immediately after a successful `hunch wiki` and the tripwire's signal for a
+      // REAL hand edit was destroyed.
+      if (state === "fresh" && justWritten === undefined && prev) {
+        pages[page] = prev;
+        return;
+      }
+      pages[page] = {
+        component,
+        hash,
+        // Keep the original stamp for an unchanged-but-rewritten page so a full regen
+        // stays byte-idempotent in git.
+        generated: state === "fresh" && prev ? prev.generated : opts.now,
+        bytes: justWritten ?? prev?.bytes,
+      };
     };
     for (const e of status.entries) entry(e.page, e.pack.component.id, e.hash, e.state);
     for (const a of status.adoptions) entry(a.page, `${ADOPTED_PREFIX}${a.doc.rel}`, a.hash, a.state);

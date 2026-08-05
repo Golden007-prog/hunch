@@ -104,6 +104,14 @@ export function scanRepoDocs(decisions: readonly Decision[], root: string): Repo
         issues.push(`line ${a.line}: pinned to ${a.pin} (topic "${a.topic}"), which does not exist`);
       } else if (superseded && current && current.id !== a.pin) {
         issues.push(`line ${a.line}: pinned to superseded ${a.pin}; current for "${a.topic}" is ${current.id}`);
+      } else if (pinned.status === "rejected") {
+        // The ledger tells readers to "Trust ✅". A doc pinned to an approach the team
+        // explicitly REJECTED is the opposite of grounded — and the pre-edit hook, which
+        // only injects live decisions, already disagrees with the ✅ this used to award.
+        issues.push(`line ${a.line}: pinned to ${a.pin}, a REJECTED decision (topic "${a.topic}")${current ? `; current is ${current.id}` : ""}`);
+      } else if (pinned.status === "proposed") {
+        // Roadmap intent, not an in-force answer: it neither grounds the doc nor makes
+        // it stale, so the doc falls to the honest "unverified" tier.
       } else if (!superseded) {
         groundedPins++;
       }

@@ -3566,18 +3566,29 @@ program
         // When the prompt reads like a correction ("no / that's wrong / never X"),
         // nudge the agent to PERSIST it as an enforced constraint (Never Twice) —
         // not just obey it this once and forget it next session.
-        let text = looksLikeCorrection(evt.prompt) ? `${HOOK_REMINDER}\n\n${CORRECTION_NUDGE}` : HOOK_REMINDER;
+        const isCorrection = looksLikeCorrection(evt.prompt);
+        let text = isCorrection ? `${HOOK_REMINDER}\n\n${CORRECTION_NUDGE}` : HOOK_REMINDER;
+        // Payloads that must NEVER be deduped away. The dedup key hashes CONTENT, and
+        // this content is assembled from constants — so two back-to-back corrections
+        // produce byte-identical text and the second (usually the escalating one) was
+        // silently swallowed, never becoming an enforced rule. Same for the unverified
+        // nag, which is documented as the one nag that must repeat but rode the same
+        // deduped payload and so fired once per streak.
+        let mustDeliver = isCorrection;
         // Pipeline turn bookkeeping (fresh block budget) + the one nag that must
         // repeat: edits from an earlier turn still unverified.
         if (evt.session_id && pipelineEnabled()) {
           const st = onPrompt(loadPipelineState(evt.session_id));
           savePipelineState(evt.session_id, st);
-          if (!st.verifyAfterEdit) text += `\n\n${UNVERIFIED_NAG}`;
+          if (!st.verifyAfterEdit) {
+            text += `\n\n${UNVERIFIED_NAG}`;
+            mustDeliver = true;
+          }
         }
-        // Once per session is enough for the availability reminder — repeating it
-        // every prompt burns context for zero information. A correction nudge has
-        // different content, so it always comes through (dec_244397d920).
-        if (injectionMode(evt.session_id, "prompt-reminder", text) === "delta") return;
+        // Once per session is enough for the bare availability reminder — repeating it
+        // every prompt burns context for zero information (dec_244397d920). Only that
+        // ambient case is deduped.
+        if (!mustDeliver && injectionMode(evt.session_id, "prompt-reminder", text) === "delta") return;
         emitContext(provider, "UserPromptSubmit", text);
         return;
       }
