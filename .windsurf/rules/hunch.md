@@ -6,7 +6,7 @@ description: Hunch engineering memory — consult the hunch_* MCP tools before e
 <!-- HUNCH:START — auto-generated, do not edit by hand -->
 ## 🧠 Hunch (Engineering Memory)
 
-This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **144 decisions, 2 bugs, 9 constraints, 16 components, 3 policies**.
+This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **144 decisions, 2 bugs, 9 constraints, 16 components, 3 policies, 1 open findings**.
 
 **Consult Hunch via the `hunch_*` MCP tools — pick by MOMENT, not from memory:**
 
@@ -26,6 +26,7 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 
 **Before editing:**
 - `hunch_check_constraints(scope)` and `hunch_get_dependents(symbol)` / `hunch_blast_radius(target)` — invariants in scope + who you'd break. (The pre-edit hook injects this per file automatically; call these for PLANNING breadth.)
+- `hunch_findings(scope?)` — known-but-unfixed gaps in the area (past audits, measurements, incidents) so you inherit them instead of re-discovering them.
 
 **Before committing / merging:**
 - `hunch_conformance()` — does the code still SATISFY recorded intent? Run before and after a refactor.
@@ -39,6 +40,7 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 **After deciding / when corrected:**
 - `hunch_capture_decision(topic?)` → `hunch_record_decision(...)` — interview first, then write; status `proposed` = roadmap intent (shows in `hunch now`).
 - `hunch_record_correction(...)` — a human correction becomes an ENFORCED rule (Never Twice), not a one-session memory.
+- `hunch_record_finding(...)` — an OBSERVATION with no code change (an audit that found a gap, a measured number, an incident) becomes durable memory anchored to a date + evidence; `/audit` runs the ritual.
 - `hunch_timeline(target)` — decision history when investigating how something evolved.
 
 ### ⛔ Top invariants (do not break)
