@@ -24,8 +24,8 @@ import { join, dirname } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import type { Invocation } from "./scaffold.js";
 import type { HookProvider } from "../core/agenthook.js";
-import { renderHunchSection, upsertSection, updateClaudeMd } from "./claudemd.js";
-import { isGitCleanPath } from "../extractors/git.js";
+import { renderHunchSection, stripManagedSection, upsertSection, updateClaudeMd } from "./claudemd.js";
+import { headFileContent, isGitCleanPath } from "../extractors/git.js";
 
 /** Strip // line and block comments + trailing commas (JSONC → JSON). String-aware
  *  (double-quoted, with escapes) so a // inside a value isn't mangled. VS Code's
@@ -435,21 +435,48 @@ export function refreshExistingGrounding(root: string, store: HunchStore): strin
   return changed;
 }
 
-/** Capture-commit refresh: rewrite ONLY grounding docs that are git-clean, and return the
- *  absolute paths of the ones that changed so the caller folds them into the memory commit
- *  (commitAndPushHunch alsoStage). This keeps committed record counts permanently true —
- *  every capture used to bump the count and re-stale the committed docs, failing the
- *  release gate's clean-tree check on the next CI index (the refresh-counts treadmill).
- *  A user-dirty or untracked doc is left completely untouched (never refreshed, never
- *  staged); it heals on the next manual `hunch sync` or `hunch index`. */
+/** Wholly-Hunch-owned grounding docs (namespaced rule files the generators emit
+ *  in full). Any dirt in these is generated dirt by contract — there is no user
+ *  prose to protect, so a stale copy is always safe to regenerate and stage. */
+const WHOLLY_OWNED_GROUNDING = new Set([
+  join(".cursor", "rules", "hunch.mdc"),
+  join(".windsurf", "rules", "hunch.md"),
+]);
+
+/** Is a DIRTY grounding doc's divergence from HEAD confined to generated content?
+ *  Marker-managed docs (CLAUDE.md, AGENTS.md, copilot-instructions): compare
+ *  worktree vs HEAD with the managed section stripped from both — equal outside
+ *  the block means regenerating cannot lose user prose. Wholly-owned rule files
+ *  need no comparison. Untracked files return false: a doc the user hasn't
+ *  committed is theirs to stage. */
+function generatedDirtOnly(root: string, rel: string, current: string): boolean {
+  if (WHOLLY_OWNED_GROUNDING.has(rel)) return headFileContent(root, rel) !== null;
+  const head = headFileContent(root, rel);
+  if (head === null) return false;
+  return stripManagedSection(head) === stripManagedSection(current);
+}
+
+/** Capture-commit refresh: rewrite grounding docs that are git-clean OR whose only
+ *  divergence from HEAD is generated content, and return the absolute paths to fold
+ *  into the memory commit (commitAndPushHunch alsoStage). This keeps committed record
+ *  counts permanently true — every capture used to bump the count and re-stale the
+ *  committed docs, failing the release gate's clean-tree check on the next CI index
+ *  (the refresh-counts treadmill). The generated-dirt branch closes the second half
+ *  (fnd_b269d5c422): once a doc went stale-dirty, the clean-only rule skipped it on
+ *  every later flush FOREVER, and each release needed a manual chore commit. A doc
+ *  whose USER PROSE differs from HEAD is still left completely untouched. */
 export function refreshCommittableGrounding(root: string, store: HunchStore): string[] {
   const changed: string[] = [];
   for (const [rel, write] of groundingTargets(root, store)) {
     const file = join(root, rel);
-    if (!existsSync(file) || !isGitCleanPath(root, rel)) continue;
+    if (!existsSync(file)) continue;
     const before = readFileSync(file, "utf8");
+    const clean = isGitCleanPath(root, rel);
+    if (!clean && !generatedDirtOnly(root, rel, before)) continue;
     write();
-    if (readFileSync(file, "utf8") !== before) changed.push(file);
+    // A doc that was stale-DIRTY must be staged even when the regeneration is a
+    // byte no-op — the commit is what re-syncs HEAD with the worktree.
+    if (readFileSync(file, "utf8") !== before || !clean) changed.push(file);
   }
   return changed;
 }

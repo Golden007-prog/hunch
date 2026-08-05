@@ -13,6 +13,17 @@ import { PolicyRepository } from "../constitution/repository.js";
 const START = "<!-- HUNCH:START — auto-generated, do not edit by hand -->";
 const END = "<!-- HUNCH:END -->";
 
+/** Remove the managed HUNCH section (markers inclusive), leaving only the
+ *  user-authored surroundings. Lets a caller decide whether two versions of a
+ *  doc differ ONLY in generated content (the stranded-grounding heal,
+ *  fnd_b269d5c422): equal outside the block ⇒ regenerating cannot lose prose. */
+export function stripManagedSection(text: string): string {
+  const iStart = text.indexOf(START);
+  const iEnd = text.indexOf(END);
+  if (iStart < 0 || iEnd <= iStart) return text;
+  return text.slice(0, iStart) + text.slice(iEnd + END.length);
+}
+
 export function renderHunchSection(store: HunchStore, root?: string): string {
   const constraints = store.json
     .loadAll("constraints")

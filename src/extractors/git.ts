@@ -704,6 +704,22 @@ export function isGitCleanPath(root: string, rel: string): boolean {
   }
 }
 
+/** The committed (HEAD) content of a tracked file, or null when the path is
+ *  untracked/absent at HEAD or git is unavailable. Used to decide whether a
+ *  dirty grounding doc differs from HEAD ONLY inside its generated section
+ *  (the stranded-grounding heal, fnd_b269d5c422). */
+export function headFileContent(root: string, rel: string): string | null {
+  try {
+    return execFileSync("git", ["-C", root, "show", `HEAD:${rel.replace(/\\/g, "/")}`], {
+      encoding: "utf8",
+      env: foreignRepoEnv(process.env),
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Is the staged set a clean, MEMORY-ONLY change — only JSON record adds/updates, nothing else?
  *  The overlay store is entirely JSON (decisions/, bugs/, …, manifest.json). A real memory sync
  *  is purely additive; a DELETION, rename, or any non-.json staged path means hunchDir is NOT a
