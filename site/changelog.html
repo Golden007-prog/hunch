@@ -107,6 +107,10 @@
 
     <div class="clog">
       <div class="clog-group">
+        <div class="clog-date">Aug 6, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.10.2</span><span class="clog-t"><b>Guards that were quietly failing open</b> — a second audit round found four enforcement paths that treated "cannot evaluate" as "complies", so a blocking rule could be denied by the pre-edit hook and then pass <span class="mono">hunch check --strict</span> on the very commit that broke it. All four now fail closed: rules on non-code files (CI workflows, SQL, Dockerfiles) match again, a forbidden dependency is checked against every added import rather than the first, external packages resolve in conformance predicates, and a delete-only PR no longer skips the graph-wide gates. Also: the wiki can no longer be steered into deleting files outside its own directory, <span class="mono">wiki --private</span> stops sending overlay records to your LLM provider by default, and construction (<span class="mono">new Foo()</span>) plus method-less Python classes finally appear in the graph — blast radius and <span class="mono">hunch why</span> were blind to both.</span></div>
+      </div>
+      <div class="clog-group">
         <div class="clog-date">Aug 5, 2026</div>
         <div class="clog-row"><span class="rel-tag">v1.10.1</span><span class="clog-t"><b>The audit wave — 28 defects closed in a day</b> — a multi-agent code audit filed 29 issues against the released code; 28 are fixed here, each with a receipt and a regression test. The ones you'd feel: memory can no longer be lost to a crashed migration, an interrupted rewrite, or a torn config write; synthesis can no longer silently bill a metered Bedrock/Vertex gateway from your shell profile; non-ASCII file paths no longer slip past constraint checks; stranded git locks self-heal instead of silently wedging auto-commit; and your own hooks and slash commands are never overwritten by <span class="mono">hunch init</span>.</span></div>
       </div>
