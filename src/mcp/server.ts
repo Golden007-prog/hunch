@@ -689,7 +689,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
       if (!roadmap.length) L.push("  (empty — record intent as a PROPOSED decision and it appears here)");
       for (const r of roadmap) L.push(`  • ${r.title} (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
       if (pendingReview > 0) L.push("", `${pendingReview} legacy un-vouched draft(s) — \`hunch adopt-drafts\` auto-trusts them as advisory (new captures land trusted automatically).`);
-      const escalations = pendingEscalations(store.json.loadAll("decisions"));
+      const escalations = pendingEscalations(store.advisoryRecs("decisions"));
       if (escalations.length) {
         L.push("", `⚖ ${escalations.length} decision(s) need the human's call — ASK inline (never queue): ${escalations.map((e) => e.question).join(" · ")}`);
       }
@@ -709,11 +709,11 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
     {
       title: "Decisions the human must make now (ask inline, not a queue)",
       description:
-        "The rare decisions the graph cannot resolve on its own — surfaced so you ASK THE USER in the prompt at the moment, then act. Auto-captured memory is trusted automatically and never appears here; this returns topic conflicts (>1 live decision for one topic) and Constitution human moments (candidate policies awaiting review, proposed policies awaiting an activation decision). Normally empty. Raise each question with the user; do NOT decide it for them — an entry is a question, never an approval. Public store only.",
+        "The rare decisions the graph cannot resolve on its own — surfaced so you ASK THE USER in the prompt at the moment, then act. Auto-captured memory is trusted automatically and never appears here; this returns topic conflicts (>1 live decision for one topic) and Constitution human moments (candidate policies awaiting review, proposed policies awaiting an activation decision). Normally empty. Raise each question with the user; do NOT decide it for them — an entry is a question, never an approval. Reads the public store, or the unified overlay when the repo is in shared mode (where the overlay IS the store) — never private-mode overlay records.",
       inputSchema: {},
     },
     async (): Promise<ToolResult> => {
-      const items: Escalation[] = pendingEscalations(store.json.loadAll("decisions"));
+      const items: Escalation[] = pendingEscalations(store.advisoryRecs("decisions"));
       try {
         items.push(...policyEscalations(new ConstitutionService(store, root).list({ publicOnly: true }).map((p) => ({ ...p, last_action: p.audit.at(-1)?.action ?? null }))));
       } catch { /* constitution unavailable — memory escalations still surface */ }

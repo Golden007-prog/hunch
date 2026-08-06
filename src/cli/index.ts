@@ -3600,7 +3600,12 @@ program
         // travel further than a terminal. Union view: `hunch now --private`.
         const s = new HunchStore(paths);
         try {
-          const decisions = s.json.loadAll("decisions");
+          // Mode-aware: in unified ("shared") mode the public `.hunch/` is only a routing
+          // shell, so loading it alone makes session-start orientation — recent work,
+          // roadmap, escalations — report an empty graph for a repo whose memory is all
+          // in the overlay. Private mode stays public-only: session transcripts travel
+          // further than a terminal.
+          const decisions = s.advisoryRecs("decisions");
           const { recent, roadmap, pendingReview } = nowData(decisions, 3);
           if (!decisions.length) {
             // Fresh graph: nothing to orient on, but the operating loop still ships.
@@ -3724,7 +3729,10 @@ program
       }
       // Decision-grounding (§3): for topic-anchored decisions governing this file, state
       // the current decision assertively (graph over any stale doc) + what it rejected.
-      const grounding = renderGrounding(ctx.decisions);
+      // The FULL decision set is passed alongside the file slice so a topic contested
+      // somewhere else in the graph is reported as unresolved instead of being asserted
+      // as settled — the collision's two sides often live in different files.
+      const grounding = renderGrounding(ctx.decisions, store.recs("decisions"));
       if (grounding) text += `\n\n${grounding}`;
       if (docGround) text += `\n\n${docGround}`;
       // Identical grounding already shown this session → one-line delta instead of

@@ -262,6 +262,20 @@ export function shadowCommitEligible(root: string, policy: PolicySpec, commit: s
   throw new Error(`cannot compare shadow commit ${commit} with policy introduction ${sourceCommit}: ${(check.stderr ?? "").trim() || `git exited ${check.status}`}`);
 }
 
+/** The commit a shadow receipt's ancestry check must be anchored to.
+ *
+ *  A WORKSPACE receipt retains a content-addressed PSEUDO-head for dedupe — it is not a
+ *  real git rev. Handing it to `git merge-base --is-ancestor` makes git exit with
+ *  neither 0 nor 1, which shadowCommitEligible turns into a THROW, so the surface
+ *  hard-fails instead of reporting. Ancestry is always the real base commit.
+ *
+ *  Shared because that rule was previously written out at one call site (with this
+ *  explanation attached) and silently omitted at another — the same one-side-only drift
+ *  as OVERLAY_IGNORE. One definition, both callers. */
+export function shadowAncestryCommit(record: ShadowEvaluationRecord): string {
+  return record.evaluation.repository.base ?? record.evaluation.repository.head;
+}
+
 export class ConstitutionService {
   readonly repository: PolicyRepository;
   readonly g2Repository: G2EvidenceRepository;
@@ -1091,7 +1105,7 @@ export class ConstitutionService {
       if (!policy || publicDuplicate || policy.proof !== record.proof_id) return false;
       const proof = proofs.find((candidate) => candidate.id === record.proof_id);
       if (!proof || proof.policy_hash !== record.policy_hash) return false;
-      if (!shadowCommitEligible(this.root, policy, record.evaluation.repository.head)) return false;
+      if (!shadowCommitEligible(this.root, policy, shadowAncestryCommit(record))) return false;
       const composition = compositionDescendants(policy, policies);
       return proof.policy_hash === policyProofHash(policy, composition);
     });
@@ -1352,13 +1366,7 @@ export class ConstitutionService {
     const audit = this.repository.listShadowDispositions(opts).filter((record) => record.policy_id === id);
     const current = currentShadowDispositions(audit);
     const history = this.repository.listDispositions(opts).filter((record) => record.policy_id === id && record.proof_id === proof.id);
-    const scoringRecords = records.filter((record) => shadowCommitEligible(
-      this.root,
-      policy,
-      // Workspace receipts retain their content-addressed pseudo-head for
-      // dedupe, but ancestry eligibility is anchored to the real base commit.
-      record.evaluation.repository.base ?? record.evaluation.repository.head,
-    ));
+    const scoringRecords = records.filter((record) => shadowCommitEligible(this.root, policy, shadowAncestryCommit(record)));
     const report = scoreShadowPrecision(policy, proof, scoringRecords, audit, history, thresholds);
     return {
       ...report,

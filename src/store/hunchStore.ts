@@ -251,6 +251,22 @@ export class HunchStore {
     return [...byId.values()];
   }
 
+  /** Records for an AGENT-FACING advisory surface (escalations, orientation).
+   *
+   *  In unified ("shared") mode the overlay IS the one store — the public `.hunch/` is
+   *  only a routing shell — so reading the public home alone returns NOTHING and the
+   *  surface reports "all clear" for a store whose every record is elsewhere. That is
+   *  the worst possible answer for escalations, whose entire job is to raise the
+   *  questions only a human can settle: a real topic collision came back as an empty
+   *  list and the agent was affirmatively told there was nothing to escalate.
+   *
+   *  In "private" mode the split is a real privacy boundary, so this stays public-only:
+   *  private records must not surface on a public advisory surface. Mode-aware, not a
+   *  blanket union — the distinction is the point. */
+  advisoryRecs<K extends EntityKind>(kind: K): EntityFor[K][] {
+    return this.unified ? this.recs(kind) : this.json.loadAll(kind);
+  }
+
   /** Records from exactly one storage home (no public/private union). Capture
    * paths use this for identity/lineage checks so a private record can never
    * inherit or disclose relationships from an identically-shaped public record. */
@@ -444,22 +460,38 @@ export class HunchStore {
 
   /** Portable bounded fallback over titles/bodies. Each natural-language token
    * is an OR candidate, mirroring the high-recall FTS query closely enough for
-   * runtimes whose SQLite build omits the optional FTS5 module. */
+   * runtimes whose SQLite build omits the optional FTS5 module.
+   *
+   * `_` is BOTH a LIKE single-character wildcard and the dominant character in this
+   * codebase's identifiers (dec_/con_/bug_ ids, snake_case symbols). The old code
+   * STRIPPED it, so a search for `hunch_record_decision` looked for the literal
+   * `hunchrecorddecision` and matched nothing — on precisely the runtimes with no FTS5,
+   * where this fallback is the only search there is. Escaping keeps the term literal;
+   * leaving `_` unescaped would silently over-match instead. */
   private likeSearch(query: string, limit: number, kind?: string): SearchHit[] {
     const terms = (query.toLowerCase().match(/[\p{L}\p{N}_]+/gu)
-      ?? [query.toLowerCase().replace(/[%_]/g, "").trim()].filter(Boolean)).slice(0, 32);
+      ?? [query.toLowerCase().trim()].filter(Boolean)).slice(0, 32);
     if (!terms.length) return [];
-    const predicates = terms.map(() => `(lower(title) LIKE ? OR lower(body) LIKE ?)`).join(" OR ");
+    const predicates = terms.map(() => `(lower(title) LIKE ? ESCAPE '\\' OR lower(body) LIKE ? ESCAPE '\\')`).join(" OR ");
     const likes = terms.flatMap((term) => {
-      const like = `%${term.replace(/[%_]/g, "")}%`;
+      const like = `%${term.replace(/[\\%_]/g, "\\$&")}%`;
       return [like, like];
     });
     const where = kind ? `kind = ? AND (${predicates})` : `(${predicates})`;
     const params: Array<string | number> = kind ? [kind, ...likes, limit] : [...likes, limit];
+    // Ordered so a TRUNCATING limit drops the least relevant row rather than an
+    // arbitrary one: a title hit outranks a body-only hit, then shortest title
+    // (a constraint's one-line statement beats a long decision body that merely
+    // mentions the term), then id for determinism. Without this, `LIMIT` returned
+    // rowid order and could drop the constraint a caller was checking for.
+    const titleLikes = terms.map(() => `lower(title) LIKE ? ESCAPE '\\'`).join(" OR ");
+    const titleParams = terms.map((term) => `%${term.replace(/[\\%_]/g, "\\$&")}%`);
     const rows = this.db.prepare(
       `SELECT ref, kind, title, substr(body,1,120) AS snip FROM search
-       WHERE ${where} LIMIT ?`,
-    ).all(...params) as Array<{ ref: string; kind: string; title: string; snip: string }>;
+       WHERE ${where}
+       ORDER BY CASE WHEN ${titleLikes} THEN 0 ELSE 1 END, length(title), ref
+       LIMIT ?`,
+    ).all(...(kind ? [kind, ...likes, ...titleParams, limit] : [...likes, ...titleParams, limit])) as Array<{ ref: string; kind: string; title: string; snip: string }>;
     return rows.map((r) => ({ ref: r.ref, kind: r.kind, title: r.title, snippet: r.snip, score: 0 }));
   }
 

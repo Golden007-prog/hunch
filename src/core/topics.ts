@@ -90,13 +90,38 @@ export function captureConflicts(
  *  assembleContext, so no freshness re-check is needed here — a superseded-only-anchored
  *  file is caught by the anchor-stale drift check, and the commit-time staleness gate
  *  applies the age-downgrade. Returns "" when no anchored decision governs the file. */
-export function renderGrounding(fileDecisions: readonly Decision[]): string {
+export function renderGrounding(
+  fileDecisions: readonly Decision[],
+  allDecisions: readonly Decision[] = fileDecisions,
+): string {
+  // A CONTESTED topic must never be stated as authority. This is the same fail-safe
+  // currentForTopic applies (`live.length === 1 ? live[0] : null`) and renderDocGrounding
+  // already honours — this reader was the one that bypassed it, filtering per-decision
+  // instead of per-topic. Two live decisions on one topic each got their own assertive
+  // bullet, and because each bullet lists what it REJECTED, the agent was told, in the
+  // last context before it writes, that both answers are correct and each is forbidden.
+  //
+  // `allDecisions` is the FULL set, not the file slice, on purpose: the colliding pair
+  // can name different files, so a file-scoped check would see one decision, call it
+  // uncontested, and assert it as THE answer while the topic is globally disputed.
+  const contested = topicCollisions(allDecisions);
   const anchored = fileDecisions.filter((d) => d.topic && isLive(d));
   if (!anchored.length) return "";
-  const lines = anchored.map((d) => {
+  const settled = anchored.filter((d) => !contested.has(d.topic!));
+  const disputed = [...new Set(anchored.filter((d) => contested.has(d.topic!)).map((d) => d.topic!))].sort();
+
+  const lines = settled.map((d) => {
     const rej = d.alternatives_rejected.length ? ` (rejected: ${d.alternatives_rejected.join("; ")})` : "";
     return `• "${d.topic}": ${d.decision || d.title} [${d.id}]${rej}`;
   });
+  // Name the conflict instead of silently dropping it: an unexplained absence would read
+  // as "nothing is recorded here", which is how a contested topic gets re-decided by
+  // accident. This is a question for the human, never an answer for the agent.
+  for (const topic of disputed) {
+    const ids = contested.get(topic)!.map((d) => d.id).join(", ");
+    lines.push(`• "${topic}": ⚠ UNRESOLVED — ${contested.get(topic)!.length} live decisions (${ids}). No current answer; ask the human before choosing. Resolve with \`hunch reconcile-topics\` (supersede one, or split the topic).`);
+  }
+  if (!lines.length) return "";
   return `🧭 Hunch grounding — this file is anchored to recorded decisions; follow the graph, not a stale doc:\n${lines.join("\n")}`;
 }
 

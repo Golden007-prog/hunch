@@ -742,21 +742,27 @@ function runLeg(
     const testFile = join(checkout, candidate.test.file);
     mkdirSync(dirname(testFile), { recursive: true });
     writeFileSync(testFile, source);
-    const exactEvidence = candidate.grounding === "human_decision_plus_added_test";
+    // ONE scoring mode, always reporter-based. The exit code of a `node --test` run is a
+    // property of the whole FILE, not of the selected test: a failure in an unrelated
+    // sibling flips it, so a proxy-grounded candidate could record behavior_confirmed (or
+    // its negation) from evidence that has nothing to do with the candidate. The reporter
+    // path already existed and is the unconditional standard in every other evidence
+    // surface here (behaviorEvaluator, g2Drills, g3Conformance) — this was the one holdout.
+    //
+    // The pattern is also derived from the candidate rather than trusting runner.argv:
+    // argv could carry a pattern selecting a DIFFERENT test than the one being attested,
+    // and an un-escaped raw name is a regex that can match siblings.
     const reporter = join(run, "reporter.mjs");
-    const patternArg = candidate.runner.argv.find((arg) => arg.startsWith("--test-name-pattern="))
-      ?? `--test-name-pattern=${candidate.test.name}`;
-    if (exactEvidence) writeFileSync(reporter, NODE_TEST_REPORTER_SOURCE);
-    const testArgs = exactEvidence
-      ? [
-          "--test",
-          nodeTestIsolationFlag(),
-          patternArg,
-          `--test-reporter=${pathToFileURL(reporter).href}`,
-          "--test-reporter-destination=stdout",
-          candidate.test.file,
-        ]
-      : ["--test", patternArg, candidate.test.file];
+    const patternArg = `--test-name-pattern=${exactNodeTestPattern(candidate.test.name)}`;
+    writeFileSync(reporter, NODE_TEST_REPORTER_SOURCE);
+    const testArgs = [
+      "--test",
+      nodeTestIsolationFlag(),
+      patternArg,
+      `--test-reporter=${pathToFileURL(reporter).href}`,
+      "--test-reporter-destination=stdout",
+      candidate.test.file,
+    ];
     let args: string[] | null;
     if (candidate.runner.kind === "node-test") {
       args = testArgs;
@@ -784,31 +790,18 @@ function runLeg(
       } else {
         const exitCode = result.status ?? null;
         const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-        if (exactEvidence) {
-          const matches = nodeTestReporterEvents(result.stdout ?? "")
-            .filter((event) => event.name === candidate.test.name && !event.skip && !event.todo);
-          if (matches.length === 0) {
-            leg = errorLeg(commit, expected, nodeTestInfrastructureError(output) ?? "selected-test-not-executed", dependencySnapshotId);
-          } else if (matches.length > 1) {
-            leg = errorLeg(commit, expected, "selected-test-ambiguous", dependencySnapshotId);
-          } else if (matches[0]!.type === "test:pass" && exitCode === 0) {
-            leg = { commit, expected, result: "passed", exit_code: exitCode, ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}) };
-          } else if (matches[0]!.type === "test:fail" && exitCode !== 0) {
-            leg = { commit, expected, result: "failed", exit_code: exitCode, ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}) };
-          } else {
-            leg = errorLeg(commit, expected, "runner-outcome-inconsistent", dependencySnapshotId);
-          }
+        const matches = nodeTestReporterEvents(result.stdout ?? "")
+          .filter((event) => event.name === candidate.test.name && !event.skip && !event.todo);
+        if (matches.length === 0) {
+          leg = errorLeg(commit, expected, nodeTestInfrastructureError(output) ?? "selected-test-not-executed", dependencySnapshotId);
+        } else if (matches.length > 1) {
+          leg = errorLeg(commit, expected, "selected-test-ambiguous", dependencySnapshotId);
+        } else if (matches[0]!.type === "test:pass") {
+          leg = { commit, expected, result: "passed", exit_code: exitCode, ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}) };
+        } else if (matches[0]!.type === "test:fail") {
+          leg = { commit, expected, result: "failed", exit_code: exitCode, ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}) };
         } else {
-          const infrastructureError = exitCode === 0 ? null : nodeTestInfrastructureError(output);
-          leg = infrastructureError
-            ? errorLeg(commit, expected, infrastructureError, dependencySnapshotId)
-            : {
-                commit,
-                expected,
-                result: exitCode === 0 ? "passed" : "failed",
-                exit_code: exitCode,
-                ...(dependencySnapshotId ? { dependency_snapshot_id: dependencySnapshotId } : {}),
-              };
+          leg = errorLeg(commit, expected, "runner-outcome-inconsistent", dependencySnapshotId);
         }
       }
     }
