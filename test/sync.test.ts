@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { commitAndPushHunch, pullHunch, pullHunchStatus, syncExistingHunch } from "../src/extractors/git.js";
-import { SYMLINK_SKIP, shPath } from "./helpers.js";
+import { SYMLINK_SKIP, cleanupDir, shPath } from "./helpers.js";
 
 const g = (cwd: string, ...a: string[]): void => { execFileSync("git", a, { cwd, stdio: ["ignore", "ignore", "ignore"] }); };
 const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
@@ -33,21 +33,6 @@ function setup(): { A: string; B: string; cleanup: () => void } {
   return { A, B, cleanup: () => cleanupDir(base) };
 }
 
-/** Remove a fixture tree, riding out Windows handle lag: a timeout-killed git
- *  child's sh/sleep grandchildren can briefly outlive the kill and hold the cwd
- *  (EPERM on rm). Bounded blocking retry — never masks a persistent leak. */
-function cleanupDir(dir: string): void {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-      return;
-    } catch (e) {
-      if (attempt >= 20) throw e;
-      const until = Date.now() + 250;
-      while (Date.now() < until) { /* sync wait — node:test has no async cleanup here */ }
-    }
-  }
-}
 
 /** A local overlay with one commit-capable branch pointing at a genuinely empty bare remote. */
 function setupEmptyRemote(): {
