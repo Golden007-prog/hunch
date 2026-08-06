@@ -69,20 +69,55 @@ function createDb(sqlitePath: string): DB {
   return db;
 }
 
+/** Does this error mean the derived index FILE itself is unusable?
+ *
+ *  Matched narrowly, on SQLite's own corruption signatures only. An environment failure —
+ *  a permission denial, a full disk, a locked file — must still propagate: deleting the
+ *  file would not fix it and would destroy a cache the user may still be able to keep.
+ *  `SQLITE_CANTOPEN` ("unable to open database file") is deliberately NOT here for that
+ *  reason: it usually means a permissions or path problem, not corruption. */
+function isCorruptIndexFile(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /database disk image is malformed|file is not a database|file is encrypted or is not a database|malformed database schema|database corruption/i.test(message);
+}
+
+function discardDerivedIndex(sqlitePath: string): void {
+  for (const path of [sqlitePath, `${sqlitePath}-wal`, `${sqlitePath}-shm`]) rmSync(path, { force: true });
+}
+
 export function openDb(sqlitePath: string): DB {
   mkdirSync(dirname(sqlitePath), { recursive: true });
-  let db = createDb(sqlitePath);
+  // A corrupt file can fail at OPEN as well as at schema init (node:sqlite opens lazily,
+  // so "file is not a database" typically surfaces on the first statement — but not always).
+  let db: DB;
+  try {
+    db = createDb(sqlitePath);
+  } catch (error) {
+    if (!isCorruptIndexFile(error)) throw error;
+    discardDerivedIndex(sqlitePath);
+    db = createDb(sqlitePath);
+  }
   try {
     initializeSchema(db);
     return db;
   } catch (error) {
-    if (!(error instanceof RebuildDerivedIndex)) {
+    // The ENTIRE database is derived from the Git-native JSON in .hunch/ — it is a cache,
+    // and a cache that cannot be read should be rebuilt, not fatal. That reasoning was
+    // already written here, but it was wired to exactly ONE trigger: RebuildDerivedIndex,
+    // thrown only when an fts5 index meets a runtime without the FTS5 module. Every other
+    // error propagated as a raw SQLite string, so a corrupt file took out `hunch index`,
+    // `query`, `check` and `doctor` at once — and, because the pre-edit hook must emit
+    // nothing and exit 0 on any failure (con_03a0b94b2e), it also went SILENTLY blind,
+    // permanently, with no command left that could repair it.
+    if (!(error instanceof RebuildDerivedIndex) && !isCorruptIndexFile(error)) {
       db.close();
       throw error;
     }
-    db.close();
-    for (const path of [sqlitePath, `${sqlitePath}-wal`, `${sqlitePath}-shm`]) rmSync(path, { force: true });
+    try { db.close(); } catch { /* a corrupt handle may refuse to close; the file goes anyway */ }
+    discardDerivedIndex(sqlitePath);
     db = createDb(sqlitePath);
+    // Deliberately NOT wrapped in another rebuild attempt: if a freshly created file also
+    // fails, the problem is the environment, not the cache, and it must surface.
     initializeSchema(db);
     return db;
   }

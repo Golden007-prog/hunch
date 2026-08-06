@@ -96,8 +96,47 @@ export function pickWinner(ours: Rec, theirs: Rec): Rec {
   const tr = recency(theirs);
   if (orr !== tr) return orr > tr ? ours : theirs;
 
+  // A merge must never silently UNDO recorded progress. Closing a bug does not touch
+  // `provenance` or `date` — captureTestRun writes
+  // `{ ...bug, status: "fixed", lineage: { ...lineage, fixed_commit: sha } }` — so
+  // recency() TIES against the still-open side and control always reached the
+  // lexicographic tiebreak below. That tiebreak then picked the LESS-resolved record,
+  // twice over: `"fixed_commit":null` sorts above `"fixed_commit":"<sha>"` (n > "), and
+  // `"status":"open"` sorts above `"status":"fixed"` (o > f). So a clean merge reverted
+  // the closure every time, in the subsystem whose entire job is not losing state.
+  //
+  // Prefer the side carrying more one-way lifecycle evidence. Deterministic and
+  // side-independent (a pure function of each record), so A-merges-B and B-merges-A
+  // still agree.
+  const oe = closureEvidence(ours);
+  const te = closureEvidence(theirs);
+  if (oe !== te) return oe > te ? ours : theirs;
+
   // Deterministic, side-independent tiebreak so A-merges-B and B-merges-A agree.
   return canon(ours) >= canon(theirs) ? ours : theirs;
+}
+
+/** Count the one-way lifecycle facts a record carries: a fix commit, a spawned
+ *  decision/constraint, a supersession, an end of validity. Each is something that
+ *  HAPPENED and was recorded — never something a merge should quietly discard.
+ *
+ *  Deliberately counts EVIDENCE fields rather than reading `status`: a status string can
+ *  be moved in either direction (a reopened bug goes fixed -> open), but a recorded
+ *  `fixed_commit` is a fact about history. Ranking on evidence means a genuine reopen —
+ *  which clears the commit — is still allowed to win, while a merge can no longer drop a
+ *  closure that nobody reopened. */
+function closureEvidence(r: Rec): number {
+  let n = 0;
+  const lineage = r.lineage;
+  if (isRec(lineage)) {
+    for (const key of ["fixed_commit", "spawned_decision", "spawned_constraint"]) {
+      if (typeof lineage[key] === "string" && (lineage[key] as string).length > 0) n += 1;
+    }
+  }
+  for (const key of ["superseded_by", "valid_to"]) {
+    if (typeof r[key] === "string" && (r[key] as string).length > 0) n += 1;
+  }
+  return n;
 }
 
 // ---- helpers --------------------------------------------------------------
