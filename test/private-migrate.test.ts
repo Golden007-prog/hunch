@@ -57,6 +57,13 @@ test("private --migrate REFUSES when an on-disk record failed to load — never 
     // A kind whose ONLY records are invalid must also refuse (the old 0-loaded
     // fast path skipped the merge entirely while the wipe still ran).
     rmSync(join(roots[0]!, ".hunch", "decisions", "dec_ok.json"), { force: true });
+    // This test mutates record files directly, behind the store. loadAll memoizes per
+    // kind keyed by the kind directory's mtime, and the whole test runs in ~40ms — well
+    // inside one filesystem timestamp tick — so without an explicit invalidation the
+    // cache keeps serving the just-deleted record and the counts falsely agree. The
+    // long-lived MCP server calls this for the same reason after an out-of-band
+    // `hunch migrate`.
+    pub.clearCache();
     const warn2 = console.warn; console.warn = () => { /* expected skip warning */ };
     try {
       assert.throws(() => movePublicMemoryToPrivate(pub, priv), /refusing to migrate decisions/);
@@ -66,6 +73,7 @@ test("private --migrate REFUSES when an on-disk record failed to load — never 
     // A 0-byte merge tombstone is an intentional absence, not a load failure.
     rmSync(join(roots[0]!, ".hunch", "decisions", "dec_broken.json"), { force: true });
     writeFileSync(join(roots[0]!, ".hunch", "decisions", "dec_tomb.json"), "");
+    pub.clearCache(); // same out-of-band mutation, same reason
     assert.doesNotThrow(() => movePublicMemoryToPrivate(pub, priv));
   } finally {
     cleanup();
