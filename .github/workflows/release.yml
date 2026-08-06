@@ -740,7 +740,17 @@ jobs:
           let verifiedRegistry = null;
           let observedDistTag = null;
           let lastVerificationError = null;
-          for (let attempt = 1; attempt <= 12; attempt += 1) {
+          // Registry metadata and the SLSA provenance attestation do not land atomically
+          // with the publish: the tarball is fetchable while
+          // /-/npm/v1/attestations/<pkg>@<version> still 404s. v1.10.4 published
+          // correctly — signed, attested, dist-tag set — and this loop still failed the
+          // job, because 12 x 5s gave the attestation only 60s to appear (the step ran
+          // 11:26:50 -> 11:27:55) and the endpoint returned 200 shortly after.
+          // This ONLY widens the wait. Verification still fails closed on a genuinely
+          // missing or mismatched attestation — see the throw below, which is unchanged.
+          const VERIFY_ATTEMPTS = 30;
+          const VERIFY_DELAY_MS = 10_000; // 30 x 10s = 5 minutes
+          for (let attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt += 1) {
             try {
               const dist = exactDist(PACKAGE_NAME, version);
               if (!dist) throw new Error(`${PACKAGE_NAME}@${version} is not visible on npm`);
@@ -753,7 +763,7 @@ jobs:
               break;
             } catch (error) {
               lastVerificationError = error;
-              if (attempt < 12) await delay(5_000);
+              if (attempt < VERIFY_ATTEMPTS) await delay(VERIFY_DELAY_MS);
             }
           }
           if (lastVerificationError || !verifiedRegistry) {
