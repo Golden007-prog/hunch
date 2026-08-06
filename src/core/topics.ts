@@ -24,6 +24,22 @@ export function isLive(d: Decision): boolean {
   return d.status === "accepted" && d.superseded_by === null && d.valid_to === null;
 }
 
+/** In force for ENFORCEMENT — the one predicate every guard must share.
+ *
+ *  Deliberately BROADER than `isLive`: a `proposed` draft still contributes ADVISORY
+ *  signal (its tripwires are `llm_draft`, which `isVetoBlocker` can never promote to a
+ *  block), and that is the curate loop working as designed. What must never contribute
+ *  is a decision the team formally REJECTED, or one whose valid-time window was closed.
+ *
+ *  The guards previously each inlined a weaker `superseded`-only copy of this test, so a
+ *  REJECTED decision kept driving the veto, regression, retired-symbol and conformance
+ *  guards — it went on blocking commits and injecting "don't re-add this" into the
+ *  pre-edit hook, with no way to un-stick it short of hand-editing the JSON. Structural
+ *  parameter so the strict gate (which sees only a partial record) shares it too. */
+export function isInForce(d: { status?: string; superseded_by?: string | null; valid_to?: string | null }): boolean {
+  return d.status !== "superseded" && d.status !== "rejected" && !d.superseded_by && !d.valid_to;
+}
+
 /** Every live decision anchored to `topic`. In a healthy graph this is length 0 or 1;
  *  length > 1 is a topic collision the §4 resolution must settle. */
 export function liveForTopic(decisions: readonly Decision[], topic: string): Decision[] {

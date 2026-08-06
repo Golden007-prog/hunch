@@ -20,7 +20,7 @@ import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
 import { gitCommonDir, gitWorktreeRoot, sameGitPublication } from "../extractors/git.js";
 import { pathMatchesGlob } from "../core/glob.js";
-import { currentForTopic } from "../core/topics.js";
+import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
@@ -1321,9 +1321,9 @@ export class HunchStore {
     // attribution (the strict guard fails on `blocking`).
     const ordered = [...decisions].sort((a, b) => Number(blockingDec.has(b.id)) - Number(blockingDec.has(a.id)));
     for (const d of ordered) {
-      // Only IN-FORCE decisions: re-adding what an OUTDATED (superseded) decision
-      // removed is not a regression against the current design.
-      if (d.superseded_by || d.status === "superseded") continue;
+      // Only IN-FORCE decisions: re-adding what an OUTDATED (superseded), REJECTED, or
+      // window-closed decision removed is not a regression against the current design.
+      if (!isInForce(d)) continue;
       if (!d.retired.symbols.length && !d.retired.deps.length) continue;
       if (!fileRelevant(d.related_files)) continue;
       for (const s of d.retired.symbols) if (addedSyms.has(s)) add(d, "symbol", s);
@@ -1344,7 +1344,7 @@ export class HunchStore {
     const out: VetoHit[] = [];
     const seen = new Set<string>(); // dedup: one hit per decision+alternative
     for (const d of this.recs("decisions")) {
-      if (d.superseded_by || d.status === "superseded") continue; // in-force only
+      if (!isInForce(d)) continue; // in-force only (excludes rejected + window-closed)
       const tripwires = d.rejected_tripwires ?? [];
       if (!tripwires.length) continue;
       const stale = staleDecisions.has(d.id);
@@ -1410,7 +1410,7 @@ export class HunchStore {
   retiredForFile(file: string): RetiredNote[] {
     const out: RetiredNote[] = [];
     for (const d of this.recs("decisions")) {
-      if (d.superseded_by || d.status === "superseded") continue;
+      if (!isInForce(d)) continue;
       if (!d.retired.symbols.length && !d.retired.deps.length) continue;
       if (!d.related_files.some((f) => pathRelated(f, file))) continue;
       out.push({ decision: d.id, title: d.title, symbols: d.retired.symbols, deps: d.retired.deps });

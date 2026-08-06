@@ -12,6 +12,7 @@
  */
 import type { HunchStore } from "../store/hunchStore.js";
 import { externalImportNodeId } from "./externalImports.js";
+import { isInForce } from "./topics.js";
 import type { Decision, ConformancePredicate, Edge, Symbol as HunchSymbol } from "./types.js";
 
 export interface ConformanceResult {
@@ -133,7 +134,7 @@ export function checkConformance(
   const graph: ConformanceGraph = opts.graph ?? { symbols: load("symbols"), edges: load("edges") };
   const out: ConformanceResult[] = [];
   for (const d of load("decisions")) {
-    if (d.status === "superseded" || d.superseded_by) continue; // in-force decisions only
+    if (!isInForce(d)) continue; // in-force only — a REJECTED intent is not an intent
     for (const p of d.conformance ?? []) out.push(evalPredicate(graph, d, p));
   }
   return out;

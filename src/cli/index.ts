@@ -89,7 +89,7 @@ import { computeDrift } from "../core/drift.js";
 import { renderCompilerScorecard, scoreCompilerCaseBank } from "../constitution/scorecard.js";
 import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
 import { adoptProsePrompt } from "../wiki/adopt.js";
-import { topicCollisions, renderGrounding } from "../core/topics.js";
+import { topicCollisions, renderGrounding, isInForce } from "../core/topics.js";
 import { pendingEscalations, policyEscalations } from "../core/escalations.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
 import { compareCandidates } from "../core/compare.js";
@@ -3259,7 +3259,7 @@ vetoCmd
     let drafted = 0;
     let touched = 0;
     for (const d of store.json.loadAll("decisions")) {
-      if (d.superseded_by || d.status === "superseded") continue;
+      if (!isInForce(d)) continue;
       if (!d.alternatives_rejected.length) continue;
       if ((d.rejected_tripwires?.length ?? 0) > 0) continue; // never clobber existing tripwires
       const tws = draftTripwires(d.alternatives_rejected, d.related_files, knownDeps);

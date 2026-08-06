@@ -8,6 +8,8 @@
  *  weaker signals still print, as advisory. This makes strict mode safe to enable
  *  on a shared repo: a false positive downgrades to a warning instead of wrongly
  *  failing a teammate's commit. */
+import { isInForce } from "./topics.js";
+
 export const STRICT_MIN_CONFIDENCE = 0.8;
 
 /** Is a provenance source HUMAN-CONFIRMED? Token-aware, so a composite source like
@@ -42,12 +44,14 @@ export type VetoTier = "dep" | "symbol" | "pattern" | "semantic";
  *  warns. Semantic similarity never blocks. In-force + non-stale gates run first.
  *  This is what makes the "day-one is advisory" DX true (dec_a466655539). */
 export function isVetoBlocker(
-  d: { status?: string; superseded_by?: string | null },
+  d: { status?: string; superseded_by?: string | null; valid_to?: string | null },
   tw: { provenance?: { source?: string } },
   tier: VetoTier,
   stale: boolean,
 ): boolean {
-  if (d.status === "superseded" || d.superseded_by) return false; // in-force decisions only
+  // Shared in-force predicate (core/topics.ts): superseded, REJECTED and
+  // window-closed decisions all lose their teeth here, not just superseded ones.
+  if (!isInForce(d)) return false;
   if (stale) return false; // freshness gate
   if (tier === "semantic") return false; // never block on similarity
   return isHumanConfirmed(tw.provenance?.source); // confirmed ⇒ blocks, any tier
