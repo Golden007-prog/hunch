@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { blogLocales } from "./blog-locales.mjs";
-import { changelogLocales } from "./changelog-locales.mjs";
+import { changelogLocales, countChangelogRows } from "./changelog-locales.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(repoRoot, "site", "index.html");
@@ -427,7 +427,9 @@ for (const [locale, copy] of Object.entries(blogLocales)) {
 const changelogSourcePath = path.join(repoRoot, "site", "changelog.html");
 const changelogSource = normalizeLf(await readFile(changelogSourcePath, "utf8"));
 const changelogRowPattern = /<div class="clog-row"><span class="rel-tag">([^<]+)<\/span><span class="clog-t">([\s\S]*?)<\/span><\/div>/g;
-const changelogRowCount = [...changelogSource.matchAll(changelogRowPattern)].length;
+// Shared with test/changelog-locales.test.ts so the guard below is enforced on every
+// `npm test`, not only when someone happens to run this script by hand.
+const changelogRowCount = countChangelogRows(changelogSource);
 for (const [locale, copy] of Object.entries(changelogLocales)) {
   if (copy.titles.length !== changelogRowCount) throw new Error(`[${locale}/changelog] expected ${changelogRowCount} translated release titles, received ${copy.titles.length}`);
 }

@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "זיכרון שהפסיק להישמר, וזיכרון שלא נמצא בחיפוש", "החלטה שנדחתה כבר לא חוסמת commits", "מנגנוני אכיפה שנכשלו בשקט ואישרו הכול", "גל ביקורת הקוד — 28 ליקויים נסגרו ביום אחד", "ממצאים — זיכרון לכל מה שנצפה ועדיין לא תוקן",
       "MCP מבודד והתקנות ניתנות לשחזור", "קבלות מהדורת npm מאומתות", "OIDC של npm מגיע לרישום", "פרסום תוסף דרך Open VSX בלבד", "זיכרון הנדסי חי אחד לכל הצוות", "פרסום npm שלא פג תוקף", "CI מחמיר שנשאר זמין", "ניסויים שעברו בדיקת סוקרים וגבול שוק ברור יותר",
       "מסלול קצר יותר מהתקנה לזיכרון שימושי", "תמיכה ב-Python", "זיכרון שפועל בעצמו", "בחירת מנוי בלי להינעל לספק",
       "צינור האימות — המסירה נאכפת, לא רק מקווים לה", "היכרות ראשונה ידידותית יותר", "אחזור שעוקב אחרי הגרף, לא רק מילות מפתח", "ה-wiki יודעת מה קורה ומה הלאה", "לולאת סוכן שקטה ומדויקת יותר",
@@ -28,6 +29,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Память, которая перестала сохраняться, и память, которую было не найти", "Отвергнутое решение больше не блокирует ваши коммиты", "Защитные механизмы, которые молча пропускали нарушения", "Волна аудита кода — 28 дефектов закрыто за один день", "Findings — память о том, что вы заметили, но ещё не исправили",
       "Изолированный MCP и воспроизводимые установки", "Проверенные квитанции выпуска npm", "npm OIDC достигает реестра", "Публикация расширения только через Open VSX", "Единая живая инженерная память для всей команды", "Публикация npm без истекающих учётных данных", "Строгий CI, который остаётся доступным", "Эксперименты с независимой оценкой и более ясная граница рынка",
       "Более короткий путь от установки к полезной памяти", "Поддержка Python", "Память, которая работает сама", "Выбор подписки без привязки к поставщику",
       "Конвейер проверки — доставка гарантирована", "Более дружелюбное первое знакомство", "Поиск следует графу, а не только ключевым словам", "Wiki знает, что происходит и что дальше", "Более тихий и точный цикл агента",
@@ -48,6 +50,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "ذاكرة توقّفت عن الحفظ، وذاكرة لا تعثر عليها", "قرار مرفوض لم يعد يحظر الـ commits", "حرّاس كانوا يُجيزون ما عجزوا عن فحصه", "موجة المراجعة — إغلاق 28 خللاً في يوم واحد", "الملاحظات — ذاكرة لكل ما اكتشفته ولم تُصلحه بعد",
       "MCP معزول وتثبيتات قابلة لإعادة الإنتاج", "إيصالات إصدار npm موثّقة", "وصول OIDC الخاص بـnpm إلى السجل", "نشر الإضافة عبر Open VSX فقط", "ذاكرة هندسية حية واحدة للفريق كله", "نشر npm بلا بيانات اعتماد منتهية الصلاحية", "تكامل مستمر صارم يبقى متاحًا", "تجارب مؤهلة بالمراجعة وحدود سوق أوضح",
       "طريق أقصر من التثبيت إلى ذاكرة مفيدة", "دعم Python", "ذاكرة تعمل بنفسها", "اختيار الاشتراك من دون ارتهان لمزوّد",
       "مسار التحقق — تسليم مضمون لا مجرد أمل", "ترحيب أول أكثر وضوحاً", "استرجاع يتبع الرسم البياني لا الكلمات فقط", "الـwiki تعرف ما يحدث وما التالي", "حلقة وكيل أهدأ وأكثر دقة",
@@ -68,6 +71,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Memoria que dejaba de guardarse y memoria que no encontrabas", "Una decisión rechazada ya no bloquea tus commits", "Protecciones que dejaban pasar infracciones en silencio", "La auditoría masiva: 28 defectos cerrados en un día", "Hallazgos: memoria para lo que has observado pero aún no has corregido",
       "MCP aislado e instalaciones reproducibles", "Recibos de publicación npm verificados", "OIDC de npm llega al registro", "Publicación de la extensión solo mediante Open VSX", "Una memoria de ingeniería viva para todo el equipo", "Publicación en npm sin credenciales que caduquen", "CI estricto que permanece disponible", "Experimentos validados por revisores y un límite de mercado más claro",
       "Un camino más corto desde la instalación hasta una memoria útil", "Compatibilidad con Python", "Memoria que funciona sola", "Elegir suscripción sin quedar atado a un proveedor",
       "La canalización de verificación: entrega garantizada", "Una primera bienvenida más amable", "La recuperación sigue el grafo, no solo las palabras", "La wiki sabe qué ocurre y qué viene después", "Un ciclo de agente más silencioso y preciso",
@@ -80,3 +84,19 @@ export const changelogLocales = {
     ]
   }
 };
+
+/** Count the release rows in site/changelog.html.
+ *
+ *  `changelogLocales[*].titles` maps to those rows POSITIONALLY (generate-site-locales.mjs
+ *  consumes them with `copy.titles[titleIndex++]` in row order), so adding a release row
+ *  without adding a title to every locale silently shifts every localized title by one.
+ *  The generator already refuses to run on a mismatch — but nothing invokes the generator
+ *  in tests, CI, or an npm script, so the drift went unnoticed for five releases
+ *  (69 rows vs 64 titles) and the localized changelogs simply stopped at v1.9.4.
+ *
+ *  Exported so the generator and test/changelog-locales.test.ts share ONE definition of a
+ *  row instead of each carrying its own regex — a mirrored constant is exactly how this
+ *  class of drift starts. A fresh RegExp per call keeps /g lastIndex out of the picture. */
+export function countChangelogRows(html) {
+  return [...html.matchAll(/<div class="clog-row"><span class="rel-tag">([^<]+)<\/span><span class="clog-t">([\s\S]*?)<\/span><\/div>/g)].length;
+}
