@@ -57,9 +57,16 @@ export function planPolicyRepair(renames: readonly RenamePair[], policies: reado
       if (to) rewrites.push({ id: p.id, field: "scope.paths", from: path, to });
     }
     if (p.assertion.kind !== "executable-behavior") {
+      // must-pass-through carries a THIRD selector (`via`). Omitting it meant an
+      // ordinary rename left the via binding pointing at the old symbol: the policy
+      // either bricked (its semantic hash moved, invalidating the proof, while the
+      // stale via could never be re-proved) or silently stopped enforcing. This runs
+      // automatically from the post-commit hook, so neither outcome was visible.
       const selectors = p.assertion.kind === "exists"
         ? [p.assertion.subject.selector]
-        : [p.assertion.subject.selector, p.assertion.object.selector];
+        : p.assertion.kind === "must-pass-through"
+          ? [p.assertion.subject.selector, p.assertion.via.selector, p.assertion.object.selector]
+          : [p.assertion.subject.selector, p.assertion.object.selector];
       for (const raw of selectors) {
         const healed = repairSelector(raw, map);
         if (healed !== raw) rewrites.push({ id: p.id, field: "assertion.selector", from: raw, to: healed });
@@ -80,11 +87,18 @@ export function repairPolicySpec(policy: PolicySpec, rewrites: readonly PolicyBi
     ? policy.assertion
     : policy.assertion.kind === "exists"
       ? { ...policy.assertion, subject: { selector: subSelector(policy.assertion.subject.selector) } }
-      : {
-          ...policy.assertion,
-          subject: { selector: subSelector(policy.assertion.subject.selector) },
-          object: { selector: subSelector(policy.assertion.object.selector) },
-        };
+      : policy.assertion.kind === "must-pass-through"
+        ? {
+            ...policy.assertion,
+            subject: { selector: subSelector(policy.assertion.subject.selector) },
+            via: { selector: subSelector(policy.assertion.via.selector) },
+            object: { selector: subSelector(policy.assertion.object.selector) },
+          }
+        : {
+            ...policy.assertion,
+            subject: { selector: subSelector(policy.assertion.subject.selector) },
+            object: { selector: subSelector(policy.assertion.object.selector) },
+          };
   return {
     ...policy,
     revision: policy.revision + 1,

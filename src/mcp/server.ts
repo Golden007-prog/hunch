@@ -940,8 +940,14 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // Route the write to its ONE home: an explicit private:true goes to the overlay
         // (putPrivate throws rather than silently falling public); in unified ("shared")
         // mode EVERY capture goes to the overlay; else the public store.
-        if (home === "private") store.putPrivate("decisions", rec);
-        else store.json.put("decisions", rec);
+        // Through putCapture, NOT the raw per-home writers: it carries the cross-home
+        // twin guard. Branching on `home` here bypassed that guard, so one id could
+        // exist in BOTH stores — after which the merged/private-first read makes the
+        // topic-uniqueness check see one record while a later public `supersedes:`
+        // closes the other, leaving two live decisions on one topic and grounding
+        // silently injecting nothing for it. The guard throws; the surrounding catch
+        // turns that into a clean tool error instead of a silent twin.
+        store.putCapture("decisions", rec, !!decision.private);
         // Invalidate, don't delete: closing the superseded decision's valid-time window
         // (+ a supersedes edge) preserves the why-it-changed trail. Route the close to the
         // same store the new record landed in — a private decision supersedes within the
@@ -1011,8 +1017,8 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           return err(`Refusing to record public correction ${rec.id}: source decision ${rec.source_decision} ${location}.`);
         }
         const existing = home === "private" ? store.getPrivateRec("constraints", rec.id) : store.json.get("constraints", rec.id);
-        if (home === "private") store.putPrivate("constraints", rec);
-        else store.json.put("constraints", rec);
+        // Same cross-home twin guard as the decision path above.
+        store.putCapture("constraints", rec, !!input.private);
         store.reindex();
         // Propagate the new rule to EVERY assistant's ambient grounding (Cursor/Copilot/
         // Windsurf/AGENTS.md/CLAUDE.md), so a correction captured in one assistant is held
