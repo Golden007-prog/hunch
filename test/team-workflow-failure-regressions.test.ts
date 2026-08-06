@@ -503,7 +503,14 @@ test("strict CLI refuses an existing shared overlay whose remote differs from co
   }
 });
 
-test("MCP refuses an existing shared overlay whose remote differs from committed team.json", { timeout: 90_000 }, () => {
+// Budget note (issue #56): the ASSERTION here is fast — the inner
+// runCliWithTimeout(…, 10_000, "mcp") passes, i.e. the refusal returns in under
+// 10s. The wall time is fixture setup, which spawns ~8 CLI processes through tsx;
+// on Windows that measured 88–91s against the old 90s budget, so the test was a
+// coin flip standalone and tipped over reliably under full-suite load. Budget
+// raised to match measured cost — this is not masking a hang, it is sizing the
+// harness to what it actually does.
+test("MCP refuses an existing shared overlay whose remote differs from committed team.json", { timeout: 240_000 }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-remote-mismatch-mcp-"));
   try {
     const fixture = makeMismatchedTeamFixture(base, "mismatch-mcp");
