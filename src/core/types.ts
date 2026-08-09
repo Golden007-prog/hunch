@@ -135,12 +135,28 @@ export type ConformancePredicate = z.infer<typeof ConformancePredicateSchema>;
 // (the human renews, supersedes, or retires — same ethos as topic anchors).
 export const PremiseSchema = z.object({
   claim: z.string().min(1).describe("the human-readable reason this decision rests on"),
-  path_absent: z.string().optional().describe("premise holds while this repo-relative path does NOT exist"),
+  path_absent: z.string().optional().describe("premise holds while this repo-relative path does NOT exist. Requires `under`. PREFER path_exists where you can: a negative probe cannot tell 'verified absent' from 'wrong path', so it fails OPEN, while path_exists fails closed."),
+  under: z.string().optional().describe("required with path_absent: an EXISTING repo-relative ancestor of it. When this anchor disappears (a directory deleted or moved), the premise reads unevaluable instead of silently 'still absent'."),
   path_exists: z.string().optional().describe("premise holds while this repo-relative path exists"),
   review_by: z.string().optional().describe("dated attestation: premise holds until this ISO date, then needs re-attesting"),
   attested: z.string().optional().describe("ISO date a human last attested the claim (informational)"),
 }).refine((p) => [p.path_absent, p.path_exists, p.review_by].filter((x) => x !== undefined).length <= 1, {
   message: "a premise carries at most one check (path_absent | path_exists | review_by)",
+}).refine((p) => p.path_absent === undefined || (typeof p.under === "string" && p.under.trim().length > 0), {
+  message: "path_absent requires `under`: an existing ancestor path. Without an anchor, a deleted or renamed subtree reads as 'still absent' forever. Prefer path_exists where you can — it fails closed.",
+  path: ["under"],
+}).refine((p) => {
+  if (p.path_absent === undefined || typeof p.under !== "string") return true;
+  const norm = (s: string): string => s.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+  const target = norm(p.path_absent);
+  const anchor = norm(p.under);
+  // Must be a real ANCESTOR, not an arbitrary existing path: `under` is what makes
+  // "absent" meaningful ("nothing named gateway UNDER src"). An unrelated anchor
+  // would prove the premise still evaluable while telling you nothing about it.
+  return anchor !== "" && target !== anchor && target.startsWith(`${anchor}/`);
+}, {
+  message: "`under` must be a proper ancestor of `path_absent` (e.g. path_absent 'src/gateway' with under 'src')",
+  path: ["under"],
 });
 export type Premise = z.infer<typeof PremiseSchema>;
 

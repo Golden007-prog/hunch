@@ -45,7 +45,7 @@ function validRel(p: string): boolean {
   return !!p && !p.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(p) && !p.split(/[\\/]/).includes("..");
 }
 
-function checkPath(claim: string, rel: string, wantExists: boolean, env: PremiseEnv): PremiseVerdict {
+function checkPath(claim: string, rel: string, wantExists: boolean, env: PremiseEnv, under?: string): PremiseVerdict {
   if (!validRel(rel)) {
     return { claim, holds: false, reason: `unevaluable: path must be repo-relative ("${rel}") — fix the premise record` };
   }
@@ -55,9 +55,26 @@ function checkPath(claim: string, rel: string, wantExists: boolean, env: Premise
       ? { claim, holds: true, reason: `"${rel}" still exists` }
       : { claim, holds: false, reason: `"${rel}" no longer exists` };
   }
+  // NEGATIVE probe. A missing path proves nothing on its own: a deleted subtree, a
+  // renamed directory and a typo all read as "absent". The `under` anchor is what makes
+  // the answer mean something — when the ancestor is gone, the question no longer has a
+  // subject, so the premise is UNEVALUABLE rather than quietly satisfied. That is the
+  // decay this closes: it is what rotted five decisions pointing into vscode-extension/
+  // after that tree was cut.
+  if (under !== undefined) {
+    if (!validRel(under)) {
+      return { claim, holds: false, reason: `unevaluable: under must be repo-relative ("${under}") — fix the premise record` };
+    }
+    if (!env.exists(under)) {
+      return { claim, holds: false, reason: `unevaluable: the anchor "${under}" no longer exists, so "${rel}" being absent proves nothing — re-anchor or supersede` };
+    }
+  }
   return exists
     ? { claim, holds: false, reason: `"${rel}" now exists` }
-    : { claim, holds: true, reason: `"${rel}" still absent` };
+    // The residual risk is stated, not hidden: a MISTYPED path is also absent, and it
+    // stays absent forever — the harm is a premise that silently never fires, which no
+    // existence probe can detect. Saying so is what keeps "holds" honest.
+    : { claim, holds: true, reason: `"${rel}" still absent${under ? ` under "${under}"` : ""} (a mistyped path also reads as absent — confirm it on re-attest)` };
 }
 
 function checkOne(p: Premise, env: PremiseEnv): PremiseVerdict {
@@ -70,7 +87,7 @@ function checkOne(p: Premise, env: PremiseEnv): PremiseVerdict {
   if (!Number.isFinite(Date.parse(env.now))) {
     return { claim: p.claim, holds: false, reason: `unevaluable: caller supplied a non-ISO clock ("${env.now}")` };
   }
-  if (p.path_absent !== undefined) return checkPath(p.claim, p.path_absent, false, env);
+  if (p.path_absent !== undefined) return checkPath(p.claim, p.path_absent, false, env, p.under);
   if (p.path_exists !== undefined) return checkPath(p.claim, p.path_exists, true, env);
   if (p.review_by !== undefined) {
     const due = Date.parse(p.review_by);

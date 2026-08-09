@@ -40,15 +40,15 @@ test("schema: a premise carries at most one check", () => {
   assert.throws(() =>
     DecisionSchema.parse({
       id: "dec_x", title: "t", provenance: prov(), date: "2026-01-01",
-      premises: [{ claim: "c", path_absent: "a", review_by: "2027-01-01" }],
+      premises: [{ claim: "c", path_absent: "a", under: "x", review_by: "2027-01-01" }],
     }),
   );
 });
 
 test("path_absent: holds while absent, dies when the path appears", () => {
-  const d = dec({ premises: [{ claim: "no gateway auth layer yet", path_absent: "src/gateway" }] });
-  assert.equal(evaluatePremises(d, env())[0]!.holds, true);
-  const [v] = evaluatePremises(d, env(["src/gateway"]));
+  const d = dec({ premises: [{ claim: "no gateway auth layer yet", path_absent: "src/gateway", under: "src" }] });
+  assert.equal(evaluatePremises(d, env(["src"]))[0]!.holds, true);
+  const [v] = evaluatePremises(d, env(["src", "src/gateway"]));
   assert.equal(v!.holds, false);
   assert.ok(v!.reason.includes("now exists"));
 });
@@ -70,7 +70,7 @@ test("review_by: attestation holds until due, then needs a human", () => {
 });
 
 test("cannot-evaluate NEVER reads as holds (fail-open lesson): bad paths and bad dates fail loudly", () => {
-  const escape = dec({ premises: [{ claim: "c", path_absent: "../outside" }] });
+  const escape = dec({ premises: [{ claim: "c", path_exists: "../outside" }] });
   const abs = dec({ premises: [{ claim: "c", path_exists: "/etc/passwd" }] });
   const badDate = dec({ premises: [{ claim: "c", review_by: "soonish" }] });
   for (const d of [escape, abs, badDate]) {
@@ -92,7 +92,7 @@ test("escalations: one question-framed entry per live decision; authority explic
     topic: "orders.data-access",
     alternatives_rejected: ["direct DB access with gateway-level auth", "GraphQL federation"],
     premises: [
-      { claim: "no gateway auth layer yet", path_absent: "src/gateway" },
+      { claim: "no gateway auth layer yet", path_absent: "src/gateway", under: "src" },
       { claim: "no ops team", review_by: "2026-07-01T00:00:00Z" },
     ],
   });
@@ -110,9 +110,14 @@ test("escalations: one question-framed entry per live decision; authority explic
 });
 
 test("escalations: superseded and healthy decisions stay silent", () => {
-  const superseded = dec({ id: "dec_premise002", status: "superseded", premises: [{ claim: "c", path_absent: "src/gateway" }] });
-  const healthy = dec({ id: "dec_premise003", premises: [{ claim: "c", path_absent: "src/gateway" }] });
-  assert.deepEqual(premiseEscalations([superseded, healthy], env()), []);
+  // Discriminating on purpose: the superseded record's premise is genuinely DEAD
+  // (src/gateway exists), so only the isLive guard can suppress it — delete that guard
+  // and this test fails. The healthy record's premise genuinely HOLDS. The previous
+  // version gave both the same premise under an env where it held, so it passed with
+  // the guard removed and asserted nothing (found by adversarial review).
+  const superseded = dec({ id: "dec_premise002", status: "superseded", premises: [{ claim: "c", path_absent: "src/gateway", under: "src" }] });
+  const healthy = dec({ id: "dec_premise003", premises: [{ claim: "c", path_absent: "src/untouched", under: "src" }] });
+  assert.deepEqual(premiseEscalations([superseded, healthy], env(["src", "src/gateway"])), []);
 });
 
 test("drift: a dead premise on a live decision fires premise-stale; a superseded one does not", () => {
@@ -122,12 +127,12 @@ test("drift: a dead premise on a live decision fires premise-stale; a superseded
     writeFileSync(join(t.root, "src", "gateway", "auth.ts"), "export const auth = 1;\n");
     t.store.json.put("decisions", dec({
       related_files: [],
-      premises: [{ claim: "no gateway auth layer yet", path_absent: "src/gateway" }],
+      premises: [{ claim: "no gateway auth layer yet", path_absent: "src/gateway", under: "src" }],
     }));
     t.store.json.put("decisions", dec({
       id: "dec_premise004",
       status: "superseded",
-      premises: [{ claim: "c", path_absent: "src/gateway" }],
+      premises: [{ claim: "c", path_absent: "src/gateway", under: "src" }],
     }));
     const hits = computeDrift(t.store, t.root).findings.filter((f) => f.kind === "premise-stale");
     assert.equal(hits.length, 1);
@@ -161,7 +166,7 @@ test("a bad clock is unevaluable for EVERY check kind, not just the dated one (#
     alternatives_rejected: [], topic: null, premises: [p],
   }) as never;
   for (const p of [
-    { claim: "a", path_absent: "src/gateway" },
+    { claim: "a", path_absent: "src/gateway", under: "src" },
     { claim: "b", path_exists: "src/core" },
     { claim: "c", review_by: "2099-01-01" },
   ]) {
@@ -178,4 +183,65 @@ test("a good clock still evaluates normally (no regression) (#2)", () => {
   } as never;
   const [v] = evaluatePremises(d, { now: "2026-08-09T00:00:00Z", exists: () => false });
   assert.equal(v!.holds, true, "a valid future attestation still holds");
+});
+
+/** The `under` anchor for path_absent (schema decision, 2026-08-09). A negative probe
+ *  cannot distinguish "verified absent" from "the subtree moved" from "typo" — the
+ *  anchor closes the first two. The typo case is documented, not claimed fixed. */
+
+const decWith = (premises: unknown[]) => ({
+  id: "dec_anchor", title: "t", status: "accepted", superseded_by: null, valid_to: null,
+  alternatives_rejected: [], topic: null, premises,
+}) as never;
+const envWith = (present: string[]): PremiseEnv => ({ now: "2026-08-09T00:00:00Z", exists: (p) => present.includes(p) });
+
+test("path_absent holds while the anchor exists and the path does not (#1)", () => {
+  const [v] = evaluatePremises(
+    decWith([{ claim: "no gateway yet", path_absent: "src/gateway", under: "src" }]),
+    envWith(["src"]),
+  );
+  assert.equal(v!.holds, true);
+  assert.match(v!.reason, /still absent under "src"/);
+});
+
+test("a DEAD anchor makes path_absent unevaluable, never 'still absent' (#1)", () => {
+  // The decay this closes: five decisions pointed into vscode-extension/, that tree was
+  // cut, and every one of them kept reporting "still absent" forever.
+  const [v] = evaluatePremises(
+    decWith([{ claim: "no graph webview", path_absent: "vscode-extension/src/graph.ts", under: "vscode-extension/src" }]),
+    envWith([]), // the whole subtree is gone
+  );
+  assert.equal(v!.holds, false, "a missing anchor must not read as satisfied");
+  assert.match(v!.reason, /unevaluable/);
+  assert.match(v!.reason, /proves nothing/);
+});
+
+test("path_absent still fires when the path APPEARS (no regression) (#1)", () => {
+  const [v] = evaluatePremises(
+    decWith([{ claim: "no gateway yet", path_absent: "src/gateway", under: "src" }]),
+    envWith(["src", "src/gateway"]),
+  );
+  assert.equal(v!.holds, false);
+  assert.match(v!.reason, /now exists/);
+});
+
+test("the holds-reason states the residual typo risk rather than hiding it (#1)", () => {
+  // A mistyped path is also absent and stays absent forever — the harm is a premise
+  // that silently never fires, which no probe can detect. The text is the mitigation.
+  const [v] = evaluatePremises(
+    decWith([{ claim: "no gateway yet", path_absent: "src/gatway", under: "src" }]),
+    envWith(["src"]),
+  );
+  assert.equal(v!.holds, true, "honest: a typo is indistinguishable from a true absence");
+  assert.match(v!.reason, /mistyped path also reads as absent/);
+});
+
+test("the schema REFUSES path_absent without an anchor, and a non-ancestor anchor (#1)", async () => {
+  const { PremiseSchema } = await import("../src/core/types.js");
+  assert.throws(() => PremiseSchema.parse({ claim: "c", path_absent: "src/gateway" }), /under/i,
+    "an unanchored path_absent is the fail-open shape — refuse it at the schema");
+  assert.throws(() => PremiseSchema.parse({ claim: "c", path_absent: "src/gateway", under: "test" }), /ancestor/i,
+    "an unrelated anchor proves the premise evaluable while saying nothing about it");
+  assert.doesNotThrow(() => PremiseSchema.parse({ claim: "c", path_absent: "src/gateway", under: "src" }));
+  assert.doesNotThrow(() => PremiseSchema.parse({ claim: "c", path_exists: "src/core" }), "path_exists needs no anchor — it fails closed");
 });

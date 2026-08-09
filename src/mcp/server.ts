@@ -851,7 +851,8 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           // PremiseSchema in src/core/types.ts.
           premises: z.array(z.object({
             claim: z.string().min(1).describe("the human-readable reason this decision rests on"),
-            path_absent: z.string().optional().describe("premise holds while this repo-relative path does NOT exist"),
+            path_absent: z.string().optional().describe("premise holds while this repo-relative path does NOT exist. REQUIRES `under`. Prefer path_exists where you can — a negative probe fails OPEN, a positive one fails closed."),
+            under: z.string().optional().describe("required with path_absent: an EXISTING repo-relative ANCESTOR of it (path_absent 'src/gateway' -> under 'src'). When the anchor disappears the premise reads unevaluable instead of silently 'still absent'."),
             path_exists: z.string().optional().describe("premise holds while this repo-relative path exists"),
             review_by: z.string().optional().describe("dated attestation: premise holds until this ISO date, then needs re-attesting"),
             attested: z.string().optional().describe("ISO date a human last attested the claim (informational)"),
@@ -1064,6 +1065,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         rationale: z.string().optional().describe("Why it must hold."),
         source_decision: z.string().optional().describe("id of a decision this correction derives from."),
         private: z.boolean().optional().describe("write into the PRIVATE overlay store (HUNCH_PRIVATE_DIR) instead of the committed repo — a sensitive rule enforced locally (pre-edit hook + local check) but never exposed in a public PR comment. Errors if no private store is configured."),
+        capture_token: z.string().optional().describe("token from hunch_capture_decision. The rule is recorded and enforced either way — the token only decides whether it may DENY: without one it lands as advisory testimony capped at severity 'warning'."),
       },
     },
     async (input): Promise<ToolResult> => {
@@ -1073,7 +1075,12 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // paths (edit-tool payloads and MCP roots are absolute) and every consumer matches
         // repo-relative — without this the rule would be blocking-but-inert and would leak
         // the local filesystem path into the committed graph.
-        const rec = buildCorrectionConstraint({ ...input, knownDeps: knownRepoDeps(root), root }, new Date().toISOString());
+        // Same authorship tier as hunch_record_decision: a consumed token mints the
+        // signature, an un-token'd write is testimony. Here the stakes are HIGHER — a
+        // blocking constraint DENIES edits, so an un-vouched write is capped at
+        // "warning" rather than being refused. Never Twice still lands immediately.
+        const vouched = consumeCaptureToken(input.capture_token);
+        const rec = buildCorrectionConstraint({ ...input, knownDeps: knownRepoDeps(root), root, vouched }, new Date().toISOString());
         // Private corrections go to the overlay (enforced locally via the merged read,
         // never rendered into the public CI comment, which is public-only by construction).
         const home = store.captureHome(!!input.private);
@@ -1105,7 +1112,14 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // The Constraint itself is the durable retry queue. Normal `hunch index`
         // and post-commit sync rescan it; no in-process timer can be lost on exit.
         const reviewNote = "\n\nREVIEW PENDING: After the fix is committed, run hunch index; an installed post-commit hook retries this automatically on the fixing commit. Only the supported static ESM import-declaration package projection is eligible, and it remains activation-blocked; the immediate guard is already durable.";
-        return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}).${where} It now ${enforce}.${reviewNote}`);
+        // Say plainly which tier this landed in. A silent downgrade would be its own
+        // dishonesty: the caller asked for "blocking" and must be told it is not.
+        const tierNote = vouched
+          ? ""
+          : `
+
+⚠ Recorded WITHOUT a capture interview — this rule is agent_recorded TESTIMONY${input.severity === "blocking" ? ' and was capped from "blocking" to "warning"' : ""}. It IS enforced: the pre-edit hook and CI surface it on every matching edit from now on. What it cannot do is DENY an edit — only a rule a human countersigned may block. Countersign it by re-recording through hunch_capture_decision → hunch_record_correction(capture_token).`;
+        return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}).${where} It now ${enforce}.${reviewNote}${tierNote}`);
       } catch (e) {
         return err(`Failed to record correction: ${(e as Error).message}`);
       }

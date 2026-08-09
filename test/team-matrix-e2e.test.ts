@@ -417,8 +417,21 @@ test("team Matrix: three isolated clones share live memory, catch a bad branch, 
       "derived indexes created while exercising the driver must be ignored",
     );
 
+    // A BLOCKING correction that the Constitution can later upgrade into a policy
+    // candidate must be countersigned: hunch_policy_upgrade_correction requires
+    // human_confirmed provenance (bootstrap.ts), and an un-token'd correction is
+    // agent_recorded testimony capped at "warning". This models the real workflow —
+    // the architect was interviewed before the rule was given blocking authority.
+    const correctionInterview = await mcpText(architectClient, "hunch_capture_decision", {
+      topic: "transport.boundary",
+      seed: TEAM_RULE,
+      deciding: true,
+    });
+    const correctionToken = correctionInterview.match(/capture_token:"([^"]+)"/)?.[1];
+    assert.ok(correctionToken, correctionInterview);
     const correctionText = await mcpText(architectClient, "hunch_record_correction", {
       rule: TEAM_RULE,
+      capture_token: correctionToken,
       scope_hint_file: "src/orders.ts",
       severity: "blocking",
       type: "architecture",

@@ -225,11 +225,12 @@ test("premises SURVIVE a re-record instead of being silently deleted", async () 
         topic: "auth.placement",
         // FLAT shape, matching PremiseSchema. A nested { check: {...} } is stripped by
         // Zod into a claim-only premise, which is "documented only" and ALWAYS HOLDS.
-        premises: [{ claim: "there is no gateway yet", path_absent: "src/gateway" }],
+        premises: [{ claim: "there is no gateway yet", path_absent: "src/gateway", under: "src" }],
       },
     });
     const recorded = readDecisions(s.root)[0]!.premises?.[0];
     assert.equal(recorded?.claim, "there is no gateway yet", "precondition: the premise was recorded");
+    assert.equal(recorded?.under, "src", "the anchor round-trips too — path_absent is invalid without it");
     assert.equal(
       recorded?.path_absent, "src/gateway",
       "the CHECK must survive the round-trip — a premise whose check is stripped can never fire, "
@@ -245,5 +246,75 @@ test("premises SURVIVE a re-record instead of being silently deleted", async () 
     assert.equal(after.premises?.length, 1, "the incumbent's premises carry across a re-record");
     assert.equal(after.premises?.[0]?.claim, "there is no gateway yet");
     assert.equal(after.premises?.[0]?.path_absent, "src/gateway", "…including its check, not just the claim text");
+    assert.equal(after.premises?.[0]?.under, "src", "…and its anchor");
+  } finally { s.cleanup(); }
+});
+
+/** The authorship stamp applied to hunch_record_correction (2026-08-09).
+ *
+ *  buildCorrectionConstraint hardcoded provenance human_confirmed @1, and
+ *  isStrictBlocker treats blocking + human_confirmed as authority to DENY. So an
+ *  un-interviewed agent call could mint a repo-wide deny carrying a signature nobody
+ *  gave — making the HIGHEST-authority write path the least gated, and strictly worse
+ *  than hunch_record_decision, which only ever produced advisory memory.
+ *
+ *  The token sets the TIER, never whether the write lands: Never Twice still records
+ *  and enforces immediately; only the authority to DENY waits for a countersign. */
+
+const readConstraints = (root: string) => {
+  const dir = join(root, ".hunch", "constraints");
+  return readdirSync(dir).filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as {
+      id: string; severity: string; statement: string; provenance: { source: string; confidence: number };
+    });
+};
+
+test("an un-token'd correction is TESTIMONY and cannot deny (#correction-tier)", async () => {
+  const s = await setup();
+  try {
+    mkdirSync(join(s.root, ".hunch", "constraints"), { recursive: true });
+    const out = await s.call("hunch_record_correction", {
+      rule: "never call the metered API from here",
+      scope_hint_file: "src/pay.ts",
+      severity: "blocking",
+    });
+    const [c] = readConstraints(s.root);
+    assert.equal(c!.provenance.source, "agent_recorded", "no signature is written for a write nobody signed");
+    assert.equal(c!.severity, "warning", "a blocking request from an un-vouched caller is capped");
+    assert.equal(isStrictBlocker({ severity: c!.severity, provenance: c!.provenance }, false), false, "it can never deny an edit");
+    assert.match(out, /TESTIMONY/i, "the downgrade is stated, never silent");
+    assert.match(out, /capped from "blocking"/i);
+  } finally { s.cleanup(); }
+});
+
+test("an un-token'd correction is still RECORDED and enforced — Never Twice holds (#correction-tier)", async () => {
+  const s = await setup();
+  try {
+    mkdirSync(join(s.root, ".hunch", "constraints"), { recursive: true });
+    await s.call("hunch_record_correction", { rule: "never import lodash here", scope_hint_file: "src/util.ts" });
+    const [c] = readConstraints(s.root);
+    assert.ok(c, "the rule lands immediately — the write is never refused");
+    assert.equal(c!.statement, "never import lodash here");
+    assert.equal(c!.severity, "warning", "still enforced at edit time and in CI, just not a deny");
+  } finally { s.cleanup(); }
+});
+
+test("a countersigned correction keeps full blocking authority (#correction-tier)", async () => {
+  const s = await setup();
+  try {
+    mkdirSync(join(s.root, ".hunch", "constraints"), { recursive: true });
+    const t = await s.call("hunch_capture_decision", { topic: "pay.metered" });
+    const token = (t.match(/capture_token:"([^"]+)"/) ?? t.match(/"(cap_[A-Za-z0-9_-]+)"/))?.[1];
+    assert.ok(token, "got a capture token");
+    await s.call("hunch_record_correction", {
+      rule: "never call the metered API from here",
+      scope_hint_file: "src/pay.ts",
+      severity: "blocking",
+      capture_token: token,
+    });
+    const [c] = readConstraints(s.root);
+    assert.equal(c!.provenance.source, "human_confirmed", "an interviewed write earns the signature");
+    assert.equal(c!.severity, "blocking");
+    assert.equal(isStrictBlocker({ severity: c!.severity, provenance: c!.provenance }, false), true, "and may deny");
   } finally { s.cleanup(); }
 });
