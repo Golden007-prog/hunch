@@ -52,6 +52,8 @@ test("installClaudeHooks writes the full lifecycle hook set", () => {
     assert.equal(j.hooks.SessionStart[0].hooks[0].command, cmd);
     assert.match(j.hooks.PostToolUse[0].matcher, /Bash/);
     assert.equal(j.hooks.Stop[0].hooks[0].command, cmd);
+    assert.equal(j.hooks.SubagentStart[0].hooks[0].command, cmd, "delegated agents get grounding");
+    assert.equal(j.hooks.PreCompact[0].hooks[0].command, cmd, "compaction resets injection dedup");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

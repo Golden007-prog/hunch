@@ -66,7 +66,7 @@ import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpol
 import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { computeStats, formatStats } from "../core/stats.js";
-import { injectionMode } from "../core/hookcache.js";
+import { injectionMode, resetSessionInjections } from "../core/hookcache.js";
 import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
@@ -3617,7 +3617,49 @@ program
         emitContext(provider, "UserPromptSubmit", text);
         return;
       }
+      if (evt.hook_event_name === "PreCompact") {
+        // Compaction is about to summarize injected grounding out of the agent's
+        // context while the dedup map still says "delivered". Reset it so every
+        // post-compact injection is full again. Emit nothing — this event has no
+        // context channel worth spending.
+        resetSessionInjections(evt.session_id);
+        return;
+      }
+      if (evt.hook_event_name === "SubagentStart") {
+        // A delegated agent starts with NONE of the parent session's grounding:
+        // session orientation never fired inside it and only per-edit PreToolUse
+        // follows it in — so read-only agents (Explore/Plan) could work fully
+        // blind. Give it the invariants that must survive delegation. Public
+        // store only; once per agent type per session.
+        const s = new HunchStore(paths);
+        try {
+          const sevRank = { blocking: 0, warning: 1, advisory: 2 } as const;
+          const constraints = s.advisoryRecs("constraints")
+            .filter((c) => c.status === "active")
+            .sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
+          if (!constraints.length) return;
+          const L: string[] = [`🧠 Hunch — delegated agent grounding: ${constraints.length} invariant(s) in force in this repo.`];
+          for (const c of constraints.slice(0, 8)) {
+            const flat = c.statement.replace(/\s+/g, " ").trim();
+            const claim = flat.length > 140 ? `${flat.slice(0, 139).trimEnd()}…` : flat;
+            L.push(`- [${c.severity}] ${claim}${c.scope.length ? ` (scope: ${c.scope.slice(0, 3).join(", ")})` : ""}`);
+          }
+          if (constraints.length > 8) L.push(`…and ${constraints.length - 8} more — hunch_check_constraints(scope) for your files.`);
+          L.push("Before editing: hunch_check_constraints(scope) · hunch_why(target). Orient: hunch_context(task).");
+          // No dedup here: the hook event carries the PARENT session id, but each
+          // spawned agent is a fresh empty context — deduping would ground the
+          // first Explore and silently starve every later one.
+          emitContext(provider, "SubagentStart", L.join("\n"));
+        } finally {
+          s.close();
+        }
+        return;
+      }
       if (evt.hook_event_name === "SessionStart") {
+        // A compact-resume means everything injected so far was just summarized
+        // away — the dedup map must forget it delivered anything, or the rest of
+        // the session gets delta one-liners against grounding that is gone.
+        if (evt.source === "compact") resetSessionInjections(evt.session_id);
         // Orientation at the moment it matters: what just happened + what's next,
         // straight from the graph — the agent sits down already knowing where it
         // is instead of pulling (or worse, grepping) for it. Cheap reads only
@@ -4938,7 +4980,7 @@ function toRepoRel(root: string, abs: string): string {
   return relative(realpathNorm(root), realpathNorm(abs)).split("\\").join("/");
 }
 
-function emitContext(provider: HookProvider, event: "PreToolUse" | "UserPromptSubmit" | "SessionStart", text: string): void {
+function emitContext(provider: HookProvider, event: "PreToolUse" | "UserPromptSubmit" | "SessionStart" | "SubagentStart", text: string): void {
   const output = contextHookOutput(provider, event, text);
   if (output) process.stdout.write(JSON.stringify(output));
 }

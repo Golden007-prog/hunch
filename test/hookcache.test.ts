@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { injectionMode } from "../src/core/hookcache.js";
+import { injectionMode, resetSessionInjections } from "../src/core/hookcache.js";
 
 const SID = () => `hunch-test-${process.pid}-${Math.floor(performance.now() * 1000)}`;
 
@@ -31,6 +31,18 @@ test("hookcache: sessions are isolated; missing session id and kill switch alway
     if (prev === undefined) delete process.env.HUNCH_HOOK_DEDUP;
     else process.env.HUNCH_HOOK_DEDUP = prev;
   }
+});
+
+test("hookcache: resetSessionInjections forgets a session — compaction must re-deliver in full", () => {
+  const sid = SID();
+  assert.equal(injectionMode(sid, "pre:src/a.ts", "GROUNDING"), "full");
+  assert.equal(injectionMode(sid, "pre:src/a.ts", "GROUNDING"), "delta");
+  resetSessionInjections(sid);
+  assert.equal(injectionMode(sid, "pre:src/a.ts", "GROUNDING"), "full", "post-compact identical grounding is full again");
+  const other = SID();
+  assert.equal(injectionMode(other, "k", "X"), "full");
+  resetSessionInjections(undefined); // no session id — must be a safe no-op
+  assert.equal(injectionMode(other, "k", "X"), "delta", "resetting nothing leaves other sessions intact");
 });
 
 test("hookcache: a corrupt cache file degrades to full (grounded beats deduped), then recovers", () => {

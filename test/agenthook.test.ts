@@ -15,7 +15,24 @@ test("normalizes VS Code's camelCase file edit payload", () => {
     tool_name: "Edit",
     tool_input: { file_path: "/repo/src/a.ts", new_string: "new implementation", content: undefined, edits: undefined, command: undefined, skill: undefined },
     prompt: undefined,
+    source: undefined,
+    agent_type: undefined,
   });
+});
+
+test("normalizes session-lifecycle events: SubagentStart agent type, PreCompact, SessionStart compact source", () => {
+  const sub = normalizeHookEvent({ hook_event_name: "SubagentStart", session_id: "s1", agent_type: "Explore" }, "claude");
+  assert.equal(sub?.hook_event_name, "SubagentStart");
+  assert.equal(sub?.agent_type, "Explore");
+  const subCamel = normalizeHookEvent({ hook_event_name: "SubagentStart", session_id: "s1", subagentType: "Plan" }, "claude");
+  assert.equal(subCamel?.agent_type, "Plan");
+
+  const compact = normalizeHookEvent({ hook_event_name: "PreCompact", session_id: "s1" }, "claude");
+  assert.equal(compact?.hook_event_name, "PreCompact");
+
+  const resumed = normalizeHookEvent({ hook_event_name: "SessionStart", session_id: "s1", source: "compact" }, "claude");
+  assert.equal(resumed?.hook_event_name, "SessionStart");
+  assert.equal(resumed?.source, "compact");
 });
 
 test("normalizes Cursor's lower-camel hook event and snake payload", () => {

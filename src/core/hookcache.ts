@@ -52,6 +52,21 @@ export function injectionMode(sessionId: string | undefined, key: string, conten
   }
 }
 
+/** Forget everything injected into a session. Compaction summarizes injected
+ *  grounding out of the agent's context while the dedup map still says
+ *  "delivered" — so on PreCompact / SessionStart[source=compact] the map must
+ *  reset, or post-compact edits get delta one-liners against grounding the
+ *  agent no longer has. Never throws (same posture as injectionMode). */
+export function resetSessionInjections(sessionId: string | undefined): void {
+  try {
+    if (!sessionId) return;
+    const file = join(tmpdir(), "hunch-hookcache", `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 80)}.json`);
+    rmSync(file, { force: true });
+  } catch {
+    /* unwritable tmpdir — next injectionMode call falls back to "full" anyway */
+  }
+}
+
 /** Drop session caches from long-gone sessions (best effort, bounded dir). */
 function sweep(dir: string): void {
   try {

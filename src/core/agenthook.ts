@@ -8,7 +8,7 @@
 export const HOOK_PROVIDERS = ["claude", "vscode", "windsurf", "antigravity", "cursor"] as const;
 export type HookProvider = (typeof HOOK_PROVIDERS)[number];
 
-export type HunchHookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "Stop";
+export type HunchHookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "SubagentStart" | "PreCompact" | "Stop";
 
 export interface HunchToolInput {
   file_path?: string;
@@ -25,6 +25,11 @@ export interface HunchHookInput {
   tool_name?: string;
   tool_input?: HunchToolInput;
   prompt?: string;
+  /** SessionStart origin ("startup" | "resume" | "clear" | "compact") — compaction
+   * summarizes away injected grounding, so "compact" resets injection dedup. */
+  source?: string;
+  /** SubagentStart: the delegated agent's type (e.g. "Explore", "Plan"). */
+  agent_type?: string;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -95,6 +100,8 @@ function eventName(value: unknown, provider: HookProvider): HunchHookEvent | und
     posttooluse: "PostToolUse",
     userpromptsubmit: "UserPromptSubmit",
     sessionstart: "SessionStart",
+    subagentstart: "SubagentStart",
+    precompact: "PreCompact",
     stop: "Stop",
   };
   if (map[name]) return map[name];
@@ -166,6 +173,8 @@ export function normalizeHookEvent(raw: unknown, provider: HookProvider): HunchH
     tool_name: hunchToolName(stringAt(input, "tool_name", "toolName"), toolInput ?? {}),
     tool_input: toolInput,
     prompt: stringAt(input, "prompt", "user_prompt", "userPrompt"),
+    source: stringAt(input, "source"),
+    agent_type: stringAt(input, "agent_type", "agentType", "subagent_type", "subagentType"),
   };
 }
 

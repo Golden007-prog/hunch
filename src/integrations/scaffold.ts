@@ -177,6 +177,18 @@ export function installClaudeHooks(root: string, hookCmd: string): ClaudeHookIns
     ...keep(json.hooks.SessionStart),
     { hooks: [{ type: "command", command: hookCmd }] },
   ];
+  // Delegated agents start with no session grounding (orientation never fired
+  // inside them); compaction summarizes injected grounding away while the dedup
+  // map still says "delivered". These two events keep delivery alive across the
+  // whole session lifecycle, not just its first context window.
+  json.hooks.SubagentStart = [
+    ...keep(json.hooks.SubagentStart),
+    { hooks: [{ type: "command", command: hookCmd }] },
+  ];
+  json.hooks.PreCompact = [
+    ...keep(json.hooks.PreCompact),
+    { hooks: [{ type: "command", command: hookCmd }] },
+  ];
   // Verification pipeline (core/pipeline.ts): PostToolUse records observable
   // facts (edits, verify commands); Stop refuses to end a turn with unverified
   // product edits at firm/strict firmness. Delivery is enforced, not hoped for.
