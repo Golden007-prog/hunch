@@ -48,7 +48,7 @@ import { runbookId, decisionId } from "../core/ids.js";
 import { deriveForbids, effectiveForbids } from "../core/constraintmatch.js";
 import type { Runbook } from "../core/types.js";
 import { extractInlineIntent } from "../extractors/comments.js";
-import { renderText, renderMarkdown, renderImpact, reportFailsStrict, type CheckReport } from "../core/checkreport.js";
+import { renderText, renderMarkdown, renderSarif, renderImpact, reportFailsStrict, type CheckReport, type SarifExtras } from "../core/checkreport.js";
 import { partitionReview, isReviewDraft, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
 import { installPostCommitHook, installPreCommitHook } from "../integrations/hooks.js";
 import { ensureSharedOverlayPointer } from "../integrations/worktree.js";
@@ -3037,13 +3037,16 @@ program
   .option("--commit <sha>", "check a specific commit's files")
   .option("--base <ref>", "check a PR/branch: files changed vs <ref> (e.g. origin/main) — for CI")
   .option("--strict", "exit non-zero ONLY on a direct, high-confidence, non-stale blocking invariant (near/stale/low-confidence stay advisory)")
-  .option("--format <fmt>", "output: text (default) | markdown (a PR comment)", "text")
+  .option("--format <fmt>", "output: text (default) | markdown (a PR comment) | sarif (SARIF 2.1.0 for code scanning)", "text")
   .option("--blast", "also print the dependency blast radius of the changed files")
   .option("--public-only", "exclude the private overlay (HUNCH_PRIVATE_DIR) from the report — use for any output that may be posted publicly (the CI PR comment passes this)")
   .action((opts: { staged?: boolean; working?: boolean; commit?: string; base?: string; strict?: boolean; format?: string; blast?: boolean; publicOnly?: boolean }) => {
     const sources = [opts.commit && "--commit", opts.base && "--base", opts.staged && "--staged", opts.working && "--working"].filter(Boolean);
     if (sources.length > 1) return fail(`pick one of --staged / --working / --commit / --base (got ${sources.join(", ")})`);
     const markdown = opts.format === "markdown";
+    // SARIF collects every gate family into ONE JSON document at the end, so all
+    // interleaved section prints are suppressed for this format.
+    const sarif = opts.format === "sarif";
     const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], redundant: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
 
     const { store, root, teamPullStatus } = storeFor({ requireFreshTeamMemory: !!opts.strict && !opts.publicOnly });
@@ -3091,7 +3094,7 @@ program
       ? sourceGraphSnapshot(root, graphScan.source, graphScan.symbols, graphScan.edges, graphScan.components)
       : undefined;
     const semanticIssues = graphScan?.issues ?? [];
-    if (semanticIssues.length) {
+    if (semanticIssues.length && !sarif) {
       if (markdown) {
         console.log(`\n### ‼ Incomplete semantic source scan — ${semanticIssues.length} file(s) rejected\n`);
         for (const issue of semanticIssues) console.log(`- **${issue.path}** — ${issue.detail} (${issue.code})`);
@@ -3123,7 +3126,7 @@ program
         publicOnly: !!opts.publicOnly,
       })
       : emptyReport;
-    if (opts.blast && !markdown && files.length) {
+    if (opts.blast && !markdown && !sarif && files.length) {
       console.log(`Blast radius of ${files.length} changed file(s):`);
       for (const f of files) {
         const b = store.blastRadiusFiles(f);
@@ -3133,9 +3136,11 @@ program
       console.log("");
     }
 
-    console.log(files.length
-      ? (markdown ? renderMarkdown(report) : renderText(report))
-      : (markdown ? renderMarkdown(emptyReport) : "No changed files to check."));
+    if (!sarif) {
+      console.log(files.length
+        ? (markdown ? renderMarkdown(report) : renderText(report))
+        : (markdown ? renderMarkdown(emptyReport) : "No changed files to check."));
+    }
 
     // ARCHITECTURAL CONFORMANCE: does the RESULTING code still satisfy every recorded
     // architectural invariant? This is graph-reachability, not a diff — so it catches semantic
@@ -3149,7 +3154,7 @@ program
           graph: { symbols: graphScan!.symbols, edges: graphScan!.edges },
         }).filter((c) => !c.satisfied)
       : [];
-    if (confViolations.length) {
+    if (confViolations.length && !sarif) {
       if (markdown) {
         console.log(`\n### ⛔ Architectural conformance — ${confViolations.length} invariant(s) violated\n`);
         for (const c of confViolations) {
@@ -3181,7 +3186,7 @@ program
     const policyResults = hasActivePolicies
       ? constitution.evaluate({ activeOnly: true, publicOnly: !!opts.publicOnly, behavior, snapshot: staticSnapshot })
       : [];
-    if (policyResults.length) {
+    if (policyResults.length && !sarif) {
       if (markdown) {
         console.log(`\n### 📜 Hunch Constitution — ${policyResults.length} policy receipt(s)\n`);
         for (const r of policyResults) {
@@ -3193,6 +3198,25 @@ program
         console.log("");
         renderPolicyEvaluations(policyResults).forEach((line) => console.log(line));
       }
+    }
+
+    if (sarif) {
+      const extras: SarifExtras = {
+        conformance: confViolations.map((c) => {
+          const dec = store.json.get("decisions", c.decision);
+          return { decision: c.decision, title: c.title, detail: c.detail, ...(dec?.context ? { why: dec.context } : {}), ...(dec?.caused_by_bug ? { bug: dec.caused_by_bug } : {}) };
+        }),
+        policies: policyResults.map((r) => ({
+          id: r.policy.id,
+          result: r.evaluation.result,
+          explanation: r.evaluation.explanation,
+          blocks: r.blocks,
+          receipt: r.evaluation.deterministic_hash,
+          ...(r.gate_error ? { gateError: r.gate_error } : {}),
+        })),
+        scanIssues: semanticIssues.map((s) => ({ path: s.path, detail: s.detail, code: s.code })),
+      };
+      console.log(renderSarif(report, HUNCH_VERSION, extras));
     }
 
     const constitutionFails = policyResults.some((r) => r.blocks || r.strict_error);

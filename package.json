@@ -1,6 +1,7 @@
 {
   "name": "@davesheffer/hunch",
   "version": "1.10.6",
+  "mcpName": "io.github.davesheffer/hunch",
   "license": "Apache-2.0",
   "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
   "description": "Engineering memory and a deterministic Change Gate for AI-assisted codebases: decisions, rejected approaches, constraints, and bug lineage become portable context and opt-in enforcement for every MCP assistant.",
@@ -18,6 +19,7 @@
   },
   "files": [
     "dist/**/*.js",
+    "server.json",
     "bench/constitution-exp03-v1.json",
     "tooling/competitive-watch.mjs",
     "tooling/md1-benchmark.mjs",

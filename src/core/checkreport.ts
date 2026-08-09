@@ -259,3 +259,94 @@ export function renderMarkdown(r: CheckReport): string {
   out.push(`\n<sub>🧠 Hunch · engineering memory · run \`hunch why <file>\` for the full reasoning.</sub>`);
   return out.join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// SARIF 2.1.0 (GitHub code scanning, IDE problem panes, enterprise dashboards)
+// ---------------------------------------------------------------------------
+
+/** Conformance/policy/scan findings arrive from the CLI already flattened, so this
+ *  renderer stays pure and every output channel shares one gate semantics. */
+export interface SarifExtras {
+  conformance?: Array<{ decision: string; title: string; detail: string; why?: string; bug?: string }>;
+  policies?: Array<{ id: string; result: string; explanation: string; blocks: boolean; receipt: string; gateError?: string }>;
+  scanIssues?: Array<{ path: string; detail: string; code: string }>;
+}
+
+interface SarifResult {
+  ruleId: string;
+  level: "error" | "warning" | "note";
+  message: { text: string };
+  locations?: Array<{ physicalLocation: { artifactLocation: { uri: string } } }>;
+}
+
+const sarifLoc = (file?: string): SarifResult["locations"] =>
+  file ? [{ physicalLocation: { artifactLocation: { uri: file.replace(/\\/g, "/") } } }] : undefined;
+
+/** Render the full check verdict as a SARIF 2.1.0 document. Level mapping is
+ *  severity-truth, independent of the exit code: `error` = would fail --strict
+ *  (strict-blocking invariants, blocking-linked regressions/vetoes, conformance
+ *  violations, authorized policy blocks, incomplete scans), `warning` = blocking
+ *  records the strict gate downgraded plus warning-severity hits, `note` = advisory
+ *  (near, redundant, non-blocking receipts). */
+export function renderSarif(r: CheckReport, version: string, extras: SarifExtras = {}): string {
+  const rules = new Map<string, { id: string; shortDescription: { text: string }; defaultConfiguration: { level: SarifResult["level"] } }>();
+  const results: SarifResult[] = [];
+  const add = (ruleId: string, level: SarifResult["level"], text: string, ruleText: string, file?: string): void => {
+    if (!rules.has(ruleId)) rules.set(ruleId, { id: ruleId, shortDescription: { text: clip(ruleText, 300) }, defaultConfiguration: { level } });
+    results.push({ ruleId, level, message: { text }, ...(sarifLoc(file) ? { locations: sarifLoc(file) } : {}) });
+  };
+
+  for (const c of r.direct) {
+    const level: SarifResult["level"] = c.strictBlocks ? "error" : c.severity === "advisory" ? "note" : "warning";
+    let text = `[${c.severity}] ${c.statement}`;
+    if (c.rationale) text += ` — ${c.rationale}`;
+    if (c.downgrade) text += ` (advisory under strict: ${c.downgrade})`;
+    if (c.why?.decision) text += `\nwhy: “${c.why.decision.title}” (${c.why.decision.id})`;
+    if (c.why?.bug) text += `\nguards against: ${c.why.bug.title} (${c.why.bug.id})`;
+    add(c.id, level, text, c.statement, c.files[0]);
+  }
+  for (const n of r.near) {
+    add(n.id, "note", `[${n.severity}] near via blast radius: ${n.statement}${n.via[0] ? `\nvia ${n.via[0]}` : ""}`, n.statement);
+  }
+  for (const h of r.regressions) {
+    add(h.decision, h.blocking ? "error" : "warning", `re-adds ${h.kind} \`${h.name}\` — ${h.decision} deliberately removed it: “${h.title}”. ${h.reason}`, h.title);
+  }
+  for (const v of r.vetoes) {
+    add(v.decision, v.blocking ? "error" : "warning", `reverses rejected approach: you rejected “${clip(v.alternative)}”; you chose “${clip(v.chosen)}” (${v.decision})`, v.title);
+  }
+  for (const x of r.redundant) {
+    add("hunch/redundant-symbol", "note", `adds ${x.kind} \`${x.name}\` — already defined in ${x.existingFile}`, "Possibly re-implements an existing symbol", x.existingFile);
+  }
+  for (const c of extras.conformance ?? []) {
+    let text = `architectural conformance violated: ${c.detail} (“${c.title}”)`;
+    if (c.why) text += `\nwhy: ${c.why}`;
+    if (c.bug) text += `\nprevents recurrence of: ${c.bug}`;
+    add(c.decision, "error", text, c.title);
+  }
+  for (const p of extras.policies ?? []) {
+    const level: SarifResult["level"] = p.blocks || p.gateError ? "error" : p.result === "satisfied" ? "note" : "warning";
+    let text = `policy ${p.result}${p.blocks ? " (authorized block)" : ""}: ${p.explanation}\nreceipt: ${p.receipt}`;
+    if (p.gateError) text += `\ngate error: ${p.gateError}`;
+    add(p.id, level, text, `Constitution policy ${p.id}`);
+  }
+  for (const s of extras.scanIssues ?? []) {
+    add("hunch/incomplete-scan", "error", `semantic source scan rejected ${s.path}: ${s.detail} [${s.code}] — an omitted file could hide a violation, so strict fails closed`, "Incomplete semantic source scan", s.path);
+  }
+
+  const doc = {
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    version: "2.1.0" as const,
+    runs: [{
+      tool: {
+        driver: {
+          name: "hunch",
+          informationUri: "https://github.com/davesheffer/hunch",
+          version,
+          rules: [...rules.values()],
+        },
+      },
+      results,
+    }],
+  };
+  return JSON.stringify(doc, null, 2);
+}
