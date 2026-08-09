@@ -4326,12 +4326,25 @@ test("MD-1a capture survives a dirty baseline and ordinary index retries it afte
     client = new Client({ name: "automatic-correction-upgrade-test", version: "1.0.0" });
     await client.connect(transport);
 
+    // Countersigned on purpose. This correction is later upgraded into a Constitution
+    // policy candidate ("correction reviews: 1 proved" below), and candidate eligibility
+    // has always required human_confirmed provenance (bootstrap.ts) — testimony must not
+    // become policy evidence. Since the authorship stamp, an un-token'd correction lands
+    // as agent_recorded and is capped at "warning", so it could neither block nor prove.
+    const correctionInterview = await client.callTool({
+      name: "hunch_capture_decision",
+      arguments: { topic: "transport.http-client" },
+    });
+    const correctionToken = ((correctionInterview.content[0] as { type: "text"; text: string }).text
+      .match(/capture_token:"([^"]+)"/) ?? [])[1];
+    assert.ok(correctionToken, "capture interview must mint a token");
     const capture = await client.callTool({
       name: "hunch_record_correction",
       arguments: {
         rule: "never import axios",
         scope_hint_file: "src/api/orders.ts",
         severity: "blocking",
+        capture_token: correctionToken,
         rationale: "Direct HTTP clients bypass the shared transport controls.",
       },
     });
