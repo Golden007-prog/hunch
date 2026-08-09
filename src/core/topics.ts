@@ -112,7 +112,17 @@ export function renderGrounding(
 
   const lines = settled.map((d) => {
     const rej = d.alternatives_rejected.length ? ` (rejected: ${d.alternatives_rejected.join("; ")})` : "";
-    return `• "${d.topic}": ${d.decision || d.title} [${d.id}]${rej}`;
+    // Memory supply chain: an agent-recorded decision (no capture interview, no
+    // human countersign) is TESTIMONY. It still grounds — but never with the same
+    // voice as a human-confirmed record, because this block is delivered with
+    // doc-precedence framing ("follow the graph") and would otherwise launder an
+    // unvouched write into the most trusted context the next agent sees.
+    // Token-aware match (mirrors strictgate.isHumanConfirmed; not imported — that
+    // module imports this one).
+    const testimony = d.provenance.source.split("+").includes("agent_recorded")
+      ? " — ⚠ agent-recorded testimony, no human countersign yet (/capture confirms it)"
+      : "";
+    return `• "${d.topic}": ${d.decision || d.title} [${d.id}]${rej}${testimony}`;
   });
   // Name the conflict instead of silently dropping it: an unexplained absence would read
   // as "nothing is recorded here", which is how a contested topic gets re-decided by
