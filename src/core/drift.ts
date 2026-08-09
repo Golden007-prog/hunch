@@ -17,11 +17,12 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { toPosixTarget } from "./paths.js";
 import { currentForTopic, isLive } from "./topics.js";
+import { evaluatePremises, type PremiseEnv } from "./premises.js";
 import { parseDocAnchors } from "./docanchors.js";
 import { markdownDocs, STALE_MARKER, SRC_REF } from "./docscan.js";
 import { computeWikiDrift } from "../wiki/wiki.js";
 
-export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling" | "wiki-stale" | "finding-stale";
+export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling" | "wiki-stale" | "finding-stale" | "premise-stale";
 
 export interface DriftFinding {
   kind: DriftKind;
@@ -42,6 +43,7 @@ export function computeDrift(store: HunchStore, root: string): DriftReport {
   // anchor-stale. Keeps the doc≠graph gate's false-positive rate ~zero: a routine
   // narrowing supersession (successor lists fewer files) never flags files still governed.
   const liveFiles = new Set(decisions.filter(isLive).flatMap((d) => (d.related_files ?? []).map(toPosixTarget)));
+  const premiseEnv: PremiseEnv = { now: new Date().toISOString(), exists: (p) => existsSync(join(root, p)) };
 
   for (const d of decisions) {
     // 1. DEAD-REFERENCE — only for in-force decisions; a superseded one referencing
@@ -86,6 +88,19 @@ export function computeDrift(store: HunchStore, root: string): DriftReport {
             id: d.id,
             detail: `"${f}" is anchored to superseded decision ${d.id} (topic "${d.topic}"); the current decision is ${current.id} — "${current.title}". Reconcile the file with the current decision.`,
           });
+        }
+      }
+    }
+
+    // 7. PREMISE-STALE (world≠graph) — the decision's recorded REASON no longer
+    //    holds while code and docs may be perfectly in sync. Advisory like every
+    //    kind here, and authority is NEVER changed by a dead premise — the
+    //    escalation surface asks the human (a self-relaxing gate could be
+    //    disarmed by the very actor it guards against).
+    if (isLive(d) && d.premises?.length) {
+      for (const v of evaluatePremises(d, premiseEnv)) {
+        if (!v.holds) {
+          findings.push({ kind: "premise-stale", id: d.id, detail: `premise "${v.claim}" no longer holds — ${v.reason}. Re-attest, supersede, or retire; authority unchanged until a human decides.` });
         }
       }
     }

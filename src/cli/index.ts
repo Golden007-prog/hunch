@@ -91,6 +91,7 @@ import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWiki
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, renderGrounding, isInForce } from "../core/topics.js";
 import { pendingEscalations, policyEscalations } from "../core/escalations.js";
+import { premiseEscalations } from "../core/premises.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
@@ -3647,6 +3648,7 @@ program
           }
           if (pendingReview > 0) L.push(`${pendingReview} legacy un-vouched draft(s) — adopt as advisory memory with \`hunch adopt-drafts\` (new captures auto-trust).`);
           const escalations = pendingEscalations(decisions);
+          escalations.push(...premiseEscalations(decisions, { now: new Date().toISOString(), exists: (p) => existsSync(join(paths.root, p)) }));
           try {
             // Constitution human moments ride the same line; a broken policy store
             // must never take session-start orientation down (fail open). Public
@@ -4172,7 +4174,11 @@ program
   .action(async (opts: { json?: boolean }) => {
     const { store, root } = storeFor();
     try {
-      const items = pendingEscalations(store.recs("decisions"));
+      const decisionsForEsc = store.recs("decisions");
+      const items = pendingEscalations(decisionsForEsc);
+      // Premise decay rides the same inline surface: a decision whose recorded
+      // reason died is a QUESTION for the human — authority never changes here.
+      items.push(...premiseEscalations(decisionsForEsc, { now: new Date().toISOString(), exists: (p) => existsSync(join(root, p)) }));
       // Constitution moments ride the same inline surface (§59.5.3) — never a queue.
       // Fail open: a broken policy store must not take the memory escalations down.
       try {

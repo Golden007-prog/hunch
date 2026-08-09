@@ -20,7 +20,7 @@
 import type { Decision } from "./types.js";
 import { topicCollisions } from "./topics.js";
 
-export type EscalationKind = "topic-conflict" | "policy-candidate" | "policy-proposal" | "policy-repaired";
+export type EscalationKind = "topic-conflict" | "policy-candidate" | "policy-proposal" | "policy-repaired" | "premise-stale";
 
 export interface Escalation {
   kind: EscalationKind;

@@ -126,6 +126,24 @@ export const ConformancePredicateSchema = z.object({
 });
 export type ConformancePredicate = z.infer<typeof ConformancePredicateSchema>;
 
+// A premise: the WHY under the decision, as a checkable record. Decisions decay
+// when their REASONS die, not (only) when code changes — a premise makes one
+// recorded reason watchable. Exactly one check per premise (or none: claim-only
+// premises document the reason but can never fire). Checks are deterministic and
+// explicit — path presence or a dated human attestation — never semantic guesses.
+// A failing premise NEVER changes authority; it only raises an inline escalation
+// (the human renews, supersedes, or retires — same ethos as topic anchors).
+export const PremiseSchema = z.object({
+  claim: z.string().min(1).describe("the human-readable reason this decision rests on"),
+  path_absent: z.string().optional().describe("premise holds while this repo-relative path does NOT exist"),
+  path_exists: z.string().optional().describe("premise holds while this repo-relative path exists"),
+  review_by: z.string().optional().describe("dated attestation: premise holds until this ISO date, then needs re-attesting"),
+  attested: z.string().optional().describe("ISO date a human last attested the claim (informational)"),
+}).refine((p) => [p.path_absent, p.path_exists, p.review_by].filter((x) => x !== undefined).length <= 1, {
+  message: "a premise carries at most one check (path_absent | path_exists | review_by)",
+});
+export type Premise = z.infer<typeof PremiseSchema>;
+
 export const DecisionSchema = z.object({
   id: z.string().describe("dec_*"),
   title: z.string(),
@@ -157,6 +175,12 @@ export const DecisionSchema = z.object({
   valid_to: z.string().nullable().default(null).describe("ISO instant it was superseded (null = in force)"),
   retired: RetiredSignalSchema.default({ symbols: [], deps: [] }),
   conformance: z.array(ConformancePredicateSchema).optional().describe("deterministic intent-conformance checks over the graph"),
+  // Optional like `topic`/`conformance`: absent = today's behavior exactly (no
+  // migration, no new burden). Intended to be RARE — blocking constraints and
+  // contested decisions, not every record (attestation fatigue kills reminder
+  // systems). A decision with premises is "conditioned on [these]", never
+  // "verified valid" — the system watches recorded reasons only.
+  premises: z.array(PremiseSchema).optional().describe("the checkable reasons this decision rests on; a dead premise escalates, never auto-relaxes"),
   provenance: ProvenanceSchema,
   date: z.string(),
 });

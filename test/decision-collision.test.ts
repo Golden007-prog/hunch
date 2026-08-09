@@ -78,7 +78,7 @@ test("same commit cannot silently replace a different human-confirmed decision",
   });
 
   assert.equal(second.isError, true, `the second capture must be refused, got: ${second.text}`);
-  assert.match(second.text, /already identifies a different human-confirmed decision/i);
+  assert.match(second.text, /already identifies a different curated decision/i);
   assert.equal(readFileSync(file, "utf8"), before, "the first decision remains byte-for-byte unchanged");
 
   const topicless = await record(client, {
@@ -126,14 +126,20 @@ test("a human capture still upgrades the machine draft for its commit", async (t
     try { rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }); } catch { /* temp only */ }
   });
 
-  const result = await record(client, {
-    title: "Human decision",
-    topic: "human-topic",
-    context: "human rationale",
-    decision: "Confirmed choice",
-    commit: sha,
-  });
-  assert.equal(result.isError, false, result.text);
+  // The human vouch travels via the capture token (authorship stamp): an
+  // un-token'd upgrade still lands the content, but as agent_recorded testimony —
+  // only the interview mints human_confirmed.
+  const brief = (await client.callTool({ name: "hunch_capture_decision", arguments: { topic: "human-topic" } })) as ToolText;
+  const token = /capture_token:"([^"]+)"/.exec(brief.content.map((c) => c.text ?? "").join("\n"))?.[1];
+  assert.ok(token, "capture brief must issue a token");
+  const result = (await client.callTool({
+    name: "hunch_record_decision",
+    arguments: {
+      decision: { title: "Human decision", topic: "human-topic", context: "human rationale", decision: "Confirmed choice", commit: sha },
+      capture_token: token,
+    },
+  })) as ToolText;
+  assert.equal(!!result.isError, false, result.content.map((c) => c.text ?? "").join("\n"));
 
   const upgraded = JSON.parse(readFileSync(file, "utf8")) as {
     title: string;
