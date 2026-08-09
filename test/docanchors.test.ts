@@ -41,6 +41,34 @@ test("parseDocAnchors: pinned, unpinned, line numbers; prose without markers par
   assert.deepEqual(parseDocAnchors("# just prose\nno markers here"), []);
 });
 
+test("parseDocAnchors: markers inside fenced code blocks are examples, not declarations", () => {
+  const md = [
+    "# How to anchor a doc",
+    "",
+    "```markdown",
+    "<!-- hunch:topic example.topic dec_ffff000009 -->",   // documentation example → ignored
+    "```",
+    "",
+    "~~~",
+    "<!-- hunch:topic tilde.example -->",                  // tilde fence → ignored
+    "~~~",
+    "",
+    "````md info",
+    "```",
+    "<!-- hunch:topic nested.example -->",                 // shorter fence can't close a longer one
+    "```",
+    "````",
+    "",
+    "<!-- hunch:topic real.topic dec_aaaa000001 -->",      // outside all fences → live
+    "Prose about the real topic.",
+  ].join("\n");
+  const anchors = parseDocAnchors(md);
+  assert.deepEqual(anchors, [{ topic: "real.topic", pin: "dec_aaaa000001", line: 17 }]);
+
+  // An unclosed fence swallows everything to EOF.
+  assert.deepEqual(parseDocAnchors("```\n<!-- hunch:topic dangling.example -->"), []);
+});
+
 test("drift doc-anchor-stale: a pin to a superseded decision fires (and gates); current pin and unpinned stay silent", (t) => {
   const { store, root, cleanup } = tempStore();
   t.after(cleanup);
