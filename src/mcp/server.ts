@@ -843,6 +843,14 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           related_files: z.array(z.string()).optional(),
           related_components: z.array(z.string()).optional(),
           topic: z.string().optional().describe("decision-grounding anchor — one topic per decision; enables doc≠graph drift detection for it. Omit to leave un-anchored."),
+          premises: z.array(z.object({
+            claim: z.string().describe("the checkable reason this decision rests on, in plain words"),
+            check: z.object({
+              kind: z.enum(["path_absent", "path_exists", "review_by"]),
+              path: z.string().optional().describe("repo-relative path for path_absent / path_exists"),
+              review_by: z.string().optional().describe("ISO date this attestation expires (review_by)"),
+            }).optional().describe("at most one deterministic check; omit for an unchecked note"),
+          })).optional().describe("the checkable reasons this decision rests on. A dead premise NEVER changes authority — it raises an escalation for the human. Omit on re-record to keep the incumbent's premises."),
           status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(),
           commit: z.string().optional(),
           supersedes: z.string().optional().describe("id of a decision this one replaces — closes its valid-time window (invalidate, don't delete)"),
@@ -884,7 +892,23 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // from the commit) stay upgradeable by a different identity. Same-identity
         // re-record remains the countersign/refine path for every tier.
         const curated = ["human_confirmed", "agent_recorded"].some((t) => existing?.provenance.source.split("+").includes(t));
-        const conflictsWithHuman = curated && !sameHumanIdentity;
+        // AUTHORSHIP STAMP (memory supply chain): only a consumed capture token — proof a
+        // grilling interview preceded this write — mints human_confirmed. Any agent can
+        // CALL this tool mid-session, possibly steered by untrusted content it read;
+        // "the human probably asked me to" is testimony, not a signature.
+        //
+        // Resolved HERE, before the overwrite guard, because the guard's answer depends on
+        // it: testimony must yield to a signature. (Consuming before a possible refusal
+        // burns the token, which is the safe direction — a re-run of /capture mints another.)
+        const gated = consumeCaptureToken(capture_token);
+        const existingTiers = existing?.provenance.source.split("+") ?? [];
+        const existingIsHuman = existingTiers.includes("human_confirmed");
+        // A slot held only by AGENT TESTIMONY must not block a later human capture — the
+        // stamp's own contract says so ("never lock the id slot against a later human
+        // capture"), but including agent_recorded in `curated` did exactly that. A
+        // human_confirmed slot stays protected as before (issue #23): a signature is never
+        // displaced by a differently-identified record, vouched or not.
+        const conflictsWithHuman = curated && !sameHumanIdentity && !(gated && !existingIsHuman);
         if (conflictsWithHuman) {
           return err(
             `Decision id ${id} already identifies a different curated decision: ` +
@@ -893,18 +917,18 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
             "Record the additional decision without commit, or reuse the incumbent topic/title when refining the same decision.",
           );
         }
-        // AUTHORSHIP STAMP (memory supply chain): only a consumed capture token —
-        // proof a grilling interview preceded this write — mints human_confirmed.
-        // Any agent can CALL this tool mid-session, possibly steered by untrusted
-        // content it read; "the human probably asked me to" is testimony, not a
-        // signature. Un-token'd writes land as agent_recorded: fully functional
-        // advisory memory, but they never carry human authority (strict/veto gates
-        // key on human_confirmed), never lock the id slot against a later human
-        // capture, and surface with a testimony marker. Re-record through /capture
-        // to countersign. Consumed HERE (before the record is built) because the
-        // stamp is part of the record, not of the response message.
-        const gated = consumeCaptureToken(capture_token);
-        const tier = gated ? "human_confirmed" : "agent_recorded";
+        // Un-token'd writes land as agent_recorded: fully functional advisory memory that
+        // never carries human authority (strict/veto gates key on human_confirmed) and
+        // surfaces with a testimony marker. Re-record through /capture to countersign.
+        //
+        // A signature already on this slot is INHERITED, never erased. The un-token'd path
+        // is exactly what the nudge below tells an agent to do ("re-record… supersedes"),
+        // and the tier expression preserved `llm_draft` while dropping `human_confirmed` —
+        // so an un-vouched agent write silently stripped human authority from a decision a
+        // human had vouched for. That inverts the whole point of the stamp: it exists to
+        // stop an agent CLAIMING human authority, not to let one DESTROY it. Downgrading a
+        // signature is a human act (`hunch review --reject`, or supersede via /capture).
+        const tier = gated || existingIsHuman ? "human_confirmed" : "agent_recorded";
         const source = existing && existing.provenance.source.includes("llm_draft")
           ? `llm_draft+${tier}`
           : tier;
@@ -920,6 +944,14 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           consequences: decision.consequences ?? [],
           alternatives_rejected: decision.alternatives_rejected ?? [],
           rejected_tripwires: existing?.rejected_tripwires ?? [], // preserve confirmed tripwires across re-record
+          // Premises survive a re-record for the same reason tripwires do. Rebuilding the
+          // record field-by-field WITHOUT them silently deleted the decision's recorded
+          // reasons — so the escalation for a dead premise stopped firing while the
+          // decision kept full authority, and nothing reported the loss. That is the exact
+          // fail-open premise decay exists to prevent, relocated from the evaluator to the
+          // writer — and the escalation's own advice ("re-attest… or re-record") walked
+          // straight into it. Caller-supplied premises win; otherwise the incumbent's carry.
+          premises: decision.premises ?? existing?.premises ?? [],
           related_components: decision.related_components ?? existing?.related_components ?? [],
           related_files: (decision.related_files ?? existing?.related_files ?? []).map(toPosixTarget),
           supersedes: decision.supersedes ?? existing?.supersedes ?? null,

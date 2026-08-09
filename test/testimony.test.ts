@@ -131,3 +131,110 @@ test("pre-edit grounding marks testimony, and only testimony", () => {
   assert.ok(!lines.find((l) => l.includes("top.b"))!.includes("testimony"));
   assert.ok(!lines.find((l) => l.includes("top.c"))!.includes("testimony"), "diff-synthesized records keep their standing (implicit human vouch via the commit)");
 });
+
+/** Regressions found by adversarial review of the authorship-stamp commit, before it
+ *  merged. Each of these passed CI while the defect was live — the suite covered the
+ *  happy paths (a fresh un-token'd write, a fresh tokened write) but never the case
+ *  where a record ALREADY EXISTS, which is where the stamp's authority rules actually
+ *  bite. All three are exercised through the real MCP handler. */
+
+test("an un-token'd re-record INHERITS an existing human signature — testimony cannot erase it", async () => {
+  const s = await setup();
+  try {
+    // A human capture vouches for the decision.
+    const t = await s.call("hunch_capture_decision", { topic: "auth.transport" });
+    const token = (t.match(/capture_token:"([^"]+)"/) ?? t.match(/"(cap_[A-Za-z0-9_-]+)"/))?.[1];
+    assert.ok(token, `expected a capture token, got: ${t.slice(0, 200)}`);
+    await s.call("hunch_record_decision", {
+      decision: { title: "Sessions are JWT-only", decision: "JWT only.", topic: "auth.transport" },
+      capture_token: token,
+    });
+    const vouched = readDecisions(s.root)[0]!;
+    assert.match(vouched.provenance.source, /human_confirmed/, "precondition: the slot is human-vouched");
+
+    // The SAME decision is re-recorded by an agent with no token — exactly what the
+    // un-token'd nudge instructs. This used to rewrite source to plain agent_recorded.
+    await s.call("hunch_record_decision", {
+      decision: { title: "Sessions are JWT-only", decision: "JWT only, refined.", topic: "auth.transport" },
+    });
+    const after = readDecisions(s.root)[0]!;
+    assert.match(
+      after.provenance.source, /human_confirmed/,
+      `an un-vouched write must not strip the human signature — got "${after.provenance.source}"`,
+    );
+    assert.equal(after.decision, "JWT only, refined.", "the refinement still lands; only the signature is protected");
+  } finally { s.cleanup(); }
+});
+
+test("agent testimony does NOT lock the id slot against a later human capture", async () => {
+  const s = await setup();
+  try {
+    // The id is seeded by "manual:<title>" when no resolvable commit is given, so the
+    // SAME TITLE is what collides on one slot; a different TOPIC is what makes it a
+    // different identity. (Passing a short sha into a non-git fixture yields no
+    // fullSha, so commit-keyed ids would silently NOT collide — a vacuous test.)
+    await s.call("hunch_record_decision", {
+      decision: { title: "How caching works", decision: "Testimony.", topic: "cache.policy" },
+    });
+    assert.equal(readDecisions(s.root).length, 1, "precondition: one slot exists");
+    // A human capture arrives for the SAME slot with a different identity.
+    const t = await s.call("hunch_capture_decision", { topic: "cache.strategy" });
+    const token = (t.match(/capture_token:"([^"]+)"/) ?? t.match(/"(cap_[A-Za-z0-9_-]+)"/))?.[1];
+    assert.ok(token);
+    const out = await s.call("hunch_record_decision", {
+      decision: { title: "How caching works", decision: "Real answer.", topic: "cache.strategy" },
+      capture_token: token,
+    });
+    assert.ok(
+      !/Refusing to overwrite/i.test(out),
+      `a human capture must be able to take a slot held only by testimony — got: ${out.slice(0, 240)}`,
+    );
+  } finally { s.cleanup(); }
+});
+
+test("a human_confirmed slot is STILL protected from a differently-identified record (issue #23 holds)", async () => {
+  const s = await setup();
+  try {
+    const t = await s.call("hunch_capture_decision", { topic: "first.topic" });
+    const token = (t.match(/capture_token:"([^"]+)"/) ?? t.match(/"(cap_[A-Za-z0-9_-]+)"/))?.[1];
+    assert.ok(token);
+    await s.call("hunch_record_decision", {
+      decision: { title: "The shared ADR slot", decision: "First.", topic: "first.topic" },
+      capture_token: token,
+    });
+    const signed = readDecisions(s.root)[0]!;
+    assert.match(signed.provenance.source, /human_confirmed/, "precondition: the slot carries a signature");
+    // Same title => same id => same slot; different topic => different identity.
+    const t2 = await s.call("hunch_capture_decision", { topic: "unrelated.topic" });
+    const token2 = (t2.match(/capture_token:"([^"]+)"/) ?? t2.match(/"(cap_[A-Za-z0-9_-]+)"/))?.[1];
+    const out = await s.call("hunch_record_decision", {
+      decision: { title: "The shared ADR slot", decision: "Second.", topic: "unrelated.topic" },
+      capture_token: token2,
+    });
+    assert.match(out, /Refusing to overwrite/i, "a signature is never displaced by a differently-identified record");
+  } finally { s.cleanup(); }
+});
+
+test("premises SURVIVE a re-record instead of being silently deleted", async () => {
+  const s = await setup();
+  try {
+    await s.call("hunch_record_decision", {
+      decision: {
+        title: "No gateway auth layer",
+        decision: "Auth stays in the service.",
+        topic: "auth.placement",
+        premises: [{ claim: "there is no gateway yet", check: { kind: "path_absent", path: "src/gateway" } }],
+      },
+    });
+    assert.equal(readDecisions(s.root)[0]!.premises?.length, 1, "precondition: the premise was recorded");
+
+    // The escalation for a dead premise tells the human to re-record. That path used to
+    // DELETE premises[], so the escalation stopped firing while authority stayed intact.
+    await s.call("hunch_record_decision", {
+      decision: { title: "No gateway auth layer", decision: "Auth stays in the service, refined.", topic: "auth.placement" },
+    });
+    const after = readDecisions(s.root)[0]!;
+    assert.equal(after.premises?.length, 1, "the incumbent's premises carry across a re-record");
+    assert.equal(after.premises?.[0]?.claim, "there is no gateway yet");
+  } finally { s.cleanup(); }
+});
