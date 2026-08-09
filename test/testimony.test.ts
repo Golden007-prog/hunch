@@ -223,10 +223,18 @@ test("premises SURVIVE a re-record instead of being silently deleted", async () 
         title: "No gateway auth layer",
         decision: "Auth stays in the service.",
         topic: "auth.placement",
-        premises: [{ claim: "there is no gateway yet", check: { kind: "path_absent", path: "src/gateway" } }],
+        // FLAT shape, matching PremiseSchema. A nested { check: {...} } is stripped by
+        // Zod into a claim-only premise, which is "documented only" and ALWAYS HOLDS.
+        premises: [{ claim: "there is no gateway yet", path_absent: "src/gateway" }],
       },
     });
-    assert.equal(readDecisions(s.root)[0]!.premises?.length, 1, "precondition: the premise was recorded");
+    const recorded = readDecisions(s.root)[0]!.premises?.[0];
+    assert.equal(recorded?.claim, "there is no gateway yet", "precondition: the premise was recorded");
+    assert.equal(
+      recorded?.path_absent, "src/gateway",
+      "the CHECK must survive the round-trip — a premise whose check is stripped can never fire, "
+      + "which is the fail-open premise decay exists to prevent",
+    );
 
     // The escalation for a dead premise tells the human to re-record. That path used to
     // DELETE premises[], so the escalation stopped firing while authority stayed intact.
@@ -236,5 +244,6 @@ test("premises SURVIVE a re-record instead of being silently deleted", async () 
     const after = readDecisions(s.root)[0]!;
     assert.equal(after.premises?.length, 1, "the incumbent's premises carry across a re-record");
     assert.equal(after.premises?.[0]?.claim, "there is no gateway yet");
+    assert.equal(after.premises?.[0]?.path_absent, "src/gateway", "…including its check, not just the claim text");
   } finally { s.cleanup(); }
 });

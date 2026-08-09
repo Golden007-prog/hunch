@@ -626,7 +626,17 @@ export class HunchStore {
       let w = 1;
       if (m) {
         if (m.dead) w *= 0.6;
-        w *= m.provenance.includes("human_confirmed") ? 1 : m.provenance.includes("llm_draft") ? 0.85 : 0.75;
+        // agent_recorded sits BETWEEN human_confirmed and llm_draft. It is testimony —
+        // a human directed the capture but did not countersign it through /capture — so
+        // it must not carry human authority (strict/veto gates key on human_confirmed).
+        // But it is a deliberate, human-prompted write, and the unlabelled tier (0.75)
+        // is for extracted/inferred machine output. Without this it fell to 0.75 and
+        // ranked BELOW an llm_draft the model produced unprompted, which inverts what
+        // the authorship stamp is trying to express.
+        w *= m.provenance.includes("human_confirmed") ? 1
+          : m.provenance.includes("agent_recorded") ? 0.9
+            : m.provenance.includes("llm_draft") ? 0.85
+              : 0.75;
         if (m.at) {
           const ageDays = Math.max(0, now - Date.parse(m.at)) / 86400000;
           if (Number.isFinite(ageDays)) w *= 0.7 + 0.3 * Math.pow(0.5, ageDays / 90);

@@ -843,14 +843,19 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           related_files: z.array(z.string()).optional(),
           related_components: z.array(z.string()).optional(),
           topic: z.string().optional().describe("decision-grounding anchor — one topic per decision; enables doc≠graph drift detection for it. Omit to leave un-anchored."),
+          // FLAT, matching PremiseSchema exactly. A nested { check: {...} } shape is
+          // silently STRIPPED by Zod, leaving a claim-only premise — and a claim-only
+          // premise is "documented only (no check attached)", which ALWAYS HOLDS. An
+          // agent following a wrong schema would record a premise that can never fire:
+          // the exact fail-open this feature exists to prevent. Keep in lockstep with
+          // PremiseSchema in src/core/types.ts.
           premises: z.array(z.object({
-            claim: z.string().describe("the checkable reason this decision rests on, in plain words"),
-            check: z.object({
-              kind: z.enum(["path_absent", "path_exists", "review_by"]),
-              path: z.string().optional().describe("repo-relative path for path_absent / path_exists"),
-              review_by: z.string().optional().describe("ISO date this attestation expires (review_by)"),
-            }).optional().describe("at most one deterministic check; omit for an unchecked note"),
-          })).optional().describe("the checkable reasons this decision rests on. A dead premise NEVER changes authority — it raises an escalation for the human. Omit on re-record to keep the incumbent's premises."),
+            claim: z.string().min(1).describe("the human-readable reason this decision rests on"),
+            path_absent: z.string().optional().describe("premise holds while this repo-relative path does NOT exist"),
+            path_exists: z.string().optional().describe("premise holds while this repo-relative path exists"),
+            review_by: z.string().optional().describe("dated attestation: premise holds until this ISO date, then needs re-attesting"),
+            attested: z.string().optional().describe("ISO date a human last attested the claim (informational)"),
+          })).optional().describe("the checkable reasons this decision rests on — at most ONE check per premise (path_absent | path_exists | review_by). A dead premise NEVER changes authority; it raises an escalation for the human. Omit on re-record to keep the incumbent's premises."),
           status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(),
           commit: z.string().optional(),
           supersedes: z.string().optional().describe("id of a decision this one replaces — closes its valid-time window (invalidate, don't delete)"),

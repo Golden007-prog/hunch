@@ -138,3 +138,44 @@ test("drift: a dead premise on a live decision fires premise-stale; a superseded
     t.cleanup();
   }
 });
+
+/** Regressions from the adversarial review of the premise-decay commit. */
+
+test("an unparseable clock is unevaluable, never 'holds' (#2)", () => {
+  // Date.parse("nope") is NaN and `NaN > due` is false, which fell through to
+  // "attested until …" — i.e. HOLDS. The module's hard rule was enforced for a bad
+  // review_by but not for a bad now, and PremiseEnv.now is a public input.
+  const d = {
+    id: "dec_clock", title: "t", status: "accepted", superseded_by: null, valid_to: null,
+    alternatives_rejected: [], topic: null,
+    premises: [{ claim: "reviewed recently", review_by: "2099-01-01" }],
+  } as never;
+  const verdicts = evaluatePremises(d, { now: "nope", exists: () => false });
+  assert.equal(verdicts[0]!.holds, false, "a bad clock must not vouch for the premise");
+  assert.match(verdicts[0]!.reason, /unevaluable/);
+});
+
+test("a bad clock is unevaluable for EVERY check kind, not just the dated one (#2)", () => {
+  const mk = (p: Record<string, unknown>) => ({
+    id: "dec_x", title: "t", status: "accepted", superseded_by: null, valid_to: null,
+    alternatives_rejected: [], topic: null, premises: [p],
+  }) as never;
+  for (const p of [
+    { claim: "a", path_absent: "src/gateway" },
+    { claim: "b", path_exists: "src/core" },
+    { claim: "c", review_by: "2099-01-01" },
+  ]) {
+    const [v] = evaluatePremises(mk(p), { now: "", exists: () => true });
+    assert.equal(v!.holds, false, `check ${JSON.stringify(p)} must be unevaluable under a bad clock`);
+  }
+});
+
+test("a good clock still evaluates normally (no regression) (#2)", () => {
+  const d = {
+    id: "dec_ok", title: "t", status: "accepted", superseded_by: null, valid_to: null,
+    alternatives_rejected: [], topic: null,
+    premises: [{ claim: "reviewed recently", review_by: "2099-01-01" }],
+  } as never;
+  const [v] = evaluatePremises(d, { now: "2026-08-09T00:00:00Z", exists: () => false });
+  assert.equal(v!.holds, true, "a valid future attestation still holds");
+});

@@ -61,6 +61,15 @@ function checkPath(claim: string, rel: string, wantExists: boolean, env: Premise
 }
 
 function checkOne(p: Premise, env: PremiseEnv): PremiseVerdict {
+  // The clock is an INJECTED input, so it is an unevaluable case like any other.
+  // `Date.parse("nope")` is NaN, and `NaN > due` is false — which fell through to
+  // "attested until …", i.e. HOLDS. The module's hard rule ("cannot-evaluate is
+  // never holds") was enforced for a bad review_by but not for a bad now, and the
+  // unenforced half is the one a future caller can get wrong. Checked once, here,
+  // so it covers every check kind rather than only the dated one.
+  if (!Number.isFinite(Date.parse(env.now))) {
+    return { claim: p.claim, holds: false, reason: `unevaluable: caller supplied a non-ISO clock ("${env.now}")` };
+  }
   if (p.path_absent !== undefined) return checkPath(p.claim, p.path_absent, false, env);
   if (p.path_exists !== undefined) return checkPath(p.claim, p.path_exists, true, env);
   if (p.review_by !== undefined) {

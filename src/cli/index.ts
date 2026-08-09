@@ -4661,6 +4661,16 @@ program
         for (const f of wikiStale) console.log(`· ${f.id} — ${f.detail}`);
         console.log(`\nHeal: run \`hunch wiki --heal\` — regenerates only the stale pages (the wiki is a derived view; never edit it by hand).\n`);
       }
+      // Every drift kind heals here — see bug_drift_heal_asymmetry above. premise-stale
+      // shipped in the drift report without a section here, so a repo whose ONLY drift
+      // was a dead premise got "N findings" from `hunch drift` and a bare closing line
+      // from `hunch heal` — exactly the broken loop that bug is about.
+      const premiseStale = kind("premise-stale");
+      if (premiseStale.length) {
+        console.log(`${premiseStale.length} decision(s) rest on a premise that no longer holds (world≠graph):\n`);
+        for (const f of premiseStale) console.log(`· ${f.id} — ${f.detail}`);
+        console.log(`\nHeal: this is a HUMAN call — the decision's authority is unchanged until you make it. Re-attest (update the premise's review_by/attested), supersede via /capture, or retire the decision. Keeping it for consistency is a valid answer.\n`);
+      }
       console.log(`Hunch never rewrites prose for you; this is a read-only reconciliation report.`);
     } finally {
       store.close();
