@@ -877,19 +877,37 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         const sameHumanIdentity = existing?.topic && decision.topic
           ? decision.topic === existing.topic
           : existing?.title === decision.title;
-        const conflictsWithHuman = !!existing?.provenance.source.includes("human_confirmed")
-          && !sameHumanIdentity;
+        // CURATED slots are overwrite-protected, not just human-confirmed ones:
+        // agent_recorded testimony carries session content a silent replace would
+        // destroy (issue #23's harm, one tier down). Only regenerable machine
+        // drafts (llm_draft/inferred synthesis, deterministically re-derivable
+        // from the commit) stay upgradeable by a different identity. Same-identity
+        // re-record remains the countersign/refine path for every tier.
+        const curated = ["human_confirmed", "agent_recorded"].some((t) => existing?.provenance.source.split("+").includes(t));
+        const conflictsWithHuman = curated && !sameHumanIdentity;
         if (conflictsWithHuman) {
           return err(
-            `Decision id ${id} already identifies a different human-confirmed decision: ` +
+            `Decision id ${id} already identifies a different curated decision: ` +
             `"${existing!.title}"${existing!.topic ? ` (topic "${existing!.topic}")` : ""}. ` +
             `Refusing to overwrite it with "${decision.title}"${decision.topic ? ` (topic "${decision.topic}")` : ""}. ` +
             "Record the additional decision without commit, or reuse the incumbent topic/title when refining the same decision.",
           );
         }
+        // AUTHORSHIP STAMP (memory supply chain): only a consumed capture token —
+        // proof a grilling interview preceded this write — mints human_confirmed.
+        // Any agent can CALL this tool mid-session, possibly steered by untrusted
+        // content it read; "the human probably asked me to" is testimony, not a
+        // signature. Un-token'd writes land as agent_recorded: fully functional
+        // advisory memory, but they never carry human authority (strict/veto gates
+        // key on human_confirmed), never lock the id slot against a later human
+        // capture, and surface with a testimony marker. Re-record through /capture
+        // to countersign. Consumed HERE (before the record is built) because the
+        // stamp is part of the record, not of the response message.
+        const gated = consumeCaptureToken(capture_token);
+        const tier = gated ? "human_confirmed" : "agent_recorded";
         const source = existing && existing.provenance.source.includes("llm_draft")
-          ? "llm_draft+human_confirmed"
-          : "human_confirmed";
+          ? `llm_draft+${tier}`
+          : tier;
         const now = new Date().toISOString();
 
         const rec: Decision = {
@@ -911,7 +929,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           valid_from: existing?.valid_from ?? now,
           valid_to: existing?.valid_to ?? null,
           retired: existing?.retired ?? { symbols: [], deps: [] },
-          provenance: { source, confidence: 0.95, evidence: (decision.related_files ?? existing?.provenance.evidence ?? []).map(toPosixTarget) },
+          provenance: { source, confidence: gated ? 0.95 : 0.75, evidence: (decision.related_files ?? existing?.provenance.evidence ?? []).map(toPosixTarget) },
           date: now,
         };
         // Where this write will actually land (see captureHome). Resolved BEFORE the
@@ -967,16 +985,17 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // (commit only — it rides the user's next push, never auto-pushing their code branch).
         const flush = flushCapture(store, hunchPaths(root).hunch, !!decision.private, `hunch: capture ${id}`, startupTeamRoute ?? undefined);
         const flushed = flushNote(flush, home, store.mode);
-        // Capture-session gate (staged deprecation, §9.3): a token proves an interview
-        // preceded the write. No token still writes (non-breaking), but returns a nudge
-        // toward /capture so the un-interviewed bypass is visible, not silent. A token
-        // presented but unknown to THIS process (server restart/expiry) is not shamed.
-        const gated = consumeCaptureToken(capture_token);
+        // Capture-session gate (staged deprecation, §9.3): the token was consumed
+        // above (it also decides the provenance tier). No token still writes
+        // (non-breaking) but lands as agent_recorded with a nudge toward /capture.
+        // A token presented but unknown to THIS process (server restart/expiry) is
+        // not shamed — but it also cannot be VERIFIED, so the record still lands
+        // agent_recorded with a note saying how to countersign.
         const captureNote = gated
           ? " [via capture front door]"
           : capture_token
-            ? ""
-            : `\n\n⚠ Recorded WITHOUT a capture interview — the record stands, but harden it NOW in one exchange instead of switching flows: answer the first grilling question directly — "What alternative did you seriously consider and reject for '${rec.title.slice(0, 60)}', and what breaks if a future session re-introduces it?" — then fold the answer into alternatives_rejected via hunch_record_decision(supersedes: ${id}) or start the full interview with hunch_capture_decision. (A future major version will require a capture token here.)`;
+            ? `\n\nℹ The capture token could not be verified (server restart or expiry), so this record is stamped agent_recorded. Re-record through hunch_capture_decision → hunch_record_decision to countersign it as human_confirmed.`
+            : `\n\n⚠ Recorded WITHOUT a capture interview — the record stands as agent_recorded TESTIMONY (advisory: it never carries human authority; a /capture interview on the same topic/title countersigns it). Harden it NOW in one exchange instead of switching flows: answer the first grilling question directly — "What alternative did you seriously consider and reject for '${rec.title.slice(0, 60)}', and what breaks if a future session re-introduces it?" — then fold the answer into alternatives_rejected via a /capture interview (hunch_capture_decision → hunch_record_decision(supersedes: ${id})), which countersigns the record as human_confirmed. (A future major version will require a capture token here.)`;
         // Quality nudge only when the untokened deprecation nudge isn't already
         // grilling — one advisory voice per response, never two.
         const quality = gated || capture_token ? qualityNudge(rec) : "";
