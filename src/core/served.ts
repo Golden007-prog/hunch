@@ -12,9 +12,30 @@
  * delivery. Every entry point swallows every error; a lost receipt is noise,
  * a blocked edit is a broken product.
  */
-import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+
+/** Load node:sqlite while swallowing ONLY its ExperimentalWarning — the same
+ *  discipline as src/store/db.ts: this module rides the hook into every CLI
+ *  invocation, and Hunch's stderr reaches humans, hooks, and MCP clients. A
+ *  bare top-level import printed the warning on every command and failed the
+ *  release gate's clean-stderr contract. */
+function loadSqlite(): typeof import("node:sqlite") {
+  const require = createRequire(import.meta.url);
+  const realEmit = process.emitWarning.bind(process);
+  process.emitWarning = ((warning: unknown, ...rest: unknown[]) => {
+    if (String(warning).includes("SQLite is an experimental feature")) return;
+    (realEmit as (...args: unknown[]) => void)(warning, ...rest);
+  }) as typeof process.emitWarning;
+  try {
+    return require("node:sqlite") as typeof import("node:sqlite");
+  } finally {
+    process.emitWarning = realEmit;
+  }
+}
+
+type DatabaseSync = import("node:sqlite").DatabaseSync;
 
 export type ServedEvent = "served" | "refreshed";
 
@@ -45,10 +66,13 @@ export interface ServedSummary {
   rows: ServedRow[];
 }
 
+let sqlite: typeof import("node:sqlite") | null = null;
+
 function openServedDb(root: string): DatabaseSync {
+  sqlite ??= loadSqlite();
   const dir = join(root, ".hunch-cache");
   mkdirSync(dir, { recursive: true });
-  const db = new DatabaseSync(join(dir, "served.db"));
+  const db = new sqlite.DatabaseSync(join(dir, "served.db"));
   db.exec(`CREATE TABLE IF NOT EXISTS served (
     at TEXT NOT NULL,
     session TEXT,
