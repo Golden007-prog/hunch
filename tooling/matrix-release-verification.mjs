@@ -5,9 +5,11 @@ import {
   accessSync,
   chmodSync,
   constants as fsConstants,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -443,7 +445,13 @@ function executableOnPath(name) {
 
 const actualGit = executableOnPath("git");
 const npmExecutable = executableOnPath("npm");
-const tarExecutable = executableOnPath("tar");
+// Prefer Windows' native bsdtar: an MSYS GNU tar earlier on PATH (Git Bash)
+// parses the drive colon in "C:\..." as a remote-host spec and dies with
+// "Cannot connect to C: resolve failed". System32 tar handles drive paths.
+const windowsNativeTar = process.platform === "win32"
+  ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+  : null;
+const tarExecutable = windowsNativeTar && existsSync(windowsNativeTar) ? windowsNativeTar : executableOnPath("tar");
 
 function cleanEnvironment(home, extra = {}) {
   mkdirSync(home, { recursive: true });
@@ -537,6 +545,12 @@ function verifyGuardedNetworkSurfacesDisabled(env) {
     allowFailure: true,
     timeout: 10_000,
   });
+  if (process.env.HUNCH_MATRIX_DEBUG === "1") {
+    for (const [name, p] of [["node", nodeProbe], ["git", gitProbe], ["npm", npmProbe]]) {
+      process.stderr.write(`[matrix-debug] ${name}: status=${p.status} signal=${p.signal}\n`);
+      process.stderr.write(`[matrix-debug] ${name} out: ${`${p.stdout}${p.stderr}`.trim().slice(0, 400)}\n`);
+    }
+  }
   return nodeProbe.status === 0
     && gitProbe.status !== 0
     && /transport ['\"]?https['\"]? not allowed/i.test(`${gitProbe.stdout}${gitProbe.stderr}`)
@@ -568,7 +582,12 @@ function run(command, args, options = {}) {
     timeout,
     maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
     windowsVerbatimArguments: options.windowsVerbatimArguments,
-    detached: options.detached ?? true,
+    // detached exists for the POSIX kill(-pid) process-group escape hatch. On
+    // Windows it must stay OFF: a detached child's descendants (git, hooks,
+    // cmd-launched npm) hold the piped stdio handles, spawnSync waits for
+    // handle closure, and every such call reads as a hang + empty output —
+    // while killProcessTree uses taskkill /t, which needs no process group.
+    detached: options.detached ?? process.platform !== "win32",
   });
   if (child.error) {
     if (child.error.code === "ETIMEDOUT") {
@@ -598,8 +617,12 @@ function runNpm(args, options = {}) {
   if (process.platform !== "win32") return run(npmExecutable, args, options);
   // Node's Windows process hardening refuses direct shell-less .cmd spawning.
   // Route only npm through cmd.exe and quote every fixed argv element ourselves.
+  // With /s, cmd strips the FIRST and LAST quote character of the text after
+  // /c — so a space-containing npm path ("C:\Program Files\...\npm.cmd") lost
+  // its own quotes and cmd executed 'C:\Program'. The documented /s contract
+  // is to wrap the ENTIRE command line in one extra outer quote pair.
   const commandLine = [npmExecutable, ...args].map(windowsCommandQuote).join(" ");
-  return run("cmd.exe", ["/d", "/s", "/c", commandLine], {
+  return run("cmd.exe", ["/d", "/s", "/c", `"${commandLine}"`], {
     ...options,
     windowsVerbatimArguments: true,
   });
@@ -1062,32 +1085,104 @@ function writeCrashGitWrapper(wrapperRoot) {
   mkdirSync(wrapperRoot, { recursive: true });
   const module = join(wrapperRoot, "git-wrapper.mjs");
   writeFileSync(module, [
+    // Dual-mode: on POSIX the module runs as a script behind a #!/bin/sh shim
+    // (args at argv[2..]). On Windows a shell-less spawnSync("git") resolves
+    // ONLY .com/.exe — a .cmd shim is invisible to libuv — so the shim is a
+    // COPY of node.exe named git.exe and this module rides in on NODE_OPTIONS
+    // --import, guarded by argv0 so the CLI's own node processes no-op.
     'import { spawnSync } from "node:child_process";',
     'import { writeFileSync } from "node:fs";',
-    'const args = process.argv.slice(2);',
-    'if (process.env.HUNCH_MATRIX_CRASH_ON_COMMIT === "1" && args.includes("commit")) {',
-    '  writeFileSync(process.env.HUNCH_MATRIX_CRASH_MARKER, JSON.stringify({ pid: process.pid, args }) + "\\n");',
-    '  const sleeper = new Int32Array(new SharedArrayBuffer(4));',
-    '  for (;;) Atomics.wait(sleeper, 0, 0, 60_000);',
+    'import { basename } from "node:path";',
+    'const viaExeShim = basename(process.execPath).toLowerCase() === "git.exe";',
+    'const viaScript = !!process.argv[1] && process.argv[1].endsWith("git-wrapper.mjs");',
+    'if (viaExeShim || viaScript) {',
+    '  const args = viaExeShim ? process.argv.slice(1) : process.argv.slice(2);',
+    '  if (process.env.HUNCH_MATRIX_CRASH_ON_COMMIT === "1" && args.includes("commit")) {',
+    '    writeFileSync(process.env.HUNCH_MATRIX_CRASH_MARKER, JSON.stringify({ pid: process.pid, args }) + "\\n");',
+    '    const sleeper = new Int32Array(new SharedArrayBuffer(4));',
+    '    for (;;) Atomics.wait(sleeper, 0, 0, 60_000);',
+    '  }',
+    '  const env = { ...process.env };',
+    '  delete env.HUNCH_MATRIX_CRASH_ON_COMMIT;',
+    '  delete env.HUNCH_MATRIX_CRASH_MARKER;',
+    '  const child = spawnSync(process.env.HUNCH_MATRIX_REAL_GIT, args, { stdio: "inherit", env });',
+    '  if (child.error) { console.error(child.error.message); process.exit(127); }',
+    '  process.exit(child.status ?? 1);',
     '}',
-    'const env = { ...process.env };',
-    'delete env.HUNCH_MATRIX_CRASH_ON_COMMIT;',
-    'delete env.HUNCH_MATRIX_CRASH_MARKER;',
-    'const child = spawnSync(process.env.HUNCH_MATRIX_REAL_GIT, args, { stdio: "inherit", env });',
-    'if (child.error) { console.error(child.error.message); process.exit(127); }',
-    'process.exit(child.status ?? 1);',
     "",
   ].join("\n"));
   if (process.platform === "win32") {
-    writeFileSync(join(wrapperRoot, "git.cmd"), `@\"${process.execPath}\" \"${module}\" %*\r\n`);
-  } else {
-    const executable = join(wrapperRoot, "git");
-    writeFileSync(executable, `#!/bin/sh\nexec \"${process.execPath}\" \"${module}\" \"$@\"\n`);
-    chmodSync(executable, 0o755);
+    // A PATH shim cannot intercept here: shell-less spawnSync("git") resolves
+    // only .com/.exe (a .cmd is invisible to libuv), and a renamed node.exe
+    // dies parsing git's own flags before any --import runs. Instead patch
+    // child_process INSIDE the CLI's node processes via NODE_OPTIONS --import:
+    // a git-commit spawn writes the marker and parks the CLI on the commit
+    // seam — process alive, lock held — which is exactly what the lane probes.
+    const hijack = join(wrapperRoot, "crash-spawn-hijack.mjs");
+    writeFileSync(hijack, [
+      'import { createRequire } from "node:module";',
+      'const require = createRequire(import.meta.url);',
+      'const cp = require("node:child_process");',
+      'const fs = require("node:fs");',
+      'const isGit = (cmd) => /(^|[\\\\/])git(\\.exe)?$/i.test(String(cmd));',
+      'const arm = (name) => {',
+      '  const real = cp[name];',
+      '  cp[name] = function (cmd, args, ...rest) {',
+      '    if (process.env.HUNCH_MATRIX_CRASH_ON_COMMIT === "1" && isGit(cmd) && Array.isArray(args) && args.includes("commit")) {',
+      '      fs.writeFileSync(process.env.HUNCH_MATRIX_CRASH_MARKER, JSON.stringify({ pid: process.pid, args }) + "\\n");',
+      '      const sleeper = new Int32Array(new SharedArrayBuffer(4));',
+      '      for (;;) Atomics.wait(sleeper, 0, 0, 60_000);',
+      '    }',
+      '    return real.call(this, cmd, args, ...rest);',
+      '  };',
+      '};',
+      'arm("spawnSync");',
+      'arm("execFileSync");',
+      'arm("spawn");',
+      "",
+    ].join("\n"));
+    return hijack;
   }
+  const executable = join(wrapperRoot, "git");
+  writeFileSync(executable, `#!/bin/sh\nexec \"${process.execPath}\" \"${module}\" \"$@\"\n`);
+  chmodSync(executable, 0o755);
+  return module;
 }
 
 function spawnCli(actor, installation, args, env, detached = false) {
+  if (process.platform === "win32") {
+    // Piped stdio hangs the CLI's Windows child tree before it reaches its git
+    // seam (pipe-handle inheritance, same family as the detached pathology in
+    // run()): 30s of silence, zero store writes — while the identical command
+    // against file-backed stdio reaches the commit seam in seconds. Give the
+    // child real file handles and read them back once it closes.
+    const logDir = mkdtempSync(join(tmpdir(), "hunch-matrix-cli-"));
+    const outPath = join(logDir, "stdout.log");
+    const errPath = join(logDir, "stderr.log");
+    const outFd = openSync(outPath, "w");
+    const errFd = openSync(errPath, "w");
+    const child = spawn(process.execPath, [installation.cli, ...args], {
+      cwd: actor.root,
+      env,
+      detached: false,
+      stdio: ["ignore", outFd, errFd],
+    });
+    closeSync(outFd);
+    closeSync(errFd);
+    const completed = new Promise((resolveCompleted) => {
+      const finish = (status, signal, error) => {
+        let stdout = "";
+        let stderr = "";
+        try { stdout = readFileSync(outPath, "utf8"); } catch { /* never opened */ }
+        try { stderr = readFileSync(errPath, "utf8"); } catch { /* never opened */ }
+        rmSync(logDir, { recursive: true, force: true });
+        resolveCompleted({ status, signal, stdout, stderr, error });
+      };
+      child.on("error", (error) => finish(null, null, error));
+      child.on("close", (status, signal) => finish(status, signal, null));
+    });
+    return { child, completed };
+  }
   const child = spawn(process.execPath, [installation.cli, ...args], {
     cwd: actor.root,
     env,
@@ -1144,7 +1239,7 @@ async function runCrashLane(temp, codeRemote, memoryRemote, candidate, env) {
   cliText(actor, candidate, ["query", SENTINEL_PREFIX]);
   const wrapperRoot = join(temp, "crash-git-wrapper");
   const marker = join(temp, "crash-commit-seam.json");
-  writeCrashGitWrapper(wrapperRoot);
+  const wrapperModule = writeCrashGitWrapper(wrapperRoot);
   const crashEnv = {
     ...actor.env,
     PATH: `${wrapperRoot}${delimiter}${actor.env.PATH ?? ""}`,
@@ -1152,6 +1247,12 @@ async function runCrashLane(temp, codeRemote, memoryRemote, candidate, env) {
     HUNCH_MATRIX_CRASH_ON_COMMIT: "1",
     HUNCH_MATRIX_CRASH_MARKER: marker,
   };
+  if (process.platform === "win32") {
+    // The git.exe shim is a plain node.exe copy; the wrapper module reaches it
+    // through NODE_OPTIONS --import (argv0-guarded, no-op in every other node).
+    const moduleImport = `--import=${pathToFileURL(wrapperModule).href}`;
+    crashEnv.NODE_OPTIONS = [actor.env.NODE_OPTIONS, moduleImport].filter(Boolean).join(" ");
+  }
   const spawned = spawnCli(actor, candidate, [
     "record-constraint", CRASH_INTERRUPTED,
     "--scope", "src/service.ts", "--severity", "warning", "--type", "correctness",
