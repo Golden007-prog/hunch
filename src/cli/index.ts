@@ -3629,23 +3629,52 @@ program
         // A delegated agent starts with NONE of the parent session's grounding:
         // session orientation never fired inside it and only per-edit PreToolUse
         // follows it in — so read-only agents (Explore/Plan) could work fully
-        // blind. Give it the invariants that must survive delegation. Public
-        // store only; once per agent type per session.
+        // blind. Slice by what the agent TYPE is about to do (dec_a788cc039b):
+        // explorers get the indexed shape, planners get live decisions + what
+        // was already rejected, everyone else gets the invariant digest. Public
+        // store only; cheap reads.
         const s = new HunchStore(paths);
         try {
-          const sevRank = { blocking: 0, warning: 1, advisory: 2 } as const;
-          const constraints = s.advisoryRecs("constraints")
-            .filter((c) => c.status === "active")
-            .sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
-          if (!constraints.length) return;
-          const L: string[] = [`🧠 Hunch — delegated agent grounding: ${constraints.length} invariant(s) in force in this repo.`];
-          for (const c of constraints.slice(0, 8)) {
-            const flat = c.statement.replace(/\s+/g, " ").trim();
-            const claim = flat.length > 140 ? `${flat.slice(0, 139).trimEnd()}…` : flat;
-            L.push(`- [${c.severity}] ${claim}${c.scope.length ? ` (scope: ${c.scope.slice(0, 3).join(", ")})` : ""}`);
+          const clip1 = (text: string, max: number): string => {
+            const flat = text.replace(/\s+/g, " ").trim();
+            return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+          };
+          const type = (evt.agent_type ?? "").toLowerCase();
+          const L: string[] = [];
+          if (/explore|search|investigat/.test(type)) {
+            // Orient from the graph, not grep rounds: the component map IS the shape.
+            const components = s.advisoryRecs("components").filter((c) => c.status === "active");
+            if (!components.length) return;
+            L.push(`🧠 Hunch — repo shape for a delegated explorer: ${components.length} component(s).`);
+            for (const c of components.slice(0, 12)) {
+              L.push(`- ${c.name}${c.paths.length ? ` (${c.paths.slice(0, 2).join(", ")})` : ""}${c.responsibility ? ` — ${clip1(c.responsibility, 90)}` : ""}`);
+            }
+            if (components.length > 12) L.push(`…and ${components.length - 12} more — hunch_structure() for the full map.`);
+            L.push("Orient: hunch_structure(target) · hunch_why(target) · hunch_context(task).");
+          } else if (/plan|architect|design/.test(type)) {
+            // A plan drafted blind re-proposes what the graph already rejected.
+            const decisions = s.advisoryRecs("decisions")
+              .filter((d) => d.status === "accepted")
+              .sort((a, b) => (a.date < b.date ? 1 : -1));
+            if (!decisions.length) return;
+            L.push(`🧠 Hunch — live decisions for a delegated planner (${decisions.length} in force; plans must not re-propose the rejected).`);
+            for (const d of decisions.slice(0, 6)) {
+              L.push(`- ${d.title} (${d.id})${d.alternatives_rejected.length ? ` — rejected: ${clip1(d.alternatives_rejected[0]!, 80)}` : ""}`);
+            }
+            L.push("Before finalizing a plan: hunch_why(target) · hunch_current_decision(topic) · hunch_check_constraints(scope).");
+          } else {
+            const sevRank = { blocking: 0, warning: 1, advisory: 2 } as const;
+            const constraints = s.advisoryRecs("constraints")
+              .filter((c) => c.status === "active")
+              .sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
+            if (!constraints.length) return;
+            L.push(`🧠 Hunch — delegated agent grounding: ${constraints.length} invariant(s) in force in this repo.`);
+            for (const c of constraints.slice(0, 8)) {
+              L.push(`- [${c.severity}] ${clip1(c.statement, 140)}${c.scope.length ? ` (scope: ${c.scope.slice(0, 3).join(", ")})` : ""}`);
+            }
+            if (constraints.length > 8) L.push(`…and ${constraints.length - 8} more — hunch_check_constraints(scope) for your files.`);
+            L.push("Before editing: hunch_check_constraints(scope) · hunch_why(target). Orient: hunch_context(task).");
           }
-          if (constraints.length > 8) L.push(`…and ${constraints.length - 8} more — hunch_check_constraints(scope) for your files.`);
-          L.push("Before editing: hunch_check_constraints(scope) · hunch_why(target). Orient: hunch_context(task).");
           // No dedup here: the hook event carries the PARENT session id, but each
           // spawned agent is a fresh empty context — deduping would ground the
           // first Explore and silently starve every later one.

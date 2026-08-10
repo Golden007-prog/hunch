@@ -69,6 +69,19 @@ test("parseDocAnchors: markers inside fenced code blocks are examples, not decla
   assert.deepEqual(parseDocAnchors("```\n<!-- hunch:topic dangling.example -->"), []);
 });
 
+test("parseDocAnchors: markers inside inline code spans are examples too", () => {
+  const md = [
+    "Anchor a section with `<!-- hunch:topic span.example -->` in the doc.",   // inline span → ignored
+    "Double form: ``<!-- hunch:topic double.example -->`` also renders literally.",
+    "A lone backtick ` does not open a span: <!-- hunch:topic real.topic -->",  // unpaired run → live
+    "<!-- hunch:topic plain.topic dec_aaaa000001 -->",                          // no backticks → live
+  ].join("\n");
+  assert.deepEqual(parseDocAnchors(md), [
+    { topic: "real.topic", pin: null, line: 3 },
+    { topic: "plain.topic", pin: "dec_aaaa000001", line: 4 },
+  ]);
+});
+
 test("drift doc-anchor-stale: a pin to a superseded decision fires (and gates); current pin and unpinned stay silent", (t) => {
   const { store, root, cleanup } = tempStore();
   t.after(cleanup);

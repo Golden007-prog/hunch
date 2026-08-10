@@ -22,7 +22,11 @@ import { parseDocAnchors } from "./docanchors.js";
 import { currentForTopic } from "./topics.js";
 import { compareCodeUnits } from "./canonicalOrder.js";
 
-export const STALE_MARKER = /\b(proposed|not yet implemented|no code yet)\b/i;
+// Self-referential status declarations only. A bare "proposed" is too loose:
+// the auto-generated grounding block in AGENTS.md legitimately DESCRIBES the
+// proposed decision status ("candidate/proposed rules") and was graded stale
+// for it — a false alarm in the machinery that polices false alarms.
+export const STALE_MARKER = /\b(?:status|state)\s*[:\-—]\s*(?:proposed|draft)\b|\bnot yet implemented\b|\bno code yet\b/i;
 export const SRC_REF = /\bsrc\/[A-Za-z0-9_\-/]+\.ts\b/g;
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".hunch", ".hunch-private", "dist", "vscode-extension", "site"]);
