@@ -1,0 +1,113 @@
+/**
+ * Delivery receipts (roadmap dec_925f4bcaad): a machine-local ledger of which
+ * memory records were actually DELIVERED to an agent, when, and into what.
+ *
+ * This is observed telemetry, not derived state: it cannot be reconstructed
+ * from the JSON store, so it must NOT live in the reindex-rebuilt SQLite index
+ * (con_a87360128b's derived layer is dropped and rebuilt at will). It gets its
+ * own database under .hunch-cache/ — gitignored, per-machine, append-only —
+ * the same family as hookcache's session state, not the store's.
+ *
+ * Failure posture inherits the hook's: recording a receipt must never cost a
+ * delivery. Every entry point swallows every error; a lost receipt is noise,
+ * a blocked edit is a broken product.
+ */
+import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+export type ServedEvent = "served" | "refreshed";
+
+export interface ServedEntry {
+  event: ServedEvent;
+  /** decisions | constraints | bugs | findings */
+  kind: string;
+  record_id: string;
+  /** what the delivery grounded: a repo-relative file, or a moment like "(subagent:Explore)" */
+  target: string;
+  session_id?: string;
+}
+
+export interface ServedRow {
+  record_id: string;
+  kind: string;
+  serves: number;
+  refreshes: number;
+  last_at: string;
+}
+
+export interface ServedSummary {
+  total: number;
+  distinct_records: number;
+  distinct_sessions: number;
+  first_at: string | null;
+  last_at: string | null;
+  rows: ServedRow[];
+}
+
+function openServedDb(root: string): DatabaseSync {
+  const dir = join(root, ".hunch-cache");
+  mkdirSync(dir, { recursive: true });
+  const db = new DatabaseSync(join(dir, "served.db"));
+  db.exec(`CREATE TABLE IF NOT EXISTS served (
+    at TEXT NOT NULL,
+    session TEXT,
+    event TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    target TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS served_record ON served (record_id);`);
+  return db;
+}
+
+/** Append delivery receipts. Never throws — a receipt must never cost a delivery. */
+export function recordServed(root: string, entries: readonly ServedEntry[]): void {
+  if (!entries.length) return;
+  try {
+    const db = openServedDb(root);
+    try {
+      const at = new Date().toISOString();
+      const insert = db.prepare("INSERT INTO served (at, session, event, kind, record_id, target) VALUES (?, ?, ?, ?, ?, ?)");
+      for (const entry of entries) {
+        insert.run(at, entry.session_id ?? null, entry.event, entry.kind, entry.record_id, entry.target);
+      }
+    } finally {
+      db.close();
+    }
+  } catch {
+    /* unwritable cache dir / locked db — the delivery already happened; drop the receipt */
+  }
+}
+
+/** The ledger, aggregated per record. Never throws; an unreadable ledger reads as empty. */
+export function servedSummary(root: string): ServedSummary {
+  const empty: ServedSummary = { total: 0, distinct_records: 0, distinct_sessions: 0, first_at: null, last_at: null, rows: [] };
+  try {
+    const db = openServedDb(root);
+    try {
+      const totals = db.prepare(
+        "SELECT COUNT(*) AS total, COUNT(DISTINCT record_id) AS records, COUNT(DISTINCT session) AS sessions, MIN(at) AS first_at, MAX(at) AS last_at FROM served",
+      ).get() as { total: number; records: number; sessions: number; first_at: string | null; last_at: string | null } | undefined;
+      const rows = db.prepare(
+        `SELECT record_id, kind,
+           SUM(CASE WHEN event = 'served' THEN 1 ELSE 0 END) AS serves,
+           SUM(CASE WHEN event = 'refreshed' THEN 1 ELSE 0 END) AS refreshes,
+           MAX(at) AS last_at
+         FROM served GROUP BY record_id, kind ORDER BY serves DESC, refreshes DESC`,
+      ).all() as unknown as ServedRow[];
+      return {
+        total: totals?.total ?? 0,
+        distinct_records: totals?.records ?? 0,
+        distinct_sessions: totals?.sessions ?? 0,
+        first_at: totals?.first_at ?? null,
+        last_at: totals?.last_at ?? null,
+        rows,
+      };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return empty;
+  }
+}

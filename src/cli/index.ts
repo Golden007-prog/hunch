@@ -67,6 +67,7 @@ import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { computeStats, formatStats } from "../core/stats.js";
 import { injectionMode, resetSessionInjections } from "../core/hookcache.js";
+import { recordServed, servedSummary } from "../core/served.js";
 import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
@@ -3544,6 +3545,45 @@ program
   });
 
 program
+  .command("served")
+  .description("Delivery receipts: which memory records actually reached an agent, how often, and which never have")
+  .option("--json", "emit the raw ledger summary")
+  .action((opts: { json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const summary = servedSummary(root);
+      if (opts.json) {
+        console.log(JSON.stringify(summary, null, 2));
+        return;
+      }
+      if (!summary.total) {
+        console.log("No delivery receipts yet — they accrue as the pre-edit hook and subagent grounding fire on this machine.");
+        return;
+      }
+      console.log(`\nHunch — delivery receipts (this machine)\n`);
+      console.log(`  ${summary.total} deliveries · ${summary.distinct_records} distinct record(s) · ${summary.distinct_sessions} session(s) · ${summary.first_at?.slice(0, 10)} → ${summary.last_at?.slice(0, 10)}\n`);
+      const titleOf = (row: { kind: string; record_id: string }): string => {
+        if (row.kind === "decisions") return store.recs("decisions").find((r) => r.id === row.record_id)?.title ?? row.record_id;
+        if (row.kind === "constraints") return store.recs("constraints").find((r) => r.id === row.record_id)?.statement.slice(0, 70) ?? row.record_id;
+        return row.record_id;
+      };
+      console.log("  Most delivered:");
+      for (const row of summary.rows.slice(0, 10)) {
+        console.log(`    ${String(row.serves).padStart(4)}× (+${row.refreshes} still-current) ${row.record_id} — ${titleOf(row)}`);
+      }
+      const servedIds = new Set(summary.rows.map((r) => r.record_id));
+      const neverServed = [
+        ...store.recs("constraints").filter((c) => c.status === "active" && !servedIds.has(c.id)).map((c) => c.id),
+        ...store.recs("decisions").filter((d) => d.status === "accepted" && !d.superseded_by && !servedIds.has(d.id)).map((d) => d.id),
+      ];
+      console.log(`\n  Never delivered on this machine: ${neverServed.length} in-force record(s)${neverServed.length ? ` — compact candidates start here (${neverServed.slice(0, 5).join(", ")}${neverServed.length > 5 ? ", …" : ""})` : ""}`);
+      console.log(`  Prevented violations live in \`hunch stats\` (events ledger); receipts here are the delivery half.\n`);
+    } finally {
+      store.close();
+    }
+  });
+
+program
   .command("hook")
   .description("Agent-agnostic hook handler: normalizes Claude, VS Code, Cursor, Windsurf, and Antigravity events into Hunch context and strict policy checks. Reads hook JSON on stdin.")
   .option("--provider <provider>", "hook event dialect: claude | vscode | cursor | windsurf | antigravity", "claude")
@@ -3641,6 +3681,7 @@ program
           };
           const type = (evt.agent_type ?? "").toLowerCase();
           const L: string[] = [];
+          const served: Array<{ kind: string; record_id: string }> = [];
           if (/explore|search|investigat/.test(type)) {
             // Orient from the graph, not grep rounds: the component map IS the shape.
             const components = s.advisoryRecs("components").filter((c) => c.status === "active");
@@ -3648,6 +3689,7 @@ program
             L.push(`🧠 Hunch — repo shape for a delegated explorer: ${components.length} component(s).`);
             for (const c of components.slice(0, 12)) {
               L.push(`- ${c.name}${c.paths.length ? ` (${c.paths.slice(0, 2).join(", ")})` : ""}${c.responsibility ? ` — ${clip1(c.responsibility, 90)}` : ""}`);
+              served.push({ kind: "components", record_id: c.id });
             }
             if (components.length > 12) L.push(`…and ${components.length - 12} more — hunch_structure() for the full map.`);
             L.push("Orient: hunch_structure(target) · hunch_why(target) · hunch_context(task).");
@@ -3660,6 +3702,7 @@ program
             L.push(`🧠 Hunch — live decisions for a delegated planner (${decisions.length} in force; plans must not re-propose the rejected).`);
             for (const d of decisions.slice(0, 6)) {
               L.push(`- ${d.title} (${d.id})${d.alternatives_rejected.length ? ` — rejected: ${clip1(d.alternatives_rejected[0]!, 80)}` : ""}`);
+              served.push({ kind: "decisions", record_id: d.id });
             }
             L.push("Before finalizing a plan: hunch_why(target) · hunch_current_decision(topic) · hunch_check_constraints(scope).");
           } else {
@@ -3671,6 +3714,7 @@ program
             L.push(`🧠 Hunch — delegated agent grounding: ${constraints.length} invariant(s) in force in this repo.`);
             for (const c of constraints.slice(0, 8)) {
               L.push(`- [${c.severity}] ${clip1(c.statement, 140)}${c.scope.length ? ` (scope: ${c.scope.slice(0, 3).join(", ")})` : ""}`);
+              served.push({ kind: "constraints", record_id: c.id });
             }
             if (constraints.length > 8) L.push(`…and ${constraints.length - 8} more — hunch_check_constraints(scope) for your files.`);
             L.push("Before editing: hunch_check_constraints(scope) · hunch_why(target). Orient: hunch_context(task).");
@@ -3678,6 +3722,7 @@ program
           // No dedup here: the hook event carries the PARENT session id, but each
           // spawned agent is a fresh empty context — deduping would ground the
           // first Explore and silently starve every later one.
+          recordServed(root, served.map((r) => ({ ...r, event: "served", target: `(subagent:${evt.agent_type ?? "any"})`, session_id: evt.session_id })));
           emitContext(provider, "SubagentStart", L.join("\n"));
         } finally {
           s.close();
@@ -3835,7 +3880,17 @@ program
       // Identical grounding already shown this session → one-line delta instead of
       // the full 10-16KB block. Any record change re-sends the full text; the
       // strict-gate deny path above never routes through this (dec_244397d920).
+      // Delivery receipts (dec_925f4bcaad): the ledger of what actually reached
+      // an agent. A full injection is a serve; a delta one-liner attests the
+      // earlier serve is still standing. Never throws, never blocks.
+      const receipts = (event: "served" | "refreshed") => recordServed(root, [
+        ...ctx.constraints.map((c) => ({ event, kind: "constraints", record_id: c.id, target, session_id: evt.session_id })),
+        ...ctx.decisions.map((d) => ({ event, kind: "decisions", record_id: d.id, target, session_id: evt.session_id })),
+        ...ctx.bugs.map((b) => ({ event, kind: "bugs", record_id: b.id, target, session_id: evt.session_id })),
+        ...ctx.findings.map((f) => ({ event, kind: "findings", record_id: f.id, target, session_id: evt.session_id })),
+      ]);
       if (injectionMode(evt.session_id, `pre:${target}`, text) === "delta") {
+        receipts("refreshed");
         emitContext(
           provider,
           "PreToolUse",
@@ -3843,6 +3898,7 @@ program
         );
         return;
       }
+      receipts("served");
       emitContext(provider, "PreToolUse", text);
     } catch {
       // swallow — never block an edit on a hook failure
