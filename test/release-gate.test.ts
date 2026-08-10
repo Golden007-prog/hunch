@@ -11,9 +11,12 @@ import {
   buildMatrixReceipt,
 } from "../tooling/matrix-release-verification.mjs";
 import {
+  GROUNDING_DOC_PATHS,
   RELEASE_GATES,
   RELEASE_CLEAN_STATUS_ARGS,
   RELEASE_TEST_COVERAGE,
+  isMemoryChurnPath,
+  statusWithoutMemoryChurn,
   buildVerifiedRollback,
   buildReleaseReceipt,
   executeGuardedReleasePlan,
@@ -301,7 +304,36 @@ test("Phase 2O release gate is fail-closed, content-addressed, and publish-neutr
   assert.match(releaseSourceStateError(expectedSource, observedSource) ?? "", /HEAD moved/);
   assert.match(releaseSourceStateError(expectedSource, { ...expectedSource, status: " M package.json" }) ?? "", /working tree changed/);
   assert.match(releaseSourceStateError(expectedSource, { ...expectedSource, tag_commit_matches: false }) ?? "", /release tag stopped/);
+});
 
+test("memory churn never reads as source mutation: paths, status filtering, and what stays fatal", () => {
+  // The async post-commit auto-capture (fnd_2cf86fc892) and the gate's own
+  // repository-index regeneration (fnd_6391b4242f) touch exactly these paths.
+  for (const doc of GROUNDING_DOC_PATHS) assert.ok(isMemoryChurnPath(doc), `${doc} is memory churn`);
+  assert.ok(isMemoryChurnPath(".hunch/decisions/dec_0123456789.json"));
+  assert.ok(isMemoryChurnPath(".hunch\\findings\\fnd_0123456789.json"), "windows separators normalize");
+  assert.ok(!isMemoryChurnPath("src/cli/index.ts"), "real source is never churn");
+  assert.ok(!isMemoryChurnPath("package.json"));
+  assert.ok(!isMemoryChurnPath(".hunchignore"), "prefix must match the directory, not a lookalike");
+
+  const status = [
+    " M CLAUDE.md",
+    "?? .hunch/decisions/dec_abcdef012345.json",
+    " M AGENTS.md",
+  ].join("\n");
+  assert.equal(statusWithoutMemoryChurn(status), "", "pure memory churn filters to clean");
+  const mixed = `${status}\n M src/cli/index.ts`;
+  assert.equal(statusWithoutMemoryChurn(mixed), " M src/cli/index.ts", "source dirt survives the filter");
+  assert.equal(
+    statusWithoutMemoryChurn("R  CLAUDE.md -> src/evil.ts"),
+    "R  CLAUDE.md -> src/evil.ts",
+    "a rename OUT of churn paths stays fatal",
+  );
+  assert.equal(statusWithoutMemoryChurn(""), "", "clean stays clean");
+});
+
+test("guarded receipt write and gate environment isolation", () => {
+  const expectedSource = { commit: "a".repeat(40), status: "", tag_commit_matches: true };
   let receiptWritten = false;
   let staleReceiptRemoved = false;
   const writeSnapshots = [expectedSource, { ...expectedSource, status: " M package.json" }];

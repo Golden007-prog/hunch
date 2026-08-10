@@ -86,6 +86,40 @@ export const RELEASE_TEST_COVERAGE = Object.freeze({
 
 export const RELEASE_CLEAN_STATUS_ARGS = Object.freeze(["status", "--porcelain", "--untracked-files=all"]);
 
+/** The five derived grounding docs the indexer regenerates. Together with
+ * .hunch/** they are MEMORY churn, not source change: the async post-commit
+ * auto-capture lands "hunch: capture" commits touching exactly these paths
+ * while a ~25-minute gate runs (fnd_2cf86fc892), and the gate's own
+ * repository-index stage regenerates them in place (fnd_6391b4242f). The gate
+ * verifies the CODE it ran against; derived memory artifacts moving underneath
+ * it must not read as source mutation. */
+export const GROUNDING_DOC_PATHS = Object.freeze([
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".github/copilot-instructions.md",
+  ".cursor/rules/hunch.mdc",
+  ".windsurf/rules/hunch.md",
+]);
+
+export function isMemoryChurnPath(path) {
+  const normalized = String(path).replaceAll("\\", "/");
+  return normalized.startsWith(".hunch/") || GROUNDING_DOC_PATHS.includes(normalized);
+}
+
+/** Drop porcelain status lines whose every involved path is memory churn.
+ * A rename line ("R  old -> new") stays unless BOTH sides are churn. */
+export function statusWithoutMemoryChurn(status) {
+  if (!status) return status;
+  return status
+    .split("\n")
+    .filter((line) => {
+      if (!line) return false;
+      const paths = line.slice(3).split(" -> ");
+      return !paths.every((path) => isMemoryChurnPath(path.replace(/^"|"$/g, "")));
+    })
+    .join("\n");
+}
+
 export function releaseSourceStateError(expected, observed) {
   if (observed.commit !== expected.commit) {
     return `HEAD moved from ${expected.commit} to ${observed.commit}`;
@@ -489,7 +523,9 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
   const commit = git(["rev-parse", "HEAD"]);
-  const statusBefore = git(RELEASE_CLEAN_STATUS_ARGS);
+  // The gate's own receipt from a previous run must not block this run — it is
+  // the one artifact the gate itself creates at the requested output path.
+  const statusBefore = statusWithoutMemoryChurn(sourceStatusIgnoringOutput(options.output));
   const clean = statusBefore === "";
   const tagCommitMatches = options.tag && options.tag === `v${packageJson.version}`
     ? tagPointsToCommit(options.tag, commit)
@@ -581,6 +617,27 @@ async function main() {
   let receipt;
   try {
     const sourceMutationErrors = [];
+    // Memory-churn tolerance (fnd_2cf86fc892 + fnd_6391b4242f): a HEAD move is
+    // tolerated iff every path changed since gate-start is memory churn — the
+    // async auto-capture landing its commit mid-run — and working-tree dirt in
+    // churn paths (the gate's own repository-index regeneration) never counts
+    // as source mutation. Anything touching real source still fails hard.
+    const toleratedMemoryCommits = new Set();
+    const observeNormalizedSource = (outputToIgnore = options.output) => {
+      let observedCommit = git(["rev-parse", "HEAD"]);
+      if (observedCommit !== commit) {
+        const changed = git(["diff", "--name-only", `${commit}..${observedCommit}`]).split("\n").filter(Boolean);
+        if (changed.length && changed.every(isMemoryChurnPath)) {
+          toleratedMemoryCommits.add(observedCommit);
+          observedCommit = commit;
+        }
+      }
+      return {
+        commit: observedCommit,
+        status: statusWithoutMemoryChurn(sourceStatusIgnoringOutput(outputToIgnore)),
+        tag_commit_matches: tagPointsToCommit(options.tag, commit),
+      };
+    };
     const gates = executeGuardedReleasePlan(RELEASE_GATES, (gate) => {
       process.stdout.write(`\n== release gate: ${gate.id} ==\n`);
       const [command, ...baseArgs] = gate.command.map((part) => {
@@ -592,11 +649,7 @@ async function main() {
         ? [...baseArgs, "--allow-dirty"]
         : baseArgs;
       return run(command, args, { env: gateEnvironment(gate.id, process.env, emptyPrivateHome) });
-    }, sourceBefore, () => ({
-        commit: git(["rev-parse", "HEAD"]),
-        status: git(RELEASE_CLEAN_STATUS_ARGS),
-        tag_commit_matches: tagPointsToCommit(options.tag, commit),
-      }), (gate, sourceError) => {
+    }, sourceBefore, () => observeNormalizedSource(), (gate, sourceError) => {
       const detail = `${gate.id}: ${sourceError}`;
       sourceMutationErrors.push(detail);
       process.stderr.write(`Release gate source-integrity failure: ${detail}\n`);
@@ -607,14 +660,10 @@ async function main() {
     const matrix = readGateEvidence(matrixOutput, "matrix-release-verification", gates, contextErrors);
     const testManifest = releaseTestManifest();
     const commitAfter = git(["rev-parse", "HEAD"]);
-    const statusAfter = git(RELEASE_CLEAN_STATUS_ARGS);
-    const cleanAfter = statusAfter === "";
+    const observedAfter = observeNormalizedSource();
+    const cleanAfter = observedAfter.status === "";
     const tagCommitMatchesAfter = tagPointsToCommit(options.tag, commitAfter);
-    const finalSourceError = releaseSourceStateError(sourceBefore, {
-      commit: commitAfter,
-      status: statusAfter,
-      tag_commit_matches: tagCommitMatchesAfter,
-    });
+    const finalSourceError = releaseSourceStateError(sourceBefore, observedAfter);
     if (finalSourceError && !contextErrors.some((error) => error.endsWith(finalSourceError))) {
       contextErrors.push(`final source check: ${finalSourceError}`);
     }
@@ -622,13 +671,18 @@ async function main() {
       package: { name: packageJson.name, version: packageJson.version },
       source: {
         commit,
+        // commit_after stays the RAW head for transparency; tolerated memory
+        // commits are itemized so a reader can audit exactly what rode in.
         commit_after: commitAfter,
-        clean: clean && cleanAfter && commitAfter === commit,
+        clean: clean && cleanAfter && observedAfter.commit === commit,
         clean_before: clean,
         clean_after: cleanAfter,
         tag: options.tag,
         tag_matches_version: context.tag_matches_version,
         tag_commit_matches: tagCommitMatchesAfter,
+        ...(toleratedMemoryCommits.size
+          ? { tolerated_memory_commits: [...toleratedMemoryCommits].sort() }
+          : {}),
       },
       environment: { node: process.version, platform: process.platform, arch: process.arch },
       gates,
@@ -639,18 +693,9 @@ async function main() {
       rollback,
     });
     if (!verifyReleaseReceipt(receipt)) throw new Error("release receipt failed semantic self-verification");
-    const receiptSource = {
-      commit: commitAfter,
-      status: statusAfter,
-      tag_commit_matches: tagCommitMatchesAfter,
-    };
     const output = guardedReceiptWrite({
-      expectedSource: receiptSource,
-      observeSource: (outputToIgnore) => ({
-        commit: git(["rev-parse", "HEAD"]),
-        status: sourceStatusIgnoringOutput(outputToIgnore),
-        tag_commit_matches: tagPointsToCommit(options.tag, commitAfter),
-      }),
+      expectedSource: observedAfter,
+      observeSource: (outputToIgnore) => observeNormalizedSource(outputToIgnore ?? options.output),
       writeReceipt: () => atomicWrite(options.output, receipt),
       removeReceipt: (staleOutput) => rmSync(staleOutput, { force: true }),
     });
