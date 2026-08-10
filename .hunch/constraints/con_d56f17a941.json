@@ -1,0 +1,24 @@
+{
+  "id": "con_d56f17a941",
+  "type": "correctness",
+  "statement": "A release version bump must also update the exact-version pins in plugin/.mcp.json and server.json — package.json alone is not the version",
+  "scope": [
+    "package.json"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "v1.12.0 release gate failed on its first run because npm version only touched package.json; plugin/.mcp.json (\"hunch-exact@npm:@davesheffer/hunch@X\") and server.json (MCP registry manifest, two version fields) still pinned 1.11.0. The gate's version test (test/version.test.ts) catches it, but only after a full ~25-minute run — the rule belongs at edit time.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-08-10T08:44:31.512Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "human_confirmed",
+    "confidence": 1,
+    "evidence": [],
+    "last_verified": "2026-08-10T08:44:31.512Z"
+  }
+}
