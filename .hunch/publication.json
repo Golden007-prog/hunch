@@ -1,5 +1,5 @@
 {
-  "_comment": "Opt-in publication vocabulary for THIS repo. The hunch package ships no term list — a list tuned to one project's strategy prose fires on another project's ordinary engineering writing. Patterns are JS regex source, matched case-insensitively against PROSE fields only (never ids, paths or evidence). Advisory: a match prints a warning naming the matched text, it never blocks a capture. Measured 2026-08-11: 5/6 recall against the six records the privacy pass pulled, 0 false positives across 256 published records.",
+  "_comment": "Opt-in publication vocabulary for THIS repo. The hunch package ships no term list — a list tuned to one project's prose fires on another project's ordinary engineering writing. Patterns are JS regex source, matched case-insensitively against PROSE fields only (never ids, paths or evidence). Advisory: a match prints a warning naming the matched text, it never blocks a capture. Patterns that would themselves be sensitive to publish (anything naming specific companies or products) belong in the gitignored .hunch/publication.local.json, which is merged on top of this file.",
   "vocabulary": [
     "\\bmoats?\\b",
     "\\bdefensib(?:le|ility)\\b",
@@ -11,8 +11,6 @@
     "\\bpricing (?:strategy|tier|model)\\b|\\bmonetiz(?:e|ation|ing)\\b|\\bprice point\\b",
     "\\bfundrais\\w+|\\binvestors?\\b|\\bpitch deck\\b|\\bcap table\\b|\\bterm sheet\\b",
     "\\bTAM\\b|\\bmarket (?:siz\\w+|timing|window|opportunity|share)\\b",
-    "\\bbeachhead\\b|\\bland grab\\b|\\bwedge (?:into|strategy)\\b",
-    "\\b(?:openwiki|langchain|coderabbit|qodo|memco|gitmem|projectmem|sourcegraph|greptile)\\b[^.\\n]{0,80}\\b(?:showed demand|probabilistic|silently stale|commodity|falls short|inferior|weaker|can'?t match|is losing)\\b",
-    "\\b(?:beat|out-?ship|out-?compete|leapfrog|catch up to|steal (?:users|share))\\b[^.\\n]{0,60}\\b(?:cursor|codex|copilot|windsurf|sourcegraph|cody|coderabbit|adrkit)\\b"
+    "\\bbeachhead\\b|\\bland grab\\b|\\bwedge (?:into|strategy)\\b"
   ]
 }

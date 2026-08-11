@@ -101,16 +101,10 @@ export interface ScanOptions {
   vocabulary?: readonly RegExp[];
 }
 
-/** Read a repo's opt-in term list from `.hunch/publication.json`:
- *      { "vocabulary": ["\\bmoats?\\b", "\\bgo[- ]to[- ]market\\b"] }
- *
- *  Absent file, malformed JSON, or an invalid pattern all degrade to "no vocabulary".
- *  A privacy heuristic that crashes a capture is worse than one that stays quiet, and
- *  the structural tier — the part that works for everyone — never depends on this. */
-export function loadVocabulary(hunchDir: string): RegExp[] {
+function readPatterns(file: string): RegExp[] {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(join(hunchDir, "publication.json"), "utf8"));
+    parsed = JSON.parse(readFileSync(file, "utf8"));
   } catch {
     return [];
   }
@@ -126,6 +120,26 @@ export function loadVocabulary(hunchDir: string): RegExp[] {
     }
   }
   return out;
+}
+
+/** Read a repo's opt-in term list, merged from two layers:
+ *      .hunch/publication.json        committed, shareable patterns
+ *      .hunch/publication.local.json  gitignored, per-machine patterns
+ *
+ *  The local layer exists because the list itself can be sensitive. A rule that
+ *  catches a competitor teardown has to NAME competitors, and committing that
+ *  publishes a watchlist — the exact class of content the scanner is meant to keep
+ *  out of a public repo. Patterns that would embarrass you if read belong in the
+ *  local layer; generic ones can ship.
+ *
+ *  Absent file, malformed JSON, or an invalid pattern all degrade to "no vocabulary".
+ *  A privacy heuristic that crashes a capture is worse than one that stays quiet, and
+ *  the structural tier — the part that works for everyone — never depends on this. */
+export function loadVocabulary(hunchDir: string): RegExp[] {
+  return [
+    ...readPatterns(join(hunchDir, "publication.json")),
+    ...readPatterns(join(hunchDir, "publication.local.json")),
+  ];
 }
 
 /** Every string VALUE in the record, with the field path that carried it.
