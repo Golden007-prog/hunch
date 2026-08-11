@@ -35,6 +35,7 @@ import { assertCompleteRepoScan, indexRepo, scanRepo } from "../extractors/index
 import type { Decision, Finding, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
 import { pendingEscalations, policyEscalations, type Escalation } from "../core/escalations.js";
+import { scanRecord, publicationWarning, loadVocabulary } from "../core/publication.js";
 import { premiseEscalations } from "../core/premises.js";
 import { issueCaptureToken as issueToken, consumeCaptureToken as consumeToken } from "../core/capturetoken.js";
 import { randomUUID } from "node:crypto";
@@ -60,10 +61,28 @@ const flushNote = (flush: "pushed" | "committed" | null, home: "public" | "priva
  *  lands in the committed store publishes on the next push, and an agent writing
  *  strategy/competitive content there is a leak nobody notices until it ships
  *  (2026-08-09: 15 roadmap records caught pre-push only by a release sweep). */
-const publicHomeNote = (home: "public" | "private", hasPrivate: boolean): string =>
-  home === "public" && hasPrivate
-    ? "\nℹ Landed in the COMMITTED PUBLIC store (publishes with the repo). For sensitive/strategy content, re-record with private:true — the overlay store."
-    : "";
+/** Repo-local term list, read once per server process. The package ships none;
+ *  `.hunch/publication.json` is how a repo opts in (see src/core/publication.ts). */
+let vocabularyCache: RegExp[] | null = null;
+const publicationVocabulary = (hunchDir: string): RegExp[] =>
+  (vocabularyCache ??= loadVocabulary(hunchDir));
+
+const publicHomeNote = (
+  home: "public" | "private",
+  hasPrivate: boolean,
+  record?: unknown,
+  hunchDir?: string,
+): string => {
+  if (home !== "public") return "";
+  // The generic nudge below was already present during BOTH leaks and was ignored,
+  // because a warning that cannot quote the offending text reads as boilerplate.
+  // scanRecord adds the specific line: what matched, in which field.
+  const risk = record === undefined
+    ? ""
+    : publicationWarning(scanRecord(record, { vocabulary: hunchDir ? publicationVocabulary(hunchDir) : [] }));
+  if (!hasPrivate) return risk;
+  return "\nℹ Landed in the COMMITTED PUBLIC store (publishes with the repo). For sensitive/strategy content, re-record with private:true — the overlay store." + risk;
+};
 
 // Read-side token budgets: every tool result is injected into a Claude Code
 // session, so an uncapped list pollutes the context window. Cap each list to its
@@ -1031,7 +1050,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // record commits+pushes its overlay repo; a public one commits .hunch/ in THIS repo
         // (commit only — it rides the user's next push, never auto-pushing their code branch).
         const flush = flushCapture(store, hunchPaths(root).hunch, !!decision.private, `hunch: capture ${id}`, startupTeamRoute ?? undefined);
-        const flushed = flushNote(flush, home, store.mode) + publicHomeNote(home, store.hasPrivate);
+        const flushed = flushNote(flush, home, store.mode) + publicHomeNote(home, store.hasPrivate, rec, hunchPaths(root).hunch);
         // Capture-session gate (staged deprecation, §9.3): the token was consumed
         // above (it also decides the provenance tier). No token still writes
         // (non-breaking) but lands as agent_recorded with a nudge toward /capture.
@@ -1111,7 +1130,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         // dirty AGENTS/assistant docs. Manual mode still refreshes in place.
         if (home === "public" && !store.autoCommit) refreshExistingGrounding(root, store); // overlay rules never render into committed grounding
         const flush = flushCapture(store, hunchPaths(root).hunch, !!input.private, `hunch: capture ${rec.id}`, startupTeamRoute ?? undefined);
-        const flushed = flushNote(flush, home, store.mode) + publicHomeNote(home, store.hasPrivate);
+        const flushed = flushNote(flush, home, store.mode) + publicHomeNote(home, store.hasPrivate, rec, hunchPaths(root).hunch);
         const enforce = rec.severity === "blocking"
           ? "blocks a DIRECT edit to its scope at strict firmness, and fails a PR whose diff touches that scope (CI guard); blast-radius hits and lower firmness stay advisory"
           : "flags violating edits and PRs (advisory)";
@@ -1190,7 +1209,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         store.putCapture("findings", rec, !!finding.private);
         store.reindex();
         const flush = flushCapture(store, hunchPaths(root).hunch, !!finding.private, `hunch: capture ${id}`, startupTeamRoute ?? undefined);
-        const flushed = flushNote(flush, home, store.mode) + publicHomeNote(home, store.hasPrivate);
+        const flushed = flushNote(flush, home, store.mode) + publicHomeNote(home, store.hasPrivate, rec, hunchPaths(root).hunch);
         const where = finding.private
           ? ` [PRIVATE overlay — not committed to this repo]${flushed}`
           : home === "private" ? ` [SHARED store — one source of truth for the whole team]${flushed}` : flushed;

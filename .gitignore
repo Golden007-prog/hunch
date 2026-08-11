@@ -43,6 +43,9 @@ docs/superpowers/
 # the repo demos its own graph. Everything else in .hunch/ stays local-only.
 .hunch/*
 !.hunch/manifest.json
+# Opt-in publication vocabulary — repo-scoped policy, useless if it cannot travel
+# with the repo (the package deliberately ships no term list of its own).
+!.hunch/publication.json
 !.hunch/decisions/
 !.hunch/constraints/
 !.hunch/components/
