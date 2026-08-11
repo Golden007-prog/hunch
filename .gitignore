@@ -30,6 +30,7 @@ docs/superpowers/
 .vscode/mcp.json
 .windsurf/mcp_config.json
 .codex/config.toml
+.codex/hooks.json
 .claude/settings.json
 
 # npm auth: references ${NPM_TOKEN} env var, but never commit in case a real token is pasted.
