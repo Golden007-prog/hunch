@@ -9,9 +9,10 @@ const kinds = (hits: readonly SensitivityHit[]) => hits.map((h) => h.kind).sort(
 const has = (hits: readonly SensitivityHit[], kind: string) => hits.some((h) => h.kind === kind);
 
 test("machine paths are caught on both platforms", () => {
-  // Escaped literals rather than String.raw: a tagged template containing
-  // backslashes fails the repo's tree-sitter scan and takes `hunch conform` with it.
-  const win = scanRecord({ title: "t", context: "ran C:\\Users\\davids\\github\\hunch\\dist\\cli\\index.js" });
+  // String.raw is the idiomatic way to write a Windows path, and it doubles as the
+  // in-repo regression for fnd_62239a8621: the tree-sitter scan used to reject this
+  // file outright and take the whole `hunch conform` gate down with it.
+  const win = scanRecord({ title: "t", context: String.raw`ran C:\Users\davids\github\hunch\dist\cli\index.js` });
   assert.ok(has(win, "machine-path"), "Windows home directory should be flagged");
 
   const mac = scanRecord({ title: "t", context: "node at /Users/nofarkulishevski/.hermes/node/bin/node" });
