@@ -21,7 +21,9 @@ import { refreshExistingGrounding } from "../integrations/providers.js";
 import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, workingFiles, workingDiff, pullHunchStatus, sameRemoteUrl, type HunchPullStatus } from "../extractors/git.js";
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, overlayMatchesTeamRemote, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
-import { formatContext, formatStructure } from "../core/format.js";
+import { formatStructure } from "../core/format.js";
+import { buildDeliveryEnvelope, type DeliveryEnvelope } from "../core/delivery.js";
+import { recordServed } from "../core/served.js";
 import type { Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
@@ -42,7 +44,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+type ToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+  structuredContent?: Record<string, unknown>;
+};
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });
 const err = (text: string): ToolResult => ({ content: [{ type: "text", text }], isError: true });
 
@@ -96,6 +102,68 @@ const SEV_CONSTRAINT: Record<string, number> = { blocking: 3, warning: 2, adviso
 const SEV_BUG: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 const more = (total: number, cap: number, hint = ""): string =>
   total > cap ? `\n  …(+${total - cap} more${hint ? ` — ${hint}` : ""})` : "";
+
+/** Public MCP shape for the canonical delivery envelope. Keeping the schema on
+ *  the tool means orchestrators can consume receipt facts without scraping the
+ *  backward-compatible text block. */
+const DELIVERY_OUTPUT_SCHEMA = z.object({
+  text: z.string(),
+  delivered: z.array(z.object({
+    kind: z.enum(["constraints", "decisions", "bugs", "findings"]),
+    record_id: z.string(),
+    rank: z.number().int().positive(),
+    delivery_reason: z.enum(["ranked", "blocking-reserved"]),
+    provenance_status: z.enum(["current", "unverified", "stale"]),
+    token_cost: z.number().int().nonnegative(),
+  })),
+  supplements: z.array(z.object({
+    id: z.string(),
+    kind: z.string(),
+    delivered: z.boolean(),
+    reason: z.enum(["supplemental", "budget", "empty"]),
+    rank: z.number().int().positive(),
+    token_cost: z.number().int().nonnegative(),
+  })),
+  omitted: z.array(z.object({
+    kind: z.enum(["constraints", "decisions", "bugs", "findings"]),
+    record_id: z.string(),
+    reason: z.enum(["budget", "stale-provenance", "retired"]),
+    detail: z.string(),
+  })),
+  budget_tokens: z.number().int().nonnegative(),
+  used_chars: z.number().int().nonnegative(),
+  blocking_overflow: z.boolean(),
+});
+
+/** Return the same human-readable brief older clients consume plus the exact
+ *  machine-readable envelope. Receipt recording is deliberately best-effort:
+ *  recordServed never throws, so telemetry can never cost a delivery. */
+function deliveredContext(
+  root: string,
+  target: string,
+  envelope: DeliveryEnvelope,
+  sessionId?: string,
+): ToolResult {
+  // Validate before recording: if a future envelope change drifts from the
+  // advertised MCP contract, the SDK will reject the call and the local ledger
+  // must not claim that response was served.
+  const structuredContent = DELIVERY_OUTPUT_SCHEMA.parse(envelope);
+  recordServed(root, structuredContent.delivered.map((item) => ({
+    event: "served",
+    kind: item.kind,
+    record_id: item.record_id,
+    target,
+    session_id: sessionId,
+    rank: item.rank,
+    delivery_reason: item.delivery_reason,
+    provenance_status: item.provenance_status,
+    token_cost: item.token_cost,
+  })));
+  return {
+    content: [{ type: "text", text: structuredContent.text }],
+    structuredContent,
+  };
+}
 
 // Capture-session tokens live in src/core/capturetoken.ts (pure + testable). These
 // thin wrappers bind the process clock and id source at the call site (§5 Stage 1).
@@ -674,11 +742,19 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         budget_tokens: z.number().optional().describe("Rough token budget for the brief (default 1500)."),
         as_of: z.string().optional().describe("Time-travel ref (commit/tag/branch): assemble the slice as it stood then."),
       },
+      outputSchema: DELIVERY_OUTPUT_SCHEMA,
     },
-    async ({ target, budget_tokens, as_of }): Promise<ToolResult> => {
+    async ({ target, budget_tokens, as_of }, extra): Promise<ToolResult> => {
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return err(`Could not resolve as_of "${as_of}" to a commit.`);
       const ctx = store.assembleContext(target, budget_tokens ?? 1500, { asOf });
+      const options = {
+        root,
+        symbols: store.recs("symbols"),
+        components: store.recs("components"),
+        decisionCorpus: store.recs("decisions"),
+        historical: !!asOf,
+      };
       // Task-phrase input ("improve retrieval ranking") resolves no file/symbol and
       // used to return an empty brief while the graph held the answer — fall back to
       // FTS so the assistant always leaves with the closest matches, not a shrug.
@@ -686,19 +762,30 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
       if (empty && !asOf) {
         const hits = store.search(target, 8);
         if (hits.length) {
-          const lines = hits.map((h) => `• ${h.ref} — ${h.title}\n    ${h.snippet}`);
-          return ok(
-            `No file/symbol resolves for "${target}" — closest graph matches instead:\n\n${lines.join("\n")}\n\n(For a file/symbol brief pass a concrete target; free-text goes through the same search as hunch_query.)`,
-          );
+          const resolved = hits.map((hit) => ({ hit, record: store.resolve(hit.ref)?.record }));
+          const fallback = {
+            ...ctx,
+            constraints: resolved.filter(({ hit, record }) => hit.kind === "constraints" && !!record).map(({ record }) => record) as typeof ctx.constraints,
+            decisions: resolved.filter(({ hit, record }) => hit.kind === "decisions" && !!record).map(({ record }) => record) as typeof ctx.decisions,
+            bugs: resolved.filter(({ hit, record }) => hit.kind === "bugs" && !!record).map(({ record }) => record) as typeof ctx.bugs,
+            findings: resolved.filter(({ hit, record }) => hit.kind === "findings" && !!record).map(({ record }) => record) as typeof ctx.findings,
+          };
+          const envelope = buildDeliveryEnvelope(fallback, {
+            ...options,
+            supplements: hits
+              .filter((hit) => !["constraints", "decisions", "bugs", "findings"].includes(hit.kind))
+              .map((hit, index) => ({
+                id: hit.ref,
+                kind: `search-${hit.kind}`,
+                text: `${hit.ref} — ${hit.title}: ${hit.snippet}`,
+                priority: 100 - index,
+              })),
+          });
+          return deliveredContext(root, target, envelope, extra.sessionId);
         }
       }
-      return ok(formatContext(ctx, {
-        root,
-        symbols: store.recs("symbols"),
-        components: store.recs("components"),
-        decisionCorpus: store.recs("decisions"),
-        historical: !!asOf,
-      }));
+      const envelope = buildDeliveryEnvelope(ctx, options);
+      return deliveredContext(root, as_of ? `${target} (as_of:${as_of})` : target, envelope, extra.sessionId);
     },
   );
 

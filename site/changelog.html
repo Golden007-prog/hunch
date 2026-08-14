@@ -107,6 +107,10 @@
 
     <div class="clog">
       <div class="clog-group">
+        <div class="clog-date">Aug 15, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.13.1</span><span class="clog-t"><b>MCP delivery receipts arrive as structured data</b> — <span class="mono">hunch_context</span> used to flatten the canonical delivery envelope into prose and never record its own delivery, forcing orchestrators to scrape IDs and metadata from text while <span class="mono">hunch served</span> stayed empty. The MCP tool now advertises an output schema, returns the complete envelope in <span class="mono">structuredContent</span> alongside the backward-compatible brief, and receipts exactly the records it actually delivered — including rank, reason, currentness and token cost. Budget-omitted and stale records are never counted, and a receipt write can never block context.</span></div>
+      </div>
+      <div class="clog-group">
         <div class="clog-date">Aug 13, 2026</div>
         <div class="clog-row"><span class="rel-tag">v1.13.0</span><span class="clog-t"><b>Truthful, provenance-checked delivery envelopes</b> — CLI, MCP, and edit hooks now deliver memory through one deterministic envelope. Every candidate is checked for currentness, ranked into the same hard context budget, and either delivered with an exact reason or reported as omitted; active blocking constraints are never silently lost to a small caller budget. The local receipt ledger now records the exact delivered ID, rank, delivery reason, provenance status, and estimated token cost, while existing ledgers migrate additively. Documentation, decision, and retired-code grounding also compete inside that same budget instead of overflowing after packing.</span></div>
       </div>
