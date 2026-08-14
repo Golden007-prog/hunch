@@ -16,8 +16,8 @@ strict enforcement.
 **Memory is the input. The product boundary is the receipt:** relevant evidence before an edit,
 then a deterministic check of the change against the rules your team has explicitly trusted.
 
-> **New in v1.13.0:** CLI, MCP, and edit hooks now share one provenance-checked, hard-budgeted
-> delivery envelope, and local receipts record exactly what reached the agent and why.
+> **New in v1.13.1:** `hunch_context` exposes that provenance-checked, hard-budgeted delivery
+> envelope as MCP structured output and records exactly which returned items reached the client.
 
 See the public [roadmap](ROADMAP.md) for what is next and what is deliberately out of scope.
 
@@ -82,7 +82,7 @@ Git repo that every teammate can access, install the Matrix release on team mach
 have one maintainer run:
 
 ```bash
-npm i -g @davesheffer/hunch@1.13.0
+npm i -g @davesheffer/hunch@1.13.1
 hunch shared --repo git@github.com:acme/project-hunch-memory.git
 git add .gitignore .hunch/team.json
 git commit -m "chore: connect shared Hunch memory"
@@ -97,7 +97,7 @@ printed by Hunch. Omit `--migrate` for a new setup.
 After the pointer commit lands, teammates need Hunch installed and Git access to the memory repo:
 
 ```bash
-npm i -g @davesheffer/hunch@1.13.0
+npm i -g @davesheffer/hunch@1.13.1
 git pull
 hunch init
 hunch doctor

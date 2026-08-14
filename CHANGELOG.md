@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.13.1 — 2026-08-15
+
+### MCP delivery receipts arrive as structured data
+
+`hunch_context` now advertises an MCP output schema and returns the canonical delivery envelope in
+`structuredContent` while preserving the existing text response for older clients. Orchestrators
+can consume exact delivered and omitted record IDs, rank, delivery reason, provenance/currentness,
+token cost, budget use and blocking overflow without parsing prose.
+
+Every record actually returned by MCP is also appended to the same machine-local served ledger used
+by agent hooks. Budget-omitted or stale records are never receipted, and receipt persistence remains
+best-effort so telemetry failure cannot block context delivery.
+
 ## 1.13.0 — 2026-08-13
 
 ### Truthful, provenance-checked delivery envelopes
