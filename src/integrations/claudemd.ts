@@ -27,6 +27,7 @@ export function stripManagedSection(text: string): string {
 export function renderHunchSection(store: HunchStore, root?: string): string {
   const constraints = store.json
     .loadAll("constraints")
+    .filter((c) => c.status === "active" && !c.valid_to)
     .sort((a, b) => sev(b.severity) - sev(a.severity))
     .slice(0, 8);
   const counts = {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
 import { HunchStore } from "../src/store/hunchStore.js";
-import { extracted, inferred, type Provenance } from "../src/core/types.js";
+import { extracted, inferred, type Constraint, type Provenance } from "../src/core/types.js";
 
 export function tempStore(): { store: HunchStore; root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "hunch-test-"));
@@ -14,6 +14,16 @@ export function tempStore(): { store: HunchStore; root: string; cleanup: () => v
 
 export const prov = (c = 0.9): Provenance => extracted(c, []);
 export const inf = (c = 0.5): Provenance => inferred(c, []);
+
+export function mkConstraint(over: Partial<Constraint> & { id: string }): Constraint {
+  return {
+    type: "correctness", statement: "x", scope: ["src/auth/**"], severity: "warning",
+    enforcement: "advisory_v1", match: null, forbids: null, rationale: "", source_decision: null,
+    violations: [], status: "active", valid_from: undefined, valid_to: null,
+    provenance: { source: "human_confirmed", confidence: 1, evidence: [] },
+    ...over,
+  };
+}
 
 /** Can this process create symlinks? Windows restricts symlink creation to
  *  elevated processes unless Developer Mode is on, so the symlink-hardening
