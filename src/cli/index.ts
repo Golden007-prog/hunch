@@ -14,7 +14,7 @@
  *   doctor    environment diagnostics
  */
 import "./preflight.js"; // MUST stay the first import — Node-version gate before node:sqlite loads
-import { chmodSync, existsSync, lstatSync, readFileSync, readlinkSync, writeFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, rmdirSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, rmdirSync, symlinkSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { join, relative, dirname, basename, resolve, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
@@ -91,7 +91,8 @@ import { computeDrift } from "../core/drift.js";
 import { renderCompilerScorecard, scoreCompilerCaseBank } from "../constitution/scorecard.js";
 import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
 import { adoptProsePrompt } from "../wiki/adopt.js";
-import { topicCollisions, isInForce } from "../core/topics.js";
+import { topicCollisions, isInForce, liveForTopic } from "../core/topics.js";
+import { ADR_DIR_CANDIDATES, ADR_FILE_RE, mapAdrCorpus } from "../extractors/adrImport.js";
 import { pendingEscalations, policyEscalations } from "../core/escalations.js";
 import { premiseEscalations } from "../core/premises.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
@@ -2851,6 +2852,68 @@ program
     if (r.bug.lineage.recurrence_of) console.log(`  ↳ recurrence of ${r.bug.lineage.recurrence_of}`);
     if (r.constraint) console.log(`  ↳ promoted constraint ${r.constraint.id} [${r.constraint.severity}]: ${r.constraint.statement}`);
     store.close();
+  });
+
+// ---- import-adr (MADR/Nygard corpus import — the MADR bridge, import half) --
+program
+  .command("import-adr")
+  .description("Import an existing MADR/Nygard ADR corpus (docs/adr etc.) into the decision graph — deterministic, no LLM. Re-running updates the same records (ids derive from file paths).")
+  .argument("[dir]", "ADR directory (default: probe docs/adr, docs/decisions, doc/adr, adr, docs/architecture/decisions)")
+  .option("--dry-run", "parse and report what would be imported without writing")
+  .option("--private", "write imported decisions into the private overlay instead of the committed store")
+  .action((dirArg: string | undefined, opts: { dryRun?: boolean; private?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const dir = dirArg
+        ? toPosixTarget(dirArg)
+        : ADR_DIR_CANDIDATES.find((c) => existsSync(join(root, c)) && readdirSync(join(root, c)).some((f) => ADR_FILE_RE.test(f)));
+      if (!dir || !existsSync(join(root, dir))) {
+        return fail(dirArg ? `ADR directory not found: ${dirArg}` : `no ADR corpus found (probed: ${ADR_DIR_CANDIDATES.join(", ")})`);
+      }
+      const files = readdirSync(join(root, dir)).filter((f) => ADR_FILE_RE.test(f)).sort();
+      if (!files.length) return fail(`no NNNN-slug.md ADR files in ${dir}`);
+      const sources = files.map((f) => ({ relPath: `${dir}/${f}`, text: readFileSync(join(root, dir, f), "utf8") }));
+      const { decisions, warnings } = mapAdrCorpus(sources);
+      for (const w of warnings) console.log(`  ⚠ ${w}`);
+
+      // Fail-safe topic anchoring: an import must never create a SECOND live
+      // decision on a topic the graph already anchors — drop the anchor, keep
+      // the record (visible, just not drift-anchored), and say so.
+      const existing = store.recs("decisions").filter((d) => !decisions.some((n) => n.id === d.id));
+      for (const d of decisions) {
+        if (d.status !== "accepted" || !d.topic) continue;
+        if (liveForTopic(existing, d.topic).length) {
+          console.log(`  ⚠ topic ${d.topic} already has a live decision in the graph — importing ${d.id} un-anchored`);
+          d.topic = null;
+        }
+      }
+
+      if (opts.dryRun) {
+        for (const d of decisions) {
+          const window = d.valid_to ? `${d.valid_from ?? "?"} → ${d.valid_to}` : "in force";
+          console.log(`  ${d.id} [${d.status}] ${d.title} (${window})`);
+        }
+        console.log(`✓ dry run: ${decisions.length} ADR(s) parsed from ${dir}, nothing written`);
+        return;
+      }
+
+      store.json.ensureDirs();
+      let created = 0, updated = 0;
+      for (const d of decisions) {
+        if (store.getRec("decisions", d.id)) updated++;
+        else created++;
+        store.putCapture("decisions", d, opts.private);
+      }
+      store.reindex();
+      const home = store.captureHome(!!opts.private);
+      if (home === "public" && !store.autoCommit) refreshExistingGrounding(root, store);
+      const flush = flushCapture(store, hunchPaths(root).hunch, !!opts.private, `hunch: import ${decisions.length} ADR(s) from ${dir}`);
+      const live = decisions.filter((d) => d.status === "accepted").length;
+      console.log(`✓ imported ${decisions.length} ADR(s) from ${dir} (${created} new, ${updated} updated; ${live} live, ${decisions.length - live} historical)${opts.private ? " [private overlay]" : ""}`);
+      if (flush === "pushed") console.log("  ↳ private memory committed + pushed");
+    } finally {
+      store.close();
+    }
   });
 
 // ---- record-constraint (human-authored invariant) -------------------------
