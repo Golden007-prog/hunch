@@ -234,6 +234,15 @@ export function refreshMadrCorpus(
   const preserved = new Map<string, MadrManifest["files"][string]>();
   let written = 0;
 
+  // Edit detection is keyed by CONTENT, not by file name. Numbering is assigned
+  // per export, so adding one decision shifts every later file to a new name —
+  // a name-keyed check then finds no prior entry for the shifted name, calls the
+  // hand-edited file at that path "stale", and overwrites it (and the removal
+  // sweep would delete it under its old name). Bytes we have ever written are
+  // exactly the manifest's `bytes` values: an on-disk generated file whose hash
+  // is not among them was edited by a human, whatever it is currently called.
+  const knownBytes = new Set(Object.values(manifest.files).map((entry) => entry.bytes));
+
   for (const f of files) {
     const abs = join(outDir, f.name);
     const prior = manifest.files[f.name];
@@ -244,20 +253,23 @@ export function refreshMadrCorpus(
       } catch {
         continue;
       }
-      // Someone else's file, or someone's edit: leave both alone.
+      // Someone else's file: leave it alone (its decision then surfaces as
+      // "no ADR" drift rather than being silently unrepresented).
       if (!isRegenerableMadr(onDisk)) continue;
-      if (prior && sha16(onDisk) !== prior.bytes) {
-        skippedEdited.push(f.name);
-        // Carry the PRIOR entry through untouched. Rebuilding it from the edited
-        // bytes would make the file match its own manifest and the edit would
-        // stop being reported — the refresh would quietly launder a hand edit
-        // into the record of what we generated.
-        preserved.set(f.name, prior);
-        continue;
-      }
       if (onDisk === f.text) {
         kept.push(f);
         continue; // already current — no write, no churn
+      }
+      const bytes = sha16(onDisk);
+      const edited = prior ? bytes !== prior.bytes : !knownBytes.has(bytes);
+      if (edited) {
+        skippedEdited.push(f.name);
+        // Carry the PRIOR entry through untouched (when one exists). Rebuilding
+        // it from the edited bytes would make the file match its own manifest
+        // and the edit would stop being reported — the refresh would quietly
+        // launder a hand edit into the record of what we generated.
+        if (prior) preserved.set(f.name, prior);
+        continue;
       }
     }
     writeFileAtomic(abs, f.text);
@@ -265,8 +277,10 @@ export function refreshMadrCorpus(
     written++;
   }
 
-  // Drop generated files the new numbering no longer produces. Marker-verified,
-  // so a hand-written file in the same directory is never touched.
+  // Drop generated files the new numbering no longer produces — but ONLY files
+  // whose bytes we wrote. An edited file under its old name is preserved (with
+  // its manifest entry, so madr-edited keeps firing) rather than deleted: this
+  // sweep was the second way a renumbering could destroy a human's edit.
   let removed = 0;
   const produced = new Set(files.map((f) => f.name));
   for (const name of Object.keys(manifest.files)) {
@@ -274,10 +288,15 @@ export function refreshMadrCorpus(
     const abs = join(outDir, name);
     if (!existsSync(abs)) continue;
     try {
-      if (isRegenerableMadr(readFileSync(abs, "utf8"))) {
-        rmSync(abs);
-        removed++;
+      const onDisk = readFileSync(abs, "utf8");
+      if (!isRegenerableMadr(onDisk)) continue;
+      if (!knownBytes.has(sha16(onDisk))) {
+        skippedEdited.push(name);
+        preserved.set(name, manifest.files[name]!);
+        continue;
       }
+      rmSync(abs);
+      removed++;
     } catch { /* best effort */ }
   }
 

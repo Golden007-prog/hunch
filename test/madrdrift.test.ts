@@ -230,3 +230,65 @@ test("a second refresh with an unchanged graph writes nothing", () => {
     cleanup();
   }
 });
+
+// ---- renumbering: the case that destroyed edits before the content-keyed fix ----
+
+const MID = dec({ id: "dec_cccccccccc", title: "Between the two", decision: "lands between A and B", valid_from: "2024-01-15T00:00:00.000Z" });
+
+test("a hand edit survives a renumbering refresh — the write path", (t) => {
+  const { root, cleanup } = adoptedRepo([A, B]);
+  try {
+    // Human edits B's file (0002-*), keeping the marker.
+    const bName = Object.entries(readMadrManifest(root)!.files).find(([, e]) => e.decision === B.id)![0];
+    const bAbs = join(root, DIR, bName);
+    const edited = readFileSync(bAbs, "utf8") + "\nA human wrote this line.\n";
+    writeFileSync(bAbs, edited);
+
+    // MID dates between A and B: every later file shifts to a new name, so the
+    // name that held B's edited render is now claimed by MID's render.
+    const result = refreshMadrCorpus([A, MID, B], root, NOW)!;
+
+    const survivingNames = readdirSync(join(root, DIR));
+    const contents = survivingNames.map((n) => readFileSync(join(root, DIR, n), "utf8"));
+    assert.ok(contents.includes(edited), "the human's edited bytes still exist on disk somewhere");
+    assert.ok(result.skippedEdited.length >= 1, "the skip was reported, not silent");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a hand edit survives a renumbering refresh — the removal sweep", (t) => {
+  const { root, cleanup } = adoptedRepo([A, B]);
+  try {
+    const bName = Object.entries(readMadrManifest(root)!.files).find(([, e]) => e.decision === B.id)![0];
+    const bAbs = join(root, DIR, bName);
+    const edited = readFileSync(bAbs, "utf8") + "\nA human wrote this line.\n";
+    writeFileSync(bAbs, edited);
+
+    // B leaves the graph entirely: its old name is no longer produced, so the
+    // sweep is what decides the edited file's fate.
+    const result = refreshMadrCorpus([A, MID], root, NOW)!;
+
+    assert.equal(existsSync(bAbs) || readdirSync(join(root, DIR)).some((n) => readFileSync(join(root, DIR, n), "utf8") === edited), true,
+      "the edited file was preserved, not swept");
+    assert.ok(result.skippedEdited.includes(bName), "the sweep reported the skip");
+
+    // And drift keeps reporting it — the preserved manifest entry is what makes that possible.
+    const findings = computeMadrDrift([A, MID], root);
+    assert.ok(findings.some((f) => f.kind === "madr-edited" || f.kind === "madr-orphan"), "still surfaced to a human");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a plain renumbering with no edits shuffles cleanly", (t) => {
+  const { root, cleanup } = adoptedRepo([A, B]);
+  try {
+    const result = refreshMadrCorpus([A, MID, B], root, NOW)!;
+    assert.deepEqual(result.skippedEdited, [], "nothing miscounted as edited");
+    assert.equal(readdirSync(join(root, DIR)).filter((n) => n.endsWith(".md")).length, 3);
+    assert.deepEqual(computeMadrDrift([A, MID, B], root), [], "clean after the shuffle");
+  } finally {
+    cleanup();
+  }
+});

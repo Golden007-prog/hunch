@@ -171,7 +171,7 @@ export function computeDrift(store: HunchStore, root: string): DriftReport {
   //     computed from exactly the records allowed to reach it (an overlay record
   //     leaking into a public drift report is the same class of bug as one
   //     leaking into the export itself). Fires only where a corpus was exported.
-  findings.push(...computeMadrDrift(store.json.loadAll("decisions") as Parameters<typeof computeMadrDrift>[0], root));
+  findings.push(...computeMadrDrift(store.json.loadAll("decisions"), root));
 
   // 7. FINDING-STALE — a LIVE finding (observation, no diff) whose anchor evaporated:
   //    an affected file that no longer exists, or a violates_constraint pointing at a

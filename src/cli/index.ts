@@ -533,7 +533,7 @@ program
     // Best-effort and last-write-wins-free: a hand-edited file is skipped, not
     // clobbered, and any failure here must never affect the capture that preceded it.
     try {
-      const refreshed = refreshMadrCorpus(store.json.loadAll("decisions") as Parameters<typeof refreshMadrCorpus>[0], root, new Date().toISOString());
+      const refreshed = refreshMadrCorpus(store.json.loadAll("decisions"), root, new Date().toISOString());
       if (refreshed && !opts.quiet && (refreshed.written || refreshed.removed || refreshed.skippedEdited.length)) {
         const skipped = refreshed.skippedEdited.length ? `, ${refreshed.skippedEdited.length} hand-edited file(s) left alone` : "";
         console.log(`  ↳ ADR corpus refreshed: ${refreshed.written} written, ${refreshed.removed} removed${skipped} (${refreshed.dir}/)`);
