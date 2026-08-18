@@ -16,8 +16,10 @@ strict enforcement.
 **Memory is the input. The product boundary is the receipt:** relevant evidence before an edit,
 then a deterministic check of the change against the rules your team has explicitly trusted.
 
-> **New in v1.13.1:** `hunch_context` exposes that provenance-checked, hard-budgeted delivery
-> envelope as MCP structured output and records exactly which returned items reached the client.
+> **New in v1.17.0:** an exported ADR corpus now tracks the graph automatically and reports its
+> own drift (`madr-stale` / `madr-edited` / `madr-orphan`), and retrieval ranks recorded intent
+> above code symbols that merely share the query's vocabulary — Recall@10 70% → 90% on the
+> curated benchmark.
 
 See the public [roadmap](ROADMAP.md) for what is next and what is deliberately out of scope.
 
@@ -47,8 +49,11 @@ to the same graph. It merges into existing configuration instead of replacing it
 - **Change receipts** — review a working tree, commit, or branch against recorded intent and get a
   cited PASS / WARN / BLOCK result.
 - **Bug lineage** — understand which old incident a line fixed before accidentally undoing it.
-- **Code awareness** — TypeScript, JavaScript, and Python structure feed dependency, blast-radius,
-  and redundancy checks. The reasoning layer works with any language.
+- **Code awareness** — TypeScript, JavaScript, Python, and Go structure feed dependency,
+  blast-radius, and redundancy checks. The reasoning layer works with any language.
+- **ADR interop** — `hunch import-adr` populates the graph from an existing MADR/Nygard corpus;
+  `hunch export-adr` projects it back as standard MADR any ADR reader understands, and the
+  projection then tracks the graph automatically and reports its own drift.
 
 The source of truth is readable JSON in `.hunch/`. A local SQLite index makes retrieval fast but
 is always rebuildable.

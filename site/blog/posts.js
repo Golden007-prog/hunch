@@ -3,10 +3,46 @@
    global so it works on a static host with no build step. */
 window.POSTS = [
   {
+    slug: "exports-that-notice-when-they-rot",
+    title: "Hunch 1.17: exports that notice when they rot",
+    dek: "A derived view that cannot detect its own staleness is a liar with good formatting. 1.16 taught the graph to project itself as a standard ADR corpus; 1.17 makes that projection self-aware: it reports its own drift, refreshes itself on every commit, and protects a human's edit by what the file says, not what it happens to be called. Plus: retrieval now ranks recorded intent above code that merely shares your question's vocabulary.",
+    date: "2026-08-19", tag: "Release", read: "6 min", pinned: true,
+    body: `
+<p class="lead">Hunch's rule for derived artifacts has always been the same: <strong>the graph is the source of truth, everything rendered from it is disposable.</strong> The wiki obeys it — pages are hash-tracked, and a page whose graph inputs moved shows up as <code>wiki-stale</code> drift. But 1.16's MADR export quietly broke the symmetry: it could write <code>docs/adr/</code>, and then nothing ever noticed the graph moving underneath it. An exported decision record could sit in your repo confidently wrong forever — which for a memory tool is the exact failure it exists to prevent, wearing the tool's own file format.</p>
+
+<h2>Three ways a projection rots, three different human fixes</h2>
+<p>1.17 tracks the exported corpus the way the wiki is tracked: a content-hash manifest, adopted on your first <code>hunch export-adr</code>, silent in repos that never exported. Two hashes per file answer two different questions — one moves when the <em>graph</em> moves, one moves when a <em>human</em> edits the file. That split is what lets drift say something useful instead of "stale, somehow":</p>
+<p><strong><code>madr-stale</code></strong> — the decision changed since export. Fix: none, usually; see the next section.<br/>
+<strong><code>madr-edited</code></strong> — someone hand-edited a generated file, and the next export would eat the edit. Fix: move the change into the decision (it survives because it now lives in the graph), or delete the generated marker and own the file outright.<br/>
+<strong><code>madr-orphan</code></strong> — the decision left the public graph, so a public artifact now has no record behind it. That is the shape of a leak as much as of staleness, and it says so.</p>
+<p>Each kind gets its own section in <code>hunch heal</code>, because "run one command" is the wrong advice for two of the three.</p>
+
+<h2>Export once, never again</h2>
+<p>The manifest would be a nag without the second half: once a corpus is adopted, <strong>the refresh rides the post-commit sync</strong>. Record a decision, the ADR corpus follows; supersede one, its file gains the successor link; and the whole thing is best-effort by construction — a projection refresh can never fail the capture that triggered it. In practice <code>madr-stale</code> should be a finding you rarely see, because the machinery that would report it is the machinery that already fixed it.</p>
+
+<h2>Edits are protected by content, not by name</h2>
+<p>Honesty section. The first version of this feature had a data-loss bug, found in review before release. MADR numbering is assigned per export — add one decision and every later file shifts to a new name. The edit protection was keyed by file name, so under renumbering it failed twice over: the write path overwrote a hand-edited file because the shifted name had no history, and the removal sweep deleted it under its old name. Both regression tests were watched failing against the broken build before the fix landed.</p>
+<p>The fix is the right invariant, not a patch: <strong>the manifest's byte-hashes are exactly the set of file states Hunch has ever written</strong>, so a generated file whose hash is not among them was edited by a person — whatever it is currently called. Those files are skipped, kept out of the sweep, and keep firing <code>madr-edited</code> until a human resolves them. A no-edit renumbering still shuffles cleanly.</p>
+
+<h2>Recorded intent outranks vocabulary</h2>
+<p>Also in 1.17: on a graph with thousands of indexed symbols, a lexical tie used to let code that merely shares your question's words occupy the whole top-k and bury the one live decision. Retrieval now applies a bounded prior toward memory records — decisions, constraints, bugs, runbooks, policies — when ranking against symbols. It never excludes a kind; it breaks ties toward intent. On the curated retrieval benchmark: <strong>Recall@10 70% → 90%, MRR 0.402 → 0.575</strong>. If your workload disagrees, <code>HUNCH_MEMORY_PRIOR_SHIFT=0</code> turns it off.</p>
+
+<h2>Honest limits</h2>
+<p>The generated-file marker still means what it says — a manual <code>hunch export-adr</code> overwrites marker-carrying files; the content-keyed protection guards the <em>automatic</em> path, and <code>madr-edited</code> exists precisely to warn you before you run the manual one. And import's status mapping is unchanged: MADR <code>deprecated</code> still lands as <code>superseded</code> with no successor named — a mapping we now consider worth a second look, but changing it is a migration, not a patch, so it ships as documented behavior rather than a silent fix.</p>
+
+<h2>Upgrade</h2>
+<pre><code>npm i -g @davesheffer/hunch@1.17.0
+cd your-repo
+hunch export-adr   # adopt once; from here the corpus tracks the graph</code></pre>
+<p>Repos that never export see zero new findings. Repos that do get a projection that finally holds itself to the standard the graph holds everything else to.</p>
+`,
+  },
+
+  {
     slug: "only-blocks-if-you-signed",
     title: "Hunch 1.11: a rule only blocks you if you actually signed it",
     dek: "The scariest failure mode of an AI memory isn't forgetting — it's remembering with your voice. Three releases in one week close the gap between what an assistant believes you said and what you actually vouched for: records now carry who vouched, the reasons they rest on get checked, and blocking authority has to be countersigned by you.",
-    date: "2026-08-09", tag: "Release", read: "5 min", pinned: true,
+    date: "2026-08-09", tag: "Release", read: "5 min", pinned: false,
     body: `
 <p class="lead">An engineering memory is an <strong>authoritative channel</strong>: what it records gets injected into every assistant's context as settled truth, shown on every matching edit, enforced in CI. That's the whole point — and it's exactly why the write path is the dangerous part. Until this release line, an assistant could turn something it <em>believed</em> you'd said into a hard rule that blocks commits across your whole repository, recorded as if you had personally confirmed it. Memory poisoning is now a named risk class for agentic systems for good reason: a wrong rule that speaks with your voice is worse than no memory at all.</p>
 
