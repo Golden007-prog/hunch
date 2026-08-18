@@ -27,10 +27,14 @@ docs/superpowers/
 # ...but the PLUGIN's MCP config is the shipped artifact, not a per-clone scaffold
 !plugin/.mcp.json
 .cursor/mcp.json
+.cursor/hooks.json
 .vscode/mcp.json
 .windsurf/mcp_config.json
 .codex/config.toml
 .claude/settings.json
+.agents/hooks.json
+.agents/mcp_config.json
+.github/hooks/hunch.json
 
 # Codex lifecycle hooks — HAND-MAINTAINED, NOT scaffolded. `hunch init` wires Codex to
 # writeCodexConfig only (the MCP entry above); there is no Codex hooks writer, and "codex"
