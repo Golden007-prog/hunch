@@ -184,11 +184,28 @@ export function executeReleasePlan(plan, runner) {
 export function executeGuardedReleasePlan(plan, runner, expectedSource, observeSource, onSourceError = () => {}) {
   return executeReleasePlan(plan, (gate) => {
     const outcome = runner(gate);
-    const sourceError = releaseSourceStateError(expectedSource, observeSource());
+    const observed = observeSource();
+    const sourceError = releaseSourceStateError(expectedSource, observed);
     if (!sourceError) return outcome;
-    onSourceError(gate, sourceError);
+    onSourceError(gate, sourceError, observed);
     return { exitCode: 1 };
   });
+}
+
+/** Line-level symmetric difference between two `git status --porcelain` blobs —
+ * the concrete evidence a bare "the working tree changed" never carries. Every
+ * porcelain line is `<code> <path>`, so a line-set diff is exactly "which
+ * paths newly showed up as dirty" / "which stopped being dirty", with no
+ * false positives from line reordering. */
+export function statusDiffLines(before, after) {
+  const beforeLines = (before ?? "").split("\n").filter(Boolean);
+  const afterLines = (after ?? "").split("\n").filter(Boolean);
+  const beforeSet = new Set(beforeLines);
+  const afterSet = new Set(afterLines);
+  return {
+    added: afterLines.filter((line) => !beforeSet.has(line)),
+    removed: beforeLines.filter((line) => !afterSet.has(line)),
+  };
 }
 
 export function guardedReceiptWrite({ expectedSource, observeSource, writeReceipt, removeReceipt }) {
@@ -352,10 +369,18 @@ function run(command, args, options = {}) {
   return { exitCode: child.status ?? 1 };
 }
 
-function git(args) {
-  const child = spawnSync("git", args, { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+// trimEnd, NOT trim: `git status --porcelain` lines that are unstaged-only start
+// with a LEADING SPACE ("` M path`" — blank index column, "M" worktree column).
+// A blanket .trim() eats that leading space off whichever path sorts first in
+// the whole blob, shifting statusWithoutMemoryChurn's fixed slice(3) path
+// extraction by one column — ".hunch/evidence/x.json" reads as
+// "hunch/evidence/x.json", silently fails isMemoryChurnPath's `.hunch/` prefix
+// check, and a routine derived-memory write misreports as a real source
+// mutation (root cause of an intermittent repository-index CI flake).
+export function git(args, cwd = projectRoot) {
+  const child = spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (child.status !== 0) throw new Error(child.stderr.trim() || `git ${args.join(" ")} failed`);
-  return child.stdout.trim();
+  return child.stdout.trimEnd();
 }
 
 function tagPointsToCommit(tag, commit) {
@@ -655,10 +680,26 @@ async function main() {
         ? [...baseArgs, "--allow-dirty"]
         : baseArgs;
       return run(command, args, { env: gateEnvironment(gate.id, process.env, emptyPrivateHome) });
-    }, sourceBefore, () => observeNormalizedSource(), (gate, sourceError) => {
+    }, sourceBefore, () => observeNormalizedSource(), (gate, sourceError, observed) => {
       const detail = `${gate.id}: ${sourceError}`;
       sourceMutationErrors.push(detail);
       process.stderr.write(`Release gate source-integrity failure: ${detail}\n`);
+      // The reason string alone ("the working tree changed") has never once named a
+      // path in the wild — a flake with no evidence trail can't be root-caused from
+      // CI logs. Attach the actual porcelain diff (and, on a HEAD move, the changed
+      // paths between commits) so the NEXT occurrence is diagnosable from the
+      // uploaded release-gate.json receipt instead of requiring a fresh repro.
+      if (observed.status !== sourceBefore.status) {
+        const { added, removed } = statusDiffLines(sourceBefore.status, observed.status);
+        if (added.length) sourceMutationErrors.push(`${gate.id}: newly dirty — ${added.join(" | ")}`);
+        if (removed.length) sourceMutationErrors.push(`${gate.id}: no longer dirty — ${removed.join(" | ")}`);
+      }
+      if (observed.commit !== sourceBefore.commit) {
+        try {
+          const changed = git(["diff", "--name-only", `${sourceBefore.commit}..${observed.commit}`]).split("\n").filter(Boolean);
+          if (changed.length) sourceMutationErrors.push(`${gate.id}: HEAD-move touched — ${changed.join(" | ")}`);
+        } catch { /* diagnostic-only: a failed git diff must not mask the primary source error */ }
+      }
     });
     const contextErrors = [...sourceMutationErrors];
     const rawRehearsal = readGateEvidence(rehearsalOutput, "clean-install-rehearsal", gates, contextErrors);
