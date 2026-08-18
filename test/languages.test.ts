@@ -7,11 +7,17 @@ test("LANGUAGES has typescript entries covering both grammars (plain + tsx)", ()
   assert.ok(ts.length >= 2, "expected a plain-TS entry and a TSX entry");
 });
 
-test("CODE_EXTENSIONS matches the existing TS/JS/Python extension list", () => {
+test("CODE_EXTENSIONS matches the existing TS/JS/Python/Go extension list", () => {
   assert.deepEqual(
     [...CODE_EXTENSIONS].sort(),
-    [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx", ".py", ".pyi"].sort(),
+    [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx", ".py", ".pyi", ".go"].sort(),
   );
+});
+
+test("languageFor resolves .go to the go LanguageSpec", () => {
+  const lang = languageFor("cmd/server/main.go");
+  assert.ok(lang, "no LanguageSpec for .go");
+  assert.equal(lang!.id, "go");
 });
 
 test("languageFor resolves every TS/JS extension to the typescript LanguageSpec", () => {

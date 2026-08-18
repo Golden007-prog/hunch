@@ -165,7 +165,58 @@ const PYTHON: LanguageSpec = {
   builtinMethods: PY_BUILTIN_METHODS,
 };
 
-export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON];
+const GO_QUERY = `
+  (function_declaration name: (identifier) @fn.name) @fn.def
+  (method_declaration name: (field_identifier) @method.name) @method.def
+  ;; Specific type_spec shapes FIRST: parse.ts keeps the first classification a
+  ;; node id receives (same mechanism the Python class patterns rely on), so a
+  ;; struct/interface matches its specific pattern before the generic @type.def.
+  (type_spec name: (type_identifier) @struct.name type: (struct_type)) @struct.def
+  (type_spec name: (type_identifier) @iface.name type: (interface_type)) @iface.def
+  (type_spec name: (type_identifier) @type.name) @type.def
+  ;; \`type X = Y\` is a distinct type_alias node, not a type_spec.
+  (type_alias name: (type_identifier) @type.name) @type.def
+  (import_spec path: [(interpreted_string_literal) (raw_string_literal)] @import.src)
+  (call_expression function: (identifier) @call.id)
+  (call_expression function: (selector_expression field: (field_identifier) @call.member))
+`;
+
+/** In Go every package-qualified call (fmt.Println, strings.Split, t.Errorf) is a
+ *  selector_expression and therefore lands in @call.member — the DOMINANT call form.
+ *  This allowlist filters the highest-frequency stdlib/testing method+function names
+ *  so they never create false edges to same-named repo symbols; repo-specific member
+ *  calls (s.Run(), h.Handle()) pass through and resolve conservatively like TS/PY. */
+const GO_BUILTIN_METHODS = new Set([
+  "Error", "String", "Read", "Write", "Close", "Len", "Cap", "Reset", "Bytes", "Text",
+  "Scan", "Next", "Err", "Lock", "Unlock", "RLock", "RUnlock", "Done", "Add", "Wait",
+  "Print", "Printf", "Println", "Sprintf", "Fprintf", "Errorf", "Fatal", "Fatalf", "Fatalln",
+  "Log", "Logf", "Helper", "Run", "Parallel", "Skip", "Skipf", "Cleanup",
+  "Get", "Set", "Delete", "Load", "Store", "Range", "Value", "Context", "Deadline",
+  "Marshal", "Unmarshal", "Encode", "Decode", "Parse", "Format", "Sub", "Before", "After",
+  "Join", "Split", "Contains", "Replace", "ReplaceAll", "TrimSpace", "ToLower", "ToUpper",
+  "HasPrefix", "HasSuffix", "WriteString", "ReadString", "ReadAll", "Copy", "New", "Now",
+  "Since", "Sleep", "Unix", "Exec", "Query", "QueryRow", "Begin", "Commit", "Rollback",
+]);
+
+const GO: LanguageSpec = {
+  id: "go",
+  extensions: [".go"],
+  grammarKey: "go",
+  loadGrammar: () => loadNativeTreeSitter().go,
+  query: GO_QUERY,
+  defNodeTypes: new Set(["function_declaration", "method_declaration", "type_spec", "type_alias"]),
+  defKindOf: {
+    "fn.def": "function", "method.def": "method", "struct.def": "class",
+    "iface.def": "interface", "type.def": "type",
+  },
+  nameToDef: {
+    "fn.name": "fn.def", "method.name": "method.def", "struct.name": "struct.def",
+    "iface.name": "iface.def", "type.name": "type.def",
+  },
+  builtinMethods: GO_BUILTIN_METHODS,
+};
+
+export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO];
 
 export const CODE_EXTENSIONS: string[] = [...new Set(LANGUAGES.flatMap((l) => l.extensions))];
 

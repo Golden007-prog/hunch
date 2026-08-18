@@ -300,3 +300,76 @@ test("decorated Python methods (@classmethod/@property/@staticmethod/dotted/with
   const names = p.symbols.map((s) => s.name);
   assert.equal(names.filter((n) => n === "create").length, 1, "no duplicate symbol for a decorated method");
 });
+
+const GO_SRC = `package auth
+
+import (
+	"fmt"
+	"example.com/mod/internal/jwt"
+)
+
+func VerifySession(token string) string {
+	id := jwt.DecodeToken(token)
+	fmt.Println(id)
+	return id
+}
+
+type Service struct {
+	name string
+}
+
+func (s *Service) Run() string {
+	return VerifySession("x")
+}
+
+type Handler interface {
+	Handle() error
+}
+
+type UserID = string
+`;
+
+test("parseSource extracts Go symbols, imports, calls", () => {
+  const p = parseSource("src/auth/session.go", GO_SRC)!;
+  assert.ok(p, "go file did not parse");
+  assert.ok(p.parseable, "go file should be parseable");
+  const names = p.symbols.map((s) => s.name).sort();
+  assert.deepEqual(names, ["Handler", "Run", "Service", "UserID", "VerifySession"].sort());
+  const kindOf = (n: string) => p.symbols.find((s) => s.name === n)!.kind;
+  assert.equal(kindOf("VerifySession"), "function");
+  assert.equal(kindOf("Run"), "method");
+  assert.equal(kindOf("Service"), "class");
+  assert.equal(kindOf("Handler"), "interface");
+  assert.equal(kindOf("UserID"), "type");
+  assert.deepEqual(p.imports.sort(), ["example.com/mod/internal/jwt", "fmt"].sort());
+  assert.ok(p.calls.some((c) => c.callee === "DecodeToken" && c.member), "package-qualified call captured as member");
+  assert.ok(p.calls.some((c) => c.callee === "VerifySession" && !c.member), "direct call captured");
+});
+
+test("attributeCalls resolves Go calls to their enclosing symbol", () => {
+  const p = parseSource("f.go", GO_SRC)!;
+  const attr = attributeCalls(p);
+  const sb = (name: string) => p.symbols.find((s) => s.name === name)!.startByte;
+  assert.ok(attr.get(sb("VerifySession"))?.has("DecodeToken"));
+  assert.ok(attr.get(sb("Run"))?.has("VerifySession"));
+});
+
+test("Go stdlib method/function names (Println/TrimSpace/...) do NOT become call edges", () => {
+  const src = "package m\n\nfunc f(x Thing) string {\n\tx.Printf(\"y\")\n\tx.TrimSpace(\"z\")\n\treturn x.Custom()\n}\n";
+  const p = parseSource("m.go", src)!;
+  const attr = attributeCalls(p);
+  const sb = p.symbols.find((s) => s.name === "f")!.startByte;
+  const callees = attr.get(sb) ?? new Map<string, boolean>();
+  assert.ok(!callees.has("Printf") && !callees.has("TrimSpace"), "no builtin-method edges");
+  assert.ok(callees.has("Custom"), "repo-specific member call survives");
+});
+
+test("a struct type_spec classifies as class, not the generic type kind (first-classification contract)", () => {
+  const src = "package m\n\ntype OnlyStruct struct {\n\ta int\n}\n\ntype OnlyIface interface {\n\tA() int\n}\n\ntype Plain int\n";
+  const p = parseSource("t.go", src)!;
+  const kindOf = (n: string) => p.symbols.find((s) => s.name === n)?.kind;
+  assert.equal(kindOf("OnlyStruct"), "class");
+  assert.equal(kindOf("OnlyIface"), "interface");
+  assert.equal(kindOf("Plain"), "type");
+  assert.equal(p.symbols.filter((s) => s.name === "OnlyStruct").length, 1, "no duplicate from the generic type pattern");
+});

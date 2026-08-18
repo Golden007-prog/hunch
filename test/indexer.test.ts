@@ -611,3 +611,60 @@ for (const dirtyKind of ["staged", "unstaged", "untracked"] as const) {
     }
   });
 }
+
+function goFixtureRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-go-"));
+  mkdirSync(join(root, "src/auth"), { recursive: true });
+  mkdirSync(join(root, "src/billing"), { recursive: true });
+  writeFileSync(join(root, "go.mod"), `module example.com/demo\n\ngo 1.22\n`);
+  writeFileSync(
+    join(root, "src/auth/session.go"),
+    // a same-file direct call (VerifySession -> decodeToken) plus a module-prefixed
+    // cross-component import that is only used via a package-qualified (member)
+    // call, so import resolution genuinely carries the depends_on edge.
+    `package auth\n\nimport (\n\t"fmt"\n\t"example.com/demo/src/billing"\n)\n\nfunc VerifySession(t string) string {\n\tid := decodeToken(t)\n\tfmt.Println(billing.Charge(id))\n\treturn id\n}\n\nfunc decodeToken(t string) string {\n\treturn t\n}\n`,
+  );
+  writeFileSync(
+    join(root, "src/billing/charge.go"),
+    `package billing\n\nfunc Charge(t string) string {\n\treturn t\n}\n`,
+  );
+  return root;
+}
+
+test("indexRepo resolves module-prefixed Go imports across component boundaries", () => {
+  const root = goFixtureRepo();
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  const res = indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  assert.equal(res.files, 2);
+  assert.ok(res.symbols >= 3);
+
+  const syms = store.json.loadAll("symbols");
+  const verify = syms.find((s) => s.name === "VerifySession");
+  assert.ok(verify, "VerifySession indexed");
+  assert.equal(verify!.file, "src/auth/session.go");
+
+  const decode = syms.find((s) => s.name === "decodeToken");
+  assert.ok(decode, "decodeToken indexed");
+  const deps = store.getDependents(decode!.id).map((d) => d.via);
+  assert.ok(deps.some((v) => v.includes("VerifySession")), "VerifySession is a dependent of decodeToken");
+
+  const comps = store.json.loadAll("components");
+  assert.deepEqual(comps.map((c) => c.name).sort(), ["Auth", "Billing"]);
+  const auth = comps.find((c) => c.name === "Auth")!;
+  const billing = comps.find((c) => c.name === "Billing")!;
+
+  // "example.com/demo/src/billing" strips the go.mod module prefix to the
+  // src/billing directory and must land a depends_on edge; the stdlib "fmt"
+  // import resolves to nothing and must not fabricate one.
+  const edges = store.json.loadAll("edges");
+  assert.ok(
+    edges.some((e) => e.type === "depends_on" && e.from === auth.id && e.to === billing.id),
+    "Auth depends_on Billing via the module-prefixed import",
+  );
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});

@@ -8,7 +8,8 @@
  * `indexRepo` persists that exact scan into the JSON source of truth; its caller
  * then runs HunchStore.reindex() to refresh the SQLite index.
  */
-import { dirname, posix } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { parseSource, attributeCalls } from "./parse.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
@@ -184,10 +185,13 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   // JS/TS resolver and look unimported.
   const hasSrcLayout = [...fileSymbols.keys()].some((f) => f.startsWith("src/"));
   const pyRoots = hasSrcLayout ? ["", "src"] : [""];
-  const resolveImportTarget = (file: string, spec: string): string | null =>
-    languageFor(file)?.id === "python"
-      ? resolvePythonImport(file, spec, fileSymbols, pyRoots)
-      : resolveImport(file, spec, fileSymbols);
+  const goModule = readGoModulePath(root);
+  const resolveImportTarget = (file: string, spec: string): string | null => {
+    const langId = languageFor(file)?.id;
+    if (langId === "python") return resolvePythonImport(file, spec, fileSymbols, pyRoots);
+    if (langId === "go") return resolveGoImport(spec, fileSymbols, goModule);
+    return resolveImport(file, spec, fileSymbols);
+  };
   const importedFiles = new Map(perFileImports.map(({ file, imports }) => [
     file,
     new Set(imports.map((specifier) => resolveImportTarget(file, specifier)).filter((target): target is string => !!target)),
@@ -405,6 +409,46 @@ function resolvePythonImport(
   const tailPath = tail.split(".").join("/");
   const modulePath = baseDir ? `${baseDir}/${tailPath}` : tailPath;
   return firstExistingPyModule(modulePath, fileSymbols);
+}
+
+/** The `module` path declared in the repo's go.mod, or null. A resolution HINT
+ *  only (it widens depends_on edge coverage); reading it best-effort from the
+ *  filesystem never gates a scan. */
+function readGoModulePath(root: string): string | null {
+  try {
+    const match = /^module\s+(\S+)/m.exec(readFileSync(join(root, "go.mod"), "utf8"));
+    return match ? match[1]! : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lexicographically-first tracked .go file whose directory is exactly `dir`
+ *  ("" = repo root) — a Go import names a PACKAGE (directory), so any file in it
+ *  identifies the right component for a depends_on edge. */
+function firstGoFileInDir(dir: string, fileSymbols: Map<string, string[]>): string | null {
+  let best: string | null = null;
+  for (const f of fileSymbols.keys()) {
+    if (!f.endsWith(".go")) continue;
+    const d = toPosix(dirname(f));
+    const matches = dir === "" ? d === "." : d === dir;
+    if (matches && (!best || f < best)) best = f;
+  }
+  return best;
+}
+
+/** Resolve a Go import path to a tracked file. Sibling to resolvePythonImport():
+ *  an in-module import is the go.mod module path plus the package directory, so
+ *  strip the declared module prefix and look the directory up exactly; with no
+ *  go.mod, try the path as a repo-relative directory. Anything else (stdlib,
+ *  external modules) resolves to null — no suffix guessing, a wrong depends_on
+ *  edge is worse than a missing one. */
+function resolveGoImport(spec: string, fileSymbols: Map<string, string[]>, goModule: string | null): string | null {
+  if (goModule) {
+    if (spec === goModule) return firstGoFileInDir("", fileSymbols);
+    if (spec.startsWith(`${goModule}/`)) return firstGoFileInDir(spec.slice(goModule.length + 1), fileSymbols);
+  }
+  return firstGoFileInDir(spec, fileSymbols);
 }
 
 interface ComponentDraft extends Component {
