@@ -107,6 +107,10 @@
 
     <div class="clog">
       <div class="clog-group">
+        <div class="clog-date">Aug 18, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.14.0</span><span class="clog-t"><b>Context arrives with its graph neighborhood</b> — retrieval used to stop one edge away from a match, so a structurally relevant record two hops out never reached the payload. Delivery now walks the memory graph within a bounded, deterministic radius — depth decay, hard node and token caps, and external-hub exclusion keep the fan-out honest — lifting the curated retrieval benchmark's Recall@10 from 81.8% to 90.9% without changing the response contract. Also in this release: retired and closed constraints no longer surface among Top invariants in grounding; MCP auto-commit resolves its repo root per call, so a mid-session worktree switch can no longer commit memory into the wrong tree; and the release gate no longer misreads an unstaged-only change as source drift.</span></div>
+      </div>
+      <div class="clog-group">
         <div class="clog-date">Aug 15, 2026</div>
         <div class="clog-row"><span class="rel-tag">v1.13.1</span><span class="clog-t"><b>MCP delivery receipts arrive as structured data</b> — <span class="mono">hunch_context</span> used to flatten the canonical delivery envelope into prose and never record its own delivery, forcing orchestrators to scrape IDs and metadata from text while <span class="mono">hunch served</span> stayed empty. The MCP tool now advertises an output schema, returns the complete envelope in <span class="mono">structuredContent</span> alongside the backward-compatible brief, and receipts exactly the records it actually delivered — including rank, reason, currentness and token cost. Budget-omitted and stale records are never counted, and a receipt write can never block context.</span></div>
       </div>
