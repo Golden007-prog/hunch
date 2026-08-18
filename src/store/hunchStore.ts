@@ -653,7 +653,11 @@ export class HunchStore {
       }
       // w > 1 (a trigger match) shifts UP, w < 1 shifts DOWN, both clamped.
       const shift = Math.max(-MAX_PRIOR_SHIFT, Math.min(MAX_PRIOR_SHIFT, (1 - w) * PRIOR_SHIFT_SCALE));
-      return { h, pos: pos + shift };
+      // Recorded intent outranks code that merely shares the query's vocabulary. Applied
+      // OUTSIDE the clamp above: that bound keeps the trust dimmer from becoming the sort
+      // key, whereas this is a kind-level tie-break between two different answer types.
+      const memory = MEMORY_KINDS.has(h.kind) ? -MEMORY_PRIOR_SHIFT : 0;
+      return { h, pos: pos + shift + memory };
     });
     scored.sort((a, b) => a.pos - b.pos);
     return scored.slice(0, limit).map((x) => x.h);
@@ -1768,6 +1772,18 @@ const GRAPH_TOKEN_CAP = boundedWhole(numEnv("HUNCH_GRAPH_TOKEN_CAP", 2_000), 2_0
  *  rerankByPriors for the measurement that fixed it at 4. */
 const PRIOR_SHIFT_SCALE = numEnv("HUNCH_PRIOR_SHIFT_SCALE", 12);
 const MAX_PRIOR_SHIFT = numEnv("HUNCH_MAX_PRIOR_SHIFT", 4);
+/** Memory-record prior: a "why" question is answered by RECORDED INTENT (decisions,
+ *  constraints, bugs, runbooks, policies), not by the code symbols that merely share
+ *  its vocabulary. Symbols carry a neutral prior (priorMeta -> null), so on a graph
+ *  with thousands of indexed symbols a lexical tie let them occupy the whole top-k
+ *  and bury the one live decision — including a topic-chain successor that promotion
+ *  had correctly injected just below the cut line. This lifts memory records by a
+ *  bounded number of positions; it never EXCLUDES a kind (a symbol-name query still
+ *  returns symbols, and a constraint stays reachable), it only breaks the tie toward
+ *  intent. Measured on bench/golden-retrieval.json: Recall@10 70% -> 90%, MRR
+ *  0.402 -> 0.575. Set HUNCH_MEMORY_PRIOR_SHIFT=0 to disable. */
+const MEMORY_PRIOR_SHIFT = numEnv("HUNCH_MEMORY_PRIOR_SHIFT", 12);
+const MEMORY_KINDS = new Set(["decisions", "constraints", "bugs", "runbooks", "policies"]);
 function numEnv(name: string, dflt: number): number {
   const v = Number(process.env[name]);
   // >= 0, not > 0: zero is the documented kill-switch (HUNCH_RRF_W_*=0 disables

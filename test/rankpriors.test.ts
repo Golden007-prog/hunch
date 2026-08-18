@@ -47,3 +47,48 @@ test("rank priors: runbook trigger phrase beats keyword luck in scoped retrieval
   const refs = (await store.searchRunbooks("work on the wiki", 5, { embedder: null as never })).map((h) => h.ref);
   assert.equal(refs[0], "rb_wiki", `trigger match first, got ${refs.join(",")}`);
 });
+
+test("rank priors: recorded intent outranks code symbols that merely share the query's vocabulary", async (t) => {
+  const { store, cleanup } = tempStore();
+  t.after(cleanup);
+  // A "why" question whose term appears in BOTH a decision and many code symbols.
+  // Before the memory-record prior, the symbols filled the whole top-k on the real
+  // graph and buried the one live decision (bench/golden-retrieval.json: 70% -> 80%).
+  const SYM = (id: string, name: string, file: string) => ({
+    id, file, name, kind: "function", signature_hash: "sha1:test",
+    calls: [], called_by: [],
+    metrics: { loc: 1, churn_90d: 0, bug_count: 0, fan_in: 0, fan_out: 0 },
+    last_changed: "commit:test",
+  });
+  for (let i = 0; i < 12; i++) {
+    store.json.put("symbols", SYM(`sym_${i}`, `quibbleflange${i}`, `src/q${i}.ts`) as never);
+  }
+  store.json.put("decisions", DEC({
+    id: "dec_intent", title: "Quibbleflange batching is deliberate",
+    decision: "Quibbleflange batches writes to survive an interrupted run.",
+    provenance: { source: "human_confirmed", confidence: 1, evidence: [] },
+  }) as never);
+  store.reindex();
+  const refs = (await store.hybridSearch("quibbleflange", 5)).map((h) => h.ref);
+  // The prior is a BOUNDED tie-break, not a filter: a symbol whose name is a near-exact
+  // lexical match may still lead. What must hold is that the decision is not buried
+  // beneath a wall of same-vocabulary symbols the way it was before.
+  assert.ok(refs.includes("dec_intent"), `the decision must reach the top-5, got ${refs.join(",")}`);
+});
+
+test("rank priors: the memory prior re-ranks WITHOUT excluding code symbols", async (t) => {
+  const { store, cleanup } = tempStore();
+  t.after(cleanup);
+  // The tie-break must never turn into a filter: a symbol-shaped query still returns
+  // symbols, otherwise `hunch_structure`-style lookups would regress.
+  const SYM = (id: string, name: string, file: string) => ({
+    id, file, name, kind: "function", signature_hash: "sha1:test",
+    calls: [], called_by: [],
+    metrics: { loc: 1, churn_90d: 0, bug_count: 0, fan_in: 0, fan_out: 0 },
+    last_changed: "commit:test",
+  });
+  store.json.put("symbols", SYM("sym_only", "wobblesprocket", "src/w.ts") as never);
+  store.reindex();
+  const refs = (await store.hybridSearch("wobblesprocket", 5)).map((h) => h.ref);
+  assert.ok(refs.includes("sym_only"), `symbols stay reachable, got ${refs.join(",")}`);
+});
