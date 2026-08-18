@@ -9,3 +9,5 @@ Follow the Hunch-grounded workflow (DESIGN §5) — do NOT skip the memory looku
 3. `hunch_check_constraints(<scope>)` — list invariants you must preserve.
 4. Propose a fix that honors past root causes AND constraints. Apply it and run the tests.
 5. If the fix encodes a non-trivial choice, `hunch_record_decision(...)` so the next session is grounded in it.
+
+<!-- hunch:generated — refreshed by hunch init; delete this line to take ownership -->

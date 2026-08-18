@@ -10,3 +10,5 @@ Then summarize, with citations:
 
 Cite record ids and their provenance/confidence. If Hunch returns nothing,
 say so plainly and suggest running `hunch index` or `hunch backfill`.
+
+<!-- hunch:generated — refreshed by hunch init; delete this line to take ownership -->
