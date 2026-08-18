@@ -94,6 +94,7 @@ import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, isInForce, liveForTopic } from "../core/topics.js";
 import { ADR_DIR_CANDIDATES, ADR_FILE_RE, mapAdrCorpus } from "../extractors/adrImport.js";
 import { exportMadrCorpus, isRegenerableMadr } from "../integrations/madrExport.js";
+import { buildMadrManifest, writeMadrManifest, refreshMadrCorpus } from "../integrations/madrManifest.js";
 import { pendingEscalations, policyEscalations } from "../core/escalations.js";
 import { premiseEscalations } from "../core/premises.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
@@ -526,6 +527,19 @@ program
       if (!opts.quiet) console.log(`✓ captured decision ${r.decision?.id} via ${r.provider}: "${r.decision?.title}"`);
     } else if (!opts.quiet) {
       console.log(`· skipped: ${r.reason}`);
+    }
+    // The MADR projection tracks the graph automatically once adopted, the way the
+    // SQLite index does — a user who ran `hunch export-adr` once never runs it again.
+    // Best-effort and last-write-wins-free: a hand-edited file is skipped, not
+    // clobbered, and any failure here must never affect the capture that preceded it.
+    try {
+      const refreshed = refreshMadrCorpus(store.json.loadAll("decisions") as Parameters<typeof refreshMadrCorpus>[0], root, new Date().toISOString());
+      if (refreshed && !opts.quiet && (refreshed.written || refreshed.removed || refreshed.skippedEdited.length)) {
+        const skipped = refreshed.skippedEdited.length ? `, ${refreshed.skippedEdited.length} hand-edited file(s) left alone` : "";
+        console.log(`  ↳ ADR corpus refreshed: ${refreshed.written} written, ${refreshed.removed} removed${skipped} (${refreshed.dir}/)`);
+      }
+    } catch (e) {
+      if (!opts.quiet) console.log(`  ↳ ADR corpus refresh skipped safely: ${(e as Error).message}`);
     }
     let graphRefreshed = false;
     let publicCorrectionQueued = false;
@@ -2960,6 +2974,10 @@ program
       // A regeneration renumbers; previously generated files not in the new set
       // are OURS (marker-verified) and stale — remove so the corpus stays coherent.
       for (const f of stale) rmSync(join(outDir, f));
+      // Adopt the corpus: the manifest is what makes `hunch drift` able to notice
+      // this projection going stale, being hand-edited, or outliving its decision.
+      // Written after the files land, so a failed write never claims freshness.
+      writeMadrManifest(root, buildMadrManifest(dir, files, new Date().toISOString()));
       console.log(`✓ exported ${files.length} ADR(s) to ${dir}${stale.length ? `; removed ${stale.length} stale generated file(s)` : ""}`);
       console.log(`  ↳ Backstage: add to catalog-info.yaml metadata.annotations →  ${backstageAnnotation}`);
     } finally {
@@ -4929,6 +4947,27 @@ program
         console.log(`${wikiStale.length} generated wiki page(s) drifted from the graph:\n`);
         for (const f of wikiStale) console.log(`· ${f.id} — ${f.detail}`);
         console.log(`\nHeal: run \`hunch wiki --heal\` — regenerates only the stale pages (the wiki is a derived view; never edit it by hand).\n`);
+      }
+      // The MADR projection: three kinds, three different human actions — which is
+      // why they are separate sections rather than one "run export-adr" line.
+      const madrStale = kind("madr-stale");
+      if (madrStale.length) {
+        console.log(`${madrStale.length} exported ADR(s) drifted from the graph:\n`);
+        for (const f of madrStale) console.log(`· ${f.id} — ${f.detail}`);
+        console.log(`\nHeal: run \`hunch export-adr\` — the corpus is a disposable projection (the graph stays the source of truth). Normally this never appears: the projection refreshes automatically on every capture.\n`);
+      }
+      const madrEdited = kind("madr-edited");
+      if (madrEdited.length) {
+        console.log(`${madrEdited.length} generated ADR(s) were hand-edited — the next export would overwrite them:\n`);
+        for (const f of madrEdited) console.log(`· ${f.id} — ${f.detail}`);
+        console.log(`\nHeal A (the DECISION is what changed): move the edit into the decision via /capture, then let the projection regenerate — the edit survives because it now lives in the graph.`);
+        console.log(`Heal B (you want to own this file): delete the hunch:generated marker. The export refuses it from then on and it becomes a hand-written ADR.\n`);
+      }
+      const madrOrphan = kind("madr-orphan");
+      if (madrOrphan.length) {
+        console.log(`${madrOrphan.length} generated ADR(s) have no decision behind them any more:\n`);
+        for (const f of madrOrphan) console.log(`· ${f.id} — ${f.detail}`);
+        console.log(`\nHeal: delete the file, or run \`hunch export-adr\` to regenerate the corpus without it. If the decision moved to the private overlay, the file is a PUBLIC artifact of a now-private record — delete it.\n`);
       }
       // Every drift kind heals here — see bug_drift_heal_asymmetry above. premise-stale
       // shipped in the drift report without a section here, so a repo whose ONLY drift

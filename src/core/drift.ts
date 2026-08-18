@@ -11,6 +11,11 @@
  *                 (hash-compared via .hunch/wiki-manifest.json; only when a wiki
  *                 was adopted — see src/wiki/wiki.ts). Advisory, healed by
  *                 `hunch wiki --heal`, never a gate.
+ *   - madr-*:     the exported MADR corpus drifted from the graph — stale (the
+ *                 decision moved), edited (a human changed a generated file the
+ *                 next export would overwrite), or orphan (the decision left the
+ *                 public graph). Only when a corpus was exported; healed by
+ *                 `hunch export-adr`. See src/integrations/madrManifest.ts.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -21,8 +26,9 @@ import { evaluatePremises, type PremiseEnv } from "./premises.js";
 import { parseDocAnchors } from "./docanchors.js";
 import { markdownDocs, STALE_MARKER, SRC_REF } from "./docscan.js";
 import { computeWikiDrift } from "../wiki/wiki.js";
+import { computeMadrDrift } from "../integrations/madrManifest.js";
 
-export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling" | "wiki-stale" | "finding-stale" | "premise-stale";
+export type DriftKind = "dead-ref" | "supersede" | "doc-stale" | "anchor-stale" | "doc-anchor-stale" | "doc-anchor-dangling" | "wiki-stale" | "finding-stale" | "premise-stale" | "madr-stale" | "madr-edited" | "madr-orphan";
 
 export interface DriftFinding {
   kind: DriftKind;
@@ -159,6 +165,13 @@ export function computeDrift(store: HunchStore, root: string): DriftReport {
   //    component vanished). Deterministic hash comparison against the manifest;
   //    fires only when a wiki was adopted. Advisory like every other kind here.
   findings.push(...computeWikiDrift(store, root));
+
+  // 6b. MADR-* — the exported ADR corpus drifted from the graph. PUBLIC decisions
+  //     only: the corpus is a committable artifact, so its freshness must be
+  //     computed from exactly the records allowed to reach it (an overlay record
+  //     leaking into a public drift report is the same class of bug as one
+  //     leaking into the export itself). Fires only where a corpus was exported.
+  findings.push(...computeMadrDrift(store.json.loadAll("decisions") as Parameters<typeof computeMadrDrift>[0], root));
 
   // 7. FINDING-STALE — a LIVE finding (observation, no diff) whose anchor evaporated:
   //    an affected file that no longer exists, or a violates_constraint pointing at a
