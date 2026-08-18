@@ -93,6 +93,7 @@ import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWiki
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, isInForce, liveForTopic } from "../core/topics.js";
 import { ADR_DIR_CANDIDATES, ADR_FILE_RE, mapAdrCorpus } from "../extractors/adrImport.js";
+import { exportMadrCorpus, isRegenerableMadr } from "../integrations/madrExport.js";
 import { pendingEscalations, policyEscalations } from "../core/escalations.js";
 import { premiseEscalations } from "../core/premises.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
@@ -2911,6 +2912,56 @@ program
       const live = decisions.filter((d) => d.status === "accepted").length;
       console.log(`✓ imported ${decisions.length} ADR(s) from ${dir} (${created} new, ${updated} updated; ${live} live, ${decisions.length - live} historical)${opts.private ? " [private overlay]" : ""}`);
       if (flush === "pushed") console.log("  ↳ private memory committed + pushed");
+    } finally {
+      store.close();
+    }
+  });
+
+// ---- export-adr (MADR projection — the MADR bridge, export half) -----------
+program
+  .command("export-adr")
+  .description("Project the PUBLIC decision graph as a regenerated MADR 3.x corpus (a disposable build artifact — the graph stays the source of truth). Only files carrying the hunch:generated marker are ever overwritten.")
+  .argument("[dir]", "output directory (repo-relative)", "docs/adr")
+  .option("--dry-run", "render and report without writing")
+  .action((dirArg: string, opts: { dryRun?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const dir = toPosixTarget(dirArg);
+      // PUBLIC store only — an exported artifact is committable, so overlay
+      // records must never reach it (one-way privacy boundary).
+      const decisions = store.json.loadAll("decisions");
+      if (!decisions.length) return fail("no public decisions to export");
+      const { files, backstageAnnotation } = exportMadrCorpus(decisions, dir);
+
+      const outDir = join(root, dir);
+      // The projection owns its directory outright: mixing generated output into
+      // a hand-written ADR corpus would duplicate numbering and corrupt every
+      // MADR reader of that dir. Any non-generated ADR-shaped file → refuse whole.
+      const existingGenerated = new Set<string>();
+      if (existsSync(outDir)) {
+        for (const f of readdirSync(outDir)) {
+          if (!f.endsWith(".md")) continue;
+          const text = readFileSync(join(outDir, f), "utf8");
+          if (isRegenerableMadr(text)) existingGenerated.add(f);
+          else if (ADR_FILE_RE.test(f)) {
+            return fail(`${dir} holds a hand-written ADR corpus (${f} has no hunch:generated marker) — export to a different directory (e.g. \`hunch export-adr docs/adr-generated\`), or import it first with \`hunch import-adr ${dir}\``);
+          }
+        }
+      }
+      const stale = [...existingGenerated].filter((f) => !files.some((n) => n.name === f));
+
+      if (opts.dryRun) {
+        console.log(`✓ dry run: would write ${files.length} ADR(s) to ${dir}${stale.length ? `, remove ${stale.length} stale generated file(s)` : ""}`);
+        return;
+      }
+
+      mkdirSync(outDir, { recursive: true });
+      for (const f of files) writeFileSync(join(outDir, f.name), f.text);
+      // A regeneration renumbers; previously generated files not in the new set
+      // are OURS (marker-verified) and stale — remove so the corpus stays coherent.
+      for (const f of stale) rmSync(join(outDir, f));
+      console.log(`✓ exported ${files.length} ADR(s) to ${dir}${stale.length ? `; removed ${stale.length} stale generated file(s)` : ""}`);
+      console.log(`  ↳ Backstage: add to catalog-info.yaml metadata.annotations →  ${backstageAnnotation}`);
     } finally {
       store.close();
     }
