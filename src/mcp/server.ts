@@ -87,11 +87,21 @@ const flushNote = (flush: "pushed" | "committed" | null, home: "public" | "priva
  *  lands in the committed store publishes on the next push, and an agent writing
  *  strategy/competitive content there is a leak nobody notices until it ships
  *  (2026-08-09: 15 roadmap records caught pre-push only by a release sweep). */
-/** Repo-local term list, read once per server process. The package ships none;
- *  `.hunch/publication.json` is how a repo opts in (see src/core/publication.ts). */
-let vocabularyCache: RegExp[] | null = null;
-const publicationVocabulary = (hunchDir: string): RegExp[] =>
-  (vocabularyCache ??= loadVocabulary(hunchDir));
+/** Repo-local term list, read once per STORE. The package ships none;
+ *  `.hunch/publication.json` is how a repo opts in (see src/core/publication.ts).
+ *  Keyed by hunchDir: the previous scalar memoized the FIRST store's vocabulary
+ *  and served it to every store in the process, so a multi-store consumer would
+ *  leak-scan project B's records against project A's terms — a wrong answer in
+ *  the exact subsystem whose job is catching leaks (GATE-P1-UPSTREAM.md). */
+const vocabularyCache = new Map<string, RegExp[]>();
+export const publicationVocabulary = (hunchDir: string): RegExp[] => {
+  let vocab = vocabularyCache.get(hunchDir);
+  if (!vocab) {
+    vocab = loadVocabulary(hunchDir);
+    vocabularyCache.set(hunchDir, vocab);
+  }
+  return vocab;
+};
 
 const publicHomeNote = (
   home: "public" | "private",
