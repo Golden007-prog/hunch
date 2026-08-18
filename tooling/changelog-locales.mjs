@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "הייצוא מבחין כשהוא נרקב",
       "גשר MADR — ייבוא וייצוא של רשומות ADR",
       "תמיכה ב-Go",
       "הקשר מגיע עם שכניו בגרף",
@@ -33,6 +34,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Экспорт замечает, что протух",
       "Мост MADR — импорт и экспорт записей ADR",
       "Поддержка Go",
       "Контекст приходит вместе с соседями по графу",
@@ -58,6 +60,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "التصدير يلاحظ حين يفسد",
       "جسر MADR — استيراد سجلات ADR وتصديرها",
       "دعم Go",
       "سياق يصل مع جيرانه في الرسم البياني",
@@ -83,6 +86,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "La exportación nota cuándo se pudre",
       "El puente MADR: importar y exportar registros ADR",
       "Compatibilidad con Go",
       "El contexto llega con sus vecinos del grafo",

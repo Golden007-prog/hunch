@@ -6,9 +6,10 @@
 [![GitHub stars](https://img.shields.io/github/stars/davesheffer/hunch?color=2742ff&label=%E2%98%85%20star)](https://github.com/davesheffer/hunch)
 [![license](https://img.shields.io/npm/l/@davesheffer/hunch?color=2742ff)](LICENSE)
 
-Hunch is the engineering-memory and architectural-conformance layer for AI-assisted codebases. It
-records the decisions, constraints, rejected approaches, and bug history behind your code, delivers
-the relevant evidence before an assistant changes anything, then checks the result deterministically.
+Hunch is a guarantee: **your agents never re-make a decided decision, and never re-introduce a
+fixed bug.** The mechanism behind it is an engineering-memory and architectural-conformance layer —
+the decisions, constraints, rejected approaches, and bug history behind your code, delivered as
+evidence before an assistant changes anything, with the result checked deterministically after.
 
 Memory starts **advisory**. Nothing blocks until you explicitly trust a precise rule and choose
 strict enforcement.
