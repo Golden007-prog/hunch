@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "תמיכה ב-Go",
       "הקשר מגיע עם שכניו בגרף",
       "קבלות מסירת MCP מגיעות כנתונים מובנים",
       "מעטפות מסירה אמינות עם בדיקת מקור", "עיגון שלא הגיע ל-Windows", "זיכרון ששומר קבלות", "עיגון ששורד האצלה ודחיסה", "כלל חוסם רק אם מישהו באמת חתם עליו", "הסיבות שנרשמות באמת נבדקות", "זיכרון שמציין מי חתם עליו", "חיפוש שלא מצא את שמות הפונקציות", "מיזוג שהחזיר בשקט באגים סגורים למצב פתוח", "זיכרון שהפסיק להישמר, וזיכרון שלא נמצא בחיפוש", "החלטה שנדחתה כבר לא חוסמת commits", "מנגנוני אכיפה שנכשלו בשקט ואישרו הכול", "גל ביקורת הקוד — 28 ליקויים נסגרו ביום אחד", "ממצאים — זיכרון לכל מה שנצפה ועדיין לא תוקן",
@@ -31,6 +32,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Поддержка Go",
       "Контекст приходит вместе с соседями по графу",
       "Квитанции доставки MCP теперь приходят как структурированные данные",
       "Достоверные конверты доставки с проверкой происхождения", "Обоснование, которое не доходило до Windows", "Память, которая хранит квитанции", "Обоснование, переживающее делегирование и сжатие", "Правило блокирует, только если его действительно подписали", "Записанные причины действительно проверяются", "Память, которая указывает, кто за неё поручился", "Поиск, не находивший имена ваших собственных функций", "Слияние, тихо возвращавшее закрытые баги в открытые", "Память, которая перестала сохраняться, и память, которую было не найти", "Отвергнутое решение больше не блокирует ваши коммиты", "Защитные механизмы, которые молча пропускали нарушения", "Волна аудита кода — 28 дефектов закрыто за один день", "Findings — память о том, что вы заметили, но ещё не исправили",
@@ -54,6 +56,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "دعم Go",
       "سياق يصل مع جيرانه في الرسم البياني",
       "إيصالات تسليم MCP تصل كبيانات منظّمة",
       "مغلفات تسليم موثوقة مع تحقق من المصدر", "تأسيس لم يكن يصل إلى Windows", "ذاكرة تحتفظ بالإيصالات", "تأسيس يصمد أمام التفويض والضغط", "القاعدة لا تحجب إلا إذا وقّعها إنسان فعلاً", "الأسباب المدوَّنة تُفحص فعلاً", "ذاكرة تُبيّن من صادق عليها", "بحث لا يعثر على أسماء دوالّك نفسها", "دمج كان يعيد الخلل المُغلق إلى الحالة المفتوحة بصمت", "ذاكرة توقّفت عن الحفظ، وذاكرة لا تعثر عليها", "قرار مرفوض لم يعد يحظر الـ commits", "حرّاس كانوا يُجيزون ما عجزوا عن فحصه", "موجة المراجعة — إغلاق 28 خللاً في يوم واحد", "الملاحظات — ذاكرة لكل ما اكتشفته ولم تُصلحه بعد",
@@ -77,6 +80,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Compatibilidad con Go",
       "El contexto llega con sus vecinos del grafo",
       "Los recibos de entrega MCP llegan como datos estructurados",
       "Sobres de entrega fiables con procedencia verificada", "Grounding que nunca llegaba a Windows", "Memoria que guarda recibos", "Grounding que sobrevive a la delegación y la compactación", "Una regla solo bloquea si alguien la firmó de verdad", "Las razones que anotas sí se comprueban", "Memoria que dice quién la avaló", "Una búsqueda que no encontraba los nombres de tus propias funciones", "Una fusión que reabría en silencio los errores ya cerrados", "Memoria que dejaba de guardarse y memoria que no encontrabas", "Una decisión rechazada ya no bloquea tus commits", "Protecciones que dejaban pasar infracciones en silencio", "La auditoría masiva: 28 defectos cerrados en un día", "Hallazgos: memoria para lo que has observado pero aún no has corregido",
