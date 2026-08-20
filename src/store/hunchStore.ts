@@ -43,6 +43,15 @@ export interface HybridSearchOpts {
   graphTokenCap?: number;
 }
 
+export type OverlayResolutionSource = "environment" | "local-config" | null;
+
+export interface OverlayOverride {
+  /** Repo/worktree-local target that would have won without the environment override. */
+  configuredDir: string;
+  /** Process-global target selected by HUNCH_PRIVATE_DIR. */
+  environmentDir: string;
+}
+
 /** Git cannot resolve repository identity from a cwd that does not exist yet.
  * Probe the nearest real directory so a planned nested overlay cannot evade the
  * public-repository boundary merely by deferring mkdir until its first write. */
@@ -91,6 +100,13 @@ export class HunchStore {
   /** The resolved private-overlay hunch dir (from env or .hunch/local.json), or undefined
    *  when no overlay is configured. Surfaced so `hunch doctor` reflects the true state. */
   readonly privateDir?: string;
+  /** How privateDir was selected. Multi-store consumers can use this instead of
+   *  inferring process-global routing from process.env. */
+  readonly overlaySource: OverlayResolutionSource;
+  /** Present only when HUNCH_PRIVATE_DIR redirects this store away from the
+   *  repo/worktree-local pointer. Precedence is compatibility-sensitive and stays
+   *  env-first; making the redirection queryable removes the silent footgun. */
+  readonly overlayOverride?: OverlayOverride;
   /** Whether captures auto-commit the store they land in — ON by default in EVERY mode;
    *  `--no-auto-commit` (hunch init/private/shared) persists `autoCommit: false` in
    *  local.json to opt out. Read by the MCP write tools and `hunch sync`. */
@@ -120,7 +136,32 @@ export class HunchStore {
     // local config (.hunch/local.json) so `hunch private` enables it with NO env var, and
     // the MCP server / hook pick it up automatically. Relative paths resolve from root.
     const local = this.localConfig();
-    const priv = process.env.HUNCH_PRIVATE_DIR?.trim() || local.privateDir;
+    const environmentDir = process.env.HUNCH_PRIVATE_DIR?.trim();
+    const configuredDir = local.privateDir
+      ? resolve(this.paths.root, local.privateDir)
+      : undefined;
+    const resolvedEnvironmentDir = environmentDir
+      ? resolve(this.paths.root, environmentDir)
+      : undefined;
+    const priv = resolvedEnvironmentDir || configuredDir;
+    this.overlaySource = resolvedEnvironmentDir
+      ? "environment"
+      : configuredDir
+        ? "local-config"
+        : null;
+    if (resolvedEnvironmentDir && configuredDir) {
+      const canonical = (path: string): string => {
+        try { return realpathSync(path); } catch { return resolve(path); }
+      };
+      const comparable = (path: string): string =>
+        process.platform === "win32" ? canonical(path).toLowerCase() : canonical(path);
+      if (comparable(resolvedEnvironmentDir) !== comparable(configuredDir)) {
+        this.overlayOverride = {
+          configuredDir: canonical(configuredDir),
+          environmentDir: canonical(resolvedEnvironmentDir),
+        };
+      }
+    }
     if (priv) {
       const candidate = resolve(this.paths.root, priv);
       const canonical = (path: string): string => { try { return realpathSync(path); } catch { return resolve(path); } };
@@ -152,6 +193,22 @@ export class HunchStore {
     // only an explicit `hunch shared` opts a repo into unified routing.
     this.mode = priv ? (local.mode ?? "private") : "public";
     this.unified = this.mode === "shared" && !!this.privateJson;
+  }
+
+  /** Human-facing warning for the compatibility-preserving env-first resolution.
+   *  Callers decide where it is safe to emit (CLI/MCP stderr, doctor output); the
+   *  store constructor stays side-effect-free for hooks and embedded consumers. */
+  overlayResolutionWarning(teamConfigBypassed = false): string | null {
+    if (this.overlayOverride) {
+      const effect = this.mode === "shared"
+        ? "all memory reads and captures in this process use the environment path"
+        : "private-overlay reads and private captures in this process use the environment path; public captures remain in the repo";
+      return `HUNCH_PRIVATE_DIR redirects this repo from its configured ${this.mode} memory at ${this.overlayOverride.configuredDir} to ${this.overlayOverride.environmentDir}; ${effect} (routing mode remains ${this.mode}). Unset HUNCH_PRIVATE_DIR to use the configured store.`;
+    }
+    if (this.overlaySource === "environment" && teamConfigBypassed && this.privateDir) {
+      return `HUNCH_PRIVATE_DIR bypasses .hunch/team.json and selects ${this.privateDir} in ${this.mode} mode; team-store auto-discovery is disabled for this process. Unset HUNCH_PRIVATE_DIR to use the advertised team store.`;
+    }
+    return null;
   }
 
   /** Where a capture belongs: an explicit private:true always goes to the overlay

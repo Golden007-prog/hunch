@@ -120,6 +120,8 @@ test("private overlay: resolves from gitignored .hunch/local.json when NO env va
     const store = new HunchStore(hunchPaths(pub));
     store.json.ensureDirs();
     assert.equal(store.hasPrivate, true); // picked up from local.json, not env
+    assert.equal(store.overlaySource, "local-config");
+    assert.equal(store.overlayResolutionWarning(), null);
     store.json.put("decisions", DEC("dec_pub", "public"));
     store.putPrivate("decisions", DEC("dec_priv", "sensitive"));
     assert.deepEqual(store.recs("decisions").map((d) => d.id).sort(), ["dec_priv", "dec_pub"]);
@@ -162,10 +164,18 @@ test("private overlay: HUNCH_PRIVATE_DIR env overrides .hunch/local.json", () =>
   const prev = process.env.HUNCH_PRIVATE_DIR;
   try {
     mkdirSync(join(pub, ".hunch"), { recursive: true });
-    writeFileSync(join(pub, ".hunch", "local.json"), JSON.stringify({ privateDir: localDir }));
+    writeFileSync(join(pub, ".hunch", "local.json"), JSON.stringify({ privateDir: localDir, mode: "shared" }));
     process.env.HUNCH_PRIVATE_DIR = envDir; // env should win
     const store = new HunchStore(hunchPaths(pub));
     store.json.ensureDirs();
+    assert.equal(store.overlaySource, "environment");
+    assert.deepEqual(store.overlayOverride, {
+      configuredDir: resolve(localDir),
+      environmentDir: resolve(envDir),
+    });
+    assert.equal(store.mode, "shared", "the compatibility-sensitive routing mode is inherited, not inverted");
+    assert.match(store.overlayResolutionWarning() ?? "", /HUNCH_PRIVATE_DIR redirects this repo/);
+    assert.match(store.overlayResolutionWarning() ?? "", /routing mode remains shared/);
     store.putPrivate("decisions", DEC("dec_env", "from env dir"));
     // the record landed in the ENV dir, not the local.json dir
     assert.ok(existsSync(join(envDir, "decisions", "dec_env.json")));
@@ -178,9 +188,50 @@ test("private overlay: HUNCH_PRIVATE_DIR env overrides .hunch/local.json", () =>
   }
 });
 
+test("private overlay: an env target equal to local.json is identified without a false redirect warning", () => {
+  const pub = mkdtempSync(join(tmpdir(), "hunch-pub-"));
+  const overlay = mkdtempSync(join(tmpdir(), "hunch-same-"));
+  const prev = process.env.HUNCH_PRIVATE_DIR;
+  try {
+    mkdirSync(join(pub, ".hunch"), { recursive: true });
+    writeFileSync(join(pub, ".hunch", "local.json"), JSON.stringify({ privateDir: overlay }));
+    process.env.HUNCH_PRIVATE_DIR = overlay;
+    const store = new HunchStore(hunchPaths(pub));
+    assert.equal(store.overlaySource, "environment");
+    assert.equal(store.overlayOverride, undefined);
+    assert.equal(store.overlayResolutionWarning(), null);
+    store.close();
+  } finally {
+    if (prev === undefined) delete process.env.HUNCH_PRIVATE_DIR;
+    else process.env.HUNCH_PRIVATE_DIR = prev;
+    rmSync(pub, { recursive: true, force: true });
+    rmSync(overlay, { recursive: true, force: true });
+  }
+});
+
+test("private overlay: an explicit env overlay makes bypassed team discovery loud", () => {
+  const pub = mkdtempSync(join(tmpdir(), "hunch-pub-"));
+  const envDir = mkdtempSync(join(tmpdir(), "hunch-team-env-"));
+  const prev = process.env.HUNCH_PRIVATE_DIR;
+  try {
+    process.env.HUNCH_PRIVATE_DIR = envDir;
+    const store = new HunchStore(hunchPaths(pub));
+    assert.equal(store.overlaySource, "environment");
+    assert.match(store.overlayResolutionWarning(true) ?? "", /bypasses \.hunch\/team\.json/);
+    assert.match(store.overlayResolutionWarning(true) ?? "", /team-store auto-discovery is disabled/);
+    store.close();
+  } finally {
+    if (prev === undefined) delete process.env.HUNCH_PRIVATE_DIR;
+    else process.env.HUNCH_PRIVATE_DIR = prev;
+    rmSync(pub, { recursive: true, force: true });
+    rmSync(envDir, { recursive: true, force: true });
+  }
+});
+
 test("private overlay: with no private store, recs() equals the public loadAll", () => {
   const { store, cleanup } = setup(false);
   try {
+    assert.equal(store.overlaySource, null);
     store.json.put("decisions", DEC("dec_pub", "public"));
     assert.deepEqual(store.recs("decisions").map((d) => d.id), ["dec_pub"]);
   } finally { cleanup(); }

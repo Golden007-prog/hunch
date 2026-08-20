@@ -340,6 +340,8 @@ function prepareRoot(root: string, explicitOverlay: boolean, requireIndex: boole
   ensureTeamOverlay(root);
   const store = new HunchStore(hunchPaths(root));
   try {
+    const overlayWarning = store.overlayResolutionWarning(explicitOverlay && existsSync(teamFile));
+    if (overlayWarning) console.error(`[hunch-mcp] ⚠ ${overlayWarning}`);
     if (teamAdvertised && (store.mode !== "shared"
       || !store.privateDir
       || !existsSync(store.privateDir)

@@ -121,6 +121,9 @@ authentication stays in SSH or the normal Git credential helper. Shared memory r
 `.hunch/local.json`, and `.hunch-private/` stay out of code history. Use
 `hunch check --base origin/main --strict --public-only --format markdown` for output that may be
 posted publicly; omit `--public-only` for an internal check that should enforce team memory.
+`HUNCH_PRIVATE_DIR` remains an explicit process-level override for CI and portability. When it
+redirects a repo away from `.hunch/local.json` or bypasses an advertised team store, CLI and MCP
+startup warn on stderr and `hunch doctor` labels the effective source.
 
 For a correction that Hunch can express as a deterministic policy, create and inspect its
 proof-backed proposal:
@@ -201,6 +204,7 @@ downloaded public VSIX has the same digest as the credential-free release candid
 - [VS Code extension guide](vscode-extension/README.md)
 - [Contributing](CONTRIBUTING.md)
 - [Architecture benchmark](bench/architectural-conformance.md)
+- [Engineering Landscape Graph and ORC boundary](docs/engineering-landscape.md)
 - [Competitive landscape (dated; re-verify before quoting)](docs/competitive-landscape.md)
 
 Apache-2.0

@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
+import { ENTITY_KINDS } from "../src/core/types.js";
+import { indexRepo } from "../src/extractors/indexer.js";
 
 /**
  * Retrieval-quality floor — the golden benchmark as a release gate, not a trophy.
@@ -25,10 +28,33 @@ const BENCH = join(REPO, "bench", "golden-retrieval.json");
 const RECALL_FLOOR = 9; // of 11 — measured 2026-08-19 with the memory prior on
 const MRR_FLOOR = 0.45; // measured 0.485
 
-test("golden retrieval floor: Recall@10 and MRR never silently erode", { skip: !existsSync(BENCH) || !existsSync(join(REPO, ".hunch", "hunch.sqlite")) }, async (t) => {
+test("golden retrieval floor: Recall@10 and MRR never silently erode", { skip: !existsSync(BENCH) || !existsSync(join(REPO, ".hunch")) }, async (t) => {
   const cases = JSON.parse(readFileSync(BENCH, "utf8")) as Array<{ query: string; expected: string[] }>;
-  const store = new HunchStore(hunchPaths(REPO));
-  t.after(() => store.close());
+  // The SQLite index is derived + gitignored. Reading the checkout's incidental
+  // hunch.sqlite made this gate skip on clean CI clones and grade stale developer
+  // state locally — including a graph too old to contain evaluateGraphLift. Build a
+  // disposable store from committed memory plus a fresh source scan instead. The
+  // gate now measures the candidate checkout deterministically and never mutates its
+  // tracked graph or depends on whether somebody happened to run `hunch index`.
+  const fixture = mkdtempSync(join(tmpdir(), "hunch-golden-floor-"));
+  const fixtureHunch = hunchPaths(fixture).hunch;
+  mkdirSync(fixtureHunch, { recursive: true });
+  for (const kind of ENTITY_KINDS) {
+    const source = join(REPO, ".hunch", kind);
+    if (existsSync(source)) cpSync(source, join(fixtureHunch, kind), { recursive: true });
+  }
+  const previousOverlay = process.env.HUNCH_PRIVATE_DIR;
+  delete process.env.HUNCH_PRIVATE_DIR;
+  let store: HunchStore | null = null;
+  t.after(() => {
+    store?.close();
+    if (previousOverlay === undefined) delete process.env.HUNCH_PRIVATE_DIR;
+    else process.env.HUNCH_PRIVATE_DIR = previousOverlay;
+    rmSync(fixture, { recursive: true, force: true });
+  });
+  store = new HunchStore(hunchPaths(fixture));
+  indexRepo(store, REPO, { churn: false });
+  store.reindex();
 
   let hits = 0;
   let mrr = 0;

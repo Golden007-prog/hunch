@@ -147,6 +147,8 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
   const teamWired = ensureTeamOverlay(root);
   const store = new HunchStore(hunchPaths(root));
   openStore = store;
+  const overlayWarning = store.overlayResolutionWarning(explicitOverlay && existsSync(teamFile));
+  if (overlayWarning) console.error(`[hunch] ⚠ ${overlayWarning}`);
   if (teamAdvertised && (store.mode !== "shared"
     || !store.privateDir
     || !existsSync(store.privateDir)
@@ -5126,8 +5128,8 @@ program
       console.log(`            fix: re-run \`hunch ${store.mode === "shared" ? "shared" : "private"} --repo <url>\` (or restore the directory); the pointer lives in .hunch/local.json / the git common dir`);
     } else if (store.privateDir) {
       console.log(store.mode === "shared"
-        ? `shared:     on → ${store.privateDir} (UNIFIED — every capture routes here; one source of truth across branches, worktrees, teammates, agents)`
-        : `private:    on → ${store.privateDir} (local overlay — unioned into queries; never committed or posted publicly)`);
+        ? `shared:     on → ${store.privateDir} (UNIFIED — every capture routes here; one source of truth across branches, worktrees, teammates, agents; source: ${store.overlaySource})`
+        : `private:    on → ${store.privateDir} (local overlay — unioned into queries; never committed or posted publicly; source: ${store.overlaySource})`);
     } else {
       const team = readTeamConfig(root);
       console.log(team
