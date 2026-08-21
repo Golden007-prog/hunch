@@ -316,6 +316,14 @@ function remoteIdentity(raw: string, cwd: string, purpose: "route" | "publicatio
   }
 }
 
+/** Canonical repository identity for deterministic, credential-free discovery.
+ * The returned value is an internal identity: callers exposing it must hash
+ * local `file:` identities so host paths never enter graph records. Network
+ * credentials, URL query strings and fragments are deliberately excluded. */
+export function canonicalRemoteRepositoryIdentity(raw: string, cwd: string): string {
+  return remoteIdentity(raw, cwd, "publication");
+}
+
 function localRemotePath(raw: string, cwd: string): string | null {
   const value = raw.trim();
   if (!value) return null;
