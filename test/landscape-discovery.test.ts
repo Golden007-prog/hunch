@@ -134,3 +134,20 @@ test("HLG-2 bounds malformed manifests and unsafe workspace declarations as revi
   assert.equal(result.resources.filter((item) => item.record.kind === "package").length, 1);
   assert.equal(result.relationships.length, 1);
 });
+
+test("HLG-2 applies the manifest read cap before blob hydration while always retaining the root declaration", (t) => {
+  const manifests = Array.from({ length: 130 }, (_, index) => ({
+    path: `a${String(index).padStart(3, "0")}/package.json`,
+    value: { name: `@acme/package-${index}` },
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/root", workspaces: ["a*"] },
+    manifests,
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "manifest_limit"));
+  assert.ok(result.resources.some((item) => item.record.id === "package:npm/@acme/root"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "package").length, 128);
+  assert.equal(result.relationships.length, 128);
+});

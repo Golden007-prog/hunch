@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
+import { TextDecoder } from "node:util";
 import { compareCodeUnits } from "../core/canonicalOrder.js";
 import { resourceId, resourceRelationshipId } from "../core/ids.js";
 import {
@@ -24,6 +25,7 @@ export const LANDSCAPE_CANDIDATE_SCHEMA_VERSION = "hunch.landscape-candidate/1" 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MANIFESTS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 export type LandscapeEvidenceKind = "package_manifest" | "git_remote" | "git_history";
 
@@ -164,7 +166,23 @@ function manifestBlobs(root: string, revision: string): ManifestBlob[] {
     if (tab < 0) continue;
     const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
     if (!head) continue;
-    const path = record.subarray(tab + 1).toString("utf8");
+    const pathBytes = record.subarray(tab + 1);
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(pathBytes);
+    } catch {
+      const suffix = Buffer.from("package.json", "utf8");
+      if (pathBytes.length >= suffix.length && pathBytes.subarray(pathBytes.length - suffix.length).equals(suffix)) {
+        manifests.push({
+          path: `<non-utf8-package-manifest:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+          mode: "unsafe-path",
+          oid: head[3]!.toLowerCase(),
+          bytes: null,
+          contentHash: null,
+        });
+      }
+      continue;
+    }
     if (path !== "package.json" && !path.endsWith("/package.json")) continue;
     const mode = head[1]!;
     const oid = head[3]!.toLowerCase();
@@ -175,19 +193,26 @@ function manifestBlobs(root: string, revision: string): ManifestBlob[] {
       manifests.push({ path: "<unsafe-package-manifest>", mode: "unsafe-path", oid, bytes: null, contentHash: null });
       continue;
     }
-    if (head[2] !== "blob" || !ORDINARY_BLOB_MODES.has(mode)) {
-      manifests.push({ path, mode, oid, bytes: null, contentHash: null });
-      continue;
-    }
-    const size = Number(gitText(root, ["cat-file", "-s", oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MANIFEST_BYTES) {
-      manifests.push({ path, mode, oid, bytes: null, contentHash: size > MAX_MANIFEST_BYTES ? "oversized" : null });
-      continue;
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", oid], MAX_MANIFEST_BYTES + 1);
-    manifests.push({ path, mode, oid, bytes, contentHash: sha256Bytes(bytes) });
+    manifests.push({ path, mode: head[2] === "blob" ? mode : `${head[2]}:${mode}`, oid, bytes: null, contentHash: null });
   }
   return manifests.sort((left, right) => compareCodeUnits(left.path, right.path));
+}
+
+function boundedManifestBlobs(root: string, manifests: ManifestBlob[]): ManifestBlob[] {
+  const rootManifest = manifests.find((manifest) => manifest.path === "package.json");
+  const selected = [
+    ...(rootManifest ? [rootManifest] : []),
+    ...manifests.filter((manifest) => manifest !== rootManifest).slice(0, MAX_MANIFESTS - (rootManifest ? 1 : 0)),
+  ];
+  return selected.map((manifest) => {
+    if (manifest.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(manifest.mode)) return manifest;
+    const size = Number(gitText(root, ["cat-file", "-s", manifest.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MANIFEST_BYTES) {
+      return { ...manifest, contentHash: size > MAX_MANIFEST_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", manifest.oid], MAX_MANIFEST_BYTES + 1);
+    return { ...manifest, bytes, contentHash: sha256Bytes(bytes) };
+  });
 }
 
 function workspacePatterns(value: unknown, issues: LandscapeDiscoveryIssue[]): string[] {
@@ -433,7 +458,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       detail: `repository exposes ${blobs.length} package manifests; bounded discovery accepts at most ${MAX_MANIFESTS}`,
     });
   }
-  const parsed = parseManifests(blobs.slice(0, MAX_MANIFESTS), issues);
+  const parsed = parseManifests(boundedManifestBlobs(root, blobs), issues);
   const rootManifest = parsed.find((manifest) => manifest.path === "package.json");
   if (!rootManifest) {
     issues.push({ code: "manifest_missing", sourcePath: "package.json", sourceField: "", detail: "root package.json was not found at the exact revision" });
