@@ -31,6 +31,17 @@ CREATE TABLE IF NOT EXISTS components (
   created_at TEXT, updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS resources (
+  id TEXT PRIMARY KEY,
+  schema TEXT, kind TEXT, name TEXT, scope TEXT, locator TEXT,
+  lifecycle TEXT, criticality TEXT, contract_version TEXT,
+  currentness TEXT, metadata TEXT,
+  prov_source TEXT, prov_confidence REAL, prov_evidence TEXT,
+  created_at TEXT, updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_resources_kind ON resources(kind);
+CREATE INDEX IF NOT EXISTS idx_resources_lifecycle ON resources(lifecycle);
+
 CREATE TABLE IF NOT EXISTS edges (
   id TEXT PRIMARY KEY,
   "from" TEXT, "to" TEXT, type TEXT, reason TEXT, strength REAL,
@@ -39,6 +50,18 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges("from");
 CREATE INDEX IF NOT EXISTS idx_edges_to ON edges("to");
 CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
+
+-- A rebuildable projection over the subset of the existing edge graph carrying
+-- the resource-relationship contract. JSON edges remain the one authority.
+CREATE TABLE IF NOT EXISTS resource_relationships (
+  id TEXT PRIMARY KEY,
+  schema TEXT, "from" TEXT, "to" TEXT, type TEXT, reason TEXT, strength REAL,
+  currentness TEXT, environment TEXT, criticality TEXT, contract_version TEXT,
+  metadata TEXT, prov_source TEXT, prov_confidence REAL, prov_evidence TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_resource_relationships_from ON resource_relationships("from");
+CREATE INDEX IF NOT EXISTS idx_resource_relationships_to ON resource_relationships("to");
+CREATE INDEX IF NOT EXISTS idx_resource_relationships_type ON resource_relationships(type);
 
 CREATE TABLE IF NOT EXISTS symbols (
   id TEXT PRIMARY KEY,
@@ -92,7 +115,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
 export const FTS_SEARCH_SCHEMA_SQL = /* sql */ `
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
   ref UNINDEXED,   -- entity id
-  kind UNINDEXED,  -- components | edges | symbols | decisions | bugs | constraints | runbooks | findings
+  kind UNINDEXED,  -- components | resources | edges | symbols | decisions | bugs | constraints | runbooks | findings
   title,
   body,
   tokenize = 'porter unicode61'
@@ -115,7 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_search_kind ON search(kind);
 /** Drop derived data (used before a full reindex). NOTE: embeddings is omitted on
  *  purpose — see the embeddings table comment above. */
 export const RESET_SQL = /* sql */ `
-DELETE FROM components; DELETE FROM edges; DELETE FROM symbols;
+DELETE FROM components; DELETE FROM resources; DELETE FROM edges; DELETE FROM resource_relationships; DELETE FROM symbols;
 DELETE FROM decisions; DELETE FROM bugs; DELETE FROM constraints;
 DELETE FROM search;
 `;

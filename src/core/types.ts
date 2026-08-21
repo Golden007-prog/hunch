@@ -6,6 +6,7 @@
  * tool inputs. Every record carries `provenance` so nothing is a blind assertion.
  */
 import { z } from "zod";
+import { resourceId, resourceRelationshipId } from "./ids.js";
 
 /** Where a fact came from and how much to trust it. Confidence tiers (DESIGN §4):
  *  inferred < extracted < llm_draft < llm_draft+human_confirmed/derived. */
@@ -35,6 +36,146 @@ export const ComponentSchema = z.object({
 });
 export type Component = z.infer<typeof ComponentSchema>;
 
+export const RESOURCE_SCHEMA_VERSION = "hunch.resource/1" as const;
+export const RESOURCE_RELATIONSHIP_SCHEMA_VERSION = "hunch.resource-relationship/1" as const;
+
+/** Resource kinds are deliberately extensible: the initial vocabulary is
+ * documented, while repositories may add a stable snake_case kind without a
+ * schema release. */
+export const ResourceKindSchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+
+export const ResourceCurrentnessSchema = z.object({
+  status: z.enum(["current", "unverified", "stale"]),
+  verified_at: z.string().max(64).optional().describe("ISO timestamp at which the declaration was checked"),
+  source_revision: z.string().min(1).max(512).optional().describe("immutable source/Git revision backing the declaration"),
+  source_content_hash: z.string().min(1).max(512).optional().describe("content hash when revision alone is insufficient"),
+}).strict().superRefine((currentness, ctx) => {
+  if (currentness.verified_at !== undefined && !Number.isFinite(Date.parse(currentness.verified_at))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["verified_at"], message: "resource currentness timestamp must be ISO-compatible" });
+  }
+  if (currentness.status !== "unverified"
+    && (!currentness.verified_at || (!currentness.source_revision && !currentness.source_content_hash))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "current or stale resource evidence requires a verification timestamp and source revision or content hash",
+    });
+  }
+});
+export type ResourceCurrentness = z.infer<typeof ResourceCurrentnessSchema>;
+
+const MetadataValueSchema = z.union([
+  z.string().max(1024),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+  z.array(z.union([z.string().max(1024), z.number().finite(), z.boolean(), z.null()])).max(32),
+]);
+
+const SENSITIVE_METADATA_KEY = /(^|[_-])(authorization|bearer|credential|password|passwd|private[_-]?key|secret|token|api[_-]?key)($|[_-])/i;
+const SENSITIVE_ASSIGNMENT = /\b(authorization|password|passwd|private[_-]?key|secret|access[_-]?token|refresh[_-]?token|api[_-]?key)\s*[:=]\s*[^\s,;]{4,}/i;
+const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i;
+const BEARER_VALUE = /\bBearer\s+[A-Za-z0-9._~+\/-]{12,}/i;
+
+/** Reject credential material while allowing ordinary architecture prose such as
+ * "authentication service" or "secrets are managed externally". */
+export function isCredentialFreeText(value: string): boolean {
+  if (PRIVATE_KEY_BLOCK.test(value) || BEARER_VALUE.test(value) || SENSITIVE_ASSIGNMENT.test(value)) return false;
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) return false;
+    for (const [key] of url.searchParams) if (SENSITIVE_METADATA_KEY.test(key)) return false;
+  } catch { /* credential-free canonical locators need not be absolute URLs */ }
+  return true;
+}
+
+function isCanonicalResourceIdentity(value: string): boolean {
+  const separator = value.indexOf(":");
+  if (separator <= 0 || separator === value.length - 1) return false;
+  const kind = value.slice(0, separator);
+  const naturalKey = value.slice(separator + 1);
+  return ResourceKindSchema.safeParse(kind).success && value === resourceId(kind, naturalKey);
+}
+
+export const ResourceMetadataSchema = z.record(z.string().min(1).max(64), MetadataValueSchema)
+  .superRefine((metadata, ctx) => {
+    if (Object.keys(metadata).length > 64) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "resource metadata is limited to 64 fields" });
+    }
+    for (const [key, raw] of Object.entries(metadata)) {
+      if (SENSITIVE_METADATA_KEY.test(key)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "credential-bearing metadata keys are forbidden" });
+        continue;
+      }
+      const values = Array.isArray(raw) ? raw : [raw];
+      for (const value of values) {
+        if (typeof value === "string" && !isCredentialFreeText(value)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: "credential material is forbidden in resource metadata" });
+          break;
+        }
+      }
+    }
+  });
+export type ResourceMetadata = z.infer<typeof ResourceMetadataSchema>;
+
+/** Durable Engineering Landscape node. Runtime health/readiness intentionally has
+ * no field here: those expiring observations belong to ORC. */
+export const ResourceSchema = z.object({
+  schema: z.literal(RESOURCE_SCHEMA_VERSION),
+  id: z.string().min(3).max(2048).describe("stable kind-qualified resource identity"),
+  kind: ResourceKindSchema,
+  name: z.string().min(1).max(256),
+  scope: z.array(z.string().min(1).max(512)).max(16).default([]),
+  locator: z.string().min(1).max(2048).nullable().default(null),
+  lifecycle: z.enum(["planned", "active", "deprecated", "retired"]).default("active"),
+  criticality: z.enum(["low", "medium", "high", "critical"]).optional(),
+  contract_version: z.string().max(256).optional(),
+  provenance: ProvenanceSchema,
+  currentness: ResourceCurrentnessSchema,
+  metadata: ResourceMetadataSchema.default({}),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).strict().superRefine((resource, ctx) => {
+  const prefix = `${resource.kind}:`;
+  const naturalKey = resource.id.startsWith(prefix) ? resource.id.slice(prefix.length) : "";
+  if (!naturalKey.trim() || resource.id !== resourceId(resource.kind, naturalKey)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "resource id must be a canonical kind-qualified identity" });
+  }
+  const credentialFreeFields: Array<[string | number, string]> = [
+    ["id", resource.id],
+    ["name", resource.name],
+    ...resource.scope.map((scope, index) => [`scope.${index}`, scope] as [string, string]),
+    ...(resource.locator === null ? [] : [["locator", resource.locator] as [string, string]]),
+    ...(resource.contract_version === undefined ? [] : [["contract_version", resource.contract_version] as [string, string]]),
+    ["provenance.source", resource.provenance.source],
+    ...resource.provenance.evidence.map((evidence, index) => [`provenance.evidence.${index}`, evidence] as [string, string]),
+    ...(resource.currentness.source_revision === undefined
+      ? []
+      : [["currentness.source_revision", resource.currentness.source_revision] as [string, string]]),
+    ...(resource.currentness.source_content_hash === undefined
+      ? []
+      : [["currentness.source_content_hash", resource.currentness.source_content_hash] as [string, string]]),
+  ];
+  for (const [field, value] of credentialFreeFields) {
+    if (!isCredentialFreeText(value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: String(field).split("."), message: "credential material is forbidden in resource records" });
+    }
+  }
+  if (new Set(resource.scope).size !== resource.scope.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["scope"], message: "resource scope entries must be unique" });
+  }
+  if (resource.provenance.source.length > 256 || resource.provenance.evidence.length > 64
+    || resource.provenance.evidence.some((evidence) => evidence.length > 2048)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["provenance"], message: "resource provenance must remain bounded" });
+  }
+  if (resource.created_at.length > 64 || !Number.isFinite(Date.parse(resource.created_at))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["created_at"], message: "resource created_at must be ISO-compatible" });
+  }
+  if (resource.updated_at.length > 64 || !Number.isFinite(Date.parse(resource.updated_at))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["updated_at"], message: "resource updated_at must be ISO-compatible" });
+  }
+});
+export type Resource = z.infer<typeof ResourceSchema>;
+
 export const EdgeType = z.enum([
   "depends_on",
   "calls",
@@ -43,10 +184,37 @@ export const EdgeType = z.enum([
   "implements",
   "supersedes",
   "related_to",
+  "provides",
+  "belongs_to",
+  "implemented_by",
+  "invokes",
+  "exposes",
+  "publishes",
+  "consumes",
+  "reads_from",
+  "writes_to",
+  "builds",
+  "tests",
+  "deploys",
+  "deployed_on",
+  "owned_by",
+  "monitored_by",
+  "governed_by",
+  "source_of_truth_for",
+  "compatible_with",
+  "replaces",
+]);
+
+export const ResourceRelationshipType = z.enum([
+  "provides", "belongs_to", "implemented_by", "contains", "depends_on", "invokes",
+  "exposes", "publishes", "consumes", "reads_from", "writes_to", "builds", "tests",
+  "deploys", "deployed_on", "owned_by", "monitored_by", "governed_by",
+  "source_of_truth_for", "compatible_with", "replaces", "implements",
 ]);
 
 /** Typed relationship between components or symbols. */
 export const EdgeSchema = z.object({
+  schema: z.enum(["hunch.edge/1", RESOURCE_RELATIONSHIP_SCHEMA_VERSION]).default("hunch.edge/1"),
   id: z.string().describe("edge_*"),
   from: z.string(),
   to: z.string(),
@@ -54,6 +222,48 @@ export const EdgeSchema = z.object({
   reason: z.string().default(""),
   strength: z.number().min(0).max(1).default(0.5),
   provenance: ProvenanceSchema,
+  currentness: ResourceCurrentnessSchema.optional(),
+  environment: z.string().max(256).nullable().default(null),
+  criticality: z.enum(["low", "medium", "high", "critical"]).optional(),
+  contract_version: z.string().max(256).optional(),
+  metadata: ResourceMetadataSchema.default({}),
+}).strict().superRefine((edge, ctx) => {
+  if (edge.schema !== RESOURCE_RELATIONSHIP_SCHEMA_VERSION) return;
+  const credentialFreeFields: Array<[string, string]> = [
+    ["from", edge.from], ["to", edge.to], ["reason", edge.reason],
+    ["provenance.source", edge.provenance.source],
+    ...edge.provenance.evidence.map((evidence, index) => [`provenance.evidence.${index}`, evidence] as [string, string]),
+    ...(edge.environment === null ? [] : [["environment", edge.environment] as [string, string]]),
+    ...(edge.contract_version === undefined ? [] : [["contract_version", edge.contract_version] as [string, string]]),
+    ...(edge.currentness?.source_revision === undefined
+      ? []
+      : [["currentness.source_revision", edge.currentness.source_revision] as [string, string]]),
+    ...(edge.currentness?.source_content_hash === undefined
+      ? []
+      : [["currentness.source_content_hash", edge.currentness.source_content_hash] as [string, string]]),
+  ];
+  for (const [field, value] of credentialFreeFields) {
+    if (!isCredentialFreeText(value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: field.split("."), message: "credential material is forbidden in graph relationships" });
+    }
+  }
+  if (!ResourceRelationshipType.options.includes(edge.type as z.infer<typeof ResourceRelationshipType>)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["type"], message: "unsupported resource relationship type" });
+  }
+  if (!isCanonicalResourceIdentity(edge.from) || !isCanonicalResourceIdentity(edge.to)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["from"], message: "resource relationships require kind-qualified endpoints" });
+  }
+  if (edge.id !== resourceRelationshipId(edge.from, edge.to, edge.type)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "resource relationship id must be deterministic from endpoints and type" });
+  }
+  if (!edge.currentness) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["currentness"], message: "resource relationships require currentness evidence" });
+  }
+  if (edge.from.length > 2048 || edge.to.length > 2048 || edge.reason.length > 2048
+    || edge.provenance.source.length > 256 || edge.provenance.evidence.length > 64
+    || edge.provenance.evidence.some((evidence) => evidence.length > 2048)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["provenance"], message: "resource relationship fields must remain bounded" });
+  }
 });
 export type Edge = z.infer<typeof EdgeSchema>;
 
@@ -314,11 +524,12 @@ export const FindingSchema = z.object({
 export type Finding = z.infer<typeof FindingSchema>;
 
 /** The entity collections, keyed by their on-disk directory name. */
-export const ENTITY_KINDS = ["components", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings"] as const;
+export const ENTITY_KINDS = ["components", "resources", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings"] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export const SCHEMAS = {
   components: ComponentSchema,
+  resources: ResourceSchema,
   edges: EdgeSchema,
   symbols: SymbolSchema,
   decisions: DecisionSchema,
@@ -330,6 +541,7 @@ export const SCHEMAS = {
 
 export type EntityFor = {
   components: Component;
+  resources: Resource;
   edges: Edge;
   symbols: Symbol;
   decisions: Decision;

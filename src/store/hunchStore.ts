@@ -416,11 +416,41 @@ export class HunchStore {
       }
       counts.components = comps.length;
 
+      const resources = this.recs("resources");
+      const insResource = db.prepare(
+        `INSERT INTO resources VALUES (@id,@schema,@kind,@name,@scope,@locator,@lifecycle,@criticality,@contract_version,@currentness,@metadata,@ps,@pc,@pe,@created_at,@updated_at)`,
+      );
+      for (const resource of resources) {
+        insResource.run({
+          id: resource.id, schema: resource.schema, kind: resource.kind, name: resource.name,
+          scope: JSON.stringify(resource.scope), locator: resource.locator, lifecycle: resource.lifecycle,
+          criticality: resource.criticality ?? null, contract_version: resource.contract_version ?? null,
+          currentness: JSON.stringify(resource.currentness), metadata: JSON.stringify(resource.metadata),
+          ps: resource.provenance.source, pc: resource.provenance.confidence,
+          pe: JSON.stringify(resource.provenance.evidence), created_at: resource.created_at, updated_at: resource.updated_at,
+        });
+        fts(resource.id, "resources", resource.name,
+          `${resource.kind} ${resource.scope.join(" ")} ${resource.locator ?? ""} ${resource.lifecycle} ${resource.contract_version ?? ""}`);
+      }
+      counts.resources = resources.length;
+
       const edges = this.recs("edges");
       const insEdge = db.prepare(`INSERT INTO edges VALUES (@id,@from,@to,@type,@reason,@strength,@ps,@pc,@pe)`);
+      const insResourceRelationship = db.prepare(
+        `INSERT INTO resource_relationships VALUES (@id,@schema,@from,@to,@type,@reason,@strength,@currentness,@environment,@criticality,@contract_version,@metadata,@ps,@pc,@pe)`,
+      );
       for (const e of edges) {
         insEdge.run({ id: e.id, from: e.from, to: e.to, type: e.type, reason: e.reason, strength: e.strength,
           ps: e.provenance.source, pc: e.provenance.confidence, pe: JSON.stringify(e.provenance.evidence) });
+        if (e.schema === "hunch.resource-relationship/1") {
+          insResourceRelationship.run({
+            id: e.id, schema: e.schema, from: e.from, to: e.to, type: e.type, reason: e.reason,
+            strength: e.strength, currentness: JSON.stringify(e.currentness), environment: e.environment,
+            criticality: e.criticality ?? null, contract_version: e.contract_version ?? null,
+            metadata: JSON.stringify(e.metadata), ps: e.provenance.source, pc: e.provenance.confidence,
+            pe: JSON.stringify(e.provenance.evidence),
+          });
+        }
       }
       counts.edges = edges.length;
 
@@ -1457,6 +1487,7 @@ export class HunchStore {
     };
     json.put("decisions", closed);
     const edge: Edge = {
+      schema: "hunch.edge/1",
       id: edgeId(by.id, oldId, "supersedes"),
       from: by.id,
       to: oldId,
@@ -1464,6 +1495,8 @@ export class HunchStore {
       reason: `${by.id} supersedes ${oldId}`,
       strength: 1,
       provenance: { source: "derived", confidence: 1, evidence: [by.id, oldId] },
+      environment: null,
+      metadata: {},
     };
     json.put("edges", edge);
     return closed;

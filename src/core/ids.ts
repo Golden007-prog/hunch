@@ -28,6 +28,24 @@ export function edgeId(from: string, to: string, type: string): string {
   return "edge_" + shortHash(`${from}->${to}:${type}`);
 }
 
+/** Stable Engineering Landscape resource identity. The kind remains visible so
+ * fragments stay useful without a lookup table; the natural key is normalized
+ * only where spelling cannot carry meaning (outer whitespace, path separators,
+ * and a trailing slash). Kind-specific discovery may apply stricter canonical
+ * rules before calling this helper. */
+export function resourceId(kind: string, naturalKey: string): string {
+  const normalizedKind = kind.trim().toLowerCase();
+  const normalizedKey = naturalKey.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return `${normalizedKind}:${normalizedKey}`;
+}
+
+/** Resource relationships ride the existing edge graph and therefore share its
+ * endpoint/type identity rule. Keeping one helper prevents a parallel graph from
+ * minting incompatible relationship ids. */
+export function resourceRelationshipId(from: string, to: string, type: string): string {
+  return edgeId(from, to, type);
+}
+
 /** Decision id. Seed with the CANONICAL full commit sha (the auto-sync and MCP
  *  commit paths both do this, so a recorded decision upgrades the auto-draft for
  *  the same commit), or with "manual:<title>" for an ad-hoc MCP decision. */

@@ -26,7 +26,14 @@ import { writeFileAtomic } from "../core/io.js";
  *  index.json array — there can be thousands, and one file per edge would create
  *  enormous git noise. Curated, low-volume entities (components, decisions, bugs,
  *  constraints) are one file per record so they're cleanly reviewable in PRs. */
-const SINGLE_FILE: Partial<Record<EntityKind, string>> = { symbols: "index.json", edges: "index.json" };
+const SINGLE_FILE: Partial<Record<EntityKind, string>> = {
+  symbols: "index.json",
+  edges: "index.json",
+  // Resource ids remain readable kind-qualified identities (and may contain '/'),
+  // so the canonical array avoids lossy filename encoding while keeping Git diffs
+  // deterministic through id sorting.
+  resources: "index.json",
+};
 
 const encode = (v: unknown): string => JSON.stringify(v, null, 2) + "\n";
 

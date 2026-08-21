@@ -493,6 +493,7 @@ export function mutateSnapshotForPolicy(
       operator = mutationOperatorForPolicy(policy);
     } else {
       edges.push({
+        schema: "hunch.edge/1",
         id: `edge_policy_mutation_${policy.id}`,
         from: subjectId,
         to: objectId,
@@ -500,6 +501,8 @@ export function mutateSnapshotForPolicy(
         reason: "deterministic proof mutation",
         strength: 1,
         provenance: { source: "derived", confidence: 1, evidence: [policy.id] },
+        environment: null,
+        metadata: {},
       });
       operator = mutationOperatorForPolicy(policy);
     }

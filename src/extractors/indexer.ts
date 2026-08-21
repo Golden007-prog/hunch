@@ -223,10 +223,13 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
           if (!sym || (sym.kind !== "method" && sym.file !== file)) continue;
         }
         addEdge({
+          schema: "hunch.edge/1",
           id: edgeId(callerId, calleeId, "calls"),
           from: callerId, to: calleeId, type: "calls",
           reason: `${callerName} calls ${calleeName}`, strength: 0.8,
           provenance: extracted(0.8, [file]),
+          environment: null,
+          metadata: {},
         });
       }
     }
@@ -261,10 +264,13 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
         const toCmp = fileToComponent.get(target);
         if (!toCmp || toCmp === fromCmp) continue;
         addEdge({
+          schema: "hunch.edge/1",
           id: edgeId(fromCmp, toCmp, "depends_on"),
           from: fromCmp, to: toCmp, type: "depends_on",
           reason: `${file} imports ${target}`, strength: 0.6,
           provenance: extracted(0.9, [`${file}:imports:${spec}`]),
+          environment: null,
+          metadata: {},
         });
         continue;
       }
@@ -274,10 +280,13 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       if (!dependency || !external || !anchors.length) continue;
       for (const anchor of anchors) {
         addEdge({
+          schema: "hunch.edge/1",
           id: edgeId(anchor, external, "imports"),
           from: anchor, to: external, type: "imports",
           reason: `${file} imports external package ${dependency}`, strength: 1,
           provenance: extracted(1, [`${file}:imports:${spec}`]),
+          environment: null,
+          metadata: {},
         });
       }
     }

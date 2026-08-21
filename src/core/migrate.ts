@@ -21,7 +21,7 @@ import type { EntityKind } from "./types.js";
 import type { HunchPaths } from "./paths.js";
 
 /** The schema generation this build writes and reads. Bump on any breaking change. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** A repo whose `.hunch/` predates manifests is treated as v1. Migrations are
  *  numbered from 2 (each `version` is the number it PRODUCES), so a baseline repo
@@ -60,6 +60,22 @@ export const MIGRATIONS: Migration[] = [
         if (raw.status === undefined) raw.status = "active";
         if (raw.valid_to === undefined) raw.valid_to = null;
         // valid_from is optional on constraints; leave unset for legacy records.
+      }
+      return raw;
+    },
+  },
+  {
+    // v3: Engineering Landscape resources reuse the existing graph. Existing
+    // edges are explicitly identified as legacy graph edges before the expanded
+    // relationship schema is validated; newly written resource relationships use
+    // hunch.resource-relationship/1 and keep their currentness/metadata.
+    version: 3,
+    description: "Version existing graph edges before adding Engineering Landscape resources and relationships",
+    up(kind, raw) {
+      if (kind === "edges") {
+        if (raw.schema === undefined) raw.schema = "hunch.edge/1";
+        if (raw.environment === undefined) raw.environment = null;
+        if (raw.metadata === undefined) raw.metadata = {};
       }
       return raw;
     },
