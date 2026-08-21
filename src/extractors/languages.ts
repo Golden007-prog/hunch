@@ -47,6 +47,17 @@ export interface LanguageSpec {
    *  the pair is what keeps the tolerance narrow. Omit for a language with no known
    *  grammar false positives; that spec then stays strictly fail-closed. */
   toleratedErrorScopes?: ReadonlyArray<{ readonly node: string; readonly parentIs: string }>;
+  /** Patterns whose presence anywhere in the source mean "this isn't actually
+   *  {id} text yet — it's a template that renders to {id} later" (Go/Jinja/Helm
+   *  delimiters in a .yaml file, e.g.). parse.ts still runs the real parse — a
+   *  genuine anchor/symbol elsewhere in the file is still extracted, same as any
+   *  other {id} file — but no longer lets the resulting ERROR nodes fail-close
+   *  the whole-repo scan completeness gate the way toleratedErrorScopes protects
+   *  narrower, per-grammar false positives (issue #33). Keep these narrow: a
+   *  pattern that also matches ordinary, always-valid {id} syntax (e.g. GitHub
+   *  Actions' `${{ }}` expressions) would silently disable the fail-closed
+   *  guarantee for files that were never templated at all. */
+  templatingMarkers?: readonly RegExp[];
 }
 
 const TS_QUERY = `
@@ -253,6 +264,13 @@ const YAML: LanguageSpec = {
   // (a sibling key, not a nested value) — without a whole-file fallback symbol,
   // attributeCalls's containment check would silently drop them. See Task 4.
   fallbackDefName: (file) => basename(file),
+  // Helm charts / templated CI configs are common .yaml content that only
+  // becomes valid YAML after a render step (issue #33). The negative lookbehind
+  // on "{{" excludes GitHub Actions' `${{ expression }}` syntax, which is
+  // ordinary, always-valid YAML — every workflow file in this repo uses it, so
+  // treating it as a templating marker would blanket-disable the fail-closed
+  // gate for .github/workflows/**.
+  templatingMarkers: [/(?<!\$)\{\{/, /\{%/],
 };
 
 export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO, YAML];

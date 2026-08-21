@@ -61,10 +61,26 @@ function bundleFor(spec: LanguageSpec): LangBundle {
 }
 
 const STR_QUOTES = /^['"`]|['"`]$/g;
+/** Cap on a stored symbol's bodyText — large enough for review context, small
+ *  enough that a huge function/file doesn't bloat every JSON symbol record. */
+const MAX_BODY_TEXT_CHARS = 4000;
 
 export function parseSource(file: string, source: string): ParsedFile | null {
   const spec = languageFor(file);
   if (!spec) return null;
+  // Templated text (Helm chart / Jinja CI config) isn't {spec.id} yet — a real
+  // grammar correctly reports ERROR nodes for the delimiters. Still run the
+  // parse below (a well-formed anchor elsewhere in the file still contributes
+  // a real symbol, same as any other YAML file) — just don't let those
+  // expected errors fail-close the whole-repo scan on content that was never
+  // meant to stand alone (#33). Heavy top-level templating can break error
+  // recovery badly enough that even the whole-file root node never forms
+  // (root.type becomes "ERROR", not "stream") — the fallback-symbol synthesis
+  // below covers that case so the file doesn't vanish from the component graph.
+  // String.prototype.search ignores lastIndex (unlike RegExp.test with a /g or
+  // /y flag), so a future templatingMarkers entry can't introduce cross-call
+  // statefulness here even if it forgets to keep its pattern flag-free.
+  const templated = spec.templatingMarkers?.some((marker) => source.search(marker) !== -1) ?? false;
   const { parser, query } = bundleFor(spec);
   // The native binding caps its scratch buffer at 32 KB unless bufferSize is
   // given — without this, any source >= 32768 bytes throws "Invalid argument"
@@ -118,11 +134,27 @@ export function parseSource(file: string, source: string): ParsedFile | null {
     symbols.push({
       name: resolvedName, kind,
       startByte: def.startIndex, endByte: def.endIndex, loc,
-      bodyText: def.text.slice(0, 4000),
+      bodyText: def.text.slice(0, MAX_BODY_TEXT_CHARS),
+    });
+  }
+  // Every other successfully-parsed YAML file gets at least a file-root symbol
+  // (fallbackDefName). If templating broke error recovery badly enough that
+  // the doc.def capture never fired, synthesize the same fallback here rather
+  // than let the file silently drop out of the component graph. Push it before
+  // the sort below — parse()'s callers (indexer.ts) rely on symbols staying in
+  // start-byte order.
+  if (templated && spec.fallbackDefName && !symbols.some((s) => s.kind === "file")) {
+    symbols.push({
+      name: spec.fallbackDefName(file),
+      kind: "file",
+      startByte: 0,
+      endByte: source.length,
+      loc: source.split("\n").length,
+      bodyText: source.slice(0, MAX_BODY_TEXT_CHARS),
     });
   }
   symbols.sort((a, b) => a.startByte - b.startByte);
-  return { symbols, imports, calls, parseable: isParseable(tree.rootNode, spec) };
+  return { symbols, imports, calls, parseable: templated || isParseable(tree.rootNode, spec) };
 }
 
 /** True when every ERROR/MISSING node in the tree sits in an ancestor shape this
