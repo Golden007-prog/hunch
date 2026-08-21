@@ -184,6 +184,7 @@ export const EdgeType = z.enum([
   "implements",
   "supersedes",
   "related_to",
+  "references",
   "provides",
   "belongs_to",
   "implemented_by",

@@ -51,7 +51,7 @@ to the same graph. It merges into existing configuration instead of replacing it
 - **Change receipts** — review a working tree, commit, or branch against recorded intent and get a
   cited PASS / WARN / BLOCK result.
 - **Bug lineage** — understand which old incident a line fixed before accidentally undoing it.
-- **Code awareness** — TypeScript, JavaScript, Python, and Go structure feed dependency,
+- **Code awareness** — TypeScript, JavaScript, Python, Go, and YAML structure feed dependency,
   blast-radius, and redundancy checks. The reasoning layer works with any language.
 - **ADR interop** — `hunch import-adr` populates the graph from an existing MADR/Nygard corpus;
   `hunch export-adr` projects it back as standard MADR any ADR reader understands, and the

@@ -5,9 +5,11 @@
  * here (+ a new tree-sitter-* dependency), not edits scattered across those
  * four files.
  */
+import { basename } from "node:path";
 import { loadNativeTreeSitter } from "./nativeTreeSitter.js";
+import type { Edge } from "../core/types.js";
 
-export type ParsedSymbolKind = "function" | "method" | "class" | "interface" | "type";
+export type ParsedSymbolKind = "function" | "method" | "class" | "interface" | "type" | "variable" | "file";
 
 export interface LanguageSpec {
   /** Stable id, also used as the grammar-bundle cache key by parse.ts. */
@@ -30,6 +32,15 @@ export interface LanguageSpec {
    *  must NOT create call edges to unrelated repo symbols that happen to share the
    *  name (DESIGN: keep the graph clean). */
   builtinMethods: Set<string>;
+  /** Edge type emitted for this language's calls-list entries (e.g. YAML's
+   *  alias->anchor references aren't function calls). Defaults to "calls"
+   *  when omitted — every language before YAML. */
+  referenceEdgeType?: Edge["type"];
+  /** Fallback name for a ".def" capture with no paired ".name" capture (e.g.
+   *  a whole-file root symbol with no natural identifier of its own). Omit
+   *  for a language where every ".def" always has a name capture — parse.ts
+   *  then keeps dropping unnamed defs, the current behavior for TS/Python. */
+  fallbackDefName?: (file: string) => string;
   /** Ancestor shapes in which an ERROR node is a known limitation of THIS grammar
    *  rather than a real syntax error. parse.ts forgives an error only when some
    *  ancestor has type `node` AND that ancestor's own parent has type `parentIs` —
@@ -216,7 +227,35 @@ const GO: LanguageSpec = {
   builtinMethods: GO_BUILTIN_METHODS,
 };
 
-export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO];
+const YAML_QUERY = `
+  (block_node (anchor (anchor_name) @anchor.name)) @anchor.def
+  (flow_node (anchor (anchor_name) @anchor.name)) @anchor.def
+  (alias (alias_name) @call.id)
+  (stream) @doc.def
+`;
+
+const YAML: LanguageSpec = {
+  id: "yaml",
+  extensions: [".yml", ".yaml"],
+  grammarKey: "yaml",
+  loadGrammar: () => loadNativeTreeSitter().yaml,
+  query: YAML_QUERY,
+  // Both block-style (`key: &x\n  ...`) and flow-style (`key: &x {...}`) anchors
+  // wrap only the sigil+name; ascendToDef climbs from anchor_name -> anchor ->
+  // this enclosing node to find the def whose byte range covers the full value.
+  defNodeTypes: new Set(["block_node", "flow_node"]),
+  defKindOf: { "anchor.def": "variable", "doc.def": "file" },
+  nameToDef: { "anchor.name": "anchor.def" },
+  builtinMethods: new Set(),
+  // Alias references aren't calls; label the edge accordingly (Task 5).
+  referenceEdgeType: "references",
+  // Most aliases reference an anchor from OUTSIDE that anchor's own byte range
+  // (a sibling key, not a nested value) — without a whole-file fallback symbol,
+  // attributeCalls's containment check would silently drop them. See Task 4.
+  fallbackDefName: (file) => basename(file),
+};
+
+export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO, YAML];
 
 export const CODE_EXTENSIONS: string[] = [...new Set(LANGUAGES.flatMap((l) => l.extensions))];
 

@@ -207,6 +207,9 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   };
 
   for (const { file, bySym } of perFileCalls) {
+    // Most languages leave this unset and get "calls" — YAML's alias->anchor
+    // references aren't function calls, so its LanguageSpec declares "references".
+    const edgeType = languageFor(file)?.referenceEdgeType ?? "calls";
     const sbToId = fileStartByteId.get(file) ?? new Map<number, string>();
     for (const [callerStartByte, callees] of bySym) {
       // resolve caller by its stable byte-offset identity (not name)
@@ -224,9 +227,9 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
         }
         addEdge({
           schema: "hunch.edge/1",
-          id: edgeId(callerId, calleeId, "calls"),
-          from: callerId, to: calleeId, type: "calls",
-          reason: `${callerName} calls ${calleeName}`, strength: 0.8,
+          id: edgeId(callerId, calleeId, edgeType),
+          from: callerId, to: calleeId, type: edgeType,
+          reason: `${callerName} ${edgeType} ${calleeName}`, strength: 0.8,
           provenance: extracted(0.8, [file]),
           environment: null,
           metadata: {},
@@ -235,9 +238,10 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     }
   }
 
-  // fan-in / fan-out from resolved call edges
+  // fan-in / fan-out from resolved call/reference edges
+  const CALL_LIKE_EDGE_TYPES = new Set<Edge["type"]>(["calls", "references"]);
   for (const e of edges) {
-    if (e.type !== "calls") continue;
+    if (!CALL_LIKE_EDGE_TYPES.has(e.type)) continue;
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (from) {

@@ -7,10 +7,10 @@ test("LANGUAGES has typescript entries covering both grammars (plain + tsx)", ()
   assert.ok(ts.length >= 2, "expected a plain-TS entry and a TSX entry");
 });
 
-test("CODE_EXTENSIONS matches the existing TS/JS/Python/Go extension list", () => {
+test("CODE_EXTENSIONS matches the existing TS/JS/Python/Go/YAML extension list", () => {
   assert.deepEqual(
     [...CODE_EXTENSIONS].sort(),
-    [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx", ".py", ".pyi", ".go"].sort(),
+    [".cjs", ".cts", ".go", ".js", ".jsx", ".mjs", ".mts", ".py", ".pyi", ".ts", ".tsx", ".yaml", ".yml"].sort(),
   );
 });
 
@@ -37,4 +37,17 @@ test("the typescript LanguageSpec's builtinMethods includes the existing JS buil
   for (const m of ["map", "filter", "push", "then", "toString"]) {
     assert.ok(ts.builtinMethods.has(m), `missing builtin method ${m}`);
   }
+});
+
+test("languageFor resolves .yml and .yaml to the yaml LanguageSpec", () => {
+  for (const ext of [".yml", ".yaml"]) {
+    const lang = languageFor(`file${ext}`);
+    assert.ok(lang, `no LanguageSpec for ${ext}`);
+    assert.equal(lang!.id, "yaml");
+  }
+});
+
+test("the yaml LanguageSpec declares its alias->anchor edges as \"references\", not \"calls\"", () => {
+  const yaml = LANGUAGES.find((l) => l.id === "yaml")!;
+  assert.equal(yaml.referenceEdgeType, "references");
 });

@@ -112,10 +112,11 @@ export function parseSource(file: string, source: string): ParsedFile | null {
   }
 
   for (const { kind, def, name } of pendingDefs.values()) {
-    if (!name) continue;
+    const resolvedName = name ?? spec.fallbackDefName?.(file);
+    if (!resolvedName) continue;
     const loc = def.endPosition.row - def.startPosition.row + 1;
     symbols.push({
-      name, kind,
+      name: resolvedName, kind,
       startByte: def.startIndex, endByte: def.endIndex, loc,
       bodyText: def.text.slice(0, 4000),
     });

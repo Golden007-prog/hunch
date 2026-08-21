@@ -33,9 +33,9 @@ test("parseSource extracts symbols, imports, calls", () => {
 test("native tree-sitter addons load only from per-process temp copies", () => {
   const require = createRequire(import.meta.url);
   const bindings = Object.keys(require.cache)
-    .filter((path) => /tree-sitter(?:-typescript)?\.node$/.test(path))
+    .filter((path) => /(?:tree-sitter(?:-typescript|-python|-yaml)?)\.node$/.test(path))
     .sort();
-  assert.equal(bindings.length, 2, `expected core and TypeScript native bindings, got: ${bindings.join(", ")}`);
+  assert.equal(bindings.length, 4, `expected core, TypeScript, Python, and YAML native bindings, got: ${bindings.join(", ")}`);
   const processCopyPrefix = join(realpathSync(tmpdir()), `hunch-tree-sitter-${process.pid}-`);
   for (const binding of bindings) {
     assert.ok(realpathSync(binding).startsWith(processCopyPrefix), `installed native binding remains loaded: ${binding}`);
@@ -372,4 +372,66 @@ test("a struct type_spec classifies as class, not the generic type kind (first-c
   assert.equal(kindOf("OnlyIface"), "interface");
   assert.equal(kindOf("Plain"), "type");
   assert.equal(p.symbols.filter((s) => s.name === "OnlyStruct").length, 1, "no duplicate from the generic type pattern");
+});
+
+const YAML_ANCHOR_SRC = `
+defaults: &defaults
+  adapter: postgres
+  host: localhost
+
+development:
+  <<: *defaults
+  database: dev_db
+
+test:
+  <<: *defaults
+  database: test_db
+`;
+
+test("parseSource extracts a YAML anchor as a \"variable\" symbol plus a whole-file \"file\" root symbol", () => {
+  const p = parseSource("config/database.yml", YAML_ANCHOR_SRC)!;
+  assert.ok(p, "yaml file did not parse");
+  assert.equal(p.parseable, true);
+  const names = p.symbols.map((s) => s.name).sort();
+  assert.deepEqual(names, ["database.yml", "defaults"].sort());
+  const kindOf = (n: string) => p.symbols.find((s) => s.name === n)!.kind;
+  assert.equal(kindOf("defaults"), "variable");
+  assert.equal(kindOf("database.yml"), "file");
+});
+
+test("attributeCalls resolves YAML aliases to the file-root symbol when the alias is NOT nested inside its anchor (the common case)", () => {
+  const p = parseSource("config/database.yml", YAML_ANCHOR_SRC)!;
+  const attr = attributeCalls(p);
+  const root = p.symbols.find((s) => s.kind === "file")!;
+  const callees = attr.get(root.startByte) ?? new Map<string, boolean>();
+  assert.ok(callees.has("defaults"), "both *defaults aliases should attribute to the file-root symbol");
+});
+
+const YAML_FLOW_ANCHOR_SRC = `x: &flowanchor {a: 1}\ny: *flowanchor\n`;
+
+test("parseSource extracts a flow-style YAML anchor (key: &name {..}) the same as block style", () => {
+  const p = parseSource("flow.yml", YAML_FLOW_ANCHOR_SRC)!;
+  assert.ok(p, "flow-style yaml did not parse");
+  assert.ok(p.symbols.some((s) => s.name === "flowanchor" && s.kind === "variable"));
+  assert.ok(p.calls.some((c) => c.callee === "flowanchor"));
+});
+
+const YAML_NO_ANCHOR_SRC = `
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm test
+`;
+
+test("a plain anchor-free YAML file (GitHub Actions-style) parses cleanly to just the file-root symbol, zero anchors/edges", () => {
+  const p = parseSource(".github/workflows/ci.yml", YAML_NO_ANCHOR_SRC)!;
+  assert.ok(p, "workflow yaml did not parse");
+  assert.equal(p.parseable, true);
+  assert.equal(p.symbols.length, 1, "only the file-root symbol, no anchors");
+  assert.equal(p.symbols[0]!.kind, "file");
+  assert.equal(p.calls.length, 0, "no aliases means no reference calls");
 });

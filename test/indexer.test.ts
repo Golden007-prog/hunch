@@ -576,6 +576,37 @@ test("indexing is deterministic — same ids on re-run", () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+test("YAML anchor/alias produces a \"references\" edge end-to-end, counted toward fan-in like a call", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-yaml-"));
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(join(root, "config/database.yml"), `
+defaults: &defaults
+  adapter: postgres
+
+development:
+  <<: *defaults
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  const res = indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  assert.equal(res.files, 1);
+  const syms = store.json.loadAll("symbols");
+  const anchor = syms.find((s) => s.name === "defaults");
+  assert.ok(anchor, "anchor symbol indexed");
+  assert.equal(anchor!.kind, "variable");
+
+  const edges = store.json.loadAll("edges");
+  const refEdge = edges.find((e) => e.to === anchor!.id && e.type === "references");
+  assert.ok(refEdge, "alias->anchor edge recorded with type \"references\", not \"calls\"");
+
+  assert.ok(anchor!.metrics.fan_in >= 1, "references edges count toward fan-in the same way calls do");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 for (const dirtyKind of ["staged", "unstaged", "untracked"] as const) {
   test(`requireClean rejects ${dirtyKind} indexed-code changes before graph JSON writes`, () => {
     const root = fixtureRepo();
