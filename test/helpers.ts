@@ -1,14 +1,39 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
 import { HunchStore } from "../src/store/hunchStore.js";
+import { indexRepo } from "../src/extractors/indexer.js";
 import { extracted, inferred, type Constraint, type Provenance } from "../src/core/types.js";
 
 export function tempStore(): { store: HunchStore; root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "hunch-test-"));
   const store = new HunchStore(hunchPaths(root));
   store.json.ensureDirs();
+  return { store, root, cleanup: () => { store.close(); rmSync(root, { recursive: true, force: true }); } };
+}
+
+/** Writes a fixture repo with two root-level files (each with a real export, so
+ *  they carry symbols) plus one file in a subdirectory — the minimal shape that
+ *  exercises the "." root component (issue #34: multiple root files, sorted). */
+export function seedRootLevelFileFixture(root: string): void {
+  mkdirSync(join(root, "src/auth"), { recursive: true });
+  writeFileSync(join(root, "config.ts"), `export function loadConfig(){ return {}; }\n`);
+  writeFileSync(join(root, "settings.ts"), `export function loadSettings(){ return {}; }\n`);
+  writeFileSync(join(root, "src/auth/session.ts"), `export function verifySession(t){ return t; }\n`);
+}
+
+/** Writes a fixture repo via `seed`, indexes it for real, and returns the live
+ *  store — for tests that need actual indexer output rather than a hand-built
+ *  fixture (e.g. so a regression in the producer fails the test, not just a
+ *  drifted-apart hand-written expectation). */
+export function indexedFixtureStore(seed: (root: string) => void): { store: HunchStore; root: string; cleanup: () => void } {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-"));
+  seed(root);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
   return { store, root, cleanup: () => { store.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
