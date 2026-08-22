@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "YAML ו-Helm נכנסים לגרף",
       "הייצוא מבחין כשהוא נרקב",
       "גשר MADR — ייבוא וייצוא של רשומות ADR",
       "תמיכה ב-Go",
@@ -34,6 +35,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "YAML и Helm входят в граф",
       "Экспорт замечает, что протух",
       "Мост MADR — импорт и экспорт записей ADR",
       "Поддержка Go",
@@ -60,6 +62,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "YAML وHelm يدخلان الرسم البياني",
       "التصدير يلاحظ حين يفسد",
       "جسر MADR — استيراد سجلات ADR وتصديرها",
       "دعم Go",
@@ -86,6 +89,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "YAML y Helm entran en el grafo",
       "La exportación nota cuándo se pudre",
       "El puente MADR: importar y exportar registros ADR",
       "Compatibilidad con Go",

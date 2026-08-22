@@ -6,10 +6,11 @@
 [![GitHub stars](https://img.shields.io/github/stars/davesheffer/hunch?color=2742ff&label=%E2%98%85%20star)](https://github.com/davesheffer/hunch)
 [![license](https://img.shields.io/npm/l/@davesheffer/hunch?color=2742ff)](LICENSE)
 
-Hunch is a guarantee: **your agents never re-make a decided decision, and never re-introduce a
-fixed bug.** The mechanism behind it is an engineering-memory and architectural-conformance layer —
-the decisions, constraints, rejected approaches, and bug history behind your code, delivered as
-evidence before an assistant changes anything, with the result checked deterministically after.
+For the precise rules your team explicitly trusts and proves, Hunch gives a concrete guarantee:
+**your agents do not re-make a decided decision or re-introduce a fixed bug without a deterministic
+violation being surfaced.** The mechanism is an engineering-memory and architectural-conformance
+layer — the decisions, constraints, rejected approaches, and bug history behind your code, delivered
+as evidence before an assistant changes anything, with the result checked deterministically after.
 
 Memory starts **advisory**. Nothing blocks until you explicitly trust a precise rule and choose
 strict enforcement.
@@ -17,10 +18,10 @@ strict enforcement.
 **Memory is the input. The product boundary is the receipt:** relevant evidence before an edit,
 then a deterministic check of the change against the rules your team has explicitly trusted.
 
-> **New in v1.17.0:** an exported ADR corpus now tracks the graph automatically and reports its
-> own drift (`madr-stale` / `madr-edited` / `madr-orphan`), and retrieval ranks recorded intent
-> above code symbols that merely share the query's vocabulary — Recall@10 70% → 90% on the
-> curated benchmark.
+> **New in v1.18.0:** YAML and Helm now enter the same dependency graph as application code.
+> Anchors and aliases become reference edges; chart-scoped `define`, `include`, and `template`
+> relationships survive pre-render syntax without weakening fail-closed handling for ordinary
+> invalid YAML.
 
 See the public [roadmap](ROADMAP.md) for what is next and what is deliberately out of scope.
 
@@ -50,8 +51,8 @@ to the same graph. It merges into existing configuration instead of replacing it
 - **Change receipts** — review a working tree, commit, or branch against recorded intent and get a
   cited PASS / WARN / BLOCK result.
 - **Bug lineage** — understand which old incident a line fixed before accidentally undoing it.
-- **Code awareness** — TypeScript, JavaScript, Python, and Go structure feed dependency,
-  blast-radius, and redundancy checks. The reasoning layer works with any language.
+- **Code awareness** — TypeScript, JavaScript, Python, Go, YAML, and chart-scoped Helm templates
+  feed dependency, blast-radius, and redundancy checks. The reasoning layer works with any language.
 - **ADR interop** — `hunch import-adr` populates the graph from an existing MADR/Nygard corpus;
   `hunch export-adr` projects it back as standard MADR any ADR reader understands, and the
   projection then tracks the graph automatically and reports its own drift.
@@ -88,7 +89,7 @@ Git repo that every teammate can access, install the Matrix release on team mach
 have one maintainer run:
 
 ```bash
-npm i -g @davesheffer/hunch@1.13.1
+npm i -g @davesheffer/hunch@1.18.0
 hunch shared --repo git@github.com:acme/project-hunch-memory.git
 git add .gitignore .hunch/team.json
 git commit -m "chore: connect shared Hunch memory"
@@ -103,7 +104,7 @@ printed by Hunch. Omit `--migrate` for a new setup.
 After the pointer commit lands, teammates need Hunch installed and Git access to the memory repo:
 
 ```bash
-npm i -g @davesheffer/hunch@1.13.1
+npm i -g @davesheffer/hunch@1.18.0
 git pull
 hunch init
 hunch doctor
@@ -151,7 +152,7 @@ but stops automatic memory commits and pushes. As a team-coordinated rollback, r
 commit to stop discovery after teammates pull the revert. Existing machines retain their ignored
 local overlay until they are deliberately disconnected; do not delete the memory repo as part of a
 rollback. For this rollout, reinstall the previous published package with
-`npm i -g @davesheffer/hunch@1.12.1`; the release receipt resolves and records the verified rollback
+`npm i -g @davesheffer/hunch@1.16.0`; the release receipt resolves and records the verified rollback
 target from the npm registry instead of trusting Git tags. Pause enforcement first as shown above,
 and keep every team client on the same release before resuming Matrix policy workflows.
 
@@ -205,6 +206,7 @@ downloaded public VSIX has the same digest as the credential-free release candid
 - [Contributing](CONTRIBUTING.md)
 - [Architecture benchmark](bench/architectural-conformance.md)
 - [Engineering Landscape Graph and ORC boundary](docs/engineering-landscape.md)
+- [ORC outcome/experience protocol](docs/outcome-experience-protocol.md)
 - [Competitive landscape (dated; re-verify before quoting)](docs/competitive-landscape.md)
 
 Apache-2.0

@@ -1,16 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { LANGUAGES, CODE_EXTENSIONS, languageFor } from "../src/extractors/languages.js";
+
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+  dependencies: Record<string, string>;
+};
 
 test("LANGUAGES has typescript entries covering both grammars (plain + tsx)", () => {
   const ts = LANGUAGES.filter((l) => l.id === "typescript");
   assert.ok(ts.length >= 2, "expected a plain-TS entry and a TSX entry");
 });
 
-test("CODE_EXTENSIONS matches the existing TS/JS/Python/Go extension list", () => {
+test("CODE_EXTENSIONS matches the existing TS/JS/Python/Go/YAML extension list", () => {
   assert.deepEqual(
     [...CODE_EXTENSIONS].sort(),
-    [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx", ".py", ".pyi", ".go"].sort(),
+    [".cjs", ".cts", ".go", ".js", ".jsx", ".mjs", ".mts", ".py", ".pyi", ".tpl", ".ts", ".tsx", ".yaml", ".yml"].sort(),
   );
 });
 
@@ -37,4 +42,31 @@ test("the typescript LanguageSpec's builtinMethods includes the existing JS buil
   for (const m of ["map", "filter", "push", "then", "toString"]) {
     assert.ok(ts.builtinMethods.has(m), `missing builtin method ${m}`);
   }
+});
+
+test("languageFor resolves .yml and .yaml to the yaml LanguageSpec", () => {
+  for (const ext of [".yml", ".yaml"]) {
+    const lang = languageFor(`file${ext}`);
+    assert.ok(lang, `no LanguageSpec for ${ext}`);
+    assert.equal(lang!.id, "yaml");
+  }
+});
+
+test("languageFor resolves .tpl (Helm helper templates) to the yaml LanguageSpec", () => {
+  const lang = languageFor("templates/_helpers.tpl");
+  assert.ok(lang, "no LanguageSpec for .tpl");
+  assert.equal(lang!.id, "yaml");
+});
+
+test("the yaml LanguageSpec declares its alias->anchor edges as \"references\", not \"calls\"", () => {
+  const yaml = LANGUAGES.find((l) => l.id === "yaml")!;
+  assert.equal(yaml.referenceEdgeType, "references");
+});
+
+test("native grammar versions stay on the tree-sitter 0.21 peer family", () => {
+  assert.equal(packageJson.dependencies["tree-sitter"], "0.21.1");
+  assert.equal(packageJson.dependencies["tree-sitter-python"], "0.23.4",
+    "0.23.5+ requires tree-sitter 0.22 and makes a clean npm install fail");
+  assert.equal(packageJson.dependencies["@tree-sitter-grammars/tree-sitter-yaml"], "^0.6.1",
+    "YAML 0.7+ requires tree-sitter 0.22 and must move only with the whole native parser matrix");
 });

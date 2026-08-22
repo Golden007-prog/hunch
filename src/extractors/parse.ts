@@ -61,10 +61,27 @@ function bundleFor(spec: LanguageSpec): LangBundle {
 }
 
 const STR_QUOTES = /^['"`]|['"`]$/g;
+/** Cap on a stored symbol's bodyText — large enough for review context, small
+ *  enough that a huge function/file doesn't bloat every JSON symbol record. */
+export const MAX_BODY_TEXT_CHARS = 4000;
 
 export function parseSource(file: string, source: string): ParsedFile | null {
   const spec = languageFor(file);
   if (!spec) return null;
+  // Templated text (Helm chart / Jinja CI config) isn't {spec.id} yet — a real
+  // grammar correctly reports ERROR nodes for the delimiters. Still run the
+  // parse below (a well-formed anchor elsewhere in the file still contributes
+  // a real symbol, same as any other YAML file) — just don't let those
+  // expected errors fail-close the whole-repo scan on content that was never
+  // meant to stand alone (#33). Heavy top-level templating can break error
+  // recovery badly enough that even the whole-file root node never forms
+  // (root.type becomes "ERROR", not "stream") — the fallback-symbol synthesis
+  // below covers that case so the file doesn't vanish from the component graph.
+  // String.prototype.search ignores lastIndex (unlike RegExp.test with a /g or
+  // /y flag), so a future templatingMarkers entry can't introduce cross-call
+  // statefulness here even if it forgets to keep its pattern flag-free.
+  const templated = (spec.alwaysTemplatedExtensions?.some((ext) => file.endsWith(ext)) ?? false)
+    || (spec.templatingMarkers?.some((marker) => source.search(marker) !== -1) ?? false);
   const { parser, query } = bundleFor(spec);
   // The native binding caps its scratch buffer at 32 KB unless bufferSize is
   // given — without this, any source >= 32768 bytes throws "Invalid argument"
@@ -112,16 +129,33 @@ export function parseSource(file: string, source: string): ParsedFile | null {
   }
 
   for (const { kind, def, name } of pendingDefs.values()) {
-    if (!name) continue;
+    const resolvedName = name ?? spec.fallbackDefName?.(file);
+    if (!resolvedName) continue;
     const loc = def.endPosition.row - def.startPosition.row + 1;
     symbols.push({
-      name, kind,
+      name: resolvedName, kind,
       startByte: def.startIndex, endByte: def.endIndex, loc,
-      bodyText: def.text.slice(0, 4000),
+      bodyText: def.text.slice(0, MAX_BODY_TEXT_CHARS),
+    });
+  }
+  // Every other successfully-parsed YAML file gets at least a file-root symbol
+  // (fallbackDefName). If templating broke error recovery badly enough that
+  // the doc.def capture never fired, synthesize the same fallback here rather
+  // than let the file silently drop out of the component graph. Push it before
+  // the sort below — parse()'s callers (indexer.ts) rely on symbols staying in
+  // start-byte order.
+  if (templated && spec.fallbackDefName && !symbols.some((s) => s.kind === "file")) {
+    symbols.push({
+      name: spec.fallbackDefName(file),
+      kind: "file",
+      startByte: 0,
+      endByte: source.length,
+      loc: source.split("\n").length,
+      bodyText: source.slice(0, MAX_BODY_TEXT_CHARS),
     });
   }
   symbols.sort((a, b) => a.startByte - b.startByte);
-  return { symbols, imports, calls, parseable: isParseable(tree.rootNode, spec) };
+  return { symbols, imports, calls, parseable: templated || isParseable(tree.rootNode, spec) };
 }
 
 /** True when every ERROR/MISSING node in the tree sits in an ancestor shape this
@@ -173,23 +207,34 @@ function ascendToDef(node: SyntaxNode, defNodeTypes: Set<string>): SyntaxNode | 
 }
 
 /** Map each call site to the innermost symbol whose byte-range contains it.
- *  Keyed by the symbol's `startByte` (a stable per-symbol identity within the
- *  file) rather than its name, so two same-named symbols in one file don't merge
- *  their call sets. The value maps callee name -> `memberOnly` (true iff every
- *  occurrence was a `x.foo()` member call, never a direct `foo()`), so the
- *  indexer can resolve member calls conservatively. */
+ *  Keyed by the symbol's position (index) in `parsed.symbols` — NOT its
+ *  startByte, which is not a reliable per-symbol identity: a language whose
+ *  extractor merges a synthetic whole-file symbol with independently-derived
+ *  symbols (e.g. YAML's fallback-root synthetic symbol alongside Helm's
+ *  regex-derived `define` blocks) can produce two distinct symbols that both
+ *  start at byte 0. Indexing by array position is unique by construction,
+ *  regardless of byte overlap — the caller must consume the exact same
+ *  `parsed.symbols` array (or an equivalently-ordered copy) to look up a
+ *  symbol by the index this function returns. The value maps callee name ->
+ *  `memberOnly` (true iff every occurrence was a `x.foo()` member call, never
+ *  a direct `foo()`), so the indexer can resolve member calls conservatively. */
 export function attributeCalls(parsed: ParsedFile): Map<number, Map<string, boolean>> {
   const out = new Map<number, Map<string, boolean>>();
   for (const call of parsed.calls) {
     let best: ParsedSymbol | null = null;
-    for (const s of parsed.symbols) {
+    let bestIndex = -1;
+    for (let i = 0; i < parsed.symbols.length; i++) {
+      const s = parsed.symbols[i]!;
       if (call.atByte >= s.startByte && call.atByte < s.endByte) {
-        if (!best || s.endByte - s.startByte < best.endByte - best.startByte) best = s;
+        if (!best || s.endByte - s.startByte < best.endByte - best.startByte) {
+          best = s;
+          bestIndex = i;
+        }
       }
     }
     if (best && best.name !== call.callee) {
-      if (!out.has(best.startByte)) out.set(best.startByte, new Map());
-      const m = out.get(best.startByte)!;
+      if (!out.has(bestIndex)) out.set(bestIndex, new Map());
+      const m = out.get(bestIndex)!;
       const prev = m.get(call.callee);
       m.set(call.callee, prev === undefined ? call.member : prev && call.member);
     }

@@ -1,0 +1,21 @@
+{
+  "id": "cmp_3a52ce7809",
+  "kind": "module",
+  "name": ".",
+  "responsibility": "",
+  "paths": [
+    "socket.yml"
+  ],
+  "status": "active",
+  "owners": [],
+  "fragility": 0,
+  "provenance": {
+    "source": "inferred",
+    "confidence": 0.5,
+    "evidence": [
+      "."
+    ]
+  },
+  "created_at": "2026-08-22T18:52:25.794Z",
+  "updated_at": "2026-08-22T18:52:25.794Z"
+}
