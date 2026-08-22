@@ -6,10 +6,11 @@
 [![GitHub stars](https://img.shields.io/github/stars/davesheffer/hunch?color=2742ff&label=%E2%98%85%20star)](https://github.com/davesheffer/hunch)
 [![license](https://img.shields.io/npm/l/@davesheffer/hunch?color=2742ff)](LICENSE)
 
-Hunch is a guarantee: **your agents never re-make a decided decision, and never re-introduce a
-fixed bug.** The mechanism behind it is an engineering-memory and architectural-conformance layer —
-the decisions, constraints, rejected approaches, and bug history behind your code, delivered as
-evidence before an assistant changes anything, with the result checked deterministically after.
+For the precise rules your team explicitly trusts and proves, Hunch gives a concrete guarantee:
+**your agents do not re-make a decided decision or re-introduce a fixed bug without a deterministic
+violation being surfaced.** The mechanism is an engineering-memory and architectural-conformance
+layer — the decisions, constraints, rejected approaches, and bug history behind your code, delivered
+as evidence before an assistant changes anything, with the result checked deterministically after.
 
 Memory starts **advisory**. Nothing blocks until you explicitly trust a precise rule and choose
 strict enforcement.
@@ -88,7 +89,7 @@ Git repo that every teammate can access, install the Matrix release on team mach
 have one maintainer run:
 
 ```bash
-npm i -g @davesheffer/hunch@1.13.1
+npm i -g @davesheffer/hunch@1.17.0
 hunch shared --repo git@github.com:acme/project-hunch-memory.git
 git add .gitignore .hunch/team.json
 git commit -m "chore: connect shared Hunch memory"
@@ -103,7 +104,7 @@ printed by Hunch. Omit `--migrate` for a new setup.
 After the pointer commit lands, teammates need Hunch installed and Git access to the memory repo:
 
 ```bash
-npm i -g @davesheffer/hunch@1.13.1
+npm i -g @davesheffer/hunch@1.17.0
 git pull
 hunch init
 hunch doctor
@@ -151,7 +152,7 @@ but stops automatic memory commits and pushes. As a team-coordinated rollback, r
 commit to stop discovery after teammates pull the revert. Existing machines retain their ignored
 local overlay until they are deliberately disconnected; do not delete the memory repo as part of a
 rollback. For this rollout, reinstall the previous published package with
-`npm i -g @davesheffer/hunch@1.12.1`; the release receipt resolves and records the verified rollback
+`npm i -g @davesheffer/hunch@1.16.0`; the release receipt resolves and records the verified rollback
 target from the npm registry instead of trusting Git tags. Pause enforcement first as shown above,
 and keep every team client on the same release before resuming Matrix policy workflows.
 
@@ -205,6 +206,7 @@ downloaded public VSIX has the same digest as the credential-free release candid
 - [Contributing](CONTRIBUTING.md)
 - [Architecture benchmark](bench/architectural-conformance.md)
 - [Engineering Landscape Graph and ORC boundary](docs/engineering-landscape.md)
+- [ORC outcome/experience protocol](docs/outcome-experience-protocol.md)
 - [Competitive landscape (dated; re-verify before quoting)](docs/competitive-landscape.md)
 
 Apache-2.0

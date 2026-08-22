@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.17.0 — 2026-08-18
+
+### The projection notices when it rots
+
+Exported ADR corpora can now adopt a content-hash manifest and participate in normal drift and
+healing. Hunch distinguishes a decision that moved (`madr-stale`), a generated file changed by a
+human (`madr-edited`), and an artifact whose public decision disappeared (`madr-orphan`), with a
+separate repair path for each. Adopted corpora refresh during post-commit sync, and edit protection
+is keyed by content so renumbering cannot erase a hand edit.
+
+Retrieval also gives recorded intent a bounded ranking prior over code symbols that only share the
+query vocabulary. The prior improved the curated Recall@10 result from 70% to 90% and remains
+reversible with `HUNCH_MEMORY_PRIOR_SHIFT=0`.
+
+## 1.16.0 — 2026-08-18
+
+### The MADR bridge
+
+`hunch import-adr` deterministically imports MADR and Nygard corpora into the graph, preserving
+accepted, superseded, and rejected semantics without duplicating records on rerun. `hunch
+export-adr` emits a standard, regenerable MADR projection with Backstage metadata, refuses to
+overwrite a hand-written corpus, and excludes private-overlay records. The graph remains the source
+of truth.
+
+## 1.15.0 — 2026-08-18
+
+### Go support
+
+Go repositories now enter the same symbol and dependency graph as TypeScript and Python through the
+language registry. Structs, interfaces, type specifications, aliases, imports, and package-qualified
+calls are indexed conservatively: module paths resolve exact package directories, standard-library
+calls are filtered, and ambiguous edges are not invented. Prebuilt grammar support ships across the
+supported platform matrix.
+
+## 1.14.0 — 2026-08-18
+
+### Context arrives with its graph neighborhood
+
+Context delivery can walk a bounded, deterministic graph neighborhood with depth decay, node and
+token caps, and external-hub exclusion. This raised the curated Recall@10 result from 81.8% to
+90.9% without changing the response contract. The release also excludes retired constraints from
+grounding, resolves MCP auto-commit roots per call, and fixes unstaged-only release-gate drift.
+
 ## 1.13.1 — 2026-08-15
 
 ### MCP delivery receipts arrive as structured data
