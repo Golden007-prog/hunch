@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { parseSource, attributeCalls } from "./parse.js";
+import { extractHelmDirectives } from "./helm.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
 import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import { resolveRelativeImport } from "../core/relativeImports.js";
@@ -100,12 +101,20 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   const symbols: Symbol[] = [];
   const nameIndex = new Map<string, string[]>(); // symbol name -> [symbol ids]
   const fileSymbols = new Map<string, string[]>(); // file -> symbol ids (in-file resolution)
-  const fileStartByteId = new Map<string, Map<number, string>>(); // file -> (symbol startByte -> id)
+  const fileSymbolIndexId = new Map<string, Map<number, string>>(); // file -> (symbol index in parsed.symbols -> id)
   const perFileCalls: Array<{ file: string; bySym: Map<number, Map<string, boolean>> }> = [];
   const perFileImports: Array<{ file: string; imports: string[] }> = [];
   // Batched per-file git metrics (churn + last commit) in TWO `git log` spawns
   // total, instead of two per file — the dominant cost of indexing a large repo.
   const rels = files.map((file) => file.path);
+  const chartRootFor = nearestChartRoot(rels);
+  const chartFiles = new Map<string, string[]>();
+  for (const path of rels) {
+    if (languageFor(path)?.id !== "yaml") continue;
+    const chartRoot = chartRootFor(path);
+    if (chartRoot === null) continue;
+    (chartFiles.get(chartRoot) ?? chartFiles.set(chartRoot, []).get(chartRoot)!).push(path);
+  }
   const gitMeta = useGit ? fileGitMetrics(root, rels, opts.churn === false ? 0 : 90) : null;
   let skipped = 0;
   const issues: RepoSourceIssue[] = [];
@@ -147,21 +156,31 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       continue;
     }
 
+    const chartRoot = languageFor(rel)?.id === "yaml" ? chartRootFor(rel) : null;
+    // Explicit null check, not truthiness: a chart rooted at the repo root
+    // itself resolves to "" (empty string), which is a valid chart scope but
+    // JS-falsy — `if (chartRoot)` would silently skip every repo-root chart.
+    if (chartRoot !== null) {
+      const helm = extractHelmDirectives(src);
+      parsed.symbols = [...parsed.symbols, ...helm.symbols].sort((a, b) => a.startByte - b.startByte);
+      parsed.calls = [...parsed.calls, ...helm.calls];
+    }
+
     const m = gitMeta?.get(rel);
     const churn = opts.churn === false ? (preservedChurn.get(rel) ?? 0) : (m?.churn ?? 0);
     const last = m?.lastCommit ?? "";
 
     const idsInFile: string[] = [];
-    const startByteId = new Map<number, string>();
+    const symbolIndexId = new Map<number, string>();
     const idCounts = new Map<string, number>(); // disambiguate same (file,name,kind)
-    for (const ps of parsed.symbols) {
+    for (const [index, ps] of parsed.symbols.entries()) {
       const base = symbolId(rel, ps.name, ps.kind);
       const n = idCounts.get(base) ?? 0;
       idCounts.set(base, n + 1);
       // parse() returns symbols sorted by start byte, so the ordinal is stable
       const id = n === 0 ? base : `${base}_${n}`;
       idsInFile.push(id);
-      startByteId.set(ps.startByte, id);
+      symbolIndexId.set(index, id);
       (nameIndex.get(ps.name) ?? nameIndex.set(ps.name, []).get(ps.name)!).push(id);
       symbols.push({
         id, file: rel, name: ps.name, kind: ps.kind,
@@ -172,17 +191,17 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       });
     }
     fileSymbols.set(rel, idsInFile);
-    fileStartByteId.set(rel, startByteId);
+    fileSymbolIndexId.set(rel, symbolIndexId);
     perFileCalls.push({ file: rel, bySym: attributeCalls(parsed) });
     perFileImports.push({ file: rel, imports: parsed.imports });
   }
 
   const byId = new Map(symbols.map((s) => [s.id, s]));
-  // Language-aware import resolution, shared by the call-resolution "was this
-  // name actually imported?" gate (below) and the depends_on edge derivation
-  // (pass 3): a Python cross-file call/import must resolve through the same
-  // relative/absolute Python rules as everything else, not silently fail the
-  // JS/TS resolver and look unimported.
+  // Language-aware import resolution (resolveImportTarget), used by both the
+  // call-resolution gate below (via importedFiles) and the depends_on edge
+  // derivation in pass 3 directly: a Python cross-file call/import must
+  // resolve through the same relative/absolute Python rules as everything
+  // else, not silently fail the JS/TS resolver and look unimported.
   const hasSrcLayout = [...fileSymbols.keys()].some((f) => f.startsWith("src/"));
   const pyRoots = hasSrcLayout ? ["", "src"] : [""];
   const goModule = readGoModulePath(root);
@@ -192,10 +211,16 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     if (langId === "go") return resolveGoImport(spec, fileSymbols, goModule);
     return resolveImport(file, spec, fileSymbols);
   };
-  const importedFiles = new Map(perFileImports.map(({ file, imports }) => [
-    file,
-    new Set(imports.map((specifier) => resolveImportTarget(file, specifier)).filter((target): target is string => !!target)),
-  ]));
+  const importedFiles = new Map(perFileImports.map(({ file, imports }) => {
+    const targets = new Set(
+      imports.map((specifier) => resolveImportTarget(file, specifier)).filter((target): target is string => !!target),
+    );
+    const chartRoot = languageFor(file)?.id === "yaml" ? chartRootFor(file) : null;
+    // Explicit null check, not truthiness — see the matching comment above on
+    // the per-file Helm merge step: a repo-root chart's scope is "", not null.
+    if (chartRoot !== null) for (const sibling of chartFiles.get(chartRoot) ?? []) if (sibling !== file) targets.add(sibling);
+    return [file, targets] as const;
+  }));
 
   // ---- pass 2: resolve calls -> symbol-level edges -------------------------
   const edges: Edge[] = [];
@@ -210,10 +235,11 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     // Most languages leave this unset and get "calls" — YAML's alias->anchor
     // references aren't function calls, so its LanguageSpec declares "references".
     const edgeType = languageFor(file)?.referenceEdgeType ?? "calls";
-    const sbToId = fileStartByteId.get(file) ?? new Map<number, string>();
-    for (const [callerStartByte, callees] of bySym) {
-      // resolve caller by its stable byte-offset identity (not name)
-      const callerId = sbToId.get(callerStartByte);
+    const indexToId = fileSymbolIndexId.get(file) ?? new Map<number, string>();
+    for (const [callerIndex, callees] of bySym) {
+      // resolve caller by its stable position in parsed.symbols (not startByte —
+      // startByte is not unique across symbols; see attributeCalls's doc comment)
+      const callerId = indexToId.get(callerIndex);
       if (!callerId) continue;
       const callerName = byId.get(callerId)?.name ?? "?";
       for (const [calleeName, memberOnly] of callees) {
@@ -346,6 +372,31 @@ export function indexRepo(store: HunchStore, root: string, opts: IndexRepoOption
 }
 
 // ---- helpers --------------------------------------------------------------
+
+/** Nearest-ancestor Chart.yaml lookup, memoized per directory: walks a file's
+ *  own directory upward through the tracked-file set until it finds
+ *  `<dir>/Chart.yaml`, or returns null if the file isn't under any chart.
+ *  Nested subcharts (their own Chart.yaml under charts/<name>/) resolve to
+ *  their OWN chart root, not the parent's. This is a conservative
+ *  approximation, not full Helm semantics: Helm's template namespace is
+ *  actually release-global, so a parent chart can legitimately include a
+ *  subchart's define — nearest-ancestor scoping will miss that edge rather
+ *  than fabricate a wrong one. No test currently covers the nested
+ *  charts/<sub>/Chart.yaml case — tracked as issue #42. */
+function nearestChartRoot(rels: string[]): (file: string) => string | null {
+  const tracked = new Set(rels);
+  const cache = new Map<string, string | null>();
+  const resolveDir = (dir: string): string | null => {
+    if (cache.has(dir)) return cache.get(dir)!;
+    const chartYaml = dir ? `${dir}/Chart.yaml` : "Chart.yaml";
+    const result: string | null = tracked.has(chartYaml)
+      ? dir
+      : dir === "" ? null : resolveDir(dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "");
+    cache.set(dir, result);
+    return result;
+  };
+  return (file: string): string | null => resolveDir(file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "");
+}
 
 /** Resolve a callee name to a symbol id: prefer same-file, otherwise require a
  * unique symbol in a statically imported local file. A unique repository-wide

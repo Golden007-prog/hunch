@@ -58,6 +58,12 @@ export interface LanguageSpec {
    *  Actions' `${{ }}` expressions) would silently disable the fail-closed
    *  guarantee for files that were never templated at all. */
   templatingMarkers?: readonly RegExp[];
+  /** Extensions within this language where EVERY file is inherently a template
+   *  regardless of content — unlike templatingMarkers, this never content-sniffs.
+   *  The extension alone means "this file is a template, parseable must never
+   *  become false for it," matching Helm's `_helpers.tpl` convention where the
+   *  file may be pure Go-template text with no YAML structure of its own at all. */
+  alwaysTemplatedExtensions?: readonly string[];
 }
 
 const TS_QUERY = `
@@ -247,7 +253,7 @@ const YAML_QUERY = `
 
 const YAML: LanguageSpec = {
   id: "yaml",
-  extensions: [".yml", ".yaml"],
+  extensions: [".yml", ".yaml", ".tpl"],
   grammarKey: "yaml",
   loadGrammar: () => loadNativeTreeSitter().yaml,
   query: YAML_QUERY,
@@ -271,6 +277,7 @@ const YAML: LanguageSpec = {
   // treating it as a templating marker would blanket-disable the fail-closed
   // gate for .github/workflows/**.
   templatingMarkers: [/(?<!\$)\{\{/, /\{%/],
+  alwaysTemplatedExtensions: [".tpl"],
 };
 
 export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO, YAML];

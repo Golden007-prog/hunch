@@ -176,13 +176,13 @@ test("Hunch can completely parse its VS Code graph adapter", () => {
   assert.equal(parsed.parseable, true, "the adapter must remain usable by strict semantic scans");
 });
 
-test("attributeCalls maps callee to enclosing symbol (keyed by stable byte offset)", () => {
+test("attributeCalls maps callee to enclosing symbol (keyed by stable symbol index)", () => {
   const p = parseSource("f.ts", SRC)!;
-  const attr = attributeCalls(p); // Map<startByte, Set<callee>>
-  const sb = (name: string) => p.symbols.find((s) => s.name === name)!.startByte;
-  assert.ok(attr.get(sb("verifySession"))?.has("jwtDecode"));
-  assert.ok(attr.get(sb("helper"))?.has("verifySession"));
-  assert.ok(attr.get(sb("run"))?.has("helper"));
+  const attr = attributeCalls(p); // Map<symbolIndex, Set<callee>>
+  const idx = (name: string) => p.symbols.findIndex((s) => s.name === name);
+  assert.ok(attr.get(idx("verifySession"))?.has("jwtDecode"));
+  assert.ok(attr.get(idx("helper"))?.has("verifySession"));
+  assert.ok(attr.get(idx("run"))?.has("helper"));
 });
 
 test("non-code files return null", () => {
@@ -200,9 +200,9 @@ test("parses files >= 32 KB without throwing (regression: critical bufferSize bu
 test("builtin method calls (.map/.push/...) do NOT become call edges (regression #4)", () => {
   const src = `function f(xs){ return xs.map(g).filter(h).push(1); }\nfunction g(){} function h(){}`;
   const p = parseSource("m.ts", src)!;
-  const attr = attributeCalls(p); // Map<startByte, Map<callee, memberOnly>>
-  const sb = p.symbols.find((s) => s.name === "f")!.startByte;
-  const callees = attr.get(sb) ?? new Map<string, boolean>();
+  const attr = attributeCalls(p); // Map<symbolIndex, Map<callee, memberOnly>>
+  const idx = p.symbols.findIndex((s) => s.name === "f");
+  const callees = attr.get(idx) ?? new Map<string, boolean>();
   assert.ok(!callees.has("map") && !callees.has("filter") && !callees.has("push"), "no builtin-method edges");
 });
 
@@ -240,18 +240,18 @@ test("parseSource extracts Python symbols, imports, calls", () => {
 test("attributeCalls resolves Python calls to their enclosing symbol", () => {
   const p = parseSource("f.py", PY_SRC)!;
   const attr = attributeCalls(p);
-  const sb = (name: string) => p.symbols.find((s) => s.name === name)!.startByte;
-  assert.ok(attr.get(sb("verify_session"))?.has("decode_token"));
-  assert.ok(attr.get(sb("run"))?.has("verify_session"));
-  assert.ok(attr.get(sb("async_helper"))?.has("verify_session"));
+  const idx = (name: string) => p.symbols.findIndex((s) => s.name === name);
+  assert.ok(attr.get(idx("verify_session"))?.has("decode_token"));
+  assert.ok(attr.get(idx("run"))?.has("verify_session"));
+  assert.ok(attr.get(idx("async_helper"))?.has("verify_session"));
 });
 
 test("Python builtin dict/list/str methods do NOT become call edges", () => {
   const src = `def f(xs):\n    return xs.get("k").strip().append(1)\n\ndef g():\n    pass\n`;
   const p = parseSource("m.py", src)!;
   const attr = attributeCalls(p);
-  const sb = p.symbols.find((s) => s.name === "f")!.startByte;
-  const callees = attr.get(sb) ?? new Map<string, boolean>();
+  const idx = p.symbols.findIndex((s) => s.name === "f");
+  const callees = attr.get(idx) ?? new Map<string, boolean>();
   assert.ok(!callees.has("get") && !callees.has("strip") && !callees.has("append"), "no builtin-method edges");
 });
 
@@ -349,17 +349,17 @@ test("parseSource extracts Go symbols, imports, calls", () => {
 test("attributeCalls resolves Go calls to their enclosing symbol", () => {
   const p = parseSource("f.go", GO_SRC)!;
   const attr = attributeCalls(p);
-  const sb = (name: string) => p.symbols.find((s) => s.name === name)!.startByte;
-  assert.ok(attr.get(sb("VerifySession"))?.has("DecodeToken"));
-  assert.ok(attr.get(sb("Run"))?.has("VerifySession"));
+  const idx = (name: string) => p.symbols.findIndex((s) => s.name === name);
+  assert.ok(attr.get(idx("VerifySession"))?.has("DecodeToken"));
+  assert.ok(attr.get(idx("Run"))?.has("VerifySession"));
 });
 
 test("Go stdlib method/function names (Println/TrimSpace/...) do NOT become call edges", () => {
   const src = "package m\n\nfunc f(x Thing) string {\n\tx.Printf(\"y\")\n\tx.TrimSpace(\"z\")\n\treturn x.Custom()\n}\n";
   const p = parseSource("m.go", src)!;
   const attr = attributeCalls(p);
-  const sb = p.symbols.find((s) => s.name === "f")!.startByte;
-  const callees = attr.get(sb) ?? new Map<string, boolean>();
+  const idx = p.symbols.findIndex((s) => s.name === "f");
+  const callees = attr.get(idx) ?? new Map<string, boolean>();
   assert.ok(!callees.has("Printf") && !callees.has("TrimSpace"), "no builtin-method edges");
   assert.ok(callees.has("Custom"), "repo-specific member call survives");
 });
@@ -402,8 +402,8 @@ test("parseSource extracts a YAML anchor as a \"variable\" symbol plus a whole-f
 test("attributeCalls resolves YAML aliases to the file-root symbol when the alias is NOT nested inside its anchor (the common case)", () => {
   const p = parseSource("config/database.yml", YAML_ANCHOR_SRC)!;
   const attr = attributeCalls(p);
-  const root = p.symbols.find((s) => s.kind === "file")!;
-  const callees = attr.get(root.startByte) ?? new Map<string, boolean>();
+  const rootIdx = p.symbols.findIndex((s) => s.kind === "file");
+  const callees = attr.get(rootIdx) ?? new Map<string, boolean>();
   assert.ok(callees.has("defaults"), "both *defaults aliases should attribute to the file-root symbol");
 });
 
@@ -548,6 +548,23 @@ message: "hello {{ not a template, just a literal string }}"
 tag: &base value
 ref: *base
 `;
+
+const NON_GO_TEMPLATE_TPL_SRC = `<%= not_yaml_or_go_template %>
+  bad: [unterminated
+`;
+
+test("a .tpl file with no Go/Jinja templating markers is still treated as always-templated (finding #2)", () => {
+  // .tpl is a YAML-dialect extension solely for Helm's `_helpers.tpl` convention,
+  // but the extension alone doesn't prove Go-template content: an ERB/Velocity/
+  // plain-text file merely named `.tpl` has no `{{`/`{%` anywhere and, absent this
+  // fix, would be scanned as genuinely-broken YAML (it IS invalid YAML on its own)
+  // and fail-close the whole-repo scan (assertCompleteRepoScan) the same way #33/#36
+  // fixed for content-sniffed templating — except extension-based .tpl inclusion
+  // isn't content-sniffed at all, so those fixes didn't cover it.
+  const p = parseSource("foo.tpl", NON_GO_TEMPLATE_TPL_SRC)!;
+  assert.ok(p, "did not parse");
+  assert.equal(p.parseable, true, "every .tpl file must be treated as inherently templated, regardless of content");
+});
 
 test("known trade-off: a plain YAML file whose STRING VALUE merely contains \"{{\" is treated as templated, but real anchors alongside it are still extracted", () => {
   const p = parseSource("config/literal-braces.yml", FALSE_POSITIVE_SNIFF_SRC)!;
