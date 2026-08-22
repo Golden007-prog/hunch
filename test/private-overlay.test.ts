@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HunchStore } from "../src/store/hunchStore.js";
@@ -170,8 +170,8 @@ test("private overlay: HUNCH_PRIVATE_DIR env overrides .hunch/local.json", () =>
     store.json.ensureDirs();
     assert.equal(store.overlaySource, "environment");
     assert.deepEqual(store.overlayOverride, {
-      configuredDir: resolve(localDir),
-      environmentDir: resolve(envDir),
+      configuredDir: realpathSync(localDir),
+      environmentDir: realpathSync(envDir),
     });
     assert.equal(store.mode, "shared", "the compatibility-sensitive routing mode is inherited, not inverted");
     assert.match(store.overlayResolutionWarning() ?? "", /HUNCH_PRIVATE_DIR redirects this repo/);

@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { SCHEMA_VERSION } from "../src/core/migrate.js";
 import { repositoryUsesRemote, sameRemoteUrl } from "../src/extractors/git.js";
 import { shPath } from "./helpers.js";
 
@@ -256,7 +257,7 @@ test("doctor reports the unified overlay schema instead of the public routing sh
     assert.equal(existsSync(join(fixture.root, ".hunch/manifest.json")), false,
       "the code repository intentionally has no public memory manifest");
     const doctor = expectCli(fixture, ["doctor"], 0);
-    assert.match(doctor, /schema:\s+v2 \(hunch v2\)/);
+    assert.match(doctor, new RegExp(`schema:\\s+v${SCHEMA_VERSION} \\(hunch v${SCHEMA_VERSION}\\)`));
     assert.doesNotMatch(doctor, /run `hunch migrate`/);
   } finally {
     rmSync(base, { recursive: true, force: true });
