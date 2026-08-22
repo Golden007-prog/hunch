@@ -7,6 +7,11 @@
 Install from Open VSX, install the Hunch CLI with
 `npm i -g @davesheffer/hunch`, and run `hunch init` in the repository.
 
+With Hunch CLI v1.18, the editor's structure, impact, and memory views also follow YAML
+anchor/alias references and chart-scoped Helm `define`, `include`, and `template` relationships.
+Templated configuration remains visible before rendering while invalid ordinary YAML still fails
+closed.
+
 Your repo's engineering memory ([Hunch](https://github.com/davesheffer/hunch)), in the editor.
 Memory is captured, committed, and repaired automatically in the background; this extension is
 where you *see* it and where the few decisions that genuinely need a human get asked.

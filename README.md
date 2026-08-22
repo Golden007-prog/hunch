@@ -23,6 +23,9 @@ then a deterministic check of the change against the rules your team has explici
 > relationships survive pre-render syntax without weakening fail-closed handling for ordinary
 > invalid YAML.
 
+Read the [v1.18 release story](https://hunch-pi.vercel.app/blog/post?slug=configuration-joins-the-graph)
+for the graph semantics, chart boundaries, honest limits, and Oliver Sampson's contribution.
+
 See the public [roadmap](ROADMAP.md) for what is next and what is deliberately out of scope.
 
 ## Start in five minutes

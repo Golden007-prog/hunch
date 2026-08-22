@@ -146,7 +146,7 @@
     const localeData = window.BLOG_I18N?.[locale];
     const UI = localeData?.ui || { blogName: "The Hunch Blog", notFound: "Not found", notFoundBody: "That post does not exist.", backToBlog: "Back to the blog", ctaTitle: "Hold your architecture, on every AI change.", ctaBody: "One invariant, one gate, no model in it.", getStarted: "Get started", older: "← Older", newer: "Newer →" };
     const blogBase = locale === "en" ? "/blog" : `/${locale}/blog`;
-    const homeBase = locale === "en" ? "/" : `/${locale}`;
+    const homeBase = locale === "en" ? "" : `/${locale}`;
     const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString(localeData?.dateLocale || "en-US", { month: "short", day: "numeric", year: "numeric" });
     const slug = new URLSearchParams(location.search).get("slug");
     const posts = window.localizeBlogPosts(window.POSTS || [], locale).slice().sort((a, b) => b.date.localeCompare(a.date));
