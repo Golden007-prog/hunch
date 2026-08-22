@@ -93,6 +93,22 @@ Cross-service auth was hand-rolled per service.
 Rejected: the operational cost outweighs the benefit at three services.
 `;
 
+const MADR_DEPRECATED = `---
+status: deprecated
+date: 2024-04-12
+---
+
+# Use a shared deployment account
+
+## Context and Problem Statement
+
+Every service originally deployed through one account.
+
+## Decision Outcome
+
+Use the shared account until per-service identities are available.
+`;
+
 test("parseAdrMarkdown reads MADR frontmatter, options, chosen option, nested consequences", () => {
   const p = parseAdrMarkdown(MADR_ACCEPTED, "docs/adr/0001-use-postgresql.md")!;
   assert.ok(p, "did not parse");
@@ -173,6 +189,34 @@ test("mapAdrCorpus warns on out-of-corpus supersede references instead of guessi
   assert.equal(decisions[0]!.superseded_by, null, "no fabricated id");
   assert.equal(decisions[0]!.status, "superseded", "status still honest");
   assert.ok(warnings.some((w) => w.includes("ADR 4")), warnings.join("; "));
+});
+
+test("a bare deprecated ADR stays visible and preserves its source lifecycle without inventing a successor", () => {
+  const relPath = "docs/adr/0006-use-a-shared-deployment-account.md";
+  const parsed = parseAdrMarkdown(MADR_DEPRECATED, relPath)!;
+  assert.equal(parsed.status, "accepted", "deprecated has no native Decision status, so it remains advisory/live pending review");
+  assert.equal(parsed.statusRaw, "deprecated");
+
+  const { decisions, warnings } = mapAdrCorpus([{ relPath, text: MADR_DEPRECATED }]);
+  assert.equal(decisions[0]!.status, "accepted");
+  assert.equal(decisions[0]!.superseded_by, null);
+  assert.equal(decisions[0]!.valid_to, null, "no closure instant is fabricated");
+  assert.ok(decisions[0]!.provenance.evidence.includes("status: deprecated"), "raw lifecycle remains inspectable");
+  assert.ok(warnings.some((w) => w.includes("deprecated status names no resolvable successor")), warnings.join("; "));
+});
+
+test("deprecated by a corpus successor still closes the historical window", () => {
+  const deprecatedBy = NYGARD_SUPERSEDED.replace("Superseded by", "Deprecated by");
+  const { decisions, warnings } = mapAdrCorpus([
+    { relPath: "doc/adr/0002-store-sessions-in-redis.md", text: deprecatedBy },
+    { relPath: "doc/adr/0004-store-sessions-in-postgres.md", text: NYGARD_SUCCESSOR },
+  ]);
+  const redis = decisions.find((d) => d.related_files[0]!.includes("0002"))!;
+  const pg = decisions.find((d) => d.related_files[0]!.includes("0004"))!;
+  assert.equal(redis.status, "superseded");
+  assert.equal(redis.superseded_by, pg.id);
+  assert.equal(redis.valid_to, "2024-06-01");
+  assert.equal(warnings.length, 0, warnings.join("; "));
 });
 
 test("mapAdrCorpus keeps at most one live decision per topic (highest ADR number wins)", () => {

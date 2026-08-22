@@ -7,7 +7,10 @@
  *   accepted            -> status accepted (live)
  *   proposed/draft      -> status proposed
  *   rejected            -> status rejected
- *   superseded/deprecated -> status superseded, valid_to closed (bi-temporal)
+ *   superseded           -> status superseded, valid_to closed (bi-temporal)
+ *   deprecated + successor -> status superseded, closed at the successor date
+ *   deprecated, bare     -> status accepted with a loud review warning; the raw
+ *                           lifecycle remains in provenance evidence
  *   "Considered Options" minus the chosen one -> alternatives_rejected
  *   file slug           -> topic `adr.<slug>` (namespaced so an import can never
  *                          collide with a live hand-captured topic; the CLI still
@@ -137,7 +140,13 @@ function refNumbers(text: string): number[] {
 
 function mapStatus(raw: string): ParsedAdr["status"] {
   const s = raw.toLowerCase();
-  if (/supersed|deprecat/.test(s)) return "superseded";
+  // MADR permits a bare `deprecated` lifecycle with no replacement relation.
+  // Hunch has no deprecated Decision status, and inventing `superseded` would
+  // silently fabricate a history edge and remove the record from live recall.
+  // Keep it advisory/live unless an explicit successor below proves closure;
+  // provenance retains the source status and the mapper emits a warning.
+  if (/deprecat/.test(s)) return "accepted";
+  if (/supersed/.test(s)) return "superseded";
   if (/reject/.test(s)) return "rejected";
   if (/accept|approv/.test(s)) return "accepted";
   return "proposed";
@@ -253,6 +262,9 @@ export function mapAdrCorpus(sources: AdrSource[]): AdrImportResult {
 
   const decisions: Decision[] = parsed.map((p) => {
     const successor = p.supersededByNumbers.map((n) => byNumber.get(n)).find(Boolean) ?? null;
+    if (/deprecat/i.test(p.statusRaw) && !successor) {
+      warnings.push(`${p.relPath}: deprecated status names no resolvable successor — kept in force as accepted; raw status remains in provenance evidence, review and record an explicit successor or rejection`);
+    }
     const superseded = p.status === "superseded" || !!successor;
     const validTo = superseded ? (successor?.date ?? p.date) : null;
     const alternatives = p.consideredOptions.filter(

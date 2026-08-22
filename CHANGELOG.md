@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Deprecated MADR records no longer invent a successor
+
+`hunch import-adr` now distinguishes a bare `deprecated` lifecycle from an explicit replacement.
+A named successor still closes the decision window; without one, Hunch keeps the imported record
+visible as advisory accepted memory, preserves the raw lifecycle in provenance, and emits a warning
+that asks for an explicit successor or rejection instead of silently fabricating history.
+
 ## 1.17.0 — 2026-08-18
 
 ### The projection notices when it rots
