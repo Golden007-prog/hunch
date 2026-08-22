@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.18.0 — 2026-08-22
+
+### YAML and Helm enter the graph
+
+YAML anchors are now symbols and aliases are reference edges, so configuration dependencies
+participate in blast radius without pretending to be function calls. Helm helper definitions and
+`include` / `template` uses are extracted only inside the nearest `Chart.yaml` scope; duplicate
+names in separate charts and unrelated languages do not fabricate edges. `.tpl` files and
+Helm/Jinja-templated YAML remain indexable before rendering, while invalid ordinary YAML still
+fails closed and GitHub Actions `${{ }}` expressions are not mistaken for Helm syntax.
+
+The merge also fixes two graph-integrity seams surfaced by YAML: root-level files now belong to an
+exact-file component instead of a repository-wide `./**` glob, and call attribution keys on a
+symbol's stable array position so overlapping synthetic YAML/Helm symbols cannot collapse at byte
+zero. YAML and Helm support was contributed by Oliver Sampson and reconciled with the current Go,
+HLG, and schema-generation contracts before release.
+
+### A repository becomes a versioned landscape fragment
+
+The Engineering Landscape Graph begins as an additive view over the existing source of truth.
+Stable kind-qualified resource IDs, directional relationship IDs, lifecycle, credential-free
+locators, provenance/currentness, forward migration, and rebuildable SQLite projections now have
+an executable contract. The first bounded discovery slice reads an exact Git revision and emits
+reviewable package/workspace and canonical Git-remote candidates with field-level evidence; it
+does not write authority, retain credentials or local paths, or make Hunch an orchestrator.
+
+Retrieval benchmark floors now run against a disposable fresh graph, publication vocabulary caches
+are store-scoped, and effective private/team memory routing is explicit in diagnostics. These close
+silent-regression and cross-repository contamination paths without changing enforcement authority.
+
 ## 1.17.0 — 2026-08-18
 
 ### The projection notices when it rots

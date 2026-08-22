@@ -18,10 +18,10 @@ strict enforcement.
 **Memory is the input. The product boundary is the receipt:** relevant evidence before an edit,
 then a deterministic check of the change against the rules your team has explicitly trusted.
 
-> **New in v1.17.0:** an exported ADR corpus now tracks the graph automatically and reports its
-> own drift (`madr-stale` / `madr-edited` / `madr-orphan`), and retrieval ranks recorded intent
-> above code symbols that merely share the query's vocabulary — Recall@10 70% → 90% on the
-> curated benchmark.
+> **New in v1.18.0:** YAML and Helm now enter the same dependency graph as application code.
+> Anchors and aliases become reference edges; chart-scoped `define`, `include`, and `template`
+> relationships survive pre-render syntax without weakening fail-closed handling for ordinary
+> invalid YAML.
 
 See the public [roadmap](ROADMAP.md) for what is next and what is deliberately out of scope.
 
@@ -51,8 +51,8 @@ to the same graph. It merges into existing configuration instead of replacing it
 - **Change receipts** — review a working tree, commit, or branch against recorded intent and get a
   cited PASS / WARN / BLOCK result.
 - **Bug lineage** — understand which old incident a line fixed before accidentally undoing it.
-- **Code awareness** — TypeScript, JavaScript, Python, Go, and YAML structure feed dependency,
-  blast-radius, and redundancy checks. The reasoning layer works with any language.
+- **Code awareness** — TypeScript, JavaScript, Python, Go, YAML, and chart-scoped Helm templates
+  feed dependency, blast-radius, and redundancy checks. The reasoning layer works with any language.
 - **ADR interop** — `hunch import-adr` populates the graph from an existing MADR/Nygard corpus;
   `hunch export-adr` projects it back as standard MADR any ADR reader understands, and the
   projection then tracks the graph automatically and reports its own drift.
@@ -89,7 +89,7 @@ Git repo that every teammate can access, install the Matrix release on team mach
 have one maintainer run:
 
 ```bash
-npm i -g @davesheffer/hunch@1.17.0
+npm i -g @davesheffer/hunch@1.18.0
 hunch shared --repo git@github.com:acme/project-hunch-memory.git
 git add .gitignore .hunch/team.json
 git commit -m "chore: connect shared Hunch memory"
@@ -104,7 +104,7 @@ printed by Hunch. Omit `--migrate` for a new setup.
 After the pointer commit lands, teammates need Hunch installed and Git access to the memory repo:
 
 ```bash
-npm i -g @davesheffer/hunch@1.17.0
+npm i -g @davesheffer/hunch@1.18.0
 git pull
 hunch init
 hunch doctor
