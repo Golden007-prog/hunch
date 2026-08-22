@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.1 — 2026-08-22
+
+### Deprecated ADRs no longer invent successors
+
+`hunch import-adr` now distinguishes a bare `deprecated` lifecycle from an explicit replacement.
+A named successor still closes the decision window; without one, Hunch keeps the imported record
+visible as advisory accepted memory, preserves the raw lifecycle in provenance, and emits a warning
+asking for an explicit successor or rejection instead of silently fabricating history.
+
 ## 1.18.0 — 2026-08-22
 
 ### YAML and Helm enter the graph
