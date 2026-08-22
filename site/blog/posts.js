@@ -3,10 +3,71 @@
    global so it works on a static host with no build step. */
 window.POSTS = [
   {
+    slug: "configuration-joins-the-graph",
+    title: "Hunch 1.18: your configuration is part of the architecture",
+    dek: "A service can be perfectly layered in TypeScript and quietly rewired in YAML. Hunch 1.18 brings YAML anchors, aliases, and Helm helpers into the same dependency graph — without pretending templating is executable code or accepting broken configuration.",
+    date: "2026-08-22", tag: "Release", read: "7 min", pinned: true,
+    body: `
+<p class="lead">Architecture does not stop where application code ends. A deployment can redirect a service, reuse the wrong credential block, or pull in a chart helper that changes labels across every workload — while the TypeScript, Python, and Go graphs remain perfectly clean. <strong>Hunch 1.18 makes those configuration relationships visible in the same graph as the code they shape.</strong></p>
+
+<h2>YAML reuse is a dependency, not a function call</h2>
+<p>YAML anchors and aliases encode real reuse. Before 1.18, Hunch could preserve the decision explaining a configuration file, but its structural graph could not tell that changing an anchor also changes every alias that refers to it. Now anchors are indexed as symbols and aliases become <code>references</code> edges:</p>
+<pre><code>defaults: &amp;service_defaults
+  timeout: 30
+  retries: 3
+
+checkout:
+  &lt;&lt;: *service_defaults</code></pre>
+<p>That distinction is deliberate. An alias is not a call, so Hunch does not manufacture call-graph semantics around it. It is still a dependency, which means structure, impact, blast radius, and component relationships can follow it truthfully.</p>
+
+<h2>Helm helpers resolve inside the chart that owns them</h2>
+<p>Helm adds a second graph that exists before Kubernetes ever sees rendered YAML. A helper defined in <code>_helpers.tpl</code> may be included by many templates, and two charts can legally use the same helper name. Hunch now extracts literal <code>define</code>, <code>include</code>, and <code>template</code> relationships, then resolves them only inside the nearest <code>Chart.yaml</code> boundary:</p>
+<pre><code>{{- define "store.labels" -}}
+app.kubernetes.io/name: {{ .Chart.Name }}
+{{- end -}}
+
+metadata:
+  labels:
+    {{- include "store.labels" . | nindent 4 }}</code></pre>
+<p>Chart scoping matters more than matching the words. Without it, a monorepo containing two <code>common.labels</code> helpers would fabricate an edge between unrelated deployments. With it, the same name remains local to the chart that defines its meaning.</p>
+
+<h2>Pre-render visibility without a permissive parser</h2>
+<p>Templated YAML is not valid ordinary YAML until a renderer fills the holes. Hunch needs to index it before rendering, but broadly accepting parse errors would make the graph lie about genuinely broken configuration. The boundary in 1.18 is narrow:</p>
+<ul>
+<li><strong>Helm and Jinja-shaped templates remain indexable before rendering.</strong></li>
+<li><strong>Invalid ordinary YAML still fails closed.</strong> A syntax error does not become acceptable merely because templated YAML exists elsewhere.</li>
+<li><strong>GitHub Actions expressions are not treated as Helm.</strong> The shared <code>{{ }}</code> punctuation does not grant Helm semantics to an unrelated file.</li>
+</ul>
+<p>The implementation uses the normal YAML grammar for YAML structure and a bounded raw-text scan for Helm actions, because the YAML parse tree intentionally does not preserve enough Go-template content to query. That separation keeps each extractor honest about what it knows.</p>
+
+<h2>The graph-integrity fixes configuration exposed</h2>
+<p>Adding a new language surface found two older assumptions worth fixing. Root-level files used to belong to a broad <code>./**</code> component path, which could make the repository root claim files already owned by a nested component. Root membership is now an exact file list. Synthetic YAML and Helm symbols can also begin at the same byte; attribution now keys on each symbol's stable array position so those overlapping ranges cannot collapse into one identity.</p>
+<p>Those are not YAML features in isolation. They make every component and every synthetic extractor more truthful.</p>
+
+<h2>A repository can now describe its place in a larger landscape</h2>
+<p>1.18 also begins the Engineering Landscape Graph as an additive, versioned view over Hunch's existing source of truth. At an exact Git revision, Hunch can emit reviewable package/workspace and canonical Git-remote candidates with field-level evidence. The boundary is intentionally conservative: discovery does not retain credentials or local paths, write authority, or orchestration behavior. It describes a repository fragment; ORC remains the layer that may compose fragments into outcomes.</p>
+
+<h2>Honest limits</h2>
+<p>Hunch is not a Helm renderer. It does not evaluate values, execute templates, or guess dynamically constructed helper names; helper edges require a literal quoted name. The Helm sidecar is a bounded token scan, so Helm-shaped text inside a template comment can produce a phantom reference. Chart-wide lookup can also over-approximate an alias in already-invalid YAML when the matching anchor exists only in a sibling chart file. These failure modes are documented and regression-pinned rather than hidden behind a claim of full template understanding.</p>
+
+<h2>Community work, reconciled into the current graph</h2>
+<p>YAML and Helm support was contributed by <strong>Oliver Sampson</strong>. The release preserves that authorship and reconciles the contribution with the current language registry, component model, schema generation, release gates, and cross-platform native parser matrix. The result is not a side parser bolted onto Hunch; it is another conservative input to the graph every downstream receipt already uses.</p>
+
+<h2>Upgrade</h2>
+<pre><code>npm i -g @davesheffer/hunch@1.18.0
+cd your-repo
+hunch index
+hunch structure path/to/chart
+hunch impact origin/main</code></pre>
+<p>The published package is provenance-attested to the exact <code>v1.18.0</code> source tag. If configuration carries part of your architecture, Hunch can finally include that part in the receipt.</p>
+`,
+  },
+
+  {
     slug: "exports-that-notice-when-they-rot",
     title: "Hunch 1.17: exports that notice when they rot",
     dek: "A derived view that cannot detect its own staleness is a liar with good formatting. 1.16 taught the graph to project itself as a standard ADR corpus; 1.17 makes that projection self-aware: it reports its own drift, refreshes itself on every commit, and protects a human's edit by what the file says, not what it happens to be called. Plus: retrieval now ranks recorded intent above code that merely shares your question's vocabulary.",
-    date: "2026-08-19", tag: "Release", read: "6 min", pinned: true,
+    date: "2026-08-19", tag: "Release", read: "6 min", pinned: false,
     body: `
 <p class="lead">Hunch's rule for derived artifacts has always been the same: <strong>the graph is the source of truth, everything rendered from it is disposable.</strong> The wiki obeys it — pages are hash-tracked, and a page whose graph inputs moved shows up as <code>wiki-stale</code> drift. But 1.16's MADR export quietly broke the symmetry: it could write <code>docs/adr/</code>, and then nothing ever noticed the graph moving underneath it. An exported decision record could sit in your repo confidently wrong forever — which for a memory tool is the exact failure it exists to prevent, wearing the tool's own file format.</p>
 
