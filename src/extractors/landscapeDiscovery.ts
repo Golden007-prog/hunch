@@ -95,7 +95,8 @@ export type LandscapeDiscoveryIssueCode =
   | "delivery_declaration_oversized"
   | "delivery_declaration_mode"
   | "delivery_declaration_path"
-  | "delivery_declaration_limit";
+  | "delivery_declaration_limit"
+  | "delivery_declaration_conflict";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -149,8 +150,8 @@ interface McpDeclaration {
 interface DeliveryDeclarationSpec {
   evidenceKind: "ci_declaration" | "deployment_declaration";
   resourceKind: "pipeline" | "artifact" | "deployment_target";
-  provider: "github_actions" | "gitlab_ci" | "circleci" | "buildkite" | "jenkins" | "docker" | "docker_compose";
-  format: "yaml" | "dockerfile" | "jenkinsfile";
+  provider: "github_actions" | "gitlab_ci" | "circleci" | "buildkite" | "jenkins" | "docker" | "docker_compose" | "kubernetes" | "systemd";
+  format: "yaml" | "dockerfile" | "jenkinsfile" | "kubernetes_yaml" | "systemd_unit";
   sourceField: string;
   relationship: "contains" | "builds" | "deploys";
 }
@@ -163,6 +164,12 @@ interface DeliveryDeclaration {
   path: string;
   contentHash: string;
   spec: DeliveryDeclarationSpec;
+  sourceField?: string;
+  identitySuffix?: string;
+  displayName?: string;
+  locatorSuffix?: string;
+  contractVersion?: string;
+  metadata?: Record<string, string | number | boolean | null>;
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -952,6 +959,26 @@ function deliveryDeclarationSpec(path: string): DeliveryDeclarationSpec | null {
       relationship: "deploys",
     };
   }
+  if (/(^|\/)(?:k8s|kubernetes|manifests|deploy)\/.+\.ya?ml$/.test(path)) {
+    return {
+      evidenceKind: "deployment_declaration",
+      resourceKind: "deployment_target",
+      provider: "kubernetes",
+      format: "kubernetes_yaml",
+      sourceField: "metadata.name",
+      relationship: "deploys",
+    };
+  }
+  if (/(^|\/)[^/]+\.service$/.test(path)) {
+    return {
+      evidenceKind: "deployment_declaration",
+      resourceKind: "deployment_target",
+      provider: "systemd",
+      format: "systemd_unit",
+      sourceField: "[Service]",
+      relationship: "deploys",
+    };
+  }
   return null;
 }
 
@@ -1030,12 +1057,218 @@ function deliveryDeclarationBlobs(root: string, revision: string): { blobs: Deli
   return { blobs, total };
 }
 
+const KUBERNETES_WORKLOAD_KINDS = new Set(["Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod"]);
+
+interface KubernetesDocumentHeader {
+  apiVersion: string | null | undefined;
+  kind: string | null | undefined;
+  name: string | null | undefined;
+  namespace: string | null | undefined;
+  duplicate: boolean;
+}
+
+function stripYamlScalarComment(input: string): string {
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]!;
+    if (quote === "\"") {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === "'" && input[index + 1] === "'") index += 1;
+      else if (char === "'") quote = null;
+      continue;
+    }
+    if (char === "\"" || char === "'") quote = char;
+    else if (char === "#" && (index === 0 || /\s/.test(input[index - 1]!))) return input.slice(0, index);
+  }
+  return input;
+}
+
+function boundedYamlScalar(input: string): string | null {
+  const value = stripYamlScalarComment(input).trim();
+  if (!value || value.length > 512) return null;
+  let parsed: string;
+  if (value.startsWith("\"")) {
+    if (!value.endsWith("\"")) return null;
+    try {
+      const decoded = JSON.parse(value) as unknown;
+      if (typeof decoded !== "string") return null;
+      parsed = decoded;
+    } catch {
+      return null;
+    }
+  } else if (value.startsWith("'")) {
+    if (!value.endsWith("'")) return null;
+    const inner = value.slice(1, -1);
+    let decoded = "";
+    for (let index = 0; index < inner.length; index += 1) {
+      const char = inner[index]!;
+      if (char !== "'") {
+        decoded += char;
+        continue;
+      }
+      if (inner[index + 1] !== "'") return null;
+      decoded += "'";
+      index += 1;
+    }
+    parsed = decoded;
+  } else {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/@-]{0,255}$/.test(value)) return null;
+    parsed = value;
+  }
+  return parsed.length > 0 && parsed.length <= 256
+    && !/[\u0000-\u001f\u007f]/.test(parsed)
+    && isCredentialFreeText(parsed)
+    ? parsed
+    : null;
+}
+
+function kubernetesYamlDocuments(source: string): Array<{ index: number; source: string }> {
+  return source
+    .split(/^(?:---|\.\.\.)[ \t]*(?:#.*)?\r?$/m)
+    .map((document, index) => ({ index, source: document }))
+    .filter((document) => document.source.split(/\r?\n/)
+      .some((line) => !!line.trim() && !line.trimStart().startsWith("#")));
+}
+
+function kubernetesDocumentHeader(source: string): KubernetesDocumentHeader {
+  const header: KubernetesDocumentHeader = {
+    apiVersion: undefined,
+    kind: undefined,
+    name: undefined,
+    namespace: undefined,
+    duplicate: false,
+  };
+  let metadataIndent: number | null = null;
+  let metadataChildIndent: number | null = null;
+  const assign = (field: "apiVersion" | "kind" | "name" | "namespace", raw: string): void => {
+    if (header[field] !== undefined) {
+      header.duplicate = true;
+      return;
+    }
+    header[field] = boundedYamlScalar(raw);
+  };
+  for (const rawLine of source.split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue;
+    const indentation = rawLine.match(/^ */)![0].length;
+    const mapping = rawLine.slice(indentation).match(/^([A-Za-z][A-Za-z0-9_-]*)[ \t]*:(.*)$/);
+    if (indentation === 0) {
+      metadataIndent = null;
+      metadataChildIndent = null;
+      if (!mapping) continue;
+      const [_, key, raw] = mapping;
+      if (key === "apiVersion" || key === "kind") assign(key, raw!);
+      else if (key === "metadata" && !stripYamlScalarComment(raw!).trim()) metadataIndent = 0;
+      continue;
+    }
+    if (metadataIndent === null || indentation <= metadataIndent || !mapping) continue;
+    if (metadataChildIndent === null) metadataChildIndent = indentation;
+    if (indentation !== metadataChildIndent) continue;
+    const [_, key, raw] = mapping;
+    if (key === "name" || key === "namespace") assign(key, raw!);
+  }
+  return header;
+}
+
+function validKubernetesApiVersion(value: string): boolean {
+  return value.length <= 128 && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\/v[0-9][a-z0-9]*$|^v[0-9][a-z0-9]*$/i.test(value);
+}
+
+function validKubernetesName(value: string): boolean {
+  return value.length <= 253 && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(value);
+}
+
+function validKubernetesNamespace(value: string): boolean {
+  return value.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(value);
+}
+
+function kubernetesDeclarations(
+  blob: DeliveryDeclarationBlob,
+  source: string,
+  issues: LandscapeDiscoveryIssue[],
+): DeliveryDeclaration[] {
+  const candidates: Array<DeliveryDeclaration & { identity: string; documentIndex: number }> = [];
+  for (const document of kubernetesYamlDocuments(source)) {
+    const header = kubernetesDocumentHeader(document.source);
+    if (header.duplicate) {
+      issues.push({
+        code: "delivery_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: `documents[${document.index}]`,
+        detail: `${blob.path} document ${document.index} repeats a Kubernetes identity field`,
+      });
+      continue;
+    }
+    if (typeof header.kind !== "string" || !KUBERNETES_WORKLOAD_KINDS.has(header.kind)) continue;
+    const namespace = header.namespace === undefined ? "default" : header.namespace;
+    if (typeof header.apiVersion !== "string" || !validKubernetesApiVersion(header.apiVersion)
+      || typeof header.name !== "string" || !validKubernetesName(header.name)
+      || typeof namespace !== "string" || !validKubernetesNamespace(namespace)) {
+      issues.push({
+        code: "delivery_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: `documents[${document.index}].metadata.name`,
+        detail: `${blob.path} document ${document.index} has an incomplete or unsafe Kubernetes workload identity`,
+      });
+      continue;
+    }
+    const identity = `${header.apiVersion.toLowerCase()}/${header.kind.toLowerCase()}/${namespace}/${header.name}`;
+    candidates.push({
+      path: blob.path,
+      contentHash: blob.contentHash!,
+      spec: blob.spec!,
+      sourceField: `documents[${document.index}].metadata.name`,
+      identitySuffix: identity,
+      displayName: `Kubernetes ${header.kind}: ${namespace}/${header.name}`,
+      locatorSuffix: `#document=${document.index}`,
+      contractVersion: header.apiVersion,
+      metadata: {
+        document_index: document.index,
+        kubernetes_kind: header.kind,
+        kubernetes_namespace: namespace,
+      },
+      identity,
+      documentIndex: document.index,
+    });
+  }
+  const byIdentity = new Map<string, Array<DeliveryDeclaration & { identity: string; documentIndex: number }>>();
+  for (const declaration of candidates) {
+    const group = byIdentity.get(declaration.identity) ?? [];
+    group.push(declaration);
+    byIdentity.set(declaration.identity, group);
+  }
+  const declarations: DeliveryDeclaration[] = [];
+  for (const identity of [...byIdentity.keys()].sort(compareCodeUnits)) {
+    const group = byIdentity.get(identity)!;
+    if (group.length > 1) {
+      issues.push({
+        code: "delivery_declaration_conflict",
+        sourcePath: blob.path,
+        sourceField: "documents.metadata.name",
+        detail: `${blob.path} repeats one Kubernetes workload identity across ${group.length} documents; identity remains unresolved`,
+      });
+      continue;
+    }
+    const { identity: _, documentIndex: __, ...declaration } = group[0]!;
+    declarations.push(declaration);
+  }
+  return declarations;
+}
+
 function validDeliveryDeclaration(path: string, spec: DeliveryDeclarationSpec, source: string): boolean {
   if (spec.format === "dockerfile") {
     return /^\s*FROM(?:\s+--platform=(?:"[^"]*"|'[^']*'|\S+))?\s+\S+/im.test(source);
   }
   if (spec.format === "jenkinsfile") {
     return /^\s*(?:pipeline|node)\s*\{/m.test(source);
+  }
+  if (spec.format === "systemd_unit") {
+    return source.split(/\r?\n/).some((line) => /^\s*\[Service\]\s*$/.test(line));
   }
   const parsed = parseSource(path, source);
   if (!parsed?.parseable) return false;
@@ -1047,13 +1280,19 @@ function validDeliveryDeclaration(path: string, spec: DeliveryDeclarationSpec, s
 
 function deliveryDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): DeliveryDeclaration[] {
   const discovered = deliveryDeclarationBlobs(root, revision);
-  if (discovered.total > MAX_DELIVERY_DECLARATIONS) {
+  let limitReported = false;
+  const reportLimit = (sourcePath: string): void => {
+    if (limitReported) return;
+    limitReported = true;
     issues.push({
       code: "delivery_declaration_limit",
-      sourcePath: ".",
+      sourcePath,
       sourceField: "delivery",
-      detail: `repository exposes ${discovered.total} supported delivery declarations; bounded discovery accepts at most ${MAX_DELIVERY_DECLARATIONS}`,
+      detail: `bounded discovery accepts at most ${MAX_DELIVERY_DECLARATIONS} delivery declarations`,
     });
+  };
+  if (discovered.total > MAX_DELIVERY_DECLARATIONS) {
+    reportLimit(".");
   }
   const declarations: DeliveryDeclaration[] = [];
   for (const blob of discovered.blobs) {
@@ -1075,6 +1314,10 @@ function deliveryDeclarations(root: string, revision: string, issues: LandscapeD
       });
       continue;
     }
+    if (declarations.length >= MAX_DELIVERY_DECLARATIONS) {
+      reportLimit(blob.path);
+      continue;
+    }
     let source: string;
     try {
       source = UTF8_DECODER.decode(blob.bytes);
@@ -1087,6 +1330,23 @@ function deliveryDeclarations(root: string, revision: string, issues: LandscapeD
       });
       continue;
     }
+    if (blob.spec.format === "kubernetes_yaml") {
+      const parsed = parseSource(blob.path, source);
+      if (!parsed?.parseable) {
+        issues.push({
+          code: "delivery_declaration_invalid",
+          sourcePath: blob.path,
+          sourceField: blob.spec.sourceField,
+          detail: `${blob.path} is not structurally valid Kubernetes YAML`,
+        });
+        continue;
+      }
+      const workloads = kubernetesDeclarations(blob, source, issues);
+      const remaining = MAX_DELIVERY_DECLARATIONS - declarations.length;
+      if (workloads.length > remaining) reportLimit(blob.path);
+      declarations.push(...workloads.slice(0, remaining));
+      continue;
+    }
     if (!validDeliveryDeclaration(blob.path, blob.spec, source)) {
       issues.push({
         code: "delivery_declaration_invalid",
@@ -1096,7 +1356,12 @@ function deliveryDeclarations(root: string, revision: string, issues: LandscapeD
       });
       continue;
     }
-    declarations.push({ path: blob.path, contentHash: blob.contentHash!, spec: blob.spec });
+    declarations.push({
+      path: blob.path,
+      contentHash: blob.contentHash!,
+      spec: blob.spec,
+      metadata: blob.spec.provider === "systemd" ? { unit_name: posix.basename(blob.path) } : undefined,
+    });
   }
   return declarations;
 }
@@ -1107,16 +1372,20 @@ function deliveryResourceKey(declaration: DeliveryDeclaration): string {
     : declaration.spec.provider === "docker_compose"
       ? "docker-compose"
       : declaration.spec.provider.replaceAll("_", "-");
-  return `${prefix}/${declaration.path}`;
+  const pathKey = `${prefix}/${declaration.path}`;
+  return declaration.identitySuffix ? `${pathKey}#${declaration.identitySuffix}` : pathKey;
 }
 
 function deliveryResourceName(declaration: DeliveryDeclaration): string {
+  if (declaration.displayName) return declaration.displayName.slice(0, 256);
   const base = posix.basename(declaration.path).replace(/\.ya?ml$/, "");
   const label = declaration.spec.resourceKind === "pipeline"
     ? `${declaration.spec.provider.replaceAll("_", " ")} pipeline: ${base}`
     : declaration.spec.resourceKind === "artifact"
       ? `container image declared by ${base}`
-      : `Docker Compose deployment: ${base}`;
+      : declaration.spec.provider === "systemd"
+        ? `systemd service: ${base}`
+        : `Docker Compose deployment: ${base}`;
   return label.slice(0, 256);
 }
 
@@ -1410,7 +1679,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
     const evidence: LandscapeCandidateEvidence = {
       kind: declaration.spec.evidenceKind,
       sourcePath: declaration.path,
-      sourceField: declaration.spec.sourceField,
+      sourceField: declaration.sourceField ?? declaration.spec.sourceField,
       sourceRevision: revision,
       sourceContentHash: declaration.contentHash,
     };
@@ -1420,8 +1689,9 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       kind: declaration.spec.resourceKind,
       name: deliveryResourceName(declaration),
       scope: repositoryRecord ? [repositoryRecord.id] : [],
-      locator: declaration.path,
+      locator: `${declaration.path}${declaration.locatorSuffix ?? ""}`,
       lifecycle: "active",
+      contract_version: declaration.contractVersion,
       provenance: {
         source: `extracted:${declaration.spec.evidenceKind}`,
         confidence: 0.8,
@@ -1433,6 +1703,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
         declaration_path: declaration.path,
         declaration_format: declaration.spec.format,
         provider: declaration.spec.provider,
+        ...declaration.metadata,
       },
       created_at: timestamp,
       updated_at: timestamp,

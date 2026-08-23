@@ -444,6 +444,118 @@ RUN echo "$PRIVATE_BUILD_VALUE"
     "working-tree delivery edits cannot alter exact-revision discovery");
 });
 
+test("HLG-2 discovers structured Kubernetes workloads and systemd units without retaining operational bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "k8s/workloads.yaml",
+        raw: true,
+        value: `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  namespace: payments
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          image: private.example.test/supersecret-kubernetes-image
+          env:
+            - name: PASSWORD
+              value: supersecret-kubernetes-password
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reconcile
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: job
+              image: private.example.test/supersecret-cron-image
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intentionally-not-a-workload
+data:
+  private-value: supersecret-config-value
+`,
+      },
+      {
+        path: "systemd/hunch-worker.service",
+        raw: true,
+        value: `[Unit]
+Description=Hunch worker
+
+[Service]
+Environment=ACCESS_TOKEN=supersecret-systemd-value
+ExecStart=/private/path/hunch-worker --private-argument
+`,
+      },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const targets = first.resources.filter((item) => item.record.kind === "deployment_target");
+  assert.deepEqual(targets.map((item) => item.record.id), [
+    "deployment_target:kubernetes/k8s/workloads.yaml#apps/v1/deployment/payments/payments-api",
+    "deployment_target:kubernetes/k8s/workloads.yaml#batch/v1/cronjob/default/reconcile",
+    "deployment_target:systemd/systemd/hunch-worker.service",
+  ]);
+  assert.deepEqual(targets.map((item) => item.record.contract_version), ["apps/v1", "batch/v1", undefined]);
+  assert.deepEqual(targets.slice(0, 2).map((item) => item.record.metadata.kubernetes_kind), ["Deployment", "CronJob"]);
+  assert.deepEqual(targets.slice(0, 2).map((item) => item.record.metadata.kubernetes_namespace), ["payments", "default"]);
+  assert.deepEqual(targets.slice(0, 2).map((item) => item.evidence[0]!.sourceField), [
+    "documents[0].metadata.name",
+    "documents[1].metadata.name",
+  ]);
+  assert.equal(first.relationships.filter((item) => item.record.type === "deploys").length, 3);
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /supersecret|ACCESS_TOKEN|PASSWORD|private-argument|private\/path/i,
+    "images, commands, environment values, and non-workload data never enter the candidate fragment");
+
+  writeFileSync(join(root, "k8s/workloads.yaml"), "apiVersion: v1\nkind: Pod\nmetadata:\n  name: changed-working-copy\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree Kubernetes changes cannot alter exact-revision discovery");
+});
+
+test("HLG-2 leaves unsafe, malformed, templated, and duplicate deployment identities unresolved", (t) => {
+  const duplicate = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: duplicate-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: duplicate-api
+`;
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "k8s/broken.yaml", raw: true, value: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: [unterminated" },
+      { path: "k8s/duplicate.yaml", raw: true, value: duplicate },
+      { path: "k8s/templated.yaml", raw: true, value: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Values.privateName }}\n" },
+      { path: "k8s/configmap.yaml", raw: true, value: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: safe-config\n" },
+      { path: "systemd/broken.service", raw: true, value: "[Unit]\nDescription=No service section\n" },
+      { path: "systemd/token=supersecret-path.service", raw: true, value: "[Service]\nExecStart=/safe/path\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "deployment_target"), false);
+  assert.equal(result.issues.filter((issue) => issue.code === "delivery_declaration_invalid").length, 3);
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_conflict"));
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_path"));
+  assert.doesNotMatch(JSON.stringify(result), /supersecret-path|privateName|unterminated/i);
+});
+
 test("HLG-2 reports malformed, oversized, and secret-bearing delivery declarations without echoing unsafe content", (t) => {
   const oversized = `jobs:\n  build:\n    steps:\n${"      - run: echo bounded\n".repeat(12_000)}`;
   const { root } = repository(t, {
@@ -481,6 +593,23 @@ test("HLG-2 bounds delivery declaration count before blob hydration and candidat
   assert.equal(result.resources.filter((item) => item.record.kind === "pipeline").length, 128);
   assert.equal(result.relationships.filter((item) => item.record.type === "contains"
     && item.record.to.startsWith("pipeline:")).length, 128);
+});
+
+test("HLG-2 bounds logical workloads when one Kubernetes file contains more than the declaration cap", (t) => {
+  const workloads = Array.from({ length: 129 }, (_, index) => `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workload-${String(index).padStart(3, "0")}
+`).join("---\n");
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [{ path: "k8s/workloads.yaml", raw: true, value: workloads }],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_limit"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "deployment_target").length, 128);
+  assert.equal(result.relationships.filter((item) => item.record.type === "deploys").length, 128);
 });
 
 test("HLG-2 never follows a delivery declaration symlink", (t) => {
