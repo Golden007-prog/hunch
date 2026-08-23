@@ -5,6 +5,7 @@ import { TextDecoder } from "node:util";
 import { compareCodeUnits } from "../core/canonicalOrder.js";
 import { resourceId, resourceRelationshipId } from "../core/ids.js";
 import { parseJsonc } from "../core/jsonc.js";
+import { parseSource } from "./parse.js";
 import {
   EdgeSchema,
   ResourceSchema,
@@ -27,6 +28,8 @@ const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MANIFESTS = 128;
 const MAX_MCP_CONFIG_BYTES = 256 * 1024;
 const MAX_MCP_DECLARATIONS = 128;
+const MAX_DELIVERY_DECLARATION_BYTES = 256 * 1024;
+const MAX_DELIVERY_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -46,7 +49,13 @@ const MCP_CONFIG_SPECS: readonly McpConfigSpec[] = [
 ];
 const MCP_CONFIG_BY_PATH = new Map<string, McpConfigSpec>(MCP_CONFIG_SPECS.map((spec) => [spec.path, spec]));
 
-export type LandscapeEvidenceKind = "package_manifest" | "git_remote" | "git_history" | "mcp_declaration";
+export type LandscapeEvidenceKind =
+  | "package_manifest"
+  | "git_remote"
+  | "git_history"
+  | "mcp_declaration"
+  | "ci_declaration"
+  | "deployment_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -81,7 +90,12 @@ export type LandscapeDiscoveryIssueCode =
   | "mcp_server_name_invalid"
   | "mcp_declaration_invalid"
   | "mcp_declaration_conflict"
-  | "mcp_declaration_limit";
+  | "mcp_declaration_limit"
+  | "delivery_declaration_invalid"
+  | "delivery_declaration_oversized"
+  | "delivery_declaration_mode"
+  | "delivery_declaration_path"
+  | "delivery_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -130,6 +144,25 @@ interface McpDeclaration {
   locator: string | null;
   descriptorHash: string;
   evidence: LandscapeCandidateEvidence;
+}
+
+interface DeliveryDeclarationSpec {
+  evidenceKind: "ci_declaration" | "deployment_declaration";
+  resourceKind: "pipeline" | "artifact" | "deployment_target";
+  provider: "github_actions" | "gitlab_ci" | "circleci" | "buildkite" | "jenkins" | "docker" | "docker_compose";
+  format: "yaml" | "dockerfile" | "jenkinsfile";
+  sourceField: string;
+  relationship: "contains" | "builds" | "deploys";
+}
+
+interface DeliveryDeclarationBlob extends ManifestBlob {
+  spec: DeliveryDeclarationSpec | null;
+}
+
+interface DeliveryDeclaration {
+  path: string;
+  contentHash: string;
+  spec: DeliveryDeclarationSpec;
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -848,6 +881,245 @@ function mcpDeclarations(root: string, revision: string, issues: LandscapeDiscov
   ));
 }
 
+function deliveryDeclarationSpec(path: string): DeliveryDeclarationSpec | null {
+  if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(path)) {
+    return {
+      evidenceKind: "ci_declaration",
+      resourceKind: "pipeline",
+      provider: "github_actions",
+      format: "yaml",
+      sourceField: "jobs",
+      relationship: "contains",
+    };
+  }
+  if (path === ".gitlab-ci.yml") {
+    return {
+      evidenceKind: "ci_declaration",
+      resourceKind: "pipeline",
+      provider: "gitlab_ci",
+      format: "yaml",
+      sourceField: "$",
+      relationship: "contains",
+    };
+  }
+  if (path === ".circleci/config.yml") {
+    return {
+      evidenceKind: "ci_declaration",
+      resourceKind: "pipeline",
+      provider: "circleci",
+      format: "yaml",
+      sourceField: "jobs",
+      relationship: "contains",
+    };
+  }
+  if (/^\.buildkite\/pipeline\.ya?ml$/.test(path)) {
+    return {
+      evidenceKind: "ci_declaration",
+      resourceKind: "pipeline",
+      provider: "buildkite",
+      format: "yaml",
+      sourceField: "steps",
+      relationship: "contains",
+    };
+  }
+  if (path === "Jenkinsfile") {
+    return {
+      evidenceKind: "ci_declaration",
+      resourceKind: "pipeline",
+      provider: "jenkins",
+      format: "jenkinsfile",
+      sourceField: "pipeline",
+      relationship: "contains",
+    };
+  }
+  if (/(^|\/)Dockerfile(?:\.[A-Za-z0-9][A-Za-z0-9._-]{0,127})?$/.test(path)) {
+    return {
+      evidenceKind: "deployment_declaration",
+      resourceKind: "artifact",
+      provider: "docker",
+      format: "dockerfile",
+      sourceField: "FROM",
+      relationship: "builds",
+    };
+  }
+  if (/(^|\/)(?:compose|docker-compose)\.ya?ml$/.test(path)) {
+    return {
+      evidenceKind: "deployment_declaration",
+      resourceKind: "deployment_target",
+      provider: "docker_compose",
+      format: "yaml",
+      sourceField: "services",
+      relationship: "deploys",
+    };
+  }
+  return null;
+}
+
+function safeDeclarationPath(path: string): boolean {
+  const segments = path.split("/");
+  return path.length > 0
+    && path.length <= 1024
+    && !path.startsWith("/")
+    && !path.includes("\\")
+    && !/^[A-Za-z]:/.test(path)
+    && !/[\u0000-\u001f\u007f]/.test(path)
+    && !/(^|[._/-])(authorization|bearer|credential|password|passwd|private[_-]?key|secret|token|api[_-]?key)\s*[:=]/i.test(path)
+    && segments.every((segment) => !!segment && segment !== "." && segment !== "..")
+    && isCredentialFreeText(path);
+}
+
+function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+  const discovered: DeliveryDeclarationBlob[] = [];
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head) continue;
+    const pathBytes = record.subarray(tab + 1);
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(pathBytes);
+    } catch {
+      const approximate = pathBytes.toString("latin1");
+      if (deliveryDeclarationSpec(approximate)) {
+        discovered.push({
+          path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+          mode: "unsafe-path",
+          oid: head[3]!.toLowerCase(),
+          bytes: null,
+          contentHash: null,
+          spec: null,
+        });
+      }
+      continue;
+    }
+    const spec = deliveryDeclarationSpec(path);
+    if (!spec) continue;
+    if (!safeDeclarationPath(path)) {
+      discovered.push({
+        path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: head[3]!.toLowerCase(),
+        bytes: null,
+        contentHash: null,
+        spec: null,
+      });
+      continue;
+    }
+    discovered.push({
+      path,
+      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
+      oid: head[3]!.toLowerCase(),
+      bytes: null,
+      contentHash: null,
+      spec,
+    });
+  }
+  discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
+  const total = discovered.length;
+  const blobs = discovered.slice(0, MAX_DELIVERY_DECLARATIONS).map((blob) => {
+    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_DELIVERY_DECLARATION_BYTES) {
+      return { ...blob, contentHash: size > MAX_DELIVERY_DECLARATION_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_DELIVERY_DECLARATION_BYTES + 1);
+    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  });
+  return { blobs, total };
+}
+
+function validDeliveryDeclaration(path: string, spec: DeliveryDeclarationSpec, source: string): boolean {
+  if (spec.format === "dockerfile") {
+    return /^\s*FROM(?:\s+--platform=(?:"[^"]*"|'[^']*'|\S+))?\s+\S+/im.test(source);
+  }
+  if (spec.format === "jenkinsfile") {
+    return /^\s*(?:pipeline|node)\s*\{/m.test(source);
+  }
+  const parsed = parseSource(path, source);
+  if (!parsed?.parseable) return false;
+  if (spec.provider === "github_actions" || spec.provider === "circleci") return /^jobs\s*:/m.test(source);
+  if (spec.provider === "buildkite") return /^steps\s*:/m.test(source);
+  if (spec.provider === "docker_compose") return /^services\s*:/m.test(source);
+  return source.trim().length > 0;
+}
+
+function deliveryDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): DeliveryDeclaration[] {
+  const discovered = deliveryDeclarationBlobs(root, revision);
+  if (discovered.total > MAX_DELIVERY_DECLARATIONS) {
+    issues.push({
+      code: "delivery_declaration_limit",
+      sourcePath: ".",
+      sourceField: "delivery",
+      detail: `repository exposes ${discovered.total} supported delivery declarations; bounded discovery accepts at most ${MAX_DELIVERY_DECLARATIONS}`,
+    });
+  }
+  const declarations: DeliveryDeclaration[] = [];
+  for (const blob of discovered.blobs) {
+    if (!blob.bytes || !blob.spec) {
+      const code = blob.contentHash === "oversized"
+        ? "delivery_declaration_oversized"
+        : blob.mode === "unsafe-path"
+          ? "delivery_declaration_path"
+          : "delivery_declaration_mode";
+      issues.push({
+        code,
+        sourcePath: blob.path,
+        sourceField: "",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_DELIVERY_DECLARATION_BYTES}-byte delivery declaration limit`
+          : blob.mode === "unsafe-path"
+            ? "a delivery declaration uses an unsafe path"
+            : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    let source: string;
+    try {
+      source = UTF8_DECODER.decode(blob.bytes);
+    } catch {
+      issues.push({
+        code: "delivery_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: blob.spec.sourceField,
+        detail: `${blob.path} is not valid UTF-8 declaration data`,
+      });
+      continue;
+    }
+    if (!validDeliveryDeclaration(blob.path, blob.spec, source)) {
+      issues.push({
+        code: "delivery_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: blob.spec.sourceField,
+        detail: `${blob.path} is not a structurally valid ${blob.spec.provider} declaration`,
+      });
+      continue;
+    }
+    declarations.push({ path: blob.path, contentHash: blob.contentHash!, spec: blob.spec });
+  }
+  return declarations;
+}
+
+function deliveryResourceKey(declaration: DeliveryDeclaration): string {
+  const prefix = declaration.spec.provider === "docker"
+    ? "container-image"
+    : declaration.spec.provider === "docker_compose"
+      ? "docker-compose"
+      : declaration.spec.provider.replaceAll("_", "-");
+  return `${prefix}/${declaration.path}`;
+}
+
+function deliveryResourceName(declaration: DeliveryDeclaration): string {
+  const base = posix.basename(declaration.path).replace(/\.ya?ml$/, "");
+  const label = declaration.spec.resourceKind === "pipeline"
+    ? `${declaration.spec.provider.replaceAll("_", " ")} pipeline: ${base}`
+    : declaration.spec.resourceKind === "artifact"
+      ? `container image declared by ${base}`
+      : `Docker Compose deployment: ${base}`;
+  return label.slice(0, 256);
+}
+
 function repositoryKey(identity: string): { key: string; locator: string | null } {
   const safe = (key: string, locator: string | null): { key: string; locator: string | null } => {
     if (key.length > 1900 || /[\u0000-\u001f\u007f]/.test(key) || !isCredentialFreeText(key)) {
@@ -1015,6 +1287,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const manifests = parsed.filter((manifest) => isWorkspaceManifest(manifest.path, patterns));
   const declarations = repositoryDeclarations(root, revision, rootManifest);
   const discoveredMcp = mcpDeclarations(root, revision, issues);
+  const discoveredDelivery = deliveryDeclarations(root, revision, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -1131,6 +1404,59 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       });
       relationships.push(candidate(relationship, relationshipEvidence));
     }
+  }
+
+  for (const declaration of discoveredDelivery) {
+    const evidence: LandscapeCandidateEvidence = {
+      kind: declaration.spec.evidenceKind,
+      sourcePath: declaration.path,
+      sourceField: declaration.spec.sourceField,
+      sourceRevision: revision,
+      sourceContentHash: declaration.contentHash,
+    };
+    const deliveryRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId(declaration.spec.resourceKind, deliveryResourceKey(declaration)),
+      kind: declaration.spec.resourceKind,
+      name: deliveryResourceName(declaration),
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: declaration.path,
+      lifecycle: "active",
+      provenance: {
+        source: `extracted:${declaration.spec.evidenceKind}`,
+        confidence: 0.8,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      metadata: {
+        discovery_authority: "candidate",
+        declaration_path: declaration.path,
+        declaration_format: declaration.spec.format,
+        provider: declaration.spec.provider,
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(deliveryRecord, [evidence]));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, deliveryRecord.id, declaration.spec.relationship),
+      from: repositoryRecord.id,
+      to: deliveryRecord.id,
+      type: declaration.spec.relationship,
+      reason: `${declaration.path} declares ${declaration.spec.provider} ${declaration.spec.resourceKind}`,
+      strength: 0.8,
+      provenance: {
+        source: `extracted:${declaration.spec.evidenceKind}`,
+        confidence: 0.8,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      environment: null,
+      metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
+    });
+    relationships.push(candidate(relationship, [evidence]));
   }
 
   for (const manifest of manifests) {

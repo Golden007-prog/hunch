@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -341,4 +342,156 @@ test("HLG-2 bounds MCP declaration count before candidate construction", (t) => 
   assert.ok(result.issues.some((issue) => issue.code === "mcp_declaration_limit"));
   assert.equal(result.resources.filter((item) => item.record.kind === "mcp_server").length, 128);
   assert.equal(result.relationships.filter((item) => item.record.type === "depends_on").length, 128);
+});
+
+test("HLG-2 discovers exact CI, container artifact, and Compose deployment candidates without retaining declaration bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: ".github/workflows/release.yml",
+        raw: true,
+        value: `name: Release
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo supersecret-github-command
+`,
+      },
+      {
+        path: ".gitlab-ci.yml",
+        raw: true,
+        value: `build:
+  script:
+    - echo supersecret-gitlab-command
+`,
+      },
+      {
+        path: ".circleci/config.yml",
+        raw: true,
+        value: `version: 2.1
+jobs:
+  build:
+    docker:
+      - image: private.example.test/supersecret-circle-image
+    steps:
+      - checkout
+`,
+      },
+      {
+        path: ".buildkite/pipeline.yaml",
+        raw: true,
+        value: `steps:
+  - command: echo supersecret-buildkite-command
+`,
+      },
+      {
+        path: "Jenkinsfile",
+        raw: true,
+        value: `pipeline {
+  stages { stage('Build') { steps { sh 'echo supersecret-jenkins-command' } } }
+}
+`,
+      },
+      {
+        path: "Dockerfile",
+        raw: true,
+        value: `FROM node:24-alpine
+ARG PRIVATE_BUILD_VALUE=supersecret-docker-argument
+RUN echo "$PRIVATE_BUILD_VALUE"
+`,
+      },
+      {
+        path: "deploy/compose.yaml",
+        raw: true,
+        value: `services:
+  api:
+    image: private.example.test/supersecret-compose-image
+    environment:
+      PASSWORD: supersecret-compose-password
+`,
+      },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const delivery = first.resources.filter((item) => ["pipeline", "artifact", "deployment_target"].includes(item.record.kind));
+  assert.deepEqual(delivery.map((item) => item.record.id), [
+    "artifact:container-image/Dockerfile",
+    "deployment_target:docker-compose/deploy/compose.yaml",
+    "pipeline:buildkite/.buildkite/pipeline.yaml",
+    "pipeline:circleci/.circleci/config.yml",
+    "pipeline:github-actions/.github/workflows/release.yml",
+    "pipeline:gitlab-ci/.gitlab-ci.yml",
+    "pipeline:jenkins/Jenkinsfile",
+  ]);
+  assert.deepEqual(first.issues, []);
+  assert.equal(first.relationships.filter((item) => item.record.type === "builds").length, 1);
+  assert.equal(first.relationships.filter((item) => item.record.type === "deploys").length, 1);
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("pipeline:")).length, 5);
+  assert.ok(delivery.every((item) => item.authority === "candidate"));
+  assert.ok(delivery.every((item) => item.evidence.length === 1));
+  assert.ok(delivery.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.ok(delivery.every((item) => ["ci_declaration", "deployment_declaration"].includes(item.evidence[0]!.kind)));
+  assert.doesNotMatch(JSON.stringify(first), /supersecret|PRIVATE_BUILD_VALUE|PASSWORD/i,
+    "commands, images, arguments, and environment values never enter the candidate fragment");
+
+  writeFileSync(join(root, "Dockerfile"), "FROM changed-working-copy\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree delivery edits cannot alter exact-revision discovery");
+});
+
+test("HLG-2 reports malformed, oversized, and secret-bearing delivery declarations without echoing unsafe content", (t) => {
+  const oversized = `jobs:\n  build:\n    steps:\n${"      - run: echo bounded\n".repeat(12_000)}`;
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: ".github/workflows/broken.yml", raw: true, value: "jobs: [unterminated" },
+      { path: ".github/workflows/token=supersecret-path.yml", raw: true, value: "jobs:\n  safe: {}\n" },
+      { path: ".circleci/config.yml", raw: true, value: oversized },
+      { path: "Dockerfile", raw: true, value: "RUN echo no-base-image\n" },
+      { path: "compose.yml", raw: true, value: "volumes: {}\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => ["pipeline", "artifact", "deployment_target"].includes(item.record.kind)), false);
+  assert.equal(result.issues.filter((issue) => issue.code === "delivery_declaration_invalid").length, 3);
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_oversized"));
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_path"));
+  assert.doesNotMatch(JSON.stringify(result), /supersecret-path|unterminated|no-base-image/i);
+});
+
+test("HLG-2 bounds delivery declaration count before blob hydration and candidate construction", (t) => {
+  const files = Array.from({ length: 129 }, (_, index) => ({
+    path: `.github/workflows/workflow-${String(index).padStart(3, "0")}.yml`,
+    value: `jobs:\n  build-${index}:\n    runs-on: ubuntu-latest\n`,
+    raw: true,
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files,
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_limit"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "pipeline").length, 128);
+  assert.equal(result.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("pipeline:")).length, 128);
+});
+
+test("HLG-2 never follows a delivery declaration symlink", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  symlinkSync("package.json", join(root, "Dockerfile"));
+  git(root, "add", "--", "Dockerfile");
+  git(root, "commit", "-qm", "add delivery symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_mode" && issue.sourcePath === "Dockerfile"));
+  assert.equal(result.resources.some((item) => item.record.kind === "artifact"), false);
 });
