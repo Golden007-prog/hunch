@@ -26,57 +26,7 @@ import type { Invocation } from "./scaffold.js";
 import type { HookProvider } from "../core/agenthook.js";
 import { renderHunchSection, stripManagedSection, upsertSection, updateClaudeMd } from "./claudemd.js";
 import { headFileContent, isGitCleanPath } from "../extractors/git.js";
-
-/** Strip // line and block comments + trailing commas (JSONC → JSON). String-aware
- *  (double-quoted, with escapes) so a // inside a value isn't mangled. VS Code's
- *  .vscode/mcp.json is JSONC, so we must tolerate comments. */
-function stripJsonc(s: string): string {
-  let out = "";
-  let inStr = false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i]!;
-    const n = s[i + 1];
-    if (inStr) {
-      out += c;
-      if (c === "\\") { out += n ?? ""; i++; continue; }
-      if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') { inStr = true; out += c; continue; }
-    if (c === "/" && n === "/") { while (i < s.length && s[i] !== "\n") i++; continue; }
-    if (c === "/" && n === "*") { i += 2; while (i < s.length && !(s[i] === "*" && s[i + 1] === "/")) i++; i++; continue; }
-    out += c;
-  }
-  return dropTrailingCommas(out);
-}
-
-/** Remove trailing commas (`,` before `}`/`]`) — string-aware, so a comma inside
- *  a string value (e.g. "a,]") is never touched. A blanket regex would corrupt it
- *  (the same trap test/migrate.test.ts guards against). Runs on comment-free text,
- *  so lookahead need only skip whitespace. */
-function dropTrailingCommas(s: string): string {
-  let out = "";
-  let inStr = false;
-  let esc = false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i]!;
-    if (inStr) {
-      out += c;
-      if (esc) esc = false;
-      else if (c === "\\") esc = true;
-      else if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') { inStr = true; out += c; continue; }
-    if (c === ",") {
-      let j = i + 1;
-      while (j < s.length && /\s/.test(s[j]!)) j++;
-      if (s[j] === "}" || s[j] === "]") continue; // trailing comma → drop
-    }
-    out += c;
-  }
-  return out;
-}
+import { parseJsonc } from "../core/jsonc.js";
 
 /** Read a JSON/JSONC object. Returns {} only for an ABSENT or empty file. A
  *  non-empty file we cannot parse THROWS — overwriting it would silently wipe the
@@ -86,7 +36,7 @@ function readJsonObj(file: string): Record<string, unknown> {
   const raw = readFileSync(file, "utf8");
   if (!raw.trim()) return {};
   try {
-    const v = JSON.parse(stripJsonc(raw));
+    const v = parseJsonc(raw);
     if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
     throw new Error("not a JSON object");
   } catch (e) {

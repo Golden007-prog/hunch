@@ -29,6 +29,7 @@ function writeJson(root: string, path: string, value: unknown): void {
 function repository(t: test.TestContext, input: {
   rootManifest: Record<string, unknown>;
   manifests?: Array<{ path: string; value: unknown; raw?: boolean }>;
+  files?: Array<{ path: string; value: unknown; raw?: boolean }>;
   remote?: string;
 }): { root: string; revision: string } {
   const root = mkdtempSync(join(tmpdir(), "hunch-landscape-discovery-"));
@@ -46,7 +47,18 @@ function repository(t: test.TestContext, input: {
       writeJson(root, manifest.path, manifest.value);
     }
   }
-  git(root, "add", "--", "package.json", ...(input.manifests ?? []).map((manifest) => manifest.path));
+  for (const file of input.files ?? []) {
+    if (file.raw) {
+      const target = join(root, file.path);
+      mkdirSync(join(target, ".."), { recursive: true });
+      writeFileSync(target, String(file.value), "utf8");
+    } else {
+      writeJson(root, file.path, file.value);
+    }
+  }
+  git(root, "add", "--", "package.json",
+    ...(input.manifests ?? []).map((manifest) => manifest.path),
+    ...(input.files ?? []).map((file) => file.path));
   git(root, "commit", "-qm", "fixture");
   if (input.remote) git(root, "remote", "add", "origin", input.remote);
   return { root, revision: git(root, "rev-parse", "HEAD") };
@@ -150,4 +162,99 @@ test("HLG-2 applies the manifest read cap before blob hydration while always ret
   assert.ok(result.resources.some((item) => item.record.id === "package:npm/@acme/root"));
   assert.equal(result.resources.filter((item) => item.record.kind === "package").length, 128);
   assert.equal(result.relationships.length, 128);
+});
+
+test("HLG-2 discovers exact MCP declarations without exposing commands, arguments, environment, or credentials", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: ".mcp.json",
+        value: { mcpServers: { billing: { url: "https://mcp.acme.test/api" } } },
+      },
+      {
+        path: ".vscode/mcp.json",
+        raw: true,
+        value: `{
+          // The same durable declaration through another supported client.
+          "servers": { "billing": { "type": "http", "url": "https://mcp.acme.test/api" }, },
+        }`,
+      },
+      {
+        path: ".agents/mcp_config.json",
+        value: {
+          mcpServers: {
+            worker: {
+              command: "node",
+              args: ["private-server.mjs"],
+              env: { MCP_ACCESS_TOKEN: "supersecret-fixture-value" },
+            },
+          },
+        },
+      },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const mcp = first.resources.filter((item) => item.record.kind === "mcp_server");
+  assert.deepEqual(mcp.map((item) => item.record.id), [
+    "mcp_server:declared/billing",
+    "mcp_server:declared/worker",
+  ]);
+  assert.equal(mcp.find((item) => item.record.id.endsWith("/billing"))!.record.locator, "https://mcp.acme.test/api");
+  assert.deepEqual(mcp.find((item) => item.record.id.endsWith("/billing"))!.record.metadata.declaration_paths,
+    [".mcp.json", ".vscode/mcp.json"]);
+  assert.equal(first.relationships.filter((item) => item.record.type === "depends_on").length, 2);
+  assert.ok(mcp.every((item) => item.authority === "candidate"));
+  assert.ok(mcp.every((item) => item.evidence.every((evidence) => evidence.kind === "mcp_declaration")));
+  assert.doesNotMatch(JSON.stringify(first), /private-server|MCP_ACCESS_TOKEN|supersecret-fixture-value/i);
+
+  writeJson(root, ".mcp.json", { mcpServers: { replacement: { command: "changed-working-copy" } } });
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree MCP changes cannot alter exact-revision discovery");
+});
+
+test("HLG-2 leaves conflicting or secret-bearing MCP declarations unresolved without echoing them", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: ".mcp.json",
+        value: {
+          mcpServers: {
+            "token=supersecret-name": { command: "node" },
+            unsafe: { url: "https://mcp.acme.test/api?token=supersecret-url" },
+            search: { command: "first-private-command" },
+          },
+        },
+      },
+      {
+        path: ".windsurf/mcp_config.json",
+        value: { mcpServers: { search: { command: "second-private-command" } } },
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "mcp_server_name_invalid"));
+  assert.ok(result.issues.some((issue) => issue.code === "mcp_declaration_invalid"));
+  assert.ok(result.issues.some((issue) => issue.code === "mcp_declaration_conflict"));
+  assert.equal(result.resources.some((item) => item.record.kind === "mcp_server"), false);
+  assert.doesNotMatch(JSON.stringify(result), /supersecret|first-private-command|second-private-command/i);
+});
+
+test("HLG-2 bounds MCP declaration count before candidate construction", (t) => {
+  const mcpServers = Object.fromEntries(Array.from({ length: 130 }, (_, index) => [
+    `server-${String(index).padStart(3, "0")}`,
+    { command: "node", args: [`server-${index}.mjs`] },
+  ]));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [{ path: ".mcp.json", value: { mcpServers } }],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "mcp_declaration_limit"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "mcp_server").length, 128);
+  assert.equal(result.relationships.filter((item) => item.record.type === "depends_on").length, 128);
 });

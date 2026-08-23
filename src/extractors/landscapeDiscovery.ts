@@ -4,6 +4,7 @@ import { posix } from "node:path";
 import { TextDecoder } from "node:util";
 import { compareCodeUnits } from "../core/canonicalOrder.js";
 import { resourceId, resourceRelationshipId } from "../core/ids.js";
+import { parseJsonc } from "../core/jsonc.js";
 import {
   EdgeSchema,
   ResourceSchema,
@@ -24,10 +25,26 @@ export const LANDSCAPE_CANDIDATE_SCHEMA_VERSION = "hunch.landscape-candidate/1" 
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MANIFESTS = 128;
+const MAX_MCP_CONFIG_BYTES = 256 * 1024;
+const MAX_MCP_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+interface McpConfigSpec {
+  path: string;
+  rootKey: "mcpServers" | "servers";
+}
 
-export type LandscapeEvidenceKind = "package_manifest" | "git_remote" | "git_history";
+const MCP_CONFIG_SPECS: readonly McpConfigSpec[] = [
+  { path: ".mcp.json", rootKey: "mcpServers" },
+  { path: ".agents/mcp_config.json", rootKey: "mcpServers" },
+  { path: ".cursor/mcp.json", rootKey: "mcpServers" },
+  { path: ".vscode/mcp.json", rootKey: "servers" },
+  { path: ".windsurf/mcp_config.json", rootKey: "mcpServers" },
+  { path: "plugin/.mcp.json", rootKey: "mcpServers" },
+];
+const MCP_CONFIG_BY_PATH = new Map<string, McpConfigSpec>(MCP_CONFIG_SPECS.map((spec) => [spec.path, spec]));
+
+export type LandscapeEvidenceKind = "package_manifest" | "git_remote" | "git_history" | "mcp_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -55,7 +72,14 @@ export type LandscapeDiscoveryIssueCode =
   | "workspace_pattern_invalid"
   | "package_name_missing"
   | "package_name_invalid"
-  | "repository_identity_conflict";
+  | "repository_identity_conflict"
+  | "mcp_config_invalid"
+  | "mcp_config_oversized"
+  | "mcp_config_mode"
+  | "mcp_server_name_invalid"
+  | "mcp_declaration_invalid"
+  | "mcp_declaration_conflict"
+  | "mcp_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -93,6 +117,15 @@ interface RepositoryDeclaration {
   identity: string;
   key: string;
   locator: string | null;
+  evidence: LandscapeCandidateEvidence;
+}
+
+interface McpDeclaration {
+  key: string;
+  name: string;
+  transport: "stdio" | "http";
+  locator: string | null;
+  descriptorHash: string;
   evidence: LandscapeCandidateEvidence;
 }
 
@@ -300,6 +333,181 @@ function parseManifests(blobs: ManifestBlob[], issues: LandscapeDiscoveryIssue[]
   return parsed;
 }
 
+function mcpConfigBlobs(root: string, revision: string): ManifestBlob[] {
+  const raw = gitBuffer(root, [
+    "ls-tree", "--full-tree", "-z", revision, "--", ...MCP_CONFIG_SPECS.map((spec) => spec.path),
+  ], 4 * 1024 * 1024);
+  const blobs: ManifestBlob[] = [];
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head) continue;
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(record.subarray(tab + 1));
+    } catch {
+      continue;
+    }
+    if (!MCP_CONFIG_BY_PATH.has(path)) continue;
+    const mode = head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`;
+    blobs.push({ path, mode, oid: head[3]!.toLowerCase(), bytes: null, contentHash: null });
+  }
+  return blobs.sort((left, right) => compareCodeUnits(left.path, right.path)).map((blob) => {
+    if (!ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MCP_CONFIG_BYTES) {
+      return { ...blob, contentHash: size > MAX_MCP_CONFIG_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_MCP_CONFIG_BYTES + 1);
+    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  });
+}
+
+function validMcpServerName(value: string): string | null {
+  const name = value.trim();
+  return name.length > 0 && name.length <= 128
+    && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)
+    && isCredentialFreeText(name)
+    ? name
+    : null;
+}
+
+function safeMcpSourceField(rootKey: string, rawName: string): string {
+  const name = validMcpServerName(rawName);
+  return name ? `${rootKey}.${name}` : `${rootKey}[sha256:${createHash("sha256").update(rawName).digest("hex")}]`;
+}
+
+function safeMcpUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048 || !isCredentialFreeText(value)) return null;
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) return null;
+    return url.href.endsWith("/") ? url.href.slice(0, -1) : url.href;
+  } catch {
+    return null;
+  }
+}
+
+function mcpDeclaration(
+  rawName: string,
+  rawEntry: unknown,
+  blob: ManifestBlob,
+  rootKey: string,
+  revision: string,
+  issues: LandscapeDiscoveryIssue[],
+): McpDeclaration | null {
+  const sourceField = safeMcpSourceField(rootKey, rawName);
+  const name = validMcpServerName(rawName);
+  if (!name) {
+    issues.push({
+      code: "mcp_server_name_invalid",
+      sourcePath: blob.path,
+      sourceField,
+      detail: "an MCP declaration uses an invalid or credential-bearing server name",
+    });
+    return null;
+  }
+  if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
+    issues.push({ code: "mcp_declaration_invalid", sourcePath: blob.path, sourceField, detail: `MCP server ${name} must be an object declaration` });
+    return null;
+  }
+  const entry = rawEntry as Record<string, unknown>;
+  const rawUrl = entry.url ?? entry.serverUrl;
+  const locator = rawUrl === undefined ? null : safeMcpUrl(rawUrl);
+  const command = typeof entry.command === "string" ? entry.command.trim() : null;
+  const args = entry.args === undefined
+    ? []
+    : Array.isArray(entry.args) && entry.args.length <= 64 && entry.args.every((arg) => typeof arg === "string" && arg.length <= 1024)
+      ? entry.args as string[]
+      : null;
+  const validCommand = command !== null && command.length > 0 && command.length <= 1024
+    && !/[\u0000-\u001f\u007f]/.test(command) && isCredentialFreeText(command);
+  if ((rawUrl !== undefined && locator === null) || args === null
+    || (rawUrl === undefined && !validCommand) || (rawUrl !== undefined && command !== null)) {
+    issues.push({
+      code: "mcp_declaration_invalid",
+      sourcePath: blob.path,
+      sourceField,
+      detail: `MCP server ${name} must declare one credential-free HTTP URL or one bounded stdio command`,
+    });
+    return null;
+  }
+  const transport = locator ? "http" as const : "stdio" as const;
+  const descriptorHash = locator
+    ? contentHash({ transport, locator })
+    : contentHash({ transport, command, args });
+  return {
+    key: name.toLowerCase(),
+    name,
+    transport,
+    locator,
+    descriptorHash,
+    evidence: {
+      kind: "mcp_declaration",
+      sourcePath: blob.path,
+      sourceField,
+      sourceRevision: revision,
+      sourceContentHash: blob.contentHash!,
+    },
+  };
+}
+
+function mcpDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): McpDeclaration[] {
+  const declarations: McpDeclaration[] = [];
+  let considered = 0;
+  for (const blob of mcpConfigBlobs(root, revision)) {
+    if (!blob.bytes) {
+      issues.push({
+        code: blob.contentHash === "oversized" ? "mcp_config_oversized" : "mcp_config_mode",
+        sourcePath: blob.path,
+        sourceField: "",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_MCP_CONFIG_BYTES}-byte MCP configuration limit`
+          : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    const spec = MCP_CONFIG_BY_PATH.get(blob.path)!;
+    let parsed: unknown;
+    try {
+      parsed = parseJsonc(blob.bytes.toString("utf8"));
+    } catch {
+      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: "", detail: `${blob.path} is not valid JSON/JSONC` });
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: "", detail: `${blob.path} must contain an object` });
+      continue;
+    }
+    const servers = (parsed as Record<string, unknown>)[spec.rootKey];
+    if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: spec.rootKey, detail: `${blob.path} must contain an object at ${spec.rootKey}` });
+      continue;
+    }
+    const entries = Object.entries(servers).sort(([left], [right]) => compareCodeUnits(left, right));
+    if (considered + entries.length > MAX_MCP_DECLARATIONS) {
+      issues.push({
+        code: "mcp_declaration_limit",
+        sourcePath: blob.path,
+        sourceField: spec.rootKey,
+        detail: `bounded discovery accepts at most ${MAX_MCP_DECLARATIONS} MCP declarations`,
+      });
+    }
+    const remaining = Math.max(0, MAX_MCP_DECLARATIONS - considered);
+    const selectedEntries = entries.slice(0, remaining);
+    considered += selectedEntries.length;
+    for (const [name, entry] of selectedEntries) {
+      const declaration = mcpDeclaration(name, entry, blob, spec.rootKey, revision, issues);
+      if (declaration) declarations.push(declaration);
+    }
+  }
+  return declarations.sort((left, right) => compareCodeUnits(
+    `${left.key}:${left.descriptorHash}:${left.evidence.sourcePath}`,
+    `${right.key}:${right.descriptorHash}:${right.evidence.sourcePath}`,
+  ));
+}
+
 function repositoryKey(identity: string): { key: string; locator: string | null } {
   const safe = (key: string, locator: string | null): { key: string; locator: string | null } => {
     if (key.length > 1900 || /[\u0000-\u001f\u007f]/.test(key) || !isCredentialFreeText(key)) {
@@ -466,6 +674,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const patterns = workspacePatterns(rootManifest?.value.workspaces, issues);
   const manifests = parsed.filter((manifest) => isWorkspaceManifest(manifest.path, patterns));
   const declarations = repositoryDeclarations(root, revision, rootManifest);
+  const discoveredMcp = mcpDeclarations(root, revision, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -508,6 +717,68 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       updated_at: timestamp,
     });
     resources.push(candidate(repositoryRecord, repositoryEvidence));
+  }
+
+  const mcpByKey = new Map<string, McpDeclaration[]>();
+  for (const declaration of discoveredMcp) {
+    const group = mcpByKey.get(declaration.key) ?? [];
+    group.push(declaration);
+    mcpByKey.set(declaration.key, group);
+  }
+  for (const key of [...mcpByKey.keys()].sort(compareCodeUnits)) {
+    const group = mcpByKey.get(key)!;
+    const descriptorHashes = [...new Set(group.map((item) => item.descriptorHash))].sort(compareCodeUnits);
+    if (descriptorHashes.length > 1) {
+      const first = group[0]!;
+      issues.push({
+        code: "mcp_declaration_conflict",
+        sourcePath: first.evidence.sourcePath,
+        sourceField: first.evidence.sourceField,
+        detail: `MCP server ${first.name} has conflicting committed declarations; identity remains unresolved`,
+      });
+      continue;
+    }
+    const first = group[0]!;
+    const evidence = group.map((item) => item.evidence);
+    const declarationPaths = [...new Set(evidence.map((item) => item.sourcePath))].sort(compareCodeUnits);
+    const mcpRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId("mcp_server", `declared/${key}`),
+      kind: "mcp_server",
+      name: first.name,
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: first.locator,
+      lifecycle: "active",
+      provenance: {
+        source: "extracted:mcp-declaration",
+        confidence: 0.8,
+        evidence: evidence.map(provenanceEvidence),
+      },
+      currentness: resourceCurrentness(revision, evidence.map((item) => item.sourceContentHash)),
+      metadata: {
+        discovery_authority: "candidate",
+        transport: first.transport,
+        declaration_paths: declarationPaths,
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(mcpRecord, evidence));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, mcpRecord.id, "depends_on"),
+      from: repositoryRecord.id,
+      to: mcpRecord.id,
+      type: "depends_on",
+      reason: `committed project configuration declares MCP server ${first.name}`,
+      strength: 0.8,
+      provenance: { source: "extracted:mcp-declaration", confidence: 0.8, evidence: evidence.map(provenanceEvidence) },
+      currentness: resourceCurrentness(revision, evidence.map((item) => item.sourceContentHash)),
+      environment: null,
+      metadata: { discovery_authority: "candidate", declaration_paths: declarationPaths },
+    });
+    relationships.push(candidate(relationship, evidence));
   }
 
   for (const manifest of manifests) {
