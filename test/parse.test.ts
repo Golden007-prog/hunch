@@ -176,6 +176,13 @@ test("Hunch can completely parse its VS Code graph adapter", () => {
   assert.equal(parsed.parseable, true, "the adapter must remain usable by strict semantic scans");
 });
 
+test("escaped NUL regexes and encoded JSX entities keep strict scans complete", () => {
+  const regexSource = String.raw`export const forbidden = /[\u0000\r\n]/;`;
+  const jsxSource = String.raw`export const Label = () => <span>Environment &amp; event evidence</span>;`;
+  assert.equal(parseSource("regex.ts", regexSource)?.parseable, true);
+  assert.equal(parseSource("label.tsx", jsxSource)?.parseable, true);
+});
+
 test("attributeCalls maps callee to enclosing symbol (keyed by stable symbol index)", () => {
   const p = parseSource("f.ts", SRC)!;
   const attr = attributeCalls(p); // Map<symbolIndex, Set<callee>>
