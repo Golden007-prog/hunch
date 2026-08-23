@@ -214,6 +214,87 @@ test("HLG-2 discovers exact MCP declarations without exposing commands, argument
     "working-tree MCP changes cannot alter exact-revision discovery");
 });
 
+test("HLG-2 discovers canonical Codex TOML and MCP registry declarations with correct edge direction", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: ".codex/config.toml",
+        raw: true,
+        value: `model = "gpt-5"
+
+[mcp_servers.worker]
+command = "node"
+args = [
+  "private-worker.mjs",
+  "--token=supersecret-codex-argument",
+]
+env = { MCP_TOKEN = "supersecret-codex-environment" }
+
+[mcp_servers."billing-http"]
+url = "https://billing.acme.test/mcp"
+`,
+      },
+      {
+        path: "server.json",
+        value: {
+          $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+          name: "io.github.acme/platform-mcp",
+          version: "1.2.3",
+          packages: [{
+            registryType: "npm",
+            identifier: "@acme/platform-mcp",
+            version: "1.2.3",
+            transport: { type: "stdio" },
+            packageArguments: [{ type: "positional", value: "supersecret-registry-argument" }],
+          }],
+        },
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.deepEqual(result.resources.filter((item) => item.record.kind === "mcp_server").map((item) => item.record.id), [
+    "mcp_server:declared/billing-http",
+    "mcp_server:declared/io.github.acme/platform-mcp",
+    "mcp_server:declared/worker",
+  ]);
+  assert.equal(result.resources.find((item) => item.record.id.endsWith("/billing-http"))!.record.locator,
+    "https://billing.acme.test/mcp");
+  assert.equal(result.resources.find((item) => item.record.id.includes("io.github.acme"))!.record.locator, null);
+  assert.deepEqual(result.relationships.filter((item) => item.record.type === "depends_on")
+    .map((item) => item.record.to).sort(), [
+    "mcp_server:declared/billing-http",
+    "mcp_server:declared/worker",
+  ]);
+  assert.deepEqual(result.relationships.filter((item) => item.record.type === "provides").map((item) => item.record.to), [
+    "mcp_server:declared/io.github.acme/platform-mcp",
+  ]);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /private-worker|supersecret|MCP_TOKEN|packageArguments/i);
+});
+
+test("HLG-2 ignores an unrelated server.json and sanitizes invalid Codex TOML names", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "server.json", value: { name: "ordinary-application-server", port: 8080 } },
+      {
+        path: ".codex/config.toml",
+        raw: true,
+        value: `[mcp_servers."token=supersecret-codex-name"]
+command = "node"
+`,
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "mcp_server_name_invalid"));
+  assert.equal(result.resources.some((item) => item.record.kind === "mcp_server"), false);
+  assert.doesNotMatch(JSON.stringify(result), /supersecret|ordinary-application-server/i);
+});
+
 test("HLG-2 leaves conflicting or secret-bearing MCP declarations unresolved without echoing them", (t) => {
   const { root } = repository(t, {
     rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
@@ -250,7 +331,10 @@ test("HLG-2 bounds MCP declaration count before candidate construction", (t) => 
   ]));
   const { root } = repository(t, {
     rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
-    files: [{ path: ".mcp.json", value: { mcpServers } }],
+    files: [
+      { path: ".mcp.json", value: { mcpServers } },
+      { path: "server.json", value: { name: "unrelated-server", port: 8080 } },
+    ],
   });
 
   const result = discoverRepositoryLandscape(root);

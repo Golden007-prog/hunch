@@ -29,18 +29,20 @@ const MAX_MCP_CONFIG_BYTES = 256 * 1024;
 const MAX_MCP_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
-interface McpConfigSpec {
-  path: string;
-  rootKey: "mcpServers" | "servers";
-}
+type McpConfigSpec =
+  | { path: string; format: "jsonc"; rootKey: "mcpServers" | "servers" }
+  | { path: string; format: "codex_toml" }
+  | { path: string; format: "registry_json" };
 
 const MCP_CONFIG_SPECS: readonly McpConfigSpec[] = [
-  { path: ".mcp.json", rootKey: "mcpServers" },
-  { path: ".agents/mcp_config.json", rootKey: "mcpServers" },
-  { path: ".cursor/mcp.json", rootKey: "mcpServers" },
-  { path: ".vscode/mcp.json", rootKey: "servers" },
-  { path: ".windsurf/mcp_config.json", rootKey: "mcpServers" },
-  { path: "plugin/.mcp.json", rootKey: "mcpServers" },
+  { path: ".mcp.json", format: "jsonc", rootKey: "mcpServers" },
+  { path: ".agents/mcp_config.json", format: "jsonc", rootKey: "mcpServers" },
+  { path: ".codex/config.toml", format: "codex_toml" },
+  { path: ".cursor/mcp.json", format: "jsonc", rootKey: "mcpServers" },
+  { path: ".vscode/mcp.json", format: "jsonc", rootKey: "servers" },
+  { path: ".windsurf/mcp_config.json", format: "jsonc", rootKey: "mcpServers" },
+  { path: "plugin/.mcp.json", format: "jsonc", rootKey: "mcpServers" },
+  { path: "server.json", format: "registry_json" },
 ];
 const MCP_CONFIG_BY_PATH = new Map<string, McpConfigSpec>(MCP_CONFIG_SPECS.map((spec) => [spec.path, spec]));
 
@@ -124,6 +126,7 @@ interface McpDeclaration {
   key: string;
   name: string;
   transport: "stdio" | "http";
+  relationship: "depends_on" | "provides";
   locator: string | null;
   descriptorHash: string;
   evidence: LandscapeCandidateEvidence;
@@ -389,6 +392,313 @@ function safeMcpUrl(value: unknown): string | null {
   }
 }
 
+function stripTomlComment(input: string): string {
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]!;
+    if (quote === "\"") {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "\"" || char === "'") quote = char;
+    else if (char === "#") return input.slice(0, index);
+  }
+  return input;
+}
+
+function tomlStructure(input: string): { depth: number; closedQuote: boolean } {
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+  let depth = 0;
+  for (const char of input) {
+    if (quote === "\"") {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "\"" || char === "'") quote = char;
+    else if (char === "[" || char === "{") depth += 1;
+    else if (char === "]" || char === "}") depth -= 1;
+    if (depth < 0) throw new Error("unbalanced TOML structure");
+  }
+  return { depth, closedQuote: quote === null };
+}
+
+function tomlStatements(input: string): string[] {
+  const statements: string[] = [];
+  let pending = "";
+  for (const rawLine of input.split(/\r?\n/)) {
+    const line = stripTomlComment(rawLine).trim();
+    if (!line) continue;
+    pending = pending ? `${pending}\n${line}` : line;
+    const state = tomlStructure(pending);
+    if (state.depth === 0 && state.closedQuote) {
+      statements.push(pending);
+      pending = "";
+    }
+  }
+  if (pending) throw new Error("unterminated TOML statement");
+  return statements;
+}
+
+function parseTomlString(input: string): string {
+  const value = input.trim();
+  if (value.length < 2) throw new Error("TOML string expected");
+  if (value.startsWith("'")) {
+    if (!value.endsWith("'") || value.slice(1, -1).includes("'")) throw new Error("invalid literal TOML string");
+    return value.slice(1, -1);
+  }
+  if (!value.startsWith("\"") || !value.endsWith("\"")) throw new Error("TOML string expected");
+  const parsed = JSON.parse(value) as unknown;
+  if (typeof parsed !== "string") throw new Error("TOML string expected");
+  return parsed;
+}
+
+function parseTomlKeyPath(input: string): string[] {
+  const parts: string[] = [];
+  let index = 0;
+  const skipSpace = (): void => {
+    while (/\s/.test(input[index] ?? "")) index += 1;
+  };
+  while (index < input.length) {
+    skipSpace();
+    const char = input[index];
+    if (char === "\"" || char === "'") {
+      const start = index;
+      index += 1;
+      let escaped = false;
+      for (; index < input.length; index += 1) {
+        const current = input[index]!;
+        if (char === "\"" && escaped) escaped = false;
+        else if (char === "\"" && current === "\\") escaped = true;
+        else if (current === char) break;
+      }
+      if (index >= input.length) throw new Error("unterminated quoted TOML key");
+      index += 1;
+      parts.push(parseTomlString(input.slice(start, index)));
+    } else {
+      const match = input.slice(index).match(/^[A-Za-z0-9_-]+/);
+      if (!match) throw new Error("invalid TOML key");
+      parts.push(match[0]);
+      index += match[0].length;
+    }
+    skipSpace();
+    if (index === input.length) break;
+    if (input[index] !== ".") throw new Error("invalid dotted TOML key");
+    index += 1;
+  }
+  if (!parts.length) throw new Error("empty TOML key");
+  return parts;
+}
+
+function splitTomlAssignment(input: string): [string, string] {
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]!;
+    if (quote === "\"") {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "\"" || char === "'") quote = char;
+    else if (char === "=") return [input.slice(0, index).trim(), input.slice(index + 1).trim()];
+  }
+  throw new Error("TOML assignment expected");
+}
+
+function parseTomlStringArray(input: string): string[] {
+  const value = input.trim();
+  if (!value.startsWith("[") || !value.endsWith("]")) throw new Error("TOML string array expected");
+  const body = value.slice(1, -1);
+  const items: string[] = [];
+  let start = 0;
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+  for (let index = 0; index <= body.length; index += 1) {
+    const char = body[index];
+    if (quote === "\"") {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "," || index === body.length) {
+      const item = body.slice(start, index).trim();
+      if (item) items.push(parseTomlString(item));
+      start = index + 1;
+    }
+  }
+  if (quote) throw new Error("unterminated TOML array string");
+  return items;
+}
+
+function parseCodexMcpServers(input: string): Record<string, Record<string, unknown>> {
+  const servers: Record<string, Record<string, unknown>> = {};
+  let current: string | null = null;
+  for (const statement of tomlStatements(input)) {
+    if (statement.startsWith("[")) {
+      if (!statement.endsWith("]") || statement.startsWith("[[") || statement.endsWith("]]")) {
+        throw new Error("unsupported TOML table");
+      }
+      const path = parseTomlKeyPath(statement.slice(1, -1));
+      if (path[0] !== "mcp_servers") {
+        current = null;
+        continue;
+      }
+      if (path.length !== 2 || Object.hasOwn(servers, path[1]!)) throw new Error("invalid MCP TOML table");
+      current = path[1]!;
+      servers[current] = {};
+      continue;
+    }
+    if (!current) continue;
+    const [rawKey, rawValue] = splitTomlAssignment(statement);
+    const keyPath = parseTomlKeyPath(rawKey);
+    if (keyPath.length !== 1) throw new Error("invalid MCP TOML key");
+    const key = keyPath[0]!;
+    if (!new Set(["command", "url", "args"]).has(key)) continue;
+    if (Object.hasOwn(servers[current]!, key)) throw new Error("duplicate MCP TOML key");
+    servers[current]![key] = key === "args" ? parseTomlStringArray(rawValue) : parseTomlString(rawValue);
+  }
+  return servers;
+}
+
+function validMcpRegistryName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim();
+  return name.length > 0 && name.length <= 256
+    && /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)+$/.test(name)
+    && isCredentialFreeText(name)
+    ? name
+    : null;
+}
+
+function safeRegistryText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text && text.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(text) && isCredentialFreeText(text)
+    ? text
+    : null;
+}
+
+function registryMcpDeclarations(
+  parsed: unknown,
+  blob: ManifestBlob,
+  revision: string,
+  issues: LandscapeDiscoveryIssue[],
+): McpDeclaration[] {
+  const invalid = (): McpDeclaration[] => {
+    issues.push({
+      code: "mcp_declaration_invalid",
+      sourcePath: blob.path,
+      sourceField: "name",
+      detail: "registry MCP data must declare one bounded package or credential-free HTTP remote transport",
+    });
+    return [];
+  };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalid();
+  const manifest = parsed as Record<string, unknown>;
+  if (typeof manifest.$schema !== "string"
+    || !/^https:\/\/static\.modelcontextprotocol\.io\/schemas\/.+\/server\.schema\.json$/.test(manifest.$schema)) {
+    return [];
+  }
+  const name = validMcpRegistryName(manifest.name);
+  if (!name) {
+    issues.push({
+      code: "mcp_server_name_invalid",
+      sourcePath: blob.path,
+      sourceField: "name",
+      detail: "the registry manifest uses an invalid or credential-bearing MCP server name",
+    });
+    return [];
+  }
+  const evidence: LandscapeCandidateEvidence = {
+    kind: "mcp_declaration",
+    sourcePath: blob.path,
+    sourceField: "name",
+    sourceRevision: revision,
+    sourceContentHash: blob.contentHash!,
+  };
+  const packages = manifest.packages === undefined ? [] : manifest.packages;
+  const remotes = manifest.remotes === undefined ? [] : manifest.remotes;
+  if (!Array.isArray(packages) || !Array.isArray(remotes) || packages.length > 32 || remotes.length > 32) return invalid();
+  const packageDescriptors: Array<Record<string, string>> = [];
+  for (const value of packages) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return invalid();
+    const item = value as Record<string, unknown>;
+    const transport = item.transport;
+    if (!transport || typeof transport !== "object" || Array.isArray(transport)
+      || (transport as Record<string, unknown>).type !== "stdio") return invalid();
+    const registryType = safeRegistryText(item.registryType, 64);
+    const identifier = safeRegistryText(item.identifier, 256);
+    const version = safeRegistryText(item.version, 128);
+    if (!registryType || !identifier || !version) return invalid();
+    packageDescriptors.push({ registryType, identifier, version });
+  }
+  const remoteLocators: string[] = [];
+  for (const value of remotes) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return invalid();
+    const item = value as Record<string, unknown>;
+    const type = item.type;
+    const locator = safeMcpUrl(item.url);
+    if ((type !== "sse" && type !== "streamable-http") || !locator) return invalid();
+    remoteLocators.push(locator);
+  }
+  const declarations: McpDeclaration[] = [];
+  if (packageDescriptors.length) {
+    const descriptors = packageDescriptors.sort((left, right) => compareCodeUnits(
+      `${left.registryType}:${left.identifier}:${left.version}`,
+      `${right.registryType}:${right.identifier}:${right.version}`,
+    ));
+    declarations.push({
+      key: name.toLowerCase(),
+      name,
+      transport: "stdio",
+      relationship: "provides",
+      locator: null,
+      descriptorHash: contentHash({ transport: "stdio", packages: descriptors }),
+      evidence,
+    });
+  }
+  for (const locator of [...new Set(remoteLocators)].sort(compareCodeUnits)) {
+    declarations.push({
+      key: name.toLowerCase(),
+      name,
+      transport: "http",
+      relationship: "provides",
+      locator,
+      descriptorHash: contentHash({ transport: "http", locator }),
+      evidence,
+    });
+  }
+  return declarations.length ? declarations : invalid();
+}
+
 function mcpDeclaration(
   rawName: string,
   rawEntry: unknown,
@@ -441,6 +751,7 @@ function mcpDeclaration(
     key: name.toLowerCase(),
     name,
     transport,
+    relationship: "depends_on",
     locator,
     descriptorHash,
     evidence: {
@@ -471,18 +782,47 @@ function mcpDeclarations(root: string, revision: string, issues: LandscapeDiscov
     const spec = MCP_CONFIG_BY_PATH.get(blob.path)!;
     let parsed: unknown;
     try {
-      parsed = parseJsonc(blob.bytes.toString("utf8"));
+      parsed = spec.format === "codex_toml"
+        ? parseCodexMcpServers(blob.bytes.toString("utf8"))
+        : spec.format === "registry_json"
+          ? JSON.parse(blob.bytes.toString("utf8")) as unknown
+          : parseJsonc(blob.bytes.toString("utf8"));
     } catch {
-      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: "", detail: `${blob.path} is not valid JSON/JSONC` });
+      issues.push({
+        code: "mcp_config_invalid",
+        sourcePath: blob.path,
+        sourceField: "",
+        detail: `${blob.path} is not valid ${spec.format === "codex_toml" ? "bounded MCP TOML" : spec.format === "registry_json" ? "JSON" : "JSON/JSONC"}`,
+      });
+      continue;
+    }
+    if (spec.format === "registry_json") {
+      const registryDeclarations = registryMcpDeclarations(parsed, blob, revision, issues);
+      if (!registryDeclarations.length) continue;
+      const logicalCount = registryDeclarations.length;
+      if (considered + logicalCount > MAX_MCP_DECLARATIONS) {
+        issues.push({
+          code: "mcp_declaration_limit",
+          sourcePath: blob.path,
+          sourceField: "name",
+          detail: `bounded discovery accepts at most ${MAX_MCP_DECLARATIONS} MCP declarations`,
+        });
+        continue;
+      }
+      considered += logicalCount;
+      declarations.push(...registryDeclarations);
       continue;
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: "", detail: `${blob.path} must contain an object` });
+      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: "", detail: `${blob.path} must contain MCP table data` });
       continue;
     }
-    const servers = (parsed as Record<string, unknown>)[spec.rootKey];
+    const rootKey = spec.format === "codex_toml" ? "mcp_servers" : spec.rootKey;
+    const servers = spec.format === "codex_toml" ? parsed : (parsed as Record<string, unknown>)[rootKey];
     if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
-      issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: spec.rootKey, detail: `${blob.path} must contain an object at ${spec.rootKey}` });
+      if (spec.format !== "codex_toml") {
+        issues.push({ code: "mcp_config_invalid", sourcePath: blob.path, sourceField: rootKey, detail: `${blob.path} must contain an object at ${rootKey}` });
+      }
       continue;
     }
     const entries = Object.entries(servers).sort(([left], [right]) => compareCodeUnits(left, right));
@@ -490,7 +830,7 @@ function mcpDeclarations(root: string, revision: string, issues: LandscapeDiscov
       issues.push({
         code: "mcp_declaration_limit",
         sourcePath: blob.path,
-        sourceField: spec.rootKey,
+        sourceField: rootKey,
         detail: `bounded discovery accepts at most ${MAX_MCP_DECLARATIONS} MCP declarations`,
       });
     }
@@ -498,7 +838,7 @@ function mcpDeclarations(root: string, revision: string, issues: LandscapeDiscov
     const selectedEntries = entries.slice(0, remaining);
     considered += selectedEntries.length;
     for (const [name, entry] of selectedEntries) {
-      const declaration = mcpDeclaration(name, entry, blob, spec.rootKey, revision, issues);
+      const declaration = mcpDeclaration(name, entry, blob, rootKey, revision, issues);
       if (declaration) declarations.push(declaration);
     }
   }
@@ -765,20 +1105,32 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
     });
     resources.push(candidate(mcpRecord, evidence));
     if (!repositoryRecord) continue;
-    const relationship = EdgeSchema.parse({
-      schema: "hunch.resource-relationship/1",
-      id: resourceRelationshipId(repositoryRecord.id, mcpRecord.id, "depends_on"),
-      from: repositoryRecord.id,
-      to: mcpRecord.id,
-      type: "depends_on",
-      reason: `committed project configuration declares MCP server ${first.name}`,
-      strength: 0.8,
-      provenance: { source: "extracted:mcp-declaration", confidence: 0.8, evidence: evidence.map(provenanceEvidence) },
-      currentness: resourceCurrentness(revision, evidence.map((item) => item.sourceContentHash)),
-      environment: null,
-      metadata: { discovery_authority: "candidate", declaration_paths: declarationPaths },
-    });
-    relationships.push(candidate(relationship, evidence));
+    for (const relationshipType of ["depends_on", "provides"] as const) {
+      const relationshipDeclarations = group.filter((item) => item.relationship === relationshipType);
+      if (!relationshipDeclarations.length) continue;
+      const relationshipEvidence = relationshipDeclarations.map((item) => item.evidence);
+      const relationshipPaths = [...new Set(relationshipEvidence.map((item) => item.sourcePath))].sort(compareCodeUnits);
+      const relationship = EdgeSchema.parse({
+        schema: "hunch.resource-relationship/1",
+        id: resourceRelationshipId(repositoryRecord.id, mcpRecord.id, relationshipType),
+        from: repositoryRecord.id,
+        to: mcpRecord.id,
+        type: relationshipType,
+        reason: relationshipType === "provides"
+          ? `committed registry configuration declares repository-provided MCP server ${first.name}`
+          : `committed project configuration declares MCP server dependency ${first.name}`,
+        strength: 0.8,
+        provenance: {
+          source: "extracted:mcp-declaration",
+          confidence: 0.8,
+          evidence: relationshipEvidence.map(provenanceEvidence),
+        },
+        currentness: resourceCurrentness(revision, relationshipEvidence.map((item) => item.sourceContentHash)),
+        environment: null,
+        metadata: { discovery_authority: "candidate", declaration_paths: relationshipPaths },
+      });
+      relationships.push(candidate(relationship, relationshipEvidence));
+    }
   }
 
   for (const manifest of manifests) {
