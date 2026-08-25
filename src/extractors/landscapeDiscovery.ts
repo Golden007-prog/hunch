@@ -30,6 +30,8 @@ const MAX_MCP_CONFIG_BYTES = 256 * 1024;
 const MAX_MCP_DECLARATIONS = 128;
 const MAX_DELIVERY_DECLARATION_BYTES = 256 * 1024;
 const MAX_DELIVERY_DECLARATIONS = 128;
+const MAX_API_DECLARATION_BYTES = 1024 * 1024;
+const MAX_API_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -55,7 +57,8 @@ export type LandscapeEvidenceKind =
   | "git_history"
   | "mcp_declaration"
   | "ci_declaration"
-  | "deployment_declaration";
+  | "deployment_declaration"
+  | "api_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -96,7 +99,12 @@ export type LandscapeDiscoveryIssueCode =
   | "delivery_declaration_mode"
   | "delivery_declaration_path"
   | "delivery_declaration_limit"
-  | "delivery_declaration_conflict";
+  | "delivery_declaration_conflict"
+  | "api_declaration_invalid"
+  | "api_declaration_oversized"
+  | "api_declaration_mode"
+  | "api_declaration_path"
+  | "api_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -170,6 +178,20 @@ interface DeliveryDeclaration {
   locatorSuffix?: string;
   contractVersion?: string;
   metadata?: Record<string, string | number | boolean | null>;
+}
+
+type ApiDeclarationFormat = "json" | "yaml";
+
+interface ApiDeclarationBlob extends ManifestBlob {
+  format: ApiDeclarationFormat | null;
+}
+
+interface ApiDeclaration {
+  path: string;
+  contentHash: string;
+  format: ApiDeclarationFormat;
+  dialect: "openapi" | "swagger";
+  version: string;
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -995,6 +1017,222 @@ function safeDeclarationPath(path: string): boolean {
     && isCredentialFreeText(path);
 }
 
+function apiDeclarationFormat(path: string): ApiDeclarationFormat | null {
+  const basename = posix.basename(path);
+  const extension = basename.match(/\.(json|ya?ml)$/i);
+  if (!extension) return null;
+  const stem = basename.slice(0, -extension[0].length);
+  if (!/(^|[._-])(openapi|swagger)(?=$|[._-])/i.test(stem)) return null;
+  return extension[1]!.toLowerCase() === "json" ? "json" : "yaml";
+}
+
+function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclarationBlob[]; total: number } {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+  const discovered: ApiDeclarationBlob[] = [];
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head) continue;
+    const pathBytes = record.subarray(tab + 1);
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(pathBytes);
+    } catch {
+      const approximate = pathBytes.toString("latin1");
+      if (apiDeclarationFormat(approximate)) {
+        discovered.push({
+          path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+          mode: "unsafe-path",
+          oid: head[3]!.toLowerCase(),
+          bytes: null,
+          contentHash: null,
+          format: null,
+        });
+      }
+      continue;
+    }
+    const format = apiDeclarationFormat(path);
+    if (!format) continue;
+    if (!safeDeclarationPath(path)) {
+      discovered.push({
+        path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: head[3]!.toLowerCase(),
+        bytes: null,
+        contentHash: null,
+        format: null,
+      });
+      continue;
+    }
+    discovered.push({
+      path,
+      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
+      oid: head[3]!.toLowerCase(),
+      bytes: null,
+      contentHash: null,
+      format,
+    });
+  }
+  discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
+  const total = discovered.length;
+  const blobs = discovered.slice(0, MAX_API_DECLARATIONS).map((blob) => {
+    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_API_DECLARATION_BYTES) {
+      return { ...blob, contentHash: size > MAX_API_DECLARATION_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_API_DECLARATION_BYTES + 1);
+    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  });
+  return { blobs, total };
+}
+
+function validApiVersion(dialect: "openapi" | "swagger", value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const version = value.trim();
+  if (version.length === 0 || version.length > 128 || !isCredentialFreeText(version)) return null;
+  if (dialect === "swagger") return version === "2.0" ? version : null;
+  return /^3\.[0-9]+(?:\.[0-9]+)?(?:-[A-Za-z0-9][A-Za-z0-9.-]{0,63})?$/.test(version) ? version : null;
+}
+
+function yamlApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "version"> | null {
+  const values = new Map<"openapi" | "swagger", string | null>();
+  let duplicate = false;
+  for (const rawLine of source.split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue;
+    if (rawLine.match(/^ */)![0].length !== 0) continue;
+    const mapping = rawLine.match(/^(openapi|swagger)[ \t]*:(.*)$/);
+    if (!mapping) continue;
+    const dialect = mapping[1] as "openapi" | "swagger";
+    if (values.has(dialect)) duplicate = true;
+    values.set(dialect, boundedYamlScalar(mapping[2]!));
+  }
+  if (duplicate || values.size !== 1) return null;
+  const [dialect, rawVersion] = [...values.entries()][0]!;
+  const version = validApiVersion(dialect, rawVersion);
+  return version ? { dialect, version } : null;
+}
+
+function jsonTopLevelApiKeys(source: string): Array<"openapi" | "swagger"> {
+  const keys: Array<"openapi" | "swagger"> = [];
+  let depth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (char === "{" || char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}" || char === "]") {
+      depth -= 1;
+      continue;
+    }
+    if (char !== '"') continue;
+    const start = index;
+    for (index += 1; index < source.length; index += 1) {
+      if (source[index] === "\\") {
+        index += 1;
+        continue;
+      }
+      if (source[index] === '"') break;
+    }
+    if (depth !== 1 || index >= source.length) continue;
+    let cursor = index + 1;
+    while (cursor < source.length && /\s/.test(source[cursor]!)) cursor += 1;
+    if (source[cursor] !== ":") continue;
+    const key = JSON.parse(source.slice(start, index + 1)) as unknown;
+    if (key === "openapi" || key === "swagger") keys.push(key);
+  }
+  return keys;
+}
+
+function jsonApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "version"> | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(source) as unknown;
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const dialects = jsonTopLevelApiKeys(source);
+  if (dialects.length !== 1 || !Object.hasOwn(record, dialects[0]!)) return null;
+  const dialect = dialects[0]!;
+  const version = validApiVersion(dialect, record[dialect]);
+  return version ? { dialect, version } : null;
+}
+
+function apiDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): ApiDeclaration[] {
+  const discovered = apiDeclarationBlobs(root, revision);
+  if (discovered.total > MAX_API_DECLARATIONS) {
+    issues.push({
+      code: "api_declaration_limit",
+      sourcePath: ".",
+      sourceField: "api",
+      detail: `bounded discovery accepts at most ${MAX_API_DECLARATIONS} API declarations`,
+    });
+  }
+  const declarations: ApiDeclaration[] = [];
+  for (const blob of discovered.blobs) {
+    if (!blob.bytes || !blob.format) {
+      const code = blob.contentHash === "oversized"
+        ? "api_declaration_oversized"
+        : blob.mode === "unsafe-path"
+          ? "api_declaration_path"
+          : "api_declaration_mode";
+      issues.push({
+        code,
+        sourcePath: blob.path,
+        sourceField: "",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_API_DECLARATION_BYTES}-byte API declaration limit`
+          : blob.mode === "unsafe-path"
+            ? "an API declaration uses an unsafe path"
+            : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    let source: string;
+    try {
+      source = UTF8_DECODER.decode(blob.bytes);
+    } catch {
+      issues.push({
+        code: "api_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "",
+        detail: `${blob.path} is not valid UTF-8 API declaration data`,
+      });
+      continue;
+    }
+    if (blob.format === "yaml" && !parseSource(blob.path, source)?.parseable) {
+      issues.push({
+        code: "api_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "",
+        detail: `${blob.path} is not structurally valid OpenAPI YAML`,
+      });
+      continue;
+    }
+    const identity = blob.format === "json" ? jsonApiIdentity(source) : yamlApiIdentity(source);
+    if (!identity) {
+      issues.push({
+        code: "api_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "openapi|swagger",
+        detail: `${blob.path} must declare exactly one supported OpenAPI or Swagger version`,
+      });
+      continue;
+    }
+    declarations.push({
+      path: blob.path,
+      contentHash: blob.contentHash!,
+      format: blob.format,
+      ...identity,
+    });
+  }
+  return declarations;
+}
+
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
   const discovered: DeliveryDeclarationBlob[] = [];
@@ -1557,6 +1795,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const declarations = repositoryDeclarations(root, revision, rootManifest);
   const discoveredMcp = mcpDeclarations(root, revision, issues);
   const discoveredDelivery = deliveryDeclarations(root, revision, issues);
+  const discoveredApi = apiDeclarations(root, revision, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -1725,6 +1964,61 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       },
       currentness: resourceCurrentness(revision, [declaration.contentHash]),
       environment: null,
+      metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
+    });
+    relationships.push(candidate(relationship, [evidence]));
+  }
+
+  for (const declaration of discoveredApi) {
+    const evidence: LandscapeCandidateEvidence = {
+      kind: "api_declaration",
+      sourcePath: declaration.path,
+      sourceField: declaration.dialect,
+      sourceRevision: revision,
+      sourceContentHash: declaration.contentHash,
+    };
+    const apiRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId("api", `openapi/${declaration.path}`),
+      kind: "api",
+      name: `${declaration.dialect === "swagger" ? "Swagger" : "OpenAPI"} contract: ${posix.basename(declaration.path)}`,
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: declaration.path,
+      lifecycle: "active",
+      contract_version: declaration.version,
+      provenance: {
+        source: "extracted:api-declaration",
+        confidence: 0.85,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      metadata: {
+        discovery_authority: "candidate",
+        declaration_path: declaration.path,
+        declaration_format: declaration.format,
+        api_dialect: declaration.dialect,
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(apiRecord, [evidence]));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, apiRecord.id, "contains"),
+      from: repositoryRecord.id,
+      to: apiRecord.id,
+      type: "contains",
+      reason: `${declaration.path} declares an ${declaration.dialect === "swagger" ? "OpenAPI 2.0 (Swagger)" : "OpenAPI"} contract`,
+      strength: 0.85,
+      provenance: {
+        source: "extracted:api-declaration",
+        confidence: 0.85,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      environment: null,
+      contract_version: declaration.version,
       metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
     });
     relationships.push(candidate(relationship, [evidence]));

@@ -344,6 +344,102 @@ test("HLG-2 bounds MCP declaration count before candidate construction", (t) => 
   assert.equal(result.relationships.filter((item) => item.record.type === "depends_on").length, 128);
 });
 
+test("HLG-2 discovers exact OpenAPI YAML and Swagger JSON contracts without retaining operation bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "contracts/openapi.yaml",
+        raw: true,
+        value: `openapi: 3.1.0
+info:
+  title: Payments API
+  version: 2026-08-26
+paths:
+  /payments:
+    post:
+      description: supersecret-operation-description
+      x-private-command: never-retain-this-body
+`,
+      },
+      {
+        path: "legacy/petstore.swagger.json",
+        value: {
+          swagger: "2.0",
+          info: { title: "Legacy Petstore", version: "1.0.0" },
+          paths: { "/animals": { get: { description: "supersecret-legacy-operation" } } },
+        },
+      },
+      {
+        path: "contracts/api.yaml",
+        raw: true,
+        value: "openapi: 3.1.0\ninfo:\n  title: intentionally outside the fixed filename family\n",
+      },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const apis = first.resources.filter((item) => item.record.kind === "api");
+  assert.deepEqual(apis.map((item) => item.record.id), [
+    "api:openapi/contracts/openapi.yaml",
+    "api:openapi/legacy/petstore.swagger.json",
+  ]);
+  assert.deepEqual(apis.map((item) => item.record.contract_version), ["3.1.0", "2.0"]);
+  assert.deepEqual(apis.map((item) => item.record.metadata.api_dialect), ["openapi", "swagger"]);
+  assert.deepEqual(apis.map((item) => item.evidence[0]!.sourceField), ["openapi", "swagger"]);
+  assert.ok(apis.every((item) => item.evidence[0]!.kind === "api_declaration"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("api:")).length, 2);
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /supersecret|never-retain-this-body|\/payments|\/animals/i,
+    "titles, paths, operations, and extension bodies never enter the candidate fragment");
+
+  writeFileSync(join(root, "contracts/openapi.yaml"), "openapi: 3.0.0\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree API edits cannot alter exact-revision discovery");
+});
+
+test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
+  const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "contracts/broken.openapi.yaml", raw: true, value: "openapi: 3.1.0\ninfo: [unterminated-private-value" },
+      { path: "contracts/future.openapi.yaml", raw: true, value: "openapi: 4.0.0\ninfo:\n  title: unsupported-private-value\n" },
+      { path: "contracts/ambiguous.openapi.json", value: { openapi: "3.1.0", swagger: "2.0", private: "do-not-retain" } },
+      { path: "contracts/duplicate.openapi.json", raw: true, value: "{\"openapi\":\"3.0.0\",\"openapi\":\"3.1.0\",\"private\":\"duplicate-private-value\"}" },
+      { path: "contracts/token=supersecret.openapi.yaml", raw: true, value: "openapi: 3.1.0\n" },
+      { path: "contracts/oversized.openapi.yaml", raw: true, value: oversized },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "api"), false);
+  assert.equal(result.issues.filter((issue) => issue.code === "api_declaration_invalid").length, 4);
+  assert.ok(result.issues.some((issue) => issue.code === "api_declaration_oversized"));
+  assert.ok(result.issues.some((issue) => issue.code === "api_declaration_path"));
+  assert.doesNotMatch(JSON.stringify(result), /supersecret|unterminated-private|unsupported-private|do-not-retain|duplicate-private/i);
+});
+
+test("HLG-2 bounds OpenAPI declaration count before blob hydration and candidate construction", (t) => {
+  const files = Array.from({ length: 129 }, (_, index) => ({
+    path: `contracts/service-${String(index).padStart(3, "0")}.openapi.yaml`,
+    value: `openapi: 3.1.0\ninfo:\n  title: Service ${index}\n`,
+    raw: true,
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files,
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "api_declaration_limit"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "api").length, 128);
+  assert.equal(result.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("api:")).length, 128);
+});
+
 test("HLG-2 discovers exact CI, container artifact, and Compose deployment candidates without retaining declaration bodies", (t) => {
   const { root, revision } = repository(t, {
     rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
@@ -623,4 +719,19 @@ test("HLG-2 never follows a delivery declaration symlink", (t) => {
   const result = discoverRepositoryLandscape(root);
   assert.ok(result.issues.some((issue) => issue.code === "delivery_declaration_mode" && issue.sourcePath === "Dockerfile"));
   assert.equal(result.resources.some((item) => item.record.kind === "artifact"), false);
+});
+
+test("HLG-2 never follows an OpenAPI declaration symlink", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  mkdirSync(join(root, "contracts"), { recursive: true });
+  symlinkSync("../package.json", join(root, "contracts/openapi.yaml"));
+  git(root, "add", "--", "contracts/openapi.yaml");
+  git(root, "commit", "-qm", "add OpenAPI symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "api_declaration_mode"
+    && issue.sourcePath === "contracts/openapi.yaml"));
+  assert.equal(result.resources.some((item) => item.record.kind === "api"), false);
 });
