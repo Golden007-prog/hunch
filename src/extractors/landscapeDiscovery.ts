@@ -203,7 +203,7 @@ interface ApiDeclaration {
 }
 
 interface MigrationDeclarationBlob extends ManifestBlob {
-  provider: "prisma" | "flyway" | "rails" | "django" | null;
+  provider: "prisma" | "flyway" | "rails" | "django" | "laravel" | null;
   migrationId: string | null;
   migrationType: "versioned" | "undo" | "repeatable" | null;
   contractVersion: string | null;
@@ -212,7 +212,7 @@ interface MigrationDeclarationBlob extends ManifestBlob {
 interface MigrationDeclaration {
   path: string;
   contentHash: string;
-  provider: "prisma" | "flyway" | "rails" | "django";
+  provider: "prisma" | "flyway" | "rails" | "django" | "laravel";
   migrationId: string;
   migrationType: "versioned" | "undo" | "repeatable";
   contractVersion: string | null;
@@ -1405,12 +1405,21 @@ function migrationDeclarationIdentity(path: string): Pick<MigrationDeclaration, 
     };
   }
   const django = path.match(/(?:^|\/)([a-z_][a-z0-9_]*)\/migrations\/([0-9]{4,8})_([a-z][a-z0-9_]{0,119})\.py$/);
-  return django
-    ? {
+  if (django) {
+    return {
       provider: "django",
       migrationId: `${django[2]}_${django[3]}`,
       migrationType: "versioned",
       contractVersion: django[2]!,
+    };
+  }
+  const laravel = path.match(/(?:^|\/)database\/migrations\/([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{6})_([a-z][a-z0-9_]{0,127})\.php$/);
+  return laravel
+    ? {
+      provider: "laravel",
+      migrationId: `${laravel[1]}_${laravel[2]}`,
+      migrationType: "versioned",
+      contractVersion: laravel[1]!,
     }
     : null;
 }
@@ -1553,7 +1562,9 @@ function migrationProviderName(provider: MigrationDeclaration["provider"]): stri
       ? "Flyway"
       : provider === "rails"
         ? "Rails"
-        : "Django";
+        : provider === "django"
+          ? "Django"
+          : "Laravel";
 }
 
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {

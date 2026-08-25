@@ -827,6 +827,47 @@ test("HLG-2 discovers conventional Django migrations without retaining Python bo
   assert.doesNotMatch(JSON.stringify(result), /PrivateAccount|secret_token|0001_private_dependency|PRIVATE_INIT|PRIVATE_SHORT|PRIVATE_DASH|PRIVATE_DIRECTORY/i);
 });
 
+test("HLG-2 discovers conventional Laravel migrations without retaining PHP bodies or inferring schema effects", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "database/migrations/2026_08_26_090000_create_private_accounts.php",
+        raw: true,
+        value: "<?php use Illuminate\\Database\\Migrations\\Migration; return new class extends Migration { public function up(): void { Schema::create('secret_accounts', fn ($table) => $table->text('hidden_token')); } };\n",
+      },
+      {
+        path: "services/billing/database/migrations/2026_08_26_100000_add_invoice_field.php",
+        raw: true,
+        value: "<?php return new class extends Migration { public function up(): void { Schema::table('private_invoices', fn ($table) => $table->string('secret_card')); } };\n",
+      },
+      { path: "database/migrations/2026_08_26_1000_too_short.php", raw: true, value: "<?php // PRIVATE_SHORT\n" },
+      { path: "database/migrations/2026_08_26_110000_CreateUpper.php", raw: true, value: "<?php // PRIVATE_UPPER\n" },
+      { path: "database/migration/2026_08_26_120000_wrong_directory.php", raw: true, value: "<?php // PRIVATE_DIRECTORY\n" },
+      { path: "migrations/2026_08_26_130000_generic.php", raw: true, value: "<?php // PRIVATE_GENERIC\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const migrations = result.resources.filter((item) => item.record.metadata.migration_framework === "laravel");
+  assert.deepEqual(migrations.map((item) => item.record.id), [
+    "artifact:migration/laravel/database/migrations/2026_08_26_090000_create_private_accounts.php",
+    "artifact:migration/laravel/services/billing/database/migrations/2026_08_26_100000_add_invoice_field.php",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.contract_version), ["2026_08_26_090000", "2026_08_26_100000"]);
+  assert.deepEqual(migrations.map((item) => item.record.metadata.migration_id), [
+    "2026_08_26_090000_create_private_accounts",
+    "2026_08_26_100000_add_invoice_field",
+  ]);
+  assert.ok(migrations.every((item) => item.record.metadata.migration_type === "versioned"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.kind === "migration_declaration"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/laravel/")).length, 2);
+  assert.equal(result.resources.some((item) => item.record.kind === "database"), false);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /secret_accounts|hidden_token|private_invoices|secret_card|PRIVATE_SHORT|PRIVATE_UPPER|PRIVATE_DIRECTORY|PRIVATE_GENERIC/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {
