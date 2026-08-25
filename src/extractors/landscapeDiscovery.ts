@@ -190,7 +190,7 @@ interface ApiDeclaration {
   path: string;
   contentHash: string;
   format: ApiDeclarationFormat;
-  dialect: "openapi" | "swagger" | "asyncapi" | "protobuf";
+  dialect: "openapi" | "swagger" | "asyncapi" | "protobuf" | "jsonschema";
   version: string;
 }
 
@@ -1023,7 +1023,10 @@ function apiDeclarationFormat(path: string): ApiDeclarationFormat | null {
   const extension = basename.match(/\.(json|ya?ml)$/i);
   if (!extension) return null;
   const stem = basename.slice(0, -extension[0].length);
-  if (!/(^|[._-])(openapi|swagger|asyncapi)(?=$|[._-])/i.test(stem)) return null;
+  const apiNamed = /(^|[._-])(openapi|swagger|asyncapi)(?=$|[._-])/i.test(stem);
+  const jsonSchemaNamed = extension[1]!.toLowerCase() === "json"
+    && /(^|[._-])schema(?=$|[._-])/i.test(stem);
+  if (!apiNamed && !jsonSchemaNamed) return null;
   return extension[1]!.toLowerCase() === "json" ? "json" : "yaml";
 }
 
@@ -1089,11 +1092,19 @@ function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclar
   return { blobs, total };
 }
 
-function validApiVersion(dialect: "openapi" | "swagger" | "asyncapi" | "protobuf", value: unknown): string | null {
+function validApiVersion(dialect: ApiDeclaration["dialect"], value: unknown): string | null {
   if (typeof value !== "string") return null;
   const version = value.trim();
   if (version.length === 0 || version.length > 128 || !isCredentialFreeText(version)) return null;
   if (dialect === "protobuf") return version === "proto2" || version === "proto3" ? version : null;
+  if (dialect === "jsonschema") {
+    const dialects: Record<string, string> = {
+      "https://json-schema.org/draft/2020-12/schema": "2020-12",
+      "https://json-schema.org/draft/2019-09/schema": "2019-09",
+      "http://json-schema.org/draft-07/schema#": "draft-07",
+    };
+    return dialects[version] ?? null;
+  }
   if (dialect === "swagger") return version === "2.0" ? version : null;
   if (dialect === "asyncapi") {
     return /^(?:2|3)\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9][A-Za-z0-9.-]{0,63})?$/.test(version) ? version : null;
@@ -1119,8 +1130,10 @@ function yamlApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "vers
   return version ? { dialect, version } : null;
 }
 
-function jsonTopLevelApiKeys(source: string): Array<"openapi" | "swagger" | "asyncapi"> {
-  const keys: Array<"openapi" | "swagger" | "asyncapi"> = [];
+type JsonContractIdentityField = "openapi" | "swagger" | "asyncapi" | "$schema";
+
+function jsonTopLevelApiKeys(source: string): JsonContractIdentityField[] {
+  const keys: JsonContractIdentityField[] = [];
   let depth = 0;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index]!;
@@ -1146,7 +1159,7 @@ function jsonTopLevelApiKeys(source: string): Array<"openapi" | "swagger" | "asy
     while (cursor < source.length && /\s/.test(source[cursor]!)) cursor += 1;
     if (source[cursor] !== ":") continue;
     const key = JSON.parse(source.slice(start, index + 1)) as unknown;
-    if (key === "openapi" || key === "swagger" || key === "asyncapi") keys.push(key);
+    if (key === "openapi" || key === "swagger" || key === "asyncapi" || key === "$schema") keys.push(key);
   }
   return keys;
 }
@@ -1162,8 +1175,9 @@ function jsonApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "vers
   const record = value as Record<string, unknown>;
   const dialects = jsonTopLevelApiKeys(source);
   if (dialects.length !== 1 || !Object.hasOwn(record, dialects[0]!)) return null;
-  const dialect = dialects[0]!;
-  const version = validApiVersion(dialect, record[dialect]);
+  const identityField = dialects[0]!;
+  const dialect = identityField === "$schema" ? "jsonschema" : identityField;
+  const version = validApiVersion(dialect, record[identityField]);
   return version ? { dialect, version } : null;
 }
 
@@ -1315,7 +1329,7 @@ function apiDeclarations(root: string, revision: string, issues: LandscapeDiscov
         code: "api_declaration_invalid",
         sourcePath: blob.path,
         sourceField: "openapi|swagger",
-        detail: `${blob.path} must declare exactly one supported OpenAPI, Swagger, AsyncAPI or protobuf version`,
+        detail: `${blob.path} must declare exactly one supported OpenAPI, Swagger, AsyncAPI, protobuf or JSON Schema version`,
       });
       continue;
     }
@@ -2069,7 +2083,11 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
     const evidence: LandscapeCandidateEvidence = {
       kind: "api_declaration",
       sourcePath: declaration.path,
-      sourceField: declaration.dialect === "protobuf" ? "syntax" : declaration.dialect,
+      sourceField: declaration.dialect === "protobuf"
+        ? "syntax"
+        : declaration.dialect === "jsonschema"
+          ? "$schema"
+          : declaration.dialect,
       sourceRevision: revision,
       sourceContentHash: declaration.contentHash,
     };
@@ -2077,14 +2095,18 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       ? "asyncapi"
       : declaration.dialect === "protobuf"
         ? "protobuf"
-        : "openapi";
+        : declaration.dialect === "jsonschema"
+          ? "json-schema"
+          : "openapi";
     const displayName = declaration.dialect === "swagger"
       ? "Swagger"
       : declaration.dialect === "asyncapi"
         ? "AsyncAPI"
         : declaration.dialect === "protobuf"
           ? "Protobuf"
-          : "OpenAPI";
+          : declaration.dialect === "jsonschema"
+            ? "JSON Schema"
+            : "OpenAPI";
     const apiRecord = ResourceSchema.parse({
       schema: "hunch.resource/1",
       id: resourceId("api", `${family}/${declaration.path}`),

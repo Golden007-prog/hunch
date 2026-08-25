@@ -536,6 +536,70 @@ test("HLG-2 rejects missing, unsupported, duplicated, and structurally unclosed 
   assert.doesNotMatch(JSON.stringify(result), /NeverRetain|PrivateEdition|PrivateDuplicate|PrivateLate|PrivateUnclosed|secret/i);
 });
 
+test("HLG-2 discovers fixed-name JSON Schema dialects without retaining IDs, properties, examples, or bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/contracts", repository: "https://github.com/acme/contracts.git" },
+    files: [
+      {
+        path: "schemas/payment.schema.json",
+        value: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          $id: "https://token=never-retain.example.test/private/payment",
+          title: "Private Payment",
+          properties: { secretCard: { type: "string", examples: ["never-retain-example"] } },
+        },
+      },
+      {
+        path: "schemas/legacy.schema.json",
+        value: {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          definitions: { PrivateOrder: { type: "object" } },
+        },
+      },
+      {
+        path: "schemas/schema.yaml",
+        raw: true,
+        value: "$schema: https://json-schema.org/draft/2020-12/schema\ntitle: ignored non-JSON family\n",
+      },
+      {
+        path: "schemas/arbitrary.json",
+        value: { $schema: "https://json-schema.org/draft/2020-12/schema", title: "ignored fixed-name miss" },
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const apis = result.resources.filter((item) => item.record.kind === "api");
+  assert.deepEqual(apis.map((item) => item.record.id), [
+    "api:json-schema/schemas/legacy.schema.json",
+    "api:json-schema/schemas/payment.schema.json",
+  ]);
+  assert.deepEqual(apis.map((item) => item.record.contract_version), ["draft-07", "2020-12"]);
+  assert.ok(apis.every((item) => item.record.metadata.api_dialect === "jsonschema"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceField === "$schema"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("api:json-schema/")).length, 2);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /never-retain|secretCard|PrivateOrder|token=|Private Payment/i);
+});
+
+test("HLG-2 rejects unsupported, duplicate, and mixed JSON Schema identities without echoing bodies", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/contracts", repository: "https://github.com/acme/contracts.git" },
+    files: [
+      { path: "schemas/old.schema.json", value: { $schema: "http://json-schema.org/draft-04/schema#", private: "old-private-body" } },
+      { path: "schemas/mixed.schema.json", value: { $schema: "https://json-schema.org/draft/2020-12/schema", openapi: "3.1.0", private: "mixed-private-body" } },
+      { path: "schemas/duplicate.schema.json", raw: true, value: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$schema\":\"https://json-schema.org/draft/2019-09/schema\",\"private\":\"duplicate-private-body\"}" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "api"), false);
+  assert.equal(result.issues.filter((issue) => issue.code === "api_declaration_invalid").length, 3);
+  assert.doesNotMatch(JSON.stringify(result), /old-private|mixed-private|duplicate-private/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {
