@@ -115,6 +115,25 @@
   .hero h1{margin:0}
   .hero p.lede{max-width:var(--measure);color:var(--ink-2);font-size:18px;margin:28px 0 0}
   .hero-cta{display:flex;gap:12px;margin-top:36px;flex-wrap:wrap;align-items:center}
+  .release-section{padding:0 0 72px}
+  .release-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:28px;box-shadow:0 22px 54px -44px rgba(20,31,25,.42)}
+  .release-head{display:grid;grid-template-columns:1fr auto;gap:28px;align-items:start}
+  .release-head h2{font-size:clamp(23px,3vw,31px);margin-top:10px}
+  .release-copy{max-width:68ch;color:var(--ink-2);margin:14px 0 0}
+  .release-install{align-self:center;white-space:nowrap;font-size:12.5px;padding:11px 13px;background:var(--bg-2)}
+  .release-metrics{display:grid;grid-template-columns:repeat(3,1fr);margin-top:26px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .release-metric{padding:20px 22px 20px 0}
+  .release-metric+.release-metric{border-inline-start:1px solid var(--line);padding-inline-start:22px}
+  .release-metric strong{display:inline-block;direction:ltr;unicode-bidi:isolate;font:500 22px/1.2 var(--mono);color:var(--moss-ink)}
+  .release-metric span{display:block;margin-top:7px;color:var(--mut);font-size:13.5px}
+  .release-caveat{margin:18px 0 0;color:var(--mut);font-size:13.5px;max-width:82ch}
+  @media (max-width:760px){
+    .release-head{grid-template-columns:1fr}
+    .release-install{justify-self:start}
+    .release-metrics{grid-template-columns:1fr}
+    .release-metric{padding:16px 0}
+    .release-metric+.release-metric{border-inline-start:0;border-top:1px solid var(--line);padding-inline-start:0}
+  }
   /* ───────────── hero art: the graph that holds the line ─────────────
      full-bleed behind the hero text; a soft wash keeps the measure readable.
      the cursor is an agent: edges near it illuminate. */
@@ -305,7 +324,7 @@
        rarely, the strict flavor blocks (ember). The cursor is an agent too:
        edges near it illuminate. Decorative: aria-hidden, pointer-events none. -->
   <div class="hero-art" aria-hidden="true"><canvas id="holdline"></canvas></div>
-  <span class="eyebrow rise">v1.18 · YAML ו-Helm מצטרפים לגרף</span>
+  <span class="eyebrow rise">v1.19 · חיפוש תיקונים מבוסס ראיות</span>
   <h1 class="rise d1">מה שהוחלט נשאר מוחלט.<br /><b>מה שתוקן נשאר מתוקן.</b></h1>
   <p class="lede rise d2">Hunch מבטיח שסוכני הקוד שלכם לעולם לא יחליטו מחדש החלטה שהוכרעה ולעולם לא יחזירו באג שתוקן — כל סשן מתחיל מההחלטות, הפשרות והלקחים שהצוות כבר שילם עליהם.</p>
   <div class="hero-cta rise d3">
@@ -314,6 +333,27 @@
   </div>
 
 </header>
+
+<section class="release-section" aria-labelledby="release-proof-title">
+  <div class="wrap">
+    <div class="release-card">
+      <div class="release-head">
+        <div>
+          <span class="eyebrow">v1.19 · קבלת העברה</span>
+          <h2 id="release-proof-title">מבט רחב יותר, עם גבול ראיות קשיח.</h2>
+          <p class="release-copy">במבחן העברה שנרשם מראש ובו 12 מקרים, התצוגה המשלימה המוגבלת מצאה 6/12 הצהרות שהשתנו לעומת 3/12 בחמישייה השטוחה. מבחן נפרד שמר על כל חמש הפגיעות תוך בדיקה של 41.9% פחות הצהרות.</p>
+        </div>
+        <code class="release-install">npm i -g @davesheffer/hunch</code>
+      </div>
+      <div class="release-metrics" aria-label="תוצאות מדד גרסה 1.19">
+        <div class="release-metric"><strong>25% → 50%</strong><span>כיסוי הצהרות שהשתנו</span></div>
+        <div class="release-metric"><strong>8/12 → 10/12</strong><span>כיסוי קבצים נכונים</span></div>
+        <div class="release-metric"><strong>18.9 → 11</strong><span>הצהרות שנבדקו</span></div>
+      </div>
+      <p class="release-caveat">אלו תוצאות העברה צרות, לא טענה ש-Hunch מדויק פי 2 באופן כללי. הראיות מוסיפות הערות לרשימה; הן אינן משנות את הסדר ואינן טוענות לבעלות מדויקת.</p>
+    </div>
+  </div>
+</section>
 
 <!-- ─────────────────────────── story ─────────────────────────── -->
 <section id="story">

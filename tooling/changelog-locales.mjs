@@ -8,6 +8,8 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "ראיות הגרסה במקום שבו מתקינים",
+      "חיפוש תיקונים עם גבולות ראייתיים",
       "רשומות ADR שהוצאו משימוש כבר לא ממציאות מחליפים",
       "YAML ו-Helm נכנסים לגרף",
       "הייצוא מבחין כשהוא נרקב",
@@ -36,6 +38,8 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Доказательства выпуска там, где устанавливают",
+      "Поиск исправлений с границами доказательности",
       "Устаревшие ADR больше не выдумывают преемников",
       "YAML и Helm входят в граф",
       "Экспорт замечает, что протух",
@@ -64,6 +68,8 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "أدلة الإصدار حيث يتم التثبيت",
+      "بحث تصحيحات مضبوط بحدود الأدلة",
       "سجلات ADR المهملة لم تعد تختلق خلفاء",
       "YAML وHelm يدخلان الرسم البياني",
       "التصدير يلاحظ حين يفسد",
@@ -92,6 +98,8 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "La evidencia de la versión donde se instala",
+      "Búsqueda de correcciones con límites de evidencia",
       "Los ADR obsoletos ya no inventan sucesores",
       "YAML y Helm entran en el grafo",
       "La exportación nota cuándo se pudre",

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.19.0 — 2026-08-26
+
+### The release evidence is visible where people install
+
+The GitHub and npm README now put the preregistered correction-search results near the install path:
+changed-declaration coverage moved from 3/12 to 6/12, correct-file coverage from 8/12 to 10/12,
+and the progressive plan retained the same five hits while inspecting 41.9% fewer declarations.
+The copy keeps the evidence boundary explicit: these are narrow transfer results, evidence remains
+annotation-only, and Hunch does not claim universal 2× accuracy or an exact correction owner.
+
+The public site now carries the same measured release card, the stable installation path, and
+localized v1.19 release/changelog surfaces. Version 1.19.0 promotes the tested rc.1 implementation
+to npm's `latest` channel without changing its frozen algorithms or experiment receipts.
+
 ## 1.19.0-rc.1 — 2026-08-25
 
 ### Evidence-bounded correction search
