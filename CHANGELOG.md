@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.19.0-rc.1 — 2026-08-25
+
+### Evidence-bounded correction search
+
+`hunch shortlist` now preserves its flat top five while adding repository-adaptive correction-stage
+ranking, file-anchored semantic declaration families, and a bounded progressive inspection queue.
+On a preregistered 12-case transfer, the supplemental cluster view found 6/12 changed declarations
+versus 3/12 for the flat shortlist (+25 percentage points) and raised correct-file coverage from
+8/12 to 10/12. On a separate 12-case transfer, the progressive queue retained all 5 full-cluster
+hits with zero losses while reducing mean inspection from 18.9 declarations to 11 (41.9% less).
+
+`hunch evidence-map` compiles authenticated red/green probe, execution, and intervention receipts
+into a read-only map. Fresh transfers did not establish execution or intervention influence as a
+reliable exact-owner signal, so evidence remains annotation-only: it cannot reorder the shortlist,
+and exact-owner and per-case confidence output remain disabled. The preregistrations, frozen
+predictions, positive receipts, and rejected follow-ups are retained under `bench/external/results`.
+
+### Reasoning that must meet evidence
+
+Delivery now abstains from low-confidence or task-irrelevant memory and emits at most two testable
+hypotheses. The agent pipeline can compile bounded executable obligations across runtime, static,
+serialization, and compatibility contracts, normalize tool outcomes, require a real pre-edit
+baseline, and track proof closure after edits. These controls fail open when no valid proof plan is
+provided and do not turn advisory memory into blocking authority.
+
 ## 1.18.1 — 2026-08-22
 
 ### Deprecated ADRs no longer invent successors

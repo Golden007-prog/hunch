@@ -18,6 +18,11 @@ strict enforcement.
 **Memory is the input. The product boundary is the receipt:** relevant evidence before an edit,
 then a deterministic check of the change against the rules your team has explicitly trusted.
 
+> **Release candidate v1.19.0-rc.1:** correction search now keeps the flat top five but adds
+> transfer-tested semantic declaration families and an efficiency-tested progressive queue.
+> Evidence receipts are read-only annotations: they never reorder candidates or claim an exact
+> owner. Install the candidate explicitly with `npm i -g @davesheffer/hunch@1.19.0-rc.1`.
+
 > **New in v1.18.0:** YAML and Helm now enter the same dependency graph as application code.
 > Anchors and aliases become reference edges; chart-scoped `define`, `include`, and `template`
 > relationships survive pre-render syntax without weakening fail-closed handling for ordinary
