@@ -55,7 +55,7 @@ test("the newest locale titles line up with the newest English releases", () => 
   const versions = [...changelogHtml.matchAll(/<span class="rel-tag">([^<]+)<\/span>/g)].map((m) => m[1]);
   assert.ok(versions.length >= 2, "at least two releases to compare");
   assert.ok(
-    /^v\d+\.\d+\.\d+$/.test(versions[0] ?? ""),
+    /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(versions[0] ?? ""),
     `newest row is not a version tag: ${versions[0]}`,
   );
   for (const [locale, copy] of Object.entries(locales)) {

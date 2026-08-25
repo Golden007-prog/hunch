@@ -18,10 +18,22 @@ strict enforcement.
 **Memory is the input. The product boundary is the receipt:** relevant evidence before an edit,
 then a deterministic check of the change against the rules your team has explicitly trusted.
 
-> **Release candidate v1.19.0-rc.1:** correction search now keeps the flat top five but adds
+> **New in v1.19.0:** correction search now keeps the flat top five but adds
 > transfer-tested semantic declaration families and an efficiency-tested progressive queue.
 > Evidence receipts are read-only annotations: they never reorder candidates or claim an exact
-> owner. Install the candidate explicitly with `npm i -g @davesheffer/hunch@1.19.0-rc.1`.
+> owner. Install the stable release with `npm i -g @davesheffer/hunch`.
+
+The measured improvement is deliberately scoped to fresh, preregistered transfer cases:
+
+| Measure | Flat/baseline | v1.19 bounded view | Change |
+| --- | ---: | ---: | ---: |
+| Changed declaration found | 3/12 (25%) | 6/12 (50%) | +25 percentage points |
+| Correct file found | 8/12 (66.7%) | 10/12 (83.3%) | +16.6 percentage points |
+| Declarations inspected for the same five hits | 18.9 average | 11 average | 41.9% less |
+
+These are bounded diagnostic and inspection results, not a claim that Hunch is universally twice as
+accurate. Failed evidence and causal rerankers remain disabled; the receipts annotate the shortlist
+without changing its order or asserting an exact owner.
 
 > **New in v1.18.0:** YAML and Helm now enter the same dependency graph as application code.
 > Anchors and aliases become reference edges; chart-scoped `define`, `include`, and `template`
@@ -137,7 +149,7 @@ Git repo that every teammate can access, install the Matrix release on team mach
 have one maintainer run:
 
 ```bash
-npm i -g @davesheffer/hunch@1.18.1
+npm i -g @davesheffer/hunch@1.19.0
 hunch shared --repo git@github.com:acme/project-hunch-memory.git
 git add .gitignore .hunch/team.json
 git commit -m "chore: connect shared Hunch memory"
@@ -152,7 +164,7 @@ printed by Hunch. Omit `--migrate` for a new setup.
 After the pointer commit lands, teammates need Hunch installed and Git access to the memory repo:
 
 ```bash
-npm i -g @davesheffer/hunch@1.18.1
+npm i -g @davesheffer/hunch@1.19.0
 git pull
 hunch init
 hunch doctor

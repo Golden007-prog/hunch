@@ -27,9 +27,10 @@ const rewrite = (rel, transform) => {
   }
 };
 
-const pinPattern = new RegExp(`(${name.replace("/", "\\/")}@)\\d+\\.\\d+\\.\\d+`, "g");
+const semverPattern = "\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?";
+const pinPattern = new RegExp(`(${name.replace("/", "\\/")}@)${semverPattern}`, "g");
 rewrite("plugin/.mcp.json", (text) => text.replace(pinPattern, `$1${version}`));
-rewrite("server.json", (text) => text.replace(/("version":\s*")\d+\.\d+\.\d+(")/g, `$1${version}$2`));
+rewrite("server.json", (text) => text.replace(new RegExp(`("version":\\s*")${semverPattern}(")`, "g"), `$1${version}$2`));
 
 for (const rel of ["plugin/.mcp.json", "server.json"]) {
   if (!read(rel).includes(version)) {
