@@ -701,6 +701,58 @@ test("HLG-2 bounds Prisma migration count before candidate construction", (t) =>
   assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/prisma/")).length, 128);
 });
 
+test("HLG-2 discovers standard Flyway versioned, undo, and repeatable migrations without retaining SQL", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "src/main/resources/db/migration/V1__initial.sql",
+        raw: true,
+        value: "CREATE TABLE PrivateAccount (hidden_password TEXT);\n",
+      },
+      {
+        path: "db/migration/V2_1__add_invoice.sql",
+        raw: true,
+        value: "ALTER TABLE PrivateInvoice ADD COLUMN secret_token TEXT;\n",
+      },
+      {
+        path: "db/migration/U2_1__undo_invoice.sql",
+        raw: true,
+        value: "DROP TABLE NeverRetainUndo;\n",
+      },
+      {
+        path: "db/migration/R__refresh_views.sql",
+        raw: true,
+        value: "CREATE VIEW PrivateRevenue AS SELECT hidden_total;\n",
+      },
+      { path: "db/migration/v3__lowercase.sql", raw: true, value: "SELECT 'ignored-lowercase';\n" },
+      { path: "db/migration/V3_missing_separator.sql", raw: true, value: "SELECT 'ignored-separator';\n" },
+      { path: "db/migration/nested/V4__nested.sql", raw: true, value: "SELECT 'ignored-nested';\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const migrations = result.resources.filter((item) => item.record.metadata.migration_framework === "flyway");
+  assert.deepEqual(migrations.map((item) => item.record.id), [
+    "artifact:migration/flyway/db/migration/R__refresh_views.sql",
+    "artifact:migration/flyway/db/migration/U2_1__undo_invoice.sql",
+    "artifact:migration/flyway/db/migration/V2_1__add_invoice.sql",
+    "artifact:migration/flyway/src/main/resources/db/migration/V1__initial.sql",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.metadata.migration_type), [
+    "repeatable",
+    "undo",
+    "versioned",
+    "versioned",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.contract_version), [undefined, "2_1", "2_1", "1"]);
+  assert.ok(migrations.every((item) => item.evidence[0]!.kind === "migration_declaration"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/flyway/")).length, 4);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /PrivateAccount|hidden_password|PrivateInvoice|secret_token|NeverRetainUndo|PrivateRevenue|hidden_total|ignored-/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {

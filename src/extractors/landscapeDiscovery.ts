@@ -203,15 +203,19 @@ interface ApiDeclaration {
 }
 
 interface MigrationDeclarationBlob extends ManifestBlob {
-  provider: "prisma" | null;
+  provider: "prisma" | "flyway" | null;
   migrationId: string | null;
+  migrationType: "versioned" | "undo" | "repeatable" | null;
+  contractVersion: string | null;
 }
 
 interface MigrationDeclaration {
   path: string;
   contentHash: string;
-  provider: "prisma";
+  provider: "prisma" | "flyway";
   migrationId: string;
+  migrationType: "versioned" | "undo" | "repeatable";
+  contractVersion: string | null;
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -1363,9 +1367,34 @@ function apiDeclarations(root: string, revision: string, issues: LandscapeDiscov
   return declarations;
 }
 
-function prismaMigrationIdentity(path: string): string | null {
-  const match = path.match(/(?:^|\/)prisma\/migrations\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/migration\.sql$/);
-  return match?.[1] ?? null;
+function migrationDeclarationIdentity(path: string): Pick<MigrationDeclaration, "provider" | "migrationId" | "migrationType" | "contractVersion"> | null {
+  const prisma = path.match(/(?:^|\/)prisma\/migrations\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/migration\.sql$/);
+  if (prisma) {
+    return {
+      provider: "prisma",
+      migrationId: prisma[1]!,
+      migrationType: "versioned",
+      contractVersion: prisma[1]!,
+    };
+  }
+  const flywayVersioned = path.match(/(?:^|\/)db\/migration\/([VU])([0-9][0-9._-]{0,127})__([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.sql$/);
+  if (flywayVersioned) {
+    return {
+      provider: "flyway",
+      migrationId: `${flywayVersioned[1]}${flywayVersioned[2]}`,
+      migrationType: flywayVersioned[1] === "V" ? "versioned" : "undo",
+      contractVersion: flywayVersioned[2]!,
+    };
+  }
+  const flywayRepeatable = path.match(/(?:^|\/)db\/migration\/(R)__([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.sql$/);
+  return flywayRepeatable
+    ? {
+      provider: "flyway",
+      migrationId: `R__${flywayRepeatable[2]}`,
+      migrationType: "repeatable",
+      contractVersion: null,
+    }
+    : null;
 }
 
 function migrationDeclarationBlobs(root: string, revision: string): { blobs: MigrationDeclarationBlob[]; total: number } {
@@ -1382,7 +1411,7 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
       path = UTF8_DECODER.decode(pathBytes);
     } catch {
       const approximate = pathBytes.toString("latin1");
-      if (prismaMigrationIdentity(approximate)) {
+      if (migrationDeclarationIdentity(approximate)) {
         discovered.push({
           path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
@@ -1391,12 +1420,14 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
           contentHash: null,
           provider: null,
           migrationId: null,
+          migrationType: null,
+          contractVersion: null,
         });
       }
       continue;
     }
-    const migrationId = prismaMigrationIdentity(path);
-    if (!migrationId) continue;
+    const identity = migrationDeclarationIdentity(path);
+    if (!identity) continue;
     if (!safeDeclarationPath(path)) {
       discovered.push({
         path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
@@ -1406,6 +1437,8 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
         contentHash: null,
         provider: null,
         migrationId: null,
+        migrationType: null,
+        contractVersion: null,
       });
       continue;
     }
@@ -1415,8 +1448,7 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
       oid: head[3]!.toLowerCase(),
       bytes: null,
       contentHash: null,
-      provider: "prisma",
-      migrationId,
+      ...identity,
     });
   }
   discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
@@ -1445,7 +1477,7 @@ function migrationDeclarations(root: string, revision: string, issues: Landscape
   }
   const declarations: MigrationDeclaration[] = [];
   for (const blob of discovered.blobs) {
-    if (!blob.bytes || !blob.provider || !blob.migrationId) {
+    if (!blob.bytes || !blob.provider || !blob.migrationId || !blob.migrationType) {
       const code = blob.contentHash === "oversized"
         ? "migration_declaration_oversized"
         : blob.mode === "unsafe-path"
@@ -1489,6 +1521,8 @@ function migrationDeclarations(root: string, revision: string, issues: Landscape
       contentHash: blob.contentHash!,
       provider: blob.provider,
       migrationId: blob.migrationId,
+      migrationType: blob.migrationType,
+      contractVersion: blob.contractVersion,
     });
   }
   return declarations;
@@ -2318,11 +2352,11 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       schema: "hunch.resource/1",
       id: resourceId("artifact", `migration/${declaration.provider}/${declaration.path}`),
       kind: "artifact",
-      name: `Prisma migration: ${declaration.migrationId}`,
+      name: `${declaration.provider === "prisma" ? "Prisma" : "Flyway"} ${declaration.migrationType} migration: ${declaration.migrationId}`,
       scope: repositoryRecord ? [repositoryRecord.id] : [],
       locator: declaration.path,
       lifecycle: "active",
-      contract_version: declaration.migrationId,
+      contract_version: declaration.contractVersion ?? undefined,
       provenance: {
         source: "extracted:migration-declaration",
         confidence: 0.9,
@@ -2333,6 +2367,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
         discovery_authority: "candidate",
         artifact_type: "database_migration",
         migration_framework: declaration.provider,
+        migration_type: declaration.migrationType,
         declaration_path: declaration.path,
         declaration_format: "sql",
         migration_id: declaration.migrationId,
@@ -2348,7 +2383,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       from: repositoryRecord.id,
       to: migrationRecord.id,
       type: "contains",
-      reason: `${declaration.path} declares a Prisma database migration artifact`,
+      reason: `${declaration.path} declares a ${declaration.provider === "prisma" ? "Prisma" : "Flyway"} database migration artifact`,
       strength: 0.9,
       provenance: {
         source: "extracted:migration-declaration",
@@ -2357,7 +2392,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       },
       currentness: resourceCurrentness(revision, [declaration.contentHash]),
       environment: null,
-      contract_version: declaration.migrationId,
+      contract_version: declaration.contractVersion ?? undefined,
       metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
     });
     relationships.push(candidate(relationship, [evidence]));
