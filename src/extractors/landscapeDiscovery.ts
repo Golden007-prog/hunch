@@ -32,6 +32,8 @@ const MAX_DELIVERY_DECLARATION_BYTES = 256 * 1024;
 const MAX_DELIVERY_DECLARATIONS = 128;
 const MAX_API_DECLARATION_BYTES = 1024 * 1024;
 const MAX_API_DECLARATIONS = 128;
+const MAX_MIGRATION_DECLARATION_BYTES = 1024 * 1024;
+const MAX_MIGRATION_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -58,7 +60,8 @@ export type LandscapeEvidenceKind =
   | "mcp_declaration"
   | "ci_declaration"
   | "deployment_declaration"
-  | "api_declaration";
+  | "api_declaration"
+  | "migration_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -104,7 +107,12 @@ export type LandscapeDiscoveryIssueCode =
   | "api_declaration_oversized"
   | "api_declaration_mode"
   | "api_declaration_path"
-  | "api_declaration_limit";
+  | "api_declaration_limit"
+  | "migration_declaration_invalid"
+  | "migration_declaration_oversized"
+  | "migration_declaration_mode"
+  | "migration_declaration_path"
+  | "migration_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -192,6 +200,18 @@ interface ApiDeclaration {
   format: ApiDeclarationFormat;
   dialect: "openapi" | "swagger" | "asyncapi" | "protobuf" | "jsonschema";
   version: string;
+}
+
+interface MigrationDeclarationBlob extends ManifestBlob {
+  provider: "prisma" | null;
+  migrationId: string | null;
+}
+
+interface MigrationDeclaration {
+  path: string;
+  contentHash: string;
+  provider: "prisma";
+  migrationId: string;
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -1343,6 +1363,137 @@ function apiDeclarations(root: string, revision: string, issues: LandscapeDiscov
   return declarations;
 }
 
+function prismaMigrationIdentity(path: string): string | null {
+  const match = path.match(/(?:^|\/)prisma\/migrations\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/migration\.sql$/);
+  return match?.[1] ?? null;
+}
+
+function migrationDeclarationBlobs(root: string, revision: string): { blobs: MigrationDeclarationBlob[]; total: number } {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+  const discovered: MigrationDeclarationBlob[] = [];
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head) continue;
+    const pathBytes = record.subarray(tab + 1);
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(pathBytes);
+    } catch {
+      const approximate = pathBytes.toString("latin1");
+      if (prismaMigrationIdentity(approximate)) {
+        discovered.push({
+          path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+          mode: "unsafe-path",
+          oid: head[3]!.toLowerCase(),
+          bytes: null,
+          contentHash: null,
+          provider: null,
+          migrationId: null,
+        });
+      }
+      continue;
+    }
+    const migrationId = prismaMigrationIdentity(path);
+    if (!migrationId) continue;
+    if (!safeDeclarationPath(path)) {
+      discovered.push({
+        path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: head[3]!.toLowerCase(),
+        bytes: null,
+        contentHash: null,
+        provider: null,
+        migrationId: null,
+      });
+      continue;
+    }
+    discovered.push({
+      path,
+      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
+      oid: head[3]!.toLowerCase(),
+      bytes: null,
+      contentHash: null,
+      provider: "prisma",
+      migrationId,
+    });
+  }
+  discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
+  const total = discovered.length;
+  const blobs = discovered.slice(0, MAX_MIGRATION_DECLARATIONS).map((blob) => {
+    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MIGRATION_DECLARATION_BYTES) {
+      return { ...blob, contentHash: size > MAX_MIGRATION_DECLARATION_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_MIGRATION_DECLARATION_BYTES + 1);
+    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  });
+  return { blobs, total };
+}
+
+function migrationDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): MigrationDeclaration[] {
+  const discovered = migrationDeclarationBlobs(root, revision);
+  if (discovered.total > MAX_MIGRATION_DECLARATIONS) {
+    issues.push({
+      code: "migration_declaration_limit",
+      sourcePath: ".",
+      sourceField: "migration",
+      detail: `bounded discovery accepts at most ${MAX_MIGRATION_DECLARATIONS} migration declarations`,
+    });
+  }
+  const declarations: MigrationDeclaration[] = [];
+  for (const blob of discovered.blobs) {
+    if (!blob.bytes || !blob.provider || !blob.migrationId) {
+      const code = blob.contentHash === "oversized"
+        ? "migration_declaration_oversized"
+        : blob.mode === "unsafe-path"
+          ? "migration_declaration_path"
+          : "migration_declaration_mode";
+      issues.push({
+        code,
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_MIGRATION_DECLARATION_BYTES}-byte migration declaration limit`
+          : blob.mode === "unsafe-path"
+            ? "a migration declaration uses an unsafe path"
+            : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    let source: string;
+    try {
+      source = UTF8_DECODER.decode(blob.bytes);
+    } catch {
+      issues.push({
+        code: "migration_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: `${blob.path} is not valid UTF-8 migration data`,
+      });
+      continue;
+    }
+    if (!source.replace(/^\uFEFF/, "").trim()) {
+      issues.push({
+        code: "migration_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: `${blob.path} is an empty migration declaration`,
+      });
+      continue;
+    }
+    declarations.push({
+      path: blob.path,
+      contentHash: blob.contentHash!,
+      provider: blob.provider,
+      migrationId: blob.migrationId,
+    });
+  }
+  return declarations;
+}
+
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
   const discovered: DeliveryDeclarationBlob[] = [];
@@ -1906,6 +2057,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const discoveredMcp = mcpDeclarations(root, revision, issues);
   const discoveredDelivery = deliveryDeclarations(root, revision, issues);
   const discoveredApi = apiDeclarations(root, revision, issues);
+  const discoveredMigrations = migrationDeclarations(root, revision, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -2149,6 +2301,63 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       currentness: resourceCurrentness(revision, [declaration.contentHash]),
       environment: null,
       contract_version: declaration.version,
+      metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
+    });
+    relationships.push(candidate(relationship, [evidence]));
+  }
+
+  for (const declaration of discoveredMigrations) {
+    const evidence: LandscapeCandidateEvidence = {
+      kind: "migration_declaration",
+      sourcePath: declaration.path,
+      sourceField: "path",
+      sourceRevision: revision,
+      sourceContentHash: declaration.contentHash,
+    };
+    const migrationRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId("artifact", `migration/${declaration.provider}/${declaration.path}`),
+      kind: "artifact",
+      name: `Prisma migration: ${declaration.migrationId}`,
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: declaration.path,
+      lifecycle: "active",
+      contract_version: declaration.migrationId,
+      provenance: {
+        source: "extracted:migration-declaration",
+        confidence: 0.9,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      metadata: {
+        discovery_authority: "candidate",
+        artifact_type: "database_migration",
+        migration_framework: declaration.provider,
+        declaration_path: declaration.path,
+        declaration_format: "sql",
+        migration_id: declaration.migrationId,
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(migrationRecord, [evidence]));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, migrationRecord.id, "contains"),
+      from: repositoryRecord.id,
+      to: migrationRecord.id,
+      type: "contains",
+      reason: `${declaration.path} declares a Prisma database migration artifact`,
+      strength: 0.9,
+      provenance: {
+        source: "extracted:migration-declaration",
+        confidence: 0.9,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      environment: null,
+      contract_version: declaration.migrationId,
       metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
     });
     relationships.push(candidate(relationship, [evidence]));

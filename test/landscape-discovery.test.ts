@@ -600,6 +600,107 @@ test("HLG-2 rejects unsupported, duplicate, and mixed JSON Schema identities wit
   assert.doesNotMatch(JSON.stringify(result), /old-private|mixed-private|duplicate-private/i);
 });
 
+test("HLG-2 discovers committed Prisma migration artifacts without retaining SQL bodies or inferring a database", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "prisma/migrations/20260826090000_initial/migration.sql",
+        raw: true,
+        value: "CREATE TABLE PrivateCustomer (secret_card TEXT);\n",
+      },
+      {
+        path: "packages/billing/prisma/migrations/20260826100000_add_invoice/migration.sql",
+        raw: true,
+        value: "ALTER TABLE PrivateInvoice ADD COLUMN hidden_token TEXT;\n",
+      },
+      { path: "prisma/migrations/migration_lock.toml", raw: true, value: "provider = \"postgresql\"\n" },
+      { path: "db/migrations/20260826_not_prisma.sql", raw: true, value: "SELECT 'ignored-private-body';\n" },
+      { path: "prisma/migrations/20260826110000_wrong/custom.sql", raw: true, value: "SELECT 'ignored-custom-body';\n" },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const migrations = first.resources.filter((item) => item.record.metadata.artifact_type === "database_migration");
+  assert.deepEqual(migrations.map((item) => item.record.id), [
+    "artifact:migration/prisma/packages/billing/prisma/migrations/20260826100000_add_invoice/migration.sql",
+    "artifact:migration/prisma/prisma/migrations/20260826090000_initial/migration.sql",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.contract_version), [
+    "20260826100000_add_invoice",
+    "20260826090000_initial",
+  ]);
+  assert.ok(migrations.every((item) => item.record.kind === "artifact"));
+  assert.ok(migrations.every((item) => item.record.metadata.migration_framework === "prisma"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.kind === "migration_declaration"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceField === "path"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("artifact:migration/prisma/")).length, 2);
+  assert.equal(first.resources.some((item) => item.record.kind === "database"), false);
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /PrivateCustomer|secret_card|PrivateInvoice|hidden_token|ignored-private|ignored-custom/i);
+
+  writeFileSync(join(root, "prisma/migrations/20260826090000_initial/migration.sql"), "DROP PRIVATE WORKING COPY;\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree migration edits cannot alter exact-revision discovery");
+});
+
+test("HLG-2 rejects empty and oversized Prisma migrations without echoing SQL bodies", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "prisma/migrations/20260826090000_empty/migration.sql", raw: true, value: "  \n\t" },
+      {
+        path: "prisma/migrations/20260826100000_oversized/migration.sql",
+        raw: true,
+        value: `-- private migration body\n${"SELECT 'never-retain-oversized';\n".repeat(40_000)}`,
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.metadata.artifact_type === "database_migration"), false);
+  assert.ok(result.issues.some((issue) => issue.code === "migration_declaration_invalid"));
+  assert.ok(result.issues.some((issue) => issue.code === "migration_declaration_oversized"));
+  assert.doesNotMatch(JSON.stringify(result), /never-retain-oversized|private migration body/i);
+});
+
+test("HLG-2 rejects non-UTF-8 Prisma migration data without returning its bytes", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  const migrationPath = "prisma/migrations/20260826103000_binary/migration.sql";
+  const target = join(root, migrationPath);
+  mkdirSync(join(target, ".."), { recursive: true });
+  writeFileSync(target, Buffer.from([0xff, 0xfe, 0x53, 0x45, 0x43, 0x52, 0x45, 0x54]));
+  git(root, "add", "--", migrationPath);
+  git(root, "commit", "-qm", "add invalid migration bytes");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "migration_declaration_invalid"
+    && issue.sourcePath === migrationPath));
+  assert.equal(result.resources.some((item) => item.record.metadata.artifact_type === "database_migration"), false);
+  assert.doesNotMatch(JSON.stringify(result), /SECRET/i);
+});
+
+test("HLG-2 bounds Prisma migration count before candidate construction", (t) => {
+  const files = Array.from({ length: 129 }, (_, index) => ({
+    path: `prisma/migrations/20260826${String(index).padStart(6, "0")}_bounded/migration.sql`,
+    value: "SELECT 1;\n",
+    raw: true,
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files,
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "migration_declaration_limit"));
+  assert.equal(result.resources.filter((item) => item.record.metadata.artifact_type === "database_migration").length, 128);
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/prisma/")).length, 128);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {
@@ -934,4 +1035,20 @@ test("HLG-2 never follows an OpenAPI declaration symlink", (t) => {
   assert.ok(result.issues.some((issue) => issue.code === "api_declaration_mode"
     && issue.sourcePath === "contracts/openapi.yaml"));
   assert.equal(result.resources.some((item) => item.record.kind === "api"), false);
+});
+
+test("HLG-2 never follows a Prisma migration symlink", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  const migrationDir = join(root, "prisma/migrations/20260826120000_linked");
+  mkdirSync(migrationDir, { recursive: true });
+  symlinkSync("../../../package.json", join(migrationDir, "migration.sql"));
+  git(root, "add", "--", "prisma/migrations/20260826120000_linked/migration.sql");
+  git(root, "commit", "-qm", "add Prisma migration symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "migration_declaration_mode"
+    && issue.sourcePath === "prisma/migrations/20260826120000_linked/migration.sql"));
+  assert.equal(result.resources.some((item) => item.record.metadata.artifact_type === "database_migration"), false);
 });
