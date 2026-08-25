@@ -470,6 +470,72 @@ test("HLG-2 rejects unsupported, duplicate, and mixed AsyncAPI identities withou
   assert.doesNotMatch(JSON.stringify(result), /future-private|mixed-private|duplicate-private/i);
 });
 
+test("HLG-2 discovers proto2/proto3 contracts without retaining messages, fields, services, or options", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/rpc", repository: "https://github.com/acme/rpc.git" },
+    files: [
+      {
+        path: "proto/payments.proto",
+        raw: true,
+        value: `// committed contract, not runtime proof
+syntax = "proto3";
+package private.payments.v1;
+option java_package = "token.never.retain";
+message SecretPayment { string private_card = 1; }
+service PaymentsService { rpc Charge(SecretPayment) returns (SecretPayment); }
+`,
+      },
+      {
+        path: "proto/legacy/orders.proto",
+        raw: true,
+        value: `/* legacy contract */
+syntax="proto2";
+package private.legacy;
+message LegacyOrder { required string never_retain_field = 1; }
+`,
+      },
+      {
+        path: "proto/ignored.proto.txt",
+        raw: true,
+        value: "syntax = \"proto3\";\nmessage OutsideFixedExtension {}\n",
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const apis = result.resources.filter((item) => item.record.kind === "api");
+  assert.deepEqual(apis.map((item) => item.record.id), [
+    "api:protobuf/proto/legacy/orders.proto",
+    "api:protobuf/proto/payments.proto",
+  ]);
+  assert.deepEqual(apis.map((item) => item.record.contract_version), ["proto2", "proto3"]);
+  assert.ok(apis.every((item) => item.record.metadata.api_dialect === "protobuf"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceField === "syntax"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("api:protobuf/")).length, 2);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /private|secret|card|Charge|never_retain|token\.never/i);
+});
+
+test("HLG-2 rejects missing, unsupported, duplicated, and structurally unclosed protobuf headers", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/rpc", repository: "https://github.com/acme/rpc.git" },
+    files: [
+      { path: "proto/missing.proto", raw: true, value: "package private.missing;\nmessage NeverRetain {}\n" },
+      { path: "proto/unsupported.proto", raw: true, value: "edition = \"2023\";\nmessage PrivateEdition {}\n" },
+      { path: "proto/duplicate.proto", raw: true, value: "syntax = \"proto3\";\nsyntax = \"proto2\";\nmessage PrivateDuplicate {}\n" },
+      { path: "proto/late.proto", raw: true, value: "package private.first;\nsyntax = \"proto3\";\nmessage PrivateLate {}\n" },
+      { path: "proto/unclosed.proto", raw: true, value: "syntax = \"proto3\";\nmessage PrivateUnclosed { string secret = 1;\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "api"), false);
+  assert.equal(result.issues.filter((issue) => issue.code === "api_declaration_invalid").length, 5);
+  assert.doesNotMatch(JSON.stringify(result), /NeverRetain|PrivateEdition|PrivateDuplicate|PrivateLate|PrivateUnclosed|secret/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {

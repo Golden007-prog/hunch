@@ -180,7 +180,7 @@ interface DeliveryDeclaration {
   metadata?: Record<string, string | number | boolean | null>;
 }
 
-type ApiDeclarationFormat = "json" | "yaml";
+type ApiDeclarationFormat = "json" | "yaml" | "protobuf";
 
 interface ApiDeclarationBlob extends ManifestBlob {
   format: ApiDeclarationFormat | null;
@@ -190,7 +190,7 @@ interface ApiDeclaration {
   path: string;
   contentHash: string;
   format: ApiDeclarationFormat;
-  dialect: "openapi" | "swagger" | "asyncapi";
+  dialect: "openapi" | "swagger" | "asyncapi" | "protobuf";
   version: string;
 }
 
@@ -1019,6 +1019,7 @@ function safeDeclarationPath(path: string): boolean {
 
 function apiDeclarationFormat(path: string): ApiDeclarationFormat | null {
   const basename = posix.basename(path);
+  if (/\.proto$/i.test(basename)) return "protobuf";
   const extension = basename.match(/\.(json|ya?ml)$/i);
   if (!extension) return null;
   const stem = basename.slice(0, -extension[0].length);
@@ -1088,10 +1089,11 @@ function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclar
   return { blobs, total };
 }
 
-function validApiVersion(dialect: "openapi" | "swagger" | "asyncapi", value: unknown): string | null {
+function validApiVersion(dialect: "openapi" | "swagger" | "asyncapi" | "protobuf", value: unknown): string | null {
   if (typeof value !== "string") return null;
   const version = value.trim();
   if (version.length === 0 || version.length > 128 || !isCredentialFreeText(version)) return null;
+  if (dialect === "protobuf") return version === "proto2" || version === "proto3" ? version : null;
   if (dialect === "swagger") return version === "2.0" ? version : null;
   if (dialect === "asyncapi") {
     return /^(?:2|3)\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9][A-Za-z0-9.-]{0,63})?$/.test(version) ? version : null;
@@ -1165,6 +1167,93 @@ function jsonApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "vers
   return version ? { dialect, version } : null;
 }
 
+function protobufApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "version"> | null {
+  let state: "normal" | "line-comment" | "block-comment" | "string" = "normal";
+  let depth = 0;
+  let statement = "";
+  let firstStatement: string | null = null;
+  let syntaxCount = 0;
+  let version: string | null = null;
+
+  const acceptStatement = () => {
+    const normalized = statement.trim();
+    statement = "";
+    if (!normalized) return;
+    const complete = `${normalized};`;
+    firstStatement ??= complete;
+    const syntax = complete.match(/^syntax\s*=\s*"(proto2|proto3)"\s*;$/);
+    if (/^syntax\b/.test(complete)) syntaxCount += 1;
+    if (syntax) version = syntax[1]!;
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    const next = source[index + 1];
+    if (state === "line-comment") {
+      if (char === "\n") state = "normal";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (char === "*" && next === "/") {
+        state = "normal";
+        index += 1;
+      }
+      continue;
+    }
+    if (state === "string") {
+      if (depth === 0) statement += char;
+      if (char === "\\") {
+        if (depth === 0 && next !== undefined) statement += next;
+        index += 1;
+      } else if (char === '"') {
+        state = "normal";
+      }
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      if (depth === 0) statement += " ";
+      state = "line-comment";
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      if (depth === 0) statement += " ";
+      state = "block-comment";
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      if (depth === 0) statement += char;
+      state = "string";
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) {
+        if (statement.trim()) firstStatement ??= `${statement.trim()} {`;
+        statement = "";
+      }
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth < 0) return null;
+      continue;
+    }
+    if (depth !== 0) continue;
+    if (char === ";") {
+      acceptStatement();
+      continue;
+    }
+    statement += char;
+  }
+
+  if (state === "block-comment" || state === "string" || depth !== 0 || syntaxCount !== 1 || !version) return null;
+  const expected = `syntax = "${version}";`;
+  if (!firstStatement || firstStatement.replace(/\s+/g, " ").replace(/\s*=\s*/, " = ") !== expected) return null;
+  return { dialect: "protobuf", version };
+}
+
 function apiDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): ApiDeclaration[] {
   const discovered = apiDeclarationBlobs(root, revision);
   if (discovered.total > MAX_API_DECLARATIONS) {
@@ -1216,13 +1305,17 @@ function apiDeclarations(root: string, revision: string, issues: LandscapeDiscov
       });
       continue;
     }
-    const identity = blob.format === "json" ? jsonApiIdentity(source) : yamlApiIdentity(source);
+    const identity = blob.format === "json"
+      ? jsonApiIdentity(source)
+      : blob.format === "yaml"
+        ? yamlApiIdentity(source)
+        : protobufApiIdentity(source);
     if (!identity) {
       issues.push({
         code: "api_declaration_invalid",
         sourcePath: blob.path,
         sourceField: "openapi|swagger",
-        detail: `${blob.path} must declare exactly one supported OpenAPI, Swagger or AsyncAPI version`,
+        detail: `${blob.path} must declare exactly one supported OpenAPI, Swagger, AsyncAPI or protobuf version`,
       });
       continue;
     }
@@ -1976,16 +2069,22 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
     const evidence: LandscapeCandidateEvidence = {
       kind: "api_declaration",
       sourcePath: declaration.path,
-      sourceField: declaration.dialect,
+      sourceField: declaration.dialect === "protobuf" ? "syntax" : declaration.dialect,
       sourceRevision: revision,
       sourceContentHash: declaration.contentHash,
     };
-    const family = declaration.dialect === "asyncapi" ? "asyncapi" : "openapi";
+    const family = declaration.dialect === "asyncapi"
+      ? "asyncapi"
+      : declaration.dialect === "protobuf"
+        ? "protobuf"
+        : "openapi";
     const displayName = declaration.dialect === "swagger"
       ? "Swagger"
       : declaration.dialect === "asyncapi"
         ? "AsyncAPI"
-        : "OpenAPI";
+        : declaration.dialect === "protobuf"
+          ? "Protobuf"
+          : "OpenAPI";
     const apiRecord = ResourceSchema.parse({
       schema: "hunch.resource/1",
       id: resourceId("api", `${family}/${declaration.path}`),
