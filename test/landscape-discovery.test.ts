@@ -400,6 +400,76 @@ paths:
     "working-tree API edits cannot alter exact-revision discovery");
 });
 
+test("HLG-2 discovers exact AsyncAPI 2/3 contracts without retaining channels, operations, or servers", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/events", repository: "https://github.com/acme/events.git" },
+    files: [
+      {
+        path: "contracts/asyncapi.yaml",
+        raw: true,
+        value: `asyncapi: 3.0.0
+info:
+  title: Private Event Mesh
+  version: 1.0.0
+servers:
+  production:
+    host: token=never-retain.example.test
+channels:
+  secret-orders:
+    address: private-orders-stream
+operations:
+  consumeSecretOrders:
+    action: receive
+`,
+      },
+      {
+        path: "contracts/legacy.orders.asyncapi.json",
+        value: {
+          asyncapi: "2.6.0",
+          info: { title: "Legacy Orders", version: "1.0.0" },
+          channels: { "private/orders": { subscribe: { operationId: "neverRetainLegacyOperation" } } },
+        },
+      },
+      {
+        path: "contracts/events.yaml",
+        raw: true,
+        value: "asyncapi: 3.0.0\ninfo:\n  title: outside the fixed filename family\n",
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const apis = result.resources.filter((item) => item.record.kind === "api");
+  assert.deepEqual(apis.map((item) => item.record.id), [
+    "api:asyncapi/contracts/asyncapi.yaml",
+    "api:asyncapi/contracts/legacy.orders.asyncapi.json",
+  ]);
+  assert.deepEqual(apis.map((item) => item.record.contract_version), ["3.0.0", "2.6.0"]);
+  assert.ok(apis.every((item) => item.record.metadata.api_dialect === "asyncapi"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceField === "asyncapi"));
+  assert.ok(apis.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("api:asyncapi/")).length, 2);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /never-retain|neverRetain|secret-orders|private-orders|private\/orders/i);
+});
+
+test("HLG-2 rejects unsupported, duplicate, and mixed AsyncAPI identities without echoing bodies", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/events", repository: "https://github.com/acme/events.git" },
+    files: [
+      { path: "contracts/future.asyncapi.yaml", raw: true, value: "asyncapi: 4.0.0\ninfo:\n  title: future-private-title\n" },
+      { path: "contracts/mixed.asyncapi.json", value: { asyncapi: "3.0.0", openapi: "3.1.0", private: "mixed-private-body" } },
+      { path: "contracts/duplicate.asyncapi.json", raw: true, value: "{\"asyncapi\":\"2.6.0\",\"asyncapi\":\"3.0.0\",\"private\":\"duplicate-private-body\"}" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "api"), false);
+  assert.equal(result.issues.filter((issue) => issue.code === "api_declaration_invalid").length, 3);
+  assert.doesNotMatch(JSON.stringify(result), /future-private|mixed-private|duplicate-private/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {

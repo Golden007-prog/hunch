@@ -190,7 +190,7 @@ interface ApiDeclaration {
   path: string;
   contentHash: string;
   format: ApiDeclarationFormat;
-  dialect: "openapi" | "swagger";
+  dialect: "openapi" | "swagger" | "asyncapi";
   version: string;
 }
 
@@ -1022,7 +1022,7 @@ function apiDeclarationFormat(path: string): ApiDeclarationFormat | null {
   const extension = basename.match(/\.(json|ya?ml)$/i);
   if (!extension) return null;
   const stem = basename.slice(0, -extension[0].length);
-  if (!/(^|[._-])(openapi|swagger)(?=$|[._-])/i.test(stem)) return null;
+  if (!/(^|[._-])(openapi|swagger|asyncapi)(?=$|[._-])/i.test(stem)) return null;
   return extension[1]!.toLowerCase() === "json" ? "json" : "yaml";
 }
 
@@ -1088,23 +1088,26 @@ function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclar
   return { blobs, total };
 }
 
-function validApiVersion(dialect: "openapi" | "swagger", value: unknown): string | null {
+function validApiVersion(dialect: "openapi" | "swagger" | "asyncapi", value: unknown): string | null {
   if (typeof value !== "string") return null;
   const version = value.trim();
   if (version.length === 0 || version.length > 128 || !isCredentialFreeText(version)) return null;
   if (dialect === "swagger") return version === "2.0" ? version : null;
+  if (dialect === "asyncapi") {
+    return /^(?:2|3)\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9][A-Za-z0-9.-]{0,63})?$/.test(version) ? version : null;
+  }
   return /^3\.[0-9]+(?:\.[0-9]+)?(?:-[A-Za-z0-9][A-Za-z0-9.-]{0,63})?$/.test(version) ? version : null;
 }
 
 function yamlApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "version"> | null {
-  const values = new Map<"openapi" | "swagger", string | null>();
+  const values = new Map<"openapi" | "swagger" | "asyncapi", string | null>();
   let duplicate = false;
   for (const rawLine of source.split(/\r?\n/)) {
     if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue;
     if (rawLine.match(/^ */)![0].length !== 0) continue;
-    const mapping = rawLine.match(/^(openapi|swagger)[ \t]*:(.*)$/);
+    const mapping = rawLine.match(/^(openapi|swagger|asyncapi)[ \t]*:(.*)$/);
     if (!mapping) continue;
-    const dialect = mapping[1] as "openapi" | "swagger";
+    const dialect = mapping[1] as "openapi" | "swagger" | "asyncapi";
     if (values.has(dialect)) duplicate = true;
     values.set(dialect, boundedYamlScalar(mapping[2]!));
   }
@@ -1114,8 +1117,8 @@ function yamlApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "vers
   return version ? { dialect, version } : null;
 }
 
-function jsonTopLevelApiKeys(source: string): Array<"openapi" | "swagger"> {
-  const keys: Array<"openapi" | "swagger"> = [];
+function jsonTopLevelApiKeys(source: string): Array<"openapi" | "swagger" | "asyncapi"> {
+  const keys: Array<"openapi" | "swagger" | "asyncapi"> = [];
   let depth = 0;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index]!;
@@ -1141,7 +1144,7 @@ function jsonTopLevelApiKeys(source: string): Array<"openapi" | "swagger"> {
     while (cursor < source.length && /\s/.test(source[cursor]!)) cursor += 1;
     if (source[cursor] !== ":") continue;
     const key = JSON.parse(source.slice(start, index + 1)) as unknown;
-    if (key === "openapi" || key === "swagger") keys.push(key);
+    if (key === "openapi" || key === "swagger" || key === "asyncapi") keys.push(key);
   }
   return keys;
 }
@@ -1219,7 +1222,7 @@ function apiDeclarations(root: string, revision: string, issues: LandscapeDiscov
         code: "api_declaration_invalid",
         sourcePath: blob.path,
         sourceField: "openapi|swagger",
-        detail: `${blob.path} must declare exactly one supported OpenAPI or Swagger version`,
+        detail: `${blob.path} must declare exactly one supported OpenAPI, Swagger or AsyncAPI version`,
       });
       continue;
     }
@@ -1977,11 +1980,17 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       sourceRevision: revision,
       sourceContentHash: declaration.contentHash,
     };
+    const family = declaration.dialect === "asyncapi" ? "asyncapi" : "openapi";
+    const displayName = declaration.dialect === "swagger"
+      ? "Swagger"
+      : declaration.dialect === "asyncapi"
+        ? "AsyncAPI"
+        : "OpenAPI";
     const apiRecord = ResourceSchema.parse({
       schema: "hunch.resource/1",
-      id: resourceId("api", `openapi/${declaration.path}`),
+      id: resourceId("api", `${family}/${declaration.path}`),
       kind: "api",
-      name: `${declaration.dialect === "swagger" ? "Swagger" : "OpenAPI"} contract: ${posix.basename(declaration.path)}`,
+      name: `${displayName} contract: ${posix.basename(declaration.path)}`,
       scope: repositoryRecord ? [repositoryRecord.id] : [],
       locator: declaration.path,
       lifecycle: "active",
@@ -2009,7 +2018,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       from: repositoryRecord.id,
       to: apiRecord.id,
       type: "contains",
-      reason: `${declaration.path} declares an ${declaration.dialect === "swagger" ? "OpenAPI 2.0 (Swagger)" : "OpenAPI"} contract`,
+      reason: `${declaration.path} declares an ${declaration.dialect === "swagger" ? "OpenAPI 2.0 (Swagger)" : displayName} contract`,
       strength: 0.85,
       provenance: {
         source: "extracted:api-declaration",
