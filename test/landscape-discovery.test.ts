@@ -789,6 +789,44 @@ test("HLG-2 discovers conventional Rails migrations without retaining Ruby bodie
   assert.doesNotMatch(JSON.stringify(result), /CreatePrivateAccounts|secret_accounts|AddHiddenToken|private_invoices|hidden_token|Ignored/i);
 });
 
+test("HLG-2 discovers conventional Django migrations without retaining Python bodies or inferring dependencies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "billing/migrations/0001_initial.py",
+        raw: true,
+        value: "from django.db import migrations, models\nclass Migration(migrations.Migration):\n    operations = [migrations.CreateModel(name='PrivateAccount', fields=[('secret_token', models.TextField())])]\n",
+      },
+      {
+        path: "services/payments/payments/migrations/0002_add_invoice_field.py",
+        raw: true,
+        value: "from django.db import migrations\nclass Migration(migrations.Migration):\n    dependencies = [('billing', '0001_private_dependency')]\n    operations = []\n",
+      },
+      { path: "billing/migrations/__init__.py", raw: true, value: "PRIVATE_INIT = True\n" },
+      { path: "billing/migrations/012_too_short.py", raw: true, value: "PRIVATE_SHORT = True\n" },
+      { path: "billing/migrations/0003-unsafe-name.py", raw: true, value: "PRIVATE_DASH = True\n" },
+      { path: "billing/migration/0004_wrong_directory.py", raw: true, value: "PRIVATE_DIRECTORY = True\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const migrations = result.resources.filter((item) => item.record.metadata.migration_framework === "django");
+  assert.deepEqual(migrations.map((item) => item.record.id), [
+    "artifact:migration/django/billing/migrations/0001_initial.py",
+    "artifact:migration/django/services/payments/payments/migrations/0002_add_invoice_field.py",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.contract_version), ["0001", "0002"]);
+  assert.deepEqual(migrations.map((item) => item.record.metadata.migration_id), ["0001_initial", "0002_add_invoice_field"]);
+  assert.ok(migrations.every((item) => item.record.metadata.migration_type === "versioned"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.kind === "migration_declaration"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/django/")).length, 2);
+  assert.equal(result.resources.some((item) => item.record.kind === "database"), false);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /PrivateAccount|secret_token|0001_private_dependency|PRIVATE_INIT|PRIVATE_SHORT|PRIVATE_DASH|PRIVATE_DIRECTORY/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {

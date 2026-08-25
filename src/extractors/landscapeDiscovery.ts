@@ -203,7 +203,7 @@ interface ApiDeclaration {
 }
 
 interface MigrationDeclarationBlob extends ManifestBlob {
-  provider: "prisma" | "flyway" | "rails" | null;
+  provider: "prisma" | "flyway" | "rails" | "django" | null;
   migrationId: string | null;
   migrationType: "versioned" | "undo" | "repeatable" | null;
   contractVersion: string | null;
@@ -212,7 +212,7 @@ interface MigrationDeclarationBlob extends ManifestBlob {
 interface MigrationDeclaration {
   path: string;
   contentHash: string;
-  provider: "prisma" | "flyway" | "rails";
+  provider: "prisma" | "flyway" | "rails" | "django";
   migrationId: string;
   migrationType: "versioned" | "undo" | "repeatable";
   contractVersion: string | null;
@@ -1396,12 +1396,21 @@ function migrationDeclarationIdentity(path: string): Pick<MigrationDeclaration, 
     };
   }
   const rails = path.match(/(?:^|\/)db\/migrate\/([0-9]{14})_([a-z0-9][a-z0-9_]{0,127})\.rb$/);
-  return rails
-    ? {
+  if (rails) {
+    return {
       provider: "rails",
       migrationId: rails[1]!,
       migrationType: "versioned",
       contractVersion: rails[1]!,
+    };
+  }
+  const django = path.match(/(?:^|\/)([a-z_][a-z0-9_]*)\/migrations\/([0-9]{4,8})_([a-z][a-z0-9_]{0,119})\.py$/);
+  return django
+    ? {
+      provider: "django",
+      migrationId: `${django[2]}_${django[3]}`,
+      migrationType: "versioned",
+      contractVersion: django[2]!,
     }
     : null;
 }
@@ -1538,7 +1547,13 @@ function migrationDeclarations(root: string, revision: string, issues: Landscape
 }
 
 function migrationProviderName(provider: MigrationDeclaration["provider"]): string {
-  return provider === "prisma" ? "Prisma" : provider === "flyway" ? "Flyway" : "Rails";
+  return provider === "prisma"
+    ? "Prisma"
+    : provider === "flyway"
+      ? "Flyway"
+      : provider === "rails"
+        ? "Rails"
+        : "Django";
 }
 
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
