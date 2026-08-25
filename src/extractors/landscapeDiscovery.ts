@@ -203,7 +203,7 @@ interface ApiDeclaration {
 }
 
 interface MigrationDeclarationBlob extends ManifestBlob {
-  provider: "prisma" | "flyway" | null;
+  provider: "prisma" | "flyway" | "rails" | null;
   migrationId: string | null;
   migrationType: "versioned" | "undo" | "repeatable" | null;
   contractVersion: string | null;
@@ -212,7 +212,7 @@ interface MigrationDeclarationBlob extends ManifestBlob {
 interface MigrationDeclaration {
   path: string;
   contentHash: string;
-  provider: "prisma" | "flyway";
+  provider: "prisma" | "flyway" | "rails";
   migrationId: string;
   migrationType: "versioned" | "undo" | "repeatable";
   contractVersion: string | null;
@@ -1387,12 +1387,21 @@ function migrationDeclarationIdentity(path: string): Pick<MigrationDeclaration, 
     };
   }
   const flywayRepeatable = path.match(/(?:^|\/)db\/migration\/(R)__([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.sql$/);
-  return flywayRepeatable
-    ? {
+  if (flywayRepeatable) {
+    return {
       provider: "flyway",
       migrationId: `R__${flywayRepeatable[2]}`,
       migrationType: "repeatable",
       contractVersion: null,
+    };
+  }
+  const rails = path.match(/(?:^|\/)db\/migrate\/([0-9]{14})_([a-z0-9][a-z0-9_]{0,127})\.rb$/);
+  return rails
+    ? {
+      provider: "rails",
+      migrationId: rails[1]!,
+      migrationType: "versioned",
+      contractVersion: rails[1]!,
     }
     : null;
 }
@@ -1526,6 +1535,10 @@ function migrationDeclarations(root: string, revision: string, issues: Landscape
     });
   }
   return declarations;
+}
+
+function migrationProviderName(provider: MigrationDeclaration["provider"]): string {
+  return provider === "prisma" ? "Prisma" : provider === "flyway" ? "Flyway" : "Rails";
 }
 
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
@@ -2352,7 +2365,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       schema: "hunch.resource/1",
       id: resourceId("artifact", `migration/${declaration.provider}/${declaration.path}`),
       kind: "artifact",
-      name: `${declaration.provider === "prisma" ? "Prisma" : "Flyway"} ${declaration.migrationType} migration: ${declaration.migrationId}`,
+      name: `${migrationProviderName(declaration.provider)} ${declaration.migrationType} migration: ${declaration.migrationId}`,
       scope: repositoryRecord ? [repositoryRecord.id] : [],
       locator: declaration.path,
       lifecycle: "active",
@@ -2383,7 +2396,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       from: repositoryRecord.id,
       to: migrationRecord.id,
       type: "contains",
-      reason: `${declaration.path} declares a ${declaration.provider === "prisma" ? "Prisma" : "Flyway"} database migration artifact`,
+      reason: `${declaration.path} declares a ${migrationProviderName(declaration.provider)} database migration artifact`,
       strength: 0.9,
       provenance: {
         source: "extracted:migration-declaration",

@@ -753,6 +753,42 @@ test("HLG-2 discovers standard Flyway versioned, undo, and repeatable migrations
   assert.doesNotMatch(JSON.stringify(result), /PrivateAccount|hidden_password|PrivateInvoice|secret_token|NeverRetainUndo|PrivateRevenue|hidden_total|ignored-/i);
 });
 
+test("HLG-2 discovers conventional Rails migrations without retaining Ruby bodies or inferring schema effects", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "db/migrate/20260826090000_create_records.rb",
+        raw: true,
+        value: "class CreatePrivateAccounts < ActiveRecord::Migration[8.0]\n  def change; create_table :secret_accounts; end\nend\n",
+      },
+      {
+        path: "services/billing/db/migrate/20260826100000_add_invoice_field.rb",
+        raw: true,
+        value: "class AddHiddenToken < ActiveRecord::Migration[8.0]\n  def change; add_column :private_invoices, :hidden_token, :string; end\nend\n",
+      },
+      { path: "db/migrate/123_create_legacy.rb", raw: true, value: "class IgnoredLegacy; end\n" },
+      { path: "db/migrate/20260826110000_CreateUpper.rb", raw: true, value: "class IgnoredUpper; end\n" },
+      { path: "db/migrations/20260826120000_wrong_directory.rb", raw: true, value: "class IgnoredDirectory; end\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const migrations = result.resources.filter((item) => item.record.metadata.migration_framework === "rails");
+  assert.deepEqual(migrations.map((item) => item.record.id), [
+    "artifact:migration/rails/db/migrate/20260826090000_create_records.rb",
+    "artifact:migration/rails/services/billing/db/migrate/20260826100000_add_invoice_field.rb",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.contract_version), ["20260826090000", "20260826100000"]);
+  assert.ok(migrations.every((item) => item.record.metadata.migration_type === "versioned"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.kind === "migration_declaration"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/rails/")).length, 2);
+  assert.equal(result.resources.some((item) => item.record.kind === "database"), false);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /CreatePrivateAccounts|secret_accounts|AddHiddenToken|private_invoices|hidden_token|Ignored/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {
