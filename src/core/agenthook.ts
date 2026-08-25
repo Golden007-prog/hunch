@@ -8,7 +8,7 @@
 export const HOOK_PROVIDERS = ["claude", "vscode", "windsurf", "antigravity", "cursor"] as const;
 export type HookProvider = (typeof HOOK_PROVIDERS)[number];
 
-export type HunchHookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit" | "SessionStart" | "SubagentStart" | "PreCompact" | "Stop";
+export type HunchHookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" | "SessionStart" | "SubagentStart" | "PreCompact" | "Stop";
 
 export interface HunchToolInput {
   file_path?: string;
@@ -19,11 +19,19 @@ export interface HunchToolInput {
   skill?: string;
 }
 
+/** A provider-neutral observation of the tool result. Output is ephemeral: the
+ * pipeline compares it with bounded expectations but never persists it. */
+export interface HunchToolOutcome {
+  status: "success" | "failure" | "unknown";
+  output: string;
+}
+
 export interface HunchHookInput {
   hook_event_name: HunchHookEvent;
   session_id?: string;
   tool_name?: string;
   tool_input?: HunchToolInput;
+  tool_outcome?: HunchToolOutcome;
   prompt?: string;
   /** SessionStart origin ("startup" | "resume" | "clear" | "compact") — compaction
    * summarizes away injected grounding, so "compact" resets injection dedup. */
@@ -92,12 +100,48 @@ function normalizeToolInput(value: unknown): HunchToolInput | undefined {
   return Object.values(out).some((v) => v !== undefined) ? out : undefined;
 }
 
+const MAX_TOOL_OUTPUT = 200_000;
+
+function toolOutput(value: unknown): string {
+  if (typeof value === "string") return value.slice(0, MAX_TOOL_OUTPUT);
+  const raw = obj(value);
+  if (raw) {
+    const parts = ["stdout", "stderr", "output", "content", "error", "message"]
+      .map((key) => raw[key])
+      .flatMap((item) => typeof item === "string" && item ? [item] : []);
+    if (parts.length) return parts.join("\n").slice(0, MAX_TOOL_OUTPUT);
+  }
+  try {
+    return JSON.stringify(value ?? "").slice(0, MAX_TOOL_OUTPUT);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeToolOutcome(input: JsonObject, event: HunchHookEvent): HunchToolOutcome | undefined {
+  if (event !== "PostToolUse" && event !== "PostToolUseFailure") return undefined;
+  const response = input.tool_response ?? input.toolResponse ?? input.tool_result ?? input.toolResult;
+  return {
+    // Claude Code splits successful and failed calls into separate lifecycle
+    // events. Providers without that split may expose an explicit result flag.
+    status: event === "PostToolUseFailure"
+      ? "failure"
+      : obj(response)?.success === false || obj(response)?.is_error === true || obj(response)?.isError === true
+        ? "failure"
+        : "success",
+    output: event === "PostToolUseFailure"
+      ? toolOutput(input.error ?? response)
+      : toolOutput(response),
+  };
+}
+
 function eventName(value: unknown, provider: HookProvider): HunchHookEvent | undefined {
   if (typeof value !== "string") return undefined;
   const name = value.toLowerCase();
   const map: Record<string, HunchHookEvent> = {
     pretooluse: "PreToolUse",
     posttooluse: "PostToolUse",
+    posttoolusefailure: "PostToolUseFailure",
     userpromptsubmit: "UserPromptSubmit",
     sessionstart: "SessionStart",
     subagentstart: "SubagentStart",
@@ -155,11 +199,13 @@ export function normalizeHookEvent(raw: unknown, provider: HookProvider): HunchH
     if (!event) return null;
     const info = obj(input.tool_info) ?? obj(input.toolInput) ?? obj(input.tool_input);
     const toolInput = normalizeToolInput(info);
+    const toolOutcome = normalizeToolOutcome(input, event);
     return {
       hook_event_name: event,
       session_id: stringAt(input, "trajectory_id", "session_id", "sessionId"),
       tool_name: hunchToolName(stringAt(input, "agent_action_name", "tool_name", "toolName"), toolInput ?? {}),
       tool_input: toolInput,
+      ...(toolOutcome ? { tool_outcome: toolOutcome } : {}),
       prompt: stringAt(input, "prompt", "user_prompt", "userPrompt"),
     };
   }
@@ -167,11 +213,13 @@ export function normalizeHookEvent(raw: unknown, provider: HookProvider): HunchH
   const event = eventName(input.hook_event_name ?? input.hookEventName ?? input.event, provider);
   if (!event) return null;
   const toolInput = normalizeToolInput(input.tool_input ?? input.toolInput);
+  const toolOutcome = normalizeToolOutcome(input, event);
   return {
     hook_event_name: event,
     session_id: stringAt(input, "session_id", "sessionId", "conversation_id", "conversationId"),
     tool_name: hunchToolName(stringAt(input, "tool_name", "toolName"), toolInput ?? {}),
     tool_input: toolInput,
+    ...(toolOutcome ? { tool_outcome: toolOutcome } : {}),
     prompt: stringAt(input, "prompt", "user_prompt", "userPrompt"),
     source: stringAt(input, "source"),
     agent_type: stringAt(input, "agent_type", "agentType", "subagent_type", "subagentType"),

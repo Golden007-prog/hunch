@@ -102,6 +102,9 @@ blog/*.private.md
 api/.env
 
 bench/results/
+# Raw external-run transcripts are local working evidence. Named calibration,
+# preregistration, prediction, and verdict artifacts remain reviewable files.
+bench/external/results/????-??-??T??-??-??-???Z*.json
 
 # Constitution replay: disposable worktrees and derived snapshot graphs.
 .hunch-cache/

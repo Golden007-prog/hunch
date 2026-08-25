@@ -196,6 +196,12 @@ export function installClaudeHooks(root: string, hookCmd: string): ClaudeHookIns
     ...keep(json.hooks.PostToolUse),
     { matcher: "Edit|Write|MultiEdit|Bash|PowerShell|Skill", hooks: [{ type: "command", command: hookCmd }] },
   ];
+  // Modern Claude Code separates failed tools from PostToolUse. Observe that
+  // event too so a failed test cannot be mistaken for a completed proof.
+  json.hooks.PostToolUseFailure = [
+    ...keep(json.hooks.PostToolUseFailure),
+    { matcher: "Bash|PowerShell", hooks: [{ type: "command", command: hookCmd }] },
+  ];
   json.hooks.Stop = [
     ...keep(json.hooks.Stop),
     { hooks: [{ type: "command", command: hookCmd }] },
