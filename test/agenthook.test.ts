@@ -35,6 +35,26 @@ test("normalizes session-lifecycle events: SubagentStart agent type, PreCompact,
   assert.equal(resumed?.source, "compact");
 });
 
+test("normalizes successful and failed tool outcomes without persisting raw provider shape", () => {
+  const success = normalizeHookEvent({
+    hook_event_name: "PostToolUse",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_input: { command: "npm test" },
+    tool_response: { stdout: "Test Files 1 passed", stderr: "", interrupted: false },
+  }, "claude");
+  assert.deepEqual(success?.tool_outcome, { status: "success", output: "Test Files 1 passed" });
+
+  const failure = normalizeHookEvent({
+    hook_event_name: "PostToolUseFailure",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_input: { command: "npm test" },
+    error: "Command exited with non-zero status code 1",
+  }, "claude");
+  assert.deepEqual(failure?.tool_outcome, { status: "failure", output: "Command exited with non-zero status code 1" });
+});
+
 test("normalizes Cursor's lower-camel hook event and snake payload", () => {
   const event = normalizeHookEvent({
     hook_event_name: "preToolUse",

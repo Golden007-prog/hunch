@@ -72,9 +72,49 @@ Most memory work happens automatically after commits. These commands cover the c
 | `hunch why <file>` | Decisions, bugs, constraints, and blast radius behind a file |
 | `hunch query "<question>"` | Search project memory |
 | `hunch check --working` | Review all current changes against recorded intent |
+| `hunch shortlist --issue "..."` | Experimental flat shortlist plus a progressive, file-anchored semantic inspection plan; add `--evidence receipt.json` for read-only evidence annotations |
+| `hunch evidence-map receipt.json` | Compile observed probe/execution receipts without guessing an exact owner |
 | `hunch log` | See the memory timeline and its reversible moves |
 | `hunch escalations` | See the rare decisions only a human can make |
 | `hunch doctor` | Diagnose setup, provider, index, or private-overlay problems |
+
+`hunch evidence-map` accepts a bounded JSON receipt containing a red target, a distinct green
+control, optional execution counts, and optional intervention outcomes. It reports target-only and
+shared execution plus behavior-sensitive files. It does not run the probes, edit the repository, or
+claim that behaviorally influential code owns the correction. Use `--json` for the machine-readable
+map; MCP clients can submit the same receipt through `hunch_evidence_map`.
+
+`hunch shortlist --evidence` attaches authenticated observations to the relevant candidates but does
+not reorder them. Three fresh transfer experiments failed to prove that execution or intervention
+influence identifies the correction owner, so the production path converts that result into a hard
+safeguard: no candidate is promoted or displaced by evidence. JSON output still includes a
+deterministic receipt and the explicit `exact_owner_enabled: false` policy.
+
+Every shortlist also preserves its flat top five and adds a deterministic hierarchical inspection
+view anchored to those files: at most five files, two semantic declaration families per file, and
+three declarations per family. On a preregistered 12-case fresh transfer, the preserved union found
+6/12 changed declarations versus 3/12 for the flat top five (**+25 percentage points**, three
+rescues), while correct-file coverage improved from 8/12 to 10/12. The view averaged 18.8 unique
+declarations and never exceeded 24. This promotes the clusters as a supplemental diagnostic, not as
+a top-five accuracy claim; exact-owner output and per-case confidence remain disabled. JSON output
+includes the deterministic cluster receipt and the transfer calibration.
+
+The default output also turns those clusters into a progressive inspection queue. It preserves the
+flat shortlist, adds only the strongest members of already-selected semantic families, stops at ten
+when the behavior is explained, and permits one final fallback declaration before reporting
+uncertainty. Development replay retained all 21/36 combined hits from the full cluster view while
+reducing the hard inspection ceiling to 11 from an average of 19.8 declarations (44% less). On a
+separate preregistered 12-case ArkType transfer it retained all 5 full-cluster hits with zero losses
+and reduced mean inspection from 18.9 declarations to 11 (41.9% less). It found no additional fresh
+hit, so the queue is retained as an efficiency advisory rather than promoted as an accuracy gain.
+
+Follow-up optimization attempts stay out of production. Replacing cluster slots with same-file
+declarations produced four development rescues but also three losses. Appending two same-file slots
+removed those development losses, but a second blind 12-case ArkType transfer produced 3/12 hits for
+both the existing and expanded plans, with zero rescues. Product-source filtering lost one prior hit,
+one-hop relationship expansion added none, and evidence/causal rerankers also failed their frozen
+transfer gates. The receipts remain in `bench/external/results`; rejected mechanisms cannot silently
+change the production ordering.
 
 Corrections can become scoped rules, but captured memory cannot hard-block on its own. Enforcement is
 deterministic and opt-in:

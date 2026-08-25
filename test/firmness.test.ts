@@ -51,6 +51,7 @@ test("installClaudeHooks writes the full lifecycle hook set", () => {
     assert.ok(j.hooks.UserPromptSubmit[0].matcher === undefined, "UserPromptSubmit has no matcher");
     assert.equal(j.hooks.SessionStart[0].hooks[0].command, cmd);
     assert.match(j.hooks.PostToolUse[0].matcher, /Bash/);
+    assert.match(j.hooks.PostToolUseFailure[0].matcher, /Bash/);
     assert.equal(j.hooks.Stop[0].hooks[0].command, cmd);
     assert.equal(j.hooks.SubagentStart[0].hooks[0].command, cmd, "delegated agents get grounding");
     assert.equal(j.hooks.PreCompact[0].hooks[0].command, cmd, "compaction resets injection dedup");

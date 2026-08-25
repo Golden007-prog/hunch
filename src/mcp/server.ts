@@ -22,7 +22,18 @@ import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, c
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, overlayMatchesTeamRemote, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
 import { formatStructure } from "../core/format.js";
+import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
+import {
+  compileVerifiedEvidenceMap,
+  EvidenceExecutionSchema,
+  EvidenceInterventionSchema,
+  EvidenceProbeSchema,
+  formatVerifiedEvidenceMap,
+  VerifiedEvidenceReceiptSchema,
+} from "../core/evidenceMap.js";
+import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
 import { buildDeliveryEnvelope, type DeliveryEnvelope } from "../core/delivery.js";
+import { armExecutionObligations, loadPipelineState, savePipelineState } from "../core/pipeline.js";
 import { recordServed } from "../core/served.js";
 import type { Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
@@ -151,6 +162,20 @@ const SEV_BUG: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 
 const more = (total: number, cap: number, hint = ""): string =>
   total > cap ? `\n  …(+${total - cap} more${hint ? ` — ${hint}` : ""})` : "";
 
+const EXECUTION_OBLIGATION_SCHEMA = z.object({
+  id: z.string(),
+  origin: z.enum(["memory", "episode", "manual"]),
+  category: z.enum(["evidence", "behavior", "types", "serialization", "compatibility", "other"]),
+  phase: z.enum(["session", "after-edit"]),
+  description: z.string(),
+  command_alternatives: z.array(z.array(z.string())),
+  expected: z.object({
+    success: z.boolean(),
+    output_includes: z.array(z.string()).optional(),
+    output_excludes: z.array(z.string()).optional(),
+  }),
+});
+
 /** Public MCP shape for the canonical delivery envelope. Keeping the schema on
  *  the tool means orchestrators can consume receipt facts without scraping the
  *  backward-compatible text block. */
@@ -164,23 +189,45 @@ const DELIVERY_OUTPUT_SCHEMA = z.object({
     provenance_status: z.enum(["current", "unverified", "stale"]),
     token_cost: z.number().int().nonnegative(),
   })),
+  hypotheses: z.array(z.object({
+    kind: z.literal("decision"),
+    record_id: z.string(),
+    rank: z.number().int().positive(),
+    why: z.string(),
+    where: z.array(z.string()),
+    historical_pattern: z.string(),
+    verify: z.string(),
+    disprove: z.string(),
+    obligations: z.array(EXECUTION_OBLIGATION_SCHEMA),
+  })),
+  obligations: z.array(EXECUTION_OBLIGATION_SCHEMA),
   supplements: z.array(z.object({
     id: z.string(),
     kind: z.string(),
     delivered: z.boolean(),
-    reason: z.enum(["supplemental", "budget", "empty"]),
+    reason: z.enum(["supplemental", "budget", "empty", "abstained"]),
     rank: z.number().int().positive(),
     token_cost: z.number().int().nonnegative(),
   })),
   omitted: z.array(z.object({
     kind: z.enum(["constraints", "decisions", "bugs", "findings"]),
     record_id: z.string(),
-    reason: z.enum(["budget", "stale-provenance", "retired"]),
+    reason: z.enum(["budget", "stale-provenance", "retired", "actionability-cap", "low-confidence", "insufficient-context", "low-relevance"]),
     detail: z.string(),
   })),
   budget_tokens: z.number().int().nonnegative(),
   used_chars: z.number().int().nonnegative(),
   blocking_overflow: z.boolean(),
+  abstention: z.object({
+    active: z.boolean(),
+    withheld: z.number().int().nonnegative(),
+    reasons: z.object({
+      "low-confidence": z.number().int().nonnegative(),
+      "insufficient-context": z.number().int().nonnegative(),
+      "low-relevance": z.number().int().nonnegative(),
+    }),
+    retry_hint: z.string().nullable(),
+  }),
 });
 
 /** Return the same human-readable brief older clients consume plus the exact
@@ -196,6 +243,10 @@ function deliveredContext(
   // advertised MCP contract, the SDK will reject the call and the local ledger
   // must not claim that response was served.
   const structuredContent = DELIVERY_OUTPUT_SCHEMA.parse(envelope);
+  if (sessionId) {
+    const state = armExecutionObligations(loadPipelineState(sessionId), structuredContent.obligations, { replaceOrigin: "memory" });
+    savePipelineState(sessionId, state);
+  }
   recordServed(root, structuredContent.delivered.map((item) => ({
     event: "served",
     kind: item.kind,
@@ -861,6 +912,55 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
       }
       const envelope = buildDeliveryEnvelope(ctx, options);
       return deliveredContext(root, as_of ? `${target} (as_of:${as_of})` : target, envelope, extra.sessionId);
+    },
+  );
+
+  // -- hunch_shortlist (bounded correction-stage diagnostic) ----------------
+  server.registerTool(
+    "hunch_shortlist",
+    {
+      title: "Shortlist the likely correction stage and declarations",
+      description:
+        "Experimental, deterministic, read-only repository-adaptive diagnostic for a schema/validation issue or reproduction. Preserves a flat top five, adds a transfer-tested hierarchical inspection view, and emits an efficiency-tested advisory progressive inspection queue capped at eleven declarations with deterministic receipts. Optional authenticated same-claim evidence is annotated but cannot reorder candidates because fresh transfer rejected that mechanism. It never claims an exact implementation owner or per-case confidence and does not edit, gate, or capture memory.",
+      inputSchema: {
+        issue: z.string().min(1).max(100_000).describe("Issue report or reproduction prose, including observed and expected behavior when available."),
+        limit: z.number().int().min(1).max(5).optional().describe("Candidate count, capped at five (default 5)."),
+        evidence: VerifiedEvidenceReceiptSchema.optional().describe("Optional verified evidence for this exact issue claim. It is reported and attached to candidates but cannot change ranking."),
+        cwd: cwdHintField,
+      },
+    },
+    async ({ issue, limit, evidence }): Promise<ToolResult> => {
+      try {
+        const collection = collectCorrectionStageSources(root, issue);
+        const diagnostic = diagnoseIssueCorrectionStage(issue, collection.sources, limit ?? 5, evidence);
+        return ok(`${formatCorrectionStageDiagnostic(diagnostic)}\nScan: ${collection.files_read} source file(s), ${collection.files_skipped} skipped by safety/budget limits.`);
+      } catch (error) {
+        return err(`Could not build the correction-stage shortlist: ${(error as Error).message}`);
+      }
+    },
+  );
+
+  // -- hunch_evidence_map (verified behavioral receipt compiler) ------------
+  server.registerTool(
+    "hunch_evidence_map",
+    {
+      title: "Compile a verified behavioral evidence map",
+      description:
+        "Compile supplied red-target/green-control, execution, and intervention observations into a bounded read-only evidence map. Useful for bugs, regressions, design invariants, and any other testable behavior. This tool executes no code, mutates nothing, and never converts behavioral influence into an exact correction-owner claim.",
+      inputSchema: {
+        version: z.literal(1).describe("Receipt schema version; currently 1."),
+        claim: z.string().trim().min(1).max(100_000).describe("The behavior or invariant being tested."),
+        probe: EvidenceProbeSchema,
+        execution: z.array(EvidenceExecutionSchema).max(500).optional(),
+        interventions: z.array(EvidenceInterventionSchema).max(500).optional(),
+      },
+    },
+    async (receipt): Promise<ToolResult> => {
+      try {
+        return ok(formatVerifiedEvidenceMap(compileVerifiedEvidenceMap(receipt)));
+      } catch (error) {
+        return err(`Could not compile the verified evidence map: ${(error as Error).message}`);
+      }
     },
   );
 

@@ -61,6 +61,9 @@ import { writeMcpJson, writeSlashCommands, installClaudeHooks } from "../integra
 import { scaffoldProviders, regenerateGrounding, refreshExistingGrounding, refreshCommittableGrounding } from "../integrations/providers.js";
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatStructure } from "../core/format.js";
+import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
+import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/evidenceMap.js";
+import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
 import { buildDeliveryEnvelope } from "../core/delivery.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
@@ -72,15 +75,23 @@ import { recordServed, servedSummary } from "../core/served.js";
 import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
-  UNVERIFIED_NAG,
+  armExecutionObligations,
+  beforeEditProbeVerdict,
+  compileExecutableProbes,
+  environmentExecutableProbes,
+  environmentExecutionObligations,
+  executionObligationBrief,
+  isProductPath,
   loadPipelineState,
   onCommand,
   onEdit,
   onPrompt,
   onSkill,
   pipelineEnabled,
+  proofCheckpoint,
   savePipelineState,
   stopVerdict,
+  unverifiedNag,
 } from "../core/pipeline.js";
 import { draftDuplicateOf, isAcceptedDuplicateAnchor } from "../core/dupdetect.js";
 import { planAutoReview, planMutations, type AutoReviewPlan, type AutoReviewEntry } from "../core/autoreview.js";
@@ -3463,6 +3474,64 @@ program
     }
   });
 
+// ---- shortlist (experimental correction-stage diagnostic) -----------------
+program
+  .command("shortlist")
+  .description("Experimental repository-adaptive diagnostic: preserve a flat top five, add file-anchored semantic clusters, and emit an efficiency-tested advisory inspection plan capped at eleven. --evidence is annotation-only; no exact-owner claim.")
+  .argument("<issue...>", "issue report or reproduction prose")
+  .option("--limit <n>", "candidate count (1-5)", "5")
+  .option("--evidence <receipt>", "verified-evidence JSON receipt path, or - for stdin")
+  .option("--json", "emit the diagnostic as JSON")
+  .action((issueParts: string[], opts: { limit: string; evidence?: string; json?: boolean }) => {
+    const issue = issueParts.join(" ").trim();
+    if (!issue) return fail("issue text must not be empty");
+    const rawLimit = Number(opts.limit);
+    if (!Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 5) return fail("--limit must be an integer from 1 to 5");
+    const root = findRoot();
+    try {
+      let evidence: unknown = undefined;
+      if (opts.evidence) {
+        const raw = opts.evidence === "-" ? readFileSync(0, "utf8") : readFileSync(resolve(opts.evidence), "utf8");
+        if (Buffer.byteLength(raw, "utf8") > 1_000_000) return fail("evidence receipt exceeds the 1 MB safety limit");
+        evidence = JSON.parse(raw) as unknown;
+      }
+      const collection = collectCorrectionStageSources(root, issue);
+      const diagnostic = diagnoseIssueCorrectionStage(issue, collection.sources, rawLimit, evidence);
+      if (opts.json) {
+        console.log(JSON.stringify({
+          ...diagnostic,
+          scan: {
+            files_read: collection.files_read,
+            bytes_read: collection.bytes_read,
+            files_skipped: collection.files_skipped,
+          },
+        }, null, 2));
+      } else {
+        console.log(formatCorrectionStageDiagnostic(diagnostic));
+        console.log(`Scan: ${collection.files_read} source file(s), ${collection.files_skipped} skipped by safety/budget limits.`);
+      }
+    } catch (error) {
+      fail(`could not build the correction-stage shortlist: ${(error as Error).message}`);
+    }
+  });
+
+// ---- evidence-map (compile supplied behavioral receipts) ------------------
+program
+  .command("evidence-map")
+  .description("Compile authenticated probe/execution/intervention receipts into a read-only evidence map. Runs no code and never claims an exact owner.")
+  .argument("<receipt>", "JSON receipt path, or - to read stdin")
+  .option("--json", "emit the evidence map as JSON")
+  .action((receiptFile: string, opts: { json?: boolean }) => {
+    try {
+      const raw = receiptFile === "-" ? readFileSync(0, "utf8") : readFileSync(resolve(receiptFile), "utf8");
+      if (Buffer.byteLength(raw, "utf8") > 1_000_000) return fail("evidence receipt exceeds the 1 MB safety limit");
+      const map = compileVerifiedEvidenceMap(JSON.parse(raw) as unknown);
+      console.log(opts.json ? JSON.stringify(map, null, 2) : formatVerifiedEvidenceMap(map));
+    } catch (error) {
+      fail(`could not compile the verified evidence map: ${(error as Error).message}`);
+    }
+  });
+
 // ---- context (surgical retrieval) -----------------------------------------
 program
   .command("context")
@@ -3751,15 +3820,30 @@ program
       // Verification pipeline (delivery enforced, not hoped for — see core/pipeline.ts).
       // PostToolUse records facts; Stop gates on them. Both are pipeline-only events,
       // handled before the grounding dispatch below.
-      if (evt.hook_event_name === "PostToolUse" && evt.session_id && pipelineEnabled()) {
+      if ((evt.hook_event_name === "PostToolUse" || evt.hook_event_name === "PostToolUseFailure") && evt.session_id && pipelineEnabled()) {
         let st = loadPipelineState(evt.session_id);
+        const before = st;
+        let activity: Parameters<typeof proofCheckpoint>[2] | null = null;
         if (/^(Edit|Write|MultiEdit)$/.test(evt.tool_name ?? "")) {
           const p = evt.tool_input?.file_path;
-          if (p) st = onEdit(st, toRepoRel(root, p));
+          if (p) {
+            st = onEdit(st, toRepoRel(root, p));
+            activity = { kind: "edit" };
+          }
         } else if (evt.tool_name === "Bash" || evt.tool_name === "PowerShell") {
-          st = onCommand(st, String(evt.tool_input?.command ?? ""));
+          const command = String(evt.tool_input?.command ?? "");
+          st = onCommand(st, command, evt.tool_outcome);
+          activity = { kind: "command", command };
         } else if (evt.tool_name === "Skill") {
           st = onSkill(st, String(evt.tool_input?.skill ?? ""));
+          activity = { kind: "skill" };
+        }
+        if (activity) {
+          const checkpoint = proofCheckpoint(before, st, activity);
+          st = checkpoint.state;
+          savePipelineState(evt.session_id, st);
+          if (checkpoint.reminder) emitContext(provider, evt.hook_event_name, checkpoint.reminder);
+          return;
         }
         savePipelineState(evt.session_id, st);
         return;
@@ -3792,8 +3876,8 @@ program
         if (evt.session_id && pipelineEnabled()) {
           const st = onPrompt(loadPipelineState(evt.session_id));
           savePipelineState(evt.session_id, st);
-          if (!st.verifyAfterEdit) {
-            text += `\n\n${UNVERIFIED_NAG}`;
+          if (!st.verifyAfterEdit || st.obligations.some((item) => item.status !== "satisfied")) {
+            text += `\n\n${unverifiedNag(st)}`;
             mustDeliver = true;
           }
         }
@@ -3897,6 +3981,19 @@ program
         // is instead of pulling (or worse, grepping) for it. Cheap reads only
         // (no reindex, no drift walk); public store only — session transcripts
         // travel further than a terminal. Union view: `hunch now --private`.
+        let controllerBrief = "";
+        if (evt.session_id && pipelineEnabled()) {
+          const state = armExecutionObligations(
+            loadPipelineState(evt.session_id),
+            [
+              ...compileExecutableProbes(environmentExecutableProbes()),
+              ...environmentExecutionObligations(),
+            ],
+            { replaceOrigin: "episode" },
+          );
+          savePipelineState(evt.session_id, state);
+          controllerBrief = executionObligationBrief(state);
+        }
         const s = new HunchStore(paths);
         try {
           // Mode-aware: in unified ("shared") mode the public `.hunch/` is only a routing
@@ -3908,7 +4005,7 @@ program
           const { recent, roadmap, pendingReview } = nowData(decisions, 3);
           if (!decisions.length) {
             // Fresh graph: nothing to orient on, but the operating loop still ships.
-            if (pipelineEnabled()) emitContext(provider, "SessionStart", PIPELINE_LOOP);
+            if (pipelineEnabled()) emitContext(provider, "SessionStart", [PIPELINE_LOOP, controllerBrief].filter(Boolean).join("\n\n"));
             return;
           }
           const L: string[] = [];
@@ -3937,6 +4034,7 @@ program
           // The operating loop rides session start — guaranteed delivery, once
           // (the zod bench showed ambient skills are read in ~0% of sessions).
           if (pipelineEnabled()) L.push("", PIPELINE_LOOP);
+          if (controllerBrief) L.push("", controllerBrief);
           const orientation = L.join("\n");
           // Antigravity's nearest equivalent is PreInvocation, which can fire
           // repeatedly in one conversation. Deduplicate it just like edit
@@ -3956,6 +4054,18 @@ program
       // Outside the repo (".." prefix) or on another drive (absolute, e.g. "D:/…")
       // → nothing for Hunch to say.
       if (!target || target.startsWith("..") || /^[a-zA-Z]:/.test(target)) return;
+
+      // A compiled red→green probe is only meaningful if its red receipt exists
+      // before implementation. Firm/strict may deny two edits per prompt, then
+      // fail open so a malformed or unavailable probe can never deadlock work.
+      if ((firmness === "firm" || firmness === "strict") && evt.session_id && pipelineEnabled() && isProductPath(target)) {
+        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id));
+        if (baseline.block) {
+          savePipelineState(evt.session_id, baseline.state);
+          emitDeny(provider, baseline.reason ?? "Hunch evidence gate — establish the pre-edit probe baseline first.");
+          return;
+        }
+      }
 
       // Pre-edit grounding must resolve the same advertised graph as every CLI
       // and MCP consumer. Any unavailable/mismatched team route falls through to
@@ -5248,7 +5358,11 @@ function toRepoRel(root: string, abs: string): string {
   return relative(realpathNorm(root), realpathNorm(abs)).split("\\").join("/");
 }
 
-function emitContext(provider: HookProvider, event: "PreToolUse" | "UserPromptSubmit" | "SessionStart" | "SubagentStart", text: string): void {
+function emitContext(
+  provider: HookProvider,
+  event: "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" | "SessionStart" | "SubagentStart",
+  text: string,
+): void {
   const output = contextHookOutput(provider, event, text);
   if (output) process.stdout.write(JSON.stringify(output));
 }
