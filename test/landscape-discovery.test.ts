@@ -38,11 +38,13 @@ function repository(t: test.TestContext, input: {
   remote?: string;
 }): { root: string; revision: string } {
   const root = mkdtempSync(join(tmpdir(), "hunch-landscape-discovery-"));
-  // Git can finish a short-lived background maintenance write after the synchronous command
-  // returns. Node 22 then occasionally observes a newly-created .git entry mid-rimraf. The temp
-  // fixture has no durable state, so bounded ENOTEMPTY retries are the correct cleanup contract.
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  // Keep fixture repositories synchronous. Auto-maintenance may outlive the Git command that
+  // triggered it and recreate .git entries while Node is removing the temporary repository.
+  // The retry window is a bounded backstop for filesystem latency, not the primary coordination.
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   git(root, "init", "-q");
+  git(root, "config", "maintenance.auto", "false");
+  git(root, "config", "gc.auto", "0");
   git(root, "config", "user.name", "Hunch Test");
   git(root, "config", "user.email", "hunch@example.test");
   writeJson(root, "package.json", input.rootManifest);
