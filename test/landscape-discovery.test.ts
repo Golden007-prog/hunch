@@ -609,6 +609,10 @@ test("HLG-2 discovers exact committed JSON dashboards without retaining their bo
         path: "ops/dashboards/platform.json",
         value: { uid: "private-dashboard-uid", datasource: "private-datasource", links: ["https://private.example.test"] },
       },
+      {
+        path: "ops/dashboards/platform-copy.json",
+        value: { uid: "private-dashboard-uid", datasource: "private-datasource", links: ["https://private.example.test"] },
+      },
       { path: "dashboards/README.md", value: "private dashboard instructions", raw: true },
       { path: "dashboards/platform.yaml", value: "title: ignored-private-dashboard", raw: true },
       { path: "node_modules/dependency/dashboards/vendor.json", value: { title: "dependency-private-dashboard" } },
@@ -619,12 +623,13 @@ test("HLG-2 discovers exact committed JSON dashboards without retaining their bo
   const dashboards = first.resources.filter((item) => item.record.kind === "dashboard");
   assert.deepEqual(dashboards.map((item) => item.record.locator), [
     "grafana/dashboards/team/payments.json",
+    "ops/dashboards/platform-copy.json",
     "ops/dashboards/platform.json",
   ]);
   assert.ok(dashboards.every((item) => item.evidence[0]!.kind === "dashboard_declaration"));
   assert.ok(dashboards.every((item) => item.evidence[0]!.sourceRevision === revision));
   assert.equal(first.relationships.filter((item) => item.record.type === "contains"
-    && item.record.to.startsWith("dashboard:")).length, 2);
+    && item.record.to.startsWith("dashboard:")).length, 3);
   assert.deepEqual(first.issues, []);
   assert.doesNotMatch(JSON.stringify(first), /Private payments|private-payment|private-dashboard|private-datasource|private\.example|dashboard instructions|ignored-private|dependency-private/i);
 

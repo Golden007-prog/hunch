@@ -321,6 +321,23 @@ function gitBuffer(root: string, args: string[], maxBuffer = 8 * 1024 * 1024): B
   });
 }
 
+function gitBufferInput(
+  root: string,
+  args: string[],
+  input: string,
+  maxBuffer: number,
+  timeout = 15_000,
+): Buffer {
+  return execFileSync("git", ["-C", root, ...args], {
+    encoding: "buffer",
+    env: gitEnv(),
+    input: Buffer.from(input, "ascii"),
+    maxBuffer,
+    stdio: ["pipe", "pipe", "ignore"],
+    timeout,
+  });
+}
+
 function gitText(root: string, args: string[], maxBuffer = 8 * 1024 * 1024): string {
   return gitBuffer(root, args, maxBuffer).toString("utf8").trim();
 }
@@ -398,6 +415,62 @@ function treeEntryMode(entry: ExactTreeEntry): string {
   return entry.kind === "blob" ? entry.mode : `${entry.kind}:${entry.mode}`;
 }
 
+/** Resolve object sizes in one batch, then request only bodies inside the
+ * source-family byte bound. The entire response is itself bounded by
+ * selected-count × per-file limit, preserving the existing memory ceiling. */
+function hydrateDeclarationBlobs<T extends ManifestBlob>(
+  root: string,
+  blobs: T[],
+  maxBytes: number,
+): T[] {
+  const result = blobs.slice();
+  const eligible = blobs.map((blob, index) => ({ blob, index }))
+    .filter(({ blob }) => blob.mode !== "unsafe-path" && ORDINARY_BLOB_MODES.has(blob.mode));
+  if (!eligible.length) return result;
+  const input = `${eligible.map(({ blob }) => blob.oid).join("\n")}\n`;
+  const checked = gitBufferInput(root, [
+    "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+  ], input, Math.max(1024 * 1024, eligible.length * 256)).toString("ascii").trimEnd().split("\n");
+  const accepted: Array<{ blob: T; index: number; size: number }> = [];
+  for (const [position, candidate] of eligible.entries()) {
+    const fields = checked[position]?.match(/^([0-9a-f]{40,64}) (blob) ([0-9]+)$/i);
+    const size = fields ? Number(fields[3]) : Number.NaN;
+    if (!fields || fields[1]!.toLowerCase() !== candidate.blob.oid
+      || !Number.isSafeInteger(size) || size < 0) continue;
+    if (size > maxBytes) {
+      result[candidate.index] = { ...candidate.blob, contentHash: "oversized" };
+      continue;
+    }
+    accepted.push({ ...candidate, size });
+  }
+  if (!accepted.length) return result;
+
+  const contentInput = `${accepted.map(({ blob }) => blob.oid).join("\n")}\n`;
+  const contentLimit = accepted.reduce((total, item) => total + item.size + 256, 1024);
+  const raw = gitBufferInput(root, ["cat-file", "--batch"], contentInput, contentLimit, 60_000);
+  const hydrated: Array<{ index: number; bytes: Buffer }> = [];
+  let offset = 0;
+  for (const candidate of accepted) {
+    const newline = raw.indexOf(0x0a, offset);
+    if (newline < 0) return result;
+    const header = raw.subarray(offset, newline).toString("ascii")
+      .match(/^([0-9a-f]{40,64}) blob ([0-9]+)$/i);
+    const size = header ? Number(header[2]) : Number.NaN;
+    const start = newline + 1;
+    const end = start + size;
+    if (!header || header[1]!.toLowerCase() !== candidate.blob.oid
+      || size !== candidate.size || end >= raw.length || raw[end] !== 0x0a) return result;
+    hydrated.push({ index: candidate.index, bytes: Buffer.from(raw.subarray(start, end)) });
+    offset = end + 1;
+  }
+  if (offset !== raw.length) return result;
+  for (const item of hydrated) {
+    const blob = result[item.index]!;
+    result[item.index] = { ...blob, bytes: item.bytes, contentHash: sha256Bytes(item.bytes) };
+  }
+  return result;
+}
+
 function manifestBlobs(tree: ExactTreeEntry[]): ManifestBlob[] {
   const manifests: ManifestBlob[] = [];
   for (const entry of tree) {
@@ -438,15 +511,7 @@ function boundedManifestBlobs(root: string, manifests: ManifestBlob[]): Manifest
     ...(rootManifest ? [rootManifest] : []),
     ...manifests.filter((manifest) => manifest !== rootManifest).slice(0, MAX_MANIFESTS - (rootManifest ? 1 : 0)),
   ];
-  return selected.map((manifest) => {
-    if (manifest.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(manifest.mode)) return manifest;
-    const size = Number(gitText(root, ["cat-file", "-s", manifest.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MANIFEST_BYTES) {
-      return { ...manifest, contentHash: size > MAX_MANIFEST_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", manifest.oid], MAX_MANIFEST_BYTES + 1);
-    return { ...manifest, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  return hydrateDeclarationBlobs(root, selected, MAX_MANIFEST_BYTES);
 }
 
 function workspacePatterns(value: unknown, issues: LandscapeDiscoveryIssue[]): string[] {
@@ -542,15 +607,11 @@ function mcpConfigBlobs(root: string, tree: ExactTreeEntry[]): ManifestBlob[] {
     if (!MCP_CONFIG_BY_PATH.has(path)) continue;
     blobs.push({ path, mode: treeEntryMode(entry), oid: entry.oid, bytes: null, contentHash: null });
   }
-  return blobs.sort((left, right) => compareCodeUnits(left.path, right.path)).map((blob) => {
-    if (!ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MCP_CONFIG_BYTES) {
-      return { ...blob, contentHash: size > MAX_MCP_CONFIG_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_MCP_CONFIG_BYTES + 1);
-    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  return hydrateDeclarationBlobs(
+    root,
+    blobs.sort((left, right) => compareCodeUnits(left.path, right.path)),
+    MAX_MCP_CONFIG_BYTES,
+  );
 }
 
 function validMcpServerName(value: string): string | null {
@@ -1214,15 +1275,11 @@ function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Api
   }
   discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
   const total = discovered.length;
-  const blobs = discovered.slice(0, MAX_API_DECLARATIONS).map((blob) => {
-    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_API_DECLARATION_BYTES) {
-      return { ...blob, contentHash: size > MAX_API_DECLARATION_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_API_DECLARATION_BYTES + 1);
-    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  const blobs = hydrateDeclarationBlobs(
+    root,
+    discovered.slice(0, MAX_API_DECLARATIONS),
+    MAX_API_DECLARATION_BYTES,
+  );
   return { blobs, total };
 }
 
@@ -1600,15 +1657,11 @@ function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
   }
   discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
   const total = discovered.length;
-  const blobs = discovered.slice(0, MAX_MIGRATION_DECLARATIONS).map((blob) => {
-    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_MIGRATION_DECLARATION_BYTES) {
-      return { ...blob, contentHash: size > MAX_MIGRATION_DECLARATION_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_MIGRATION_DECLARATION_BYTES + 1);
-    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  const blobs = hydrateDeclarationBlobs(
+    root,
+    discovered.slice(0, MAX_MIGRATION_DECLARATIONS),
+    MAX_MIGRATION_DECLARATION_BYTES,
+  );
   return { blobs, total };
 }
 
@@ -1841,15 +1894,11 @@ function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blo
   }
   discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
   const total = discovered.length;
-  const blobs = discovered.slice(0, MAX_OPERATIONS_DECLARATIONS).map((blob) => {
-    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_OPERATIONS_DECLARATION_BYTES) {
-      return { ...blob, contentHash: size > MAX_OPERATIONS_DECLARATION_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_OPERATIONS_DECLARATION_BYTES + 1);
-    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  const blobs = hydrateDeclarationBlobs(
+    root,
+    discovered.slice(0, MAX_OPERATIONS_DECLARATIONS),
+    MAX_OPERATIONS_DECLARATION_BYTES,
+  );
   return { blobs, total };
 }
 
@@ -1962,15 +2011,11 @@ function dashboardDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
   }
   discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
   const total = discovered.length;
-  const blobs = discovered.slice(0, MAX_DASHBOARD_DECLARATIONS).map((blob) => {
-    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_DASHBOARD_DECLARATION_BYTES) {
-      return { ...blob, contentHash: size > MAX_DASHBOARD_DECLARATION_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_DASHBOARD_DECLARATION_BYTES + 1);
-    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  const blobs = hydrateDeclarationBlobs(
+    root,
+    discovered.slice(0, MAX_DASHBOARD_DECLARATIONS),
+    MAX_DASHBOARD_DECLARATION_BYTES,
+  );
   return { blobs, total };
 }
 
@@ -2071,15 +2116,11 @@ function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs
   }
   discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
   const total = discovered.length;
-  const blobs = discovered.slice(0, MAX_DELIVERY_DECLARATIONS).map((blob) => {
-    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_DELIVERY_DECLARATION_BYTES) {
-      return { ...blob, contentHash: size > MAX_DELIVERY_DECLARATION_BYTES ? "oversized" : null };
-    }
-    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_DELIVERY_DECLARATION_BYTES + 1);
-    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
-  });
+  const blobs = hydrateDeclarationBlobs(
+    root,
+    discovered.slice(0, MAX_DELIVERY_DECLARATIONS),
+    MAX_DELIVERY_DECLARATION_BYTES,
+  );
   return { blobs, total };
 }
 
