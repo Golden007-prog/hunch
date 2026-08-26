@@ -154,6 +154,38 @@ test("HLG-2 shared tree snapshot preserves fail-closed modes for exact declarati
     && issue.sourcePath === ".gitmodules"));
 });
 
+test("HLG-2 dependency trees cannot manufacture or crowd out first-party declarations", (t) => {
+  const dependencyRunbooks = Array.from({ length: 129 }, (_, index) => ({
+    path: `node_modules/dependency-${index}/runbooks/private-${index}.md`,
+    value: `# dependency-private-runbook-${index}\n`,
+    raw: true,
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      ...dependencyRunbooks,
+      { path: "node_modules/dependency/openapi.yaml", value: "openapi: 3.1.0\n", raw: true },
+      { path: "vendor/gem/db/migrate/20260826010101_private.rb", value: "class PrivateMigration; end\n", raw: true },
+      { path: "third_party/service/Dockerfile", value: "FROM dependency-private-image\n", raw: true },
+      { path: "third-party/service/runbooks/private.md", value: "# dependency-private-operations\n", raw: true },
+      { path: "api/openapi.yaml", value: "openapi: 3.1.0\n", raw: true },
+      { path: "RUNBOOK.md", value: "# First-party operations\n", raw: true },
+      { path: "Dockerfile", value: "FROM node:24-alpine\n", raw: true },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.deepEqual(result.resources.filter((item) => item.record.kind === "api")
+    .map((item) => item.record.locator), ["api/openapi.yaml"]);
+  assert.deepEqual(result.resources.filter((item) => item.record.kind === "runbook")
+    .map((item) => item.record.locator), ["RUNBOOK.md"]);
+  assert.deepEqual(result.resources.filter((item) => item.record.kind === "artifact")
+    .map((item) => item.record.locator), ["Dockerfile"]);
+  assert.equal(result.issues.some((issue) => issue.code.endsWith("_declaration_limit")), false,
+    "dependency-owned files must be ignored before first-party declaration caps");
+  assert.doesNotMatch(JSON.stringify(result), /node_modules|third[_-]party|vendor\/gem|dependency-private/i);
+});
+
 test("HLG-2 discovers exact internal workspace dependencies without retaining version specifiers", (t) => {
   const { root, revision } = repository(t, {
     rootManifest: {

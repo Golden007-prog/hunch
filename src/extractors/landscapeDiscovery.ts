@@ -1133,6 +1133,15 @@ function safeDeclarationPath(path: string): boolean {
     && isCredentialFreeText(path);
 }
 
+const DEPENDENCY_TREE_SEGMENTS = new Set(["node_modules", "vendor", "third_party", "third-party"]);
+
+/** Dependency-owned declarations describe the vendored package, not this
+ * repository. Ignore them before per-family caps so committed dependencies
+ * cannot crowd first-party evidence out of the bounded fragment. */
+function firstPartyDeclarationPath(path: string): boolean {
+  return !path.split("/").some((segment) => DEPENDENCY_TREE_SEGMENTS.has(segment.toLowerCase()));
+}
+
 function apiDeclarationFormat(path: string): ApiDeclarationFormat | null {
   const basename = posix.basename(path);
   if (/\.proto$/i.test(basename)) return "protobuf";
@@ -1153,6 +1162,7 @@ function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Api
     const { pathBytes } = entry;
     if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
+      if (!firstPartyDeclarationPath(approximate)) continue;
       if (apiDeclarationFormat(approximate)) {
         discovered.push({
           path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
@@ -1166,6 +1176,7 @@ function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Api
       continue;
     }
     const path = entry.path;
+    if (!firstPartyDeclarationPath(path)) continue;
     const format = apiDeclarationFormat(path);
     if (!format) continue;
     if (!safeDeclarationPath(path)) {
@@ -1531,6 +1542,7 @@ function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
     const { pathBytes } = entry;
     if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
+      if (!firstPartyDeclarationPath(approximate)) continue;
       if (migrationDeclarationIdentity(approximate)) {
         discovered.push({
           path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
@@ -1547,6 +1559,7 @@ function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
       continue;
     }
     const path = entry.path;
+    if (!firstPartyDeclarationPath(path)) continue;
     const identity = migrationDeclarationIdentity(path);
     if (!identity) continue;
     if (!safeDeclarationPath(path)) {
@@ -1780,6 +1793,7 @@ function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blo
     const { pathBytes } = entry;
     if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
+      if (!firstPartyDeclarationPath(approximate)) continue;
       if (operationsDeclarationPath(approximate)) {
         discovered.push({
           path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
@@ -1792,6 +1806,7 @@ function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blo
       continue;
     }
     const path = entry.path;
+    if (!firstPartyDeclarationPath(path)) continue;
     if (!operationsDeclarationPath(path)) continue;
     if (!safeDeclarationPath(path)) {
       discovered.push({
@@ -1893,6 +1908,7 @@ function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs
     const { pathBytes } = entry;
     if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
+      if (!firstPartyDeclarationPath(approximate)) continue;
       if (deliveryDeclarationSpec(approximate)) {
         discovered.push({
           path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
@@ -1906,6 +1922,7 @@ function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs
       continue;
     }
     const path = entry.path;
+    if (!firstPartyDeclarationPath(path)) continue;
     const spec = deliveryDeclarationSpec(path);
     if (!spec) continue;
     if (!safeDeclarationPath(path)) {
