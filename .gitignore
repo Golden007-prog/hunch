@@ -96,6 +96,9 @@ docs/superpowers/
 # private GTM/launch playbooks — keep local, never publish
 blog/LAUNCH.md
 blog/*.private.md
+# Private outreach research and contact state. Public documentation and the
+# approval-gated tooling are tracked; names, destinations and notes are not.
+.outreach/
 .env
 .env.*
 *.local.json

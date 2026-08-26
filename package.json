@@ -68,6 +68,7 @@
     "site:proof": "npm run build && node tooling/generate-public-proof.mjs",
     "bench:md1": "node tooling/md1-benchmark.mjs",
     "research:competitors": "node tooling/competitive-watch.mjs",
+    "outreach": "node tooling/outreach-pipeline.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
