@@ -38,7 +38,10 @@ function repository(t: test.TestContext, input: {
   remote?: string;
 }): { root: string; revision: string } {
   const root = mkdtempSync(join(tmpdir(), "hunch-landscape-discovery-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // Git can finish a short-lived background maintenance write after the synchronous command
+  // returns. Node 22 then occasionally observes a newly-created .git entry mid-rimraf. The temp
+  // fixture has no durable state, so bounded ENOTEMPTY retries are the correct cleanup contract.
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, "init", "-q");
   git(root, "config", "user.name", "Hunch Test");
   git(root, "config", "user.email", "hunch@example.test");
