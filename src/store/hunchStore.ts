@@ -26,6 +26,10 @@ import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgat
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
 import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
 import type { CheckReport, CheckDirect, CausalWhy, ImpactReport } from "../core/checkreport.js";
+import {
+  selectReviewedLandscape,
+  type ReviewedLandscapeSelection,
+} from "../core/landscapeDelivery.js";
 
 export interface SearchHit {
   ref: string;
@@ -1738,6 +1742,12 @@ export class HunchStore {
       blast_radius: [...blast.values()].sort((a, b) => a.depth - b.depth).slice(0, 12),
       components: w.components,
       findings: this.liveFindingsFor(target).slice(0, 8),
+      // Landscape records do not yet carry a valid-time window. A historical
+      // query therefore withholds them instead of mixing current graph state
+      // into an as-of memory envelope.
+      landscape: opts.asOf
+        ? undefined
+        : selectReviewedLandscape(this.recs("resources"), this.recs("edges"), target),
       budget_tokens: budget,
     };
     return ctx;
@@ -1809,6 +1819,8 @@ export interface AssembledContext {
   blast_radius: Array<{ id: string; depth: number; via: string }>;
   components: Component[];
   findings: Finding[];
+  /** Current, explicitly reviewed Engineering Landscape orientation. */
+  landscape?: ReviewedLandscapeSelection;
   budget_tokens: number;
 }
 

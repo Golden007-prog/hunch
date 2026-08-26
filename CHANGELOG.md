@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.20.0-rc.1 — 2026-08-26
+
+### Reviewed engineering landscapes become a transportable contract
+
+Hunch can now discover bounded, credential-free landscape candidates from an exact Git revision,
+show them for review, and adopt only an explicit human-confirmed fragment. Replaying the same
+fragment is idempotent; changed content requires a new review; candidate, stale and retired records
+never become delivery authority. Reuse compares the complete reviewed record with the
+candidate-derived value, so copied review metadata cannot hide changed resource bytes.
+Bounded selection now reserves a reviewed repository-root slot when one exists and records the
+displaced task match as an omission, allowing consumers to bind source identity without increasing
+the selection cap. The later hard token budget remains authoritative and may still omit items.
+
+`hunch.delivery-envelope/1` now carries a deterministic, token-budgeted
+`hunch.landscape-fragment/1` with exact resources, relationships, review/discovery provenance,
+currentness and a content-addressed `hdr_*` receipt. The exported validator recomputes the native
+receipt and fragment hashes and rejects altered scope, ranks, selections, omissions, evidence or
+budget accounting. It also proves a unique one-to-one mapping from every landscape record to its
+exact delivery rank, reason, provenance status and token charge. CLI and MCP review/adopt surfaces
+use the same contract.
+
+This release candidate is the first package version that Hunch Memory can feature-detect for the
+reviewed landscape transport. Hunch still owns durable reviewed structure; Memory only transports
+one authenticated store's native envelope; ORC/Nuryel validates and freezes it before use. No layer
+may turn discovery candidates or provider prose into authority.
+
 ## 1.19.0 — 2026-08-26
 
 ### The release evidence is visible where people install

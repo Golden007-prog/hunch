@@ -6,7 +6,8 @@
  * tool inputs. Every record carries `provenance` so nothing is a blind assertion.
  */
 import { z } from "zod";
-import { resourceId, resourceRelationshipId } from "./ids.js";
+import { createHash } from "node:crypto";
+import { findingId, resourceId, resourceRelationshipId } from "./ids.js";
 
 /** Where a fact came from and how much to trust it. Confidence tiers (DESIGN §4):
  *  inferred < extracted < llm_draft < llm_draft+human_confirmed/derived. */
@@ -523,6 +524,145 @@ export const FindingSchema = z.object({
   provenance: ProvenanceSchema,
 });
 export type Finding = z.infer<typeof FindingSchema>;
+
+export const LANDSCAPE_DRIFT_CANDIDATE_SCHEMA_VERSION = "hunch.landscape-drift-candidate/1" as const;
+const LANDSCAPE_DRIFT_HASH = /^sha256:[a-f0-9]{64}$/;
+const LANDSCAPE_DRIFT_RECEIPT_ID = /^[a-z][a-z0-9_:-]{2,127}$/;
+
+/**
+ * An external observer's content-addressed mismatch claim. It is intake evidence
+ * for an advisory Finding only: it cannot update a Resource, relationship,
+ * currentness, decision, constraint, or execution policy.
+ */
+export const LandscapeDriftCandidateSchema = z.object({
+  schema: z.literal(LANDSCAPE_DRIFT_CANDIDATE_SCHEMA_VERSION),
+  candidateId: z.string().regex(/^ldf_[a-f0-9]{24}$/),
+  classification: z.literal("repository_identity_mismatch"),
+  resourceId: z.string().min(3).max(512),
+  declaredRepositoryId: z.string().min(3).max(512),
+  observedRepositoryId: z.string().min(3).max(512),
+  observation: z.object({
+    providerId: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+    observedAt: z.string().min(1).max(64),
+    providerReceiptId: z.string().regex(LANDSCAPE_DRIFT_RECEIPT_ID),
+    providerReceiptHash: z.string().regex(LANDSCAPE_DRIFT_HASH),
+    resolutionReceiptId: z.string().regex(LANDSCAPE_DRIFT_RECEIPT_ID),
+    resolutionReceiptHash: z.string().regex(LANDSCAPE_DRIFT_HASH),
+    resolutionSetHash: z.string().regex(LANDSCAPE_DRIFT_HASH),
+  }).strict(),
+  authority: z.literal("finding_candidate"),
+  contentHash: z.string().regex(LANDSCAPE_DRIFT_HASH),
+}).strict().superRefine((candidate, ctx) => {
+  if (!Number.isFinite(Date.parse(candidate.observation.observedAt))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["observation", "observedAt"], message: "landscape drift observation timestamp is invalid" });
+  }
+  for (const [field, value] of [
+    ["resourceId", candidate.resourceId],
+    ["declaredRepositoryId", candidate.declaredRepositoryId],
+    ["observedRepositoryId", candidate.observedRepositoryId],
+  ] as const) {
+    if (!isCredentialFreeText(value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: "landscape drift candidate contains credential material" });
+    }
+  }
+  if (candidate.declaredRepositoryId === candidate.observedRepositoryId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "landscape drift candidate must describe a real identity mismatch" });
+  }
+  const unsigned = landscapeDriftCandidateUnsigned(candidate);
+  const contentHash = landscapeDriftCandidateHash(unsigned);
+  if (candidate.contentHash !== contentHash || candidate.candidateId !== `ldf_${contentHash.slice(7, 31)}`) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "landscape drift candidate seal is invalid" });
+  }
+});
+export type LandscapeDriftCandidate = z.infer<typeof LandscapeDriftCandidateSchema>;
+
+export type CreateLandscapeDriftCandidateInput = Omit<LandscapeDriftCandidate,
+  "schema" | "candidateId" | "classification" | "authority" | "contentHash">;
+
+function landscapeDriftCanonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(landscapeDriftCanonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${landscapeDriftCanonical(child)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function landscapeDriftCandidateHash(value: unknown): string {
+  return `sha256:${createHash("sha256").update(landscapeDriftCanonical(value)).digest("hex")}`;
+}
+
+function landscapeDriftCandidateUnsigned(candidate: Pick<LandscapeDriftCandidate,
+  "schema" | "classification" | "resourceId" | "declaredRepositoryId" | "observedRepositoryId"
+  | "observation" | "authority">): Omit<LandscapeDriftCandidate, "candidateId" | "contentHash"> {
+  return {
+    schema: candidate.schema,
+    classification: candidate.classification,
+    resourceId: candidate.resourceId,
+    declaredRepositoryId: candidate.declaredRepositoryId,
+    observedRepositoryId: candidate.observedRepositoryId,
+    observation: { ...candidate.observation },
+    authority: candidate.authority,
+  };
+}
+
+export function createLandscapeDriftCandidate(input: CreateLandscapeDriftCandidateInput): LandscapeDriftCandidate {
+  const unsigned = landscapeDriftCandidateUnsigned({
+    schema: LANDSCAPE_DRIFT_CANDIDATE_SCHEMA_VERSION,
+    classification: "repository_identity_mismatch",
+    resourceId: input.resourceId,
+    declaredRepositoryId: input.declaredRepositoryId,
+    observedRepositoryId: input.observedRepositoryId,
+    observation: { ...input.observation },
+    authority: "finding_candidate",
+  });
+  const contentHash = landscapeDriftCandidateHash(unsigned);
+  return LandscapeDriftCandidateSchema.parse({
+    ...unsigned,
+    candidateId: `ldf_${contentHash.slice(7, 31)}`,
+    contentHash,
+  });
+}
+
+export function assertLandscapeDriftCandidate(value: unknown): asserts value is LandscapeDriftCandidate {
+  LandscapeDriftCandidateSchema.parse(value);
+}
+
+/** Convert one valid external observation into advisory Hunch memory, never graph authority. */
+export function landscapeDriftCandidateFinding(value: unknown): Finding {
+  const candidate = LandscapeDriftCandidateSchema.parse(value);
+  const title = `External repository identity drift: ${candidate.resourceId}`;
+  const evidence = [
+    `candidate:${candidate.candidateId}`,
+    `candidate-content:${candidate.contentHash}`,
+    `provider-receipt:${candidate.observation.providerReceiptId}@${candidate.observation.providerReceiptHash}`,
+    `resolution-receipt:${candidate.observation.resolutionReceiptId}@${candidate.observation.resolutionReceiptHash}`,
+    `resolution-set:${candidate.observation.resolutionSetHash}`,
+  ];
+  return FindingSchema.parse({
+    id: findingId(title),
+    title,
+    observation: `Declared repository ${candidate.declaredRepositoryId} was observed as ${candidate.observedRepositoryId}; review the external reference before changing the landscape.`,
+    evidence,
+    method: null,
+    severity: "medium",
+    triage: "open",
+    affected_files: [],
+    affected_symbols: [candidate.resourceId],
+    violates_constraint: null,
+    spawned_decision: null,
+    observed_at: candidate.observation.observedAt,
+    resolved_commit: null,
+    provenance: {
+      source: "orc_observed+candidate",
+      confidence: 0.8,
+      evidence,
+      last_verified: candidate.observation.observedAt,
+    },
+  });
+}
 
 /** The entity collections, keyed by their on-disk directory name. */
 export const ENTITY_KINDS = ["components", "resources", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings"] as const;

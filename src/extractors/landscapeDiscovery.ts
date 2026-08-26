@@ -374,9 +374,12 @@ function canonical(value: unknown): unknown {
     .map(([key, child]) => [key, canonical(child)]));
 }
 
-function contentHash(value: unknown): string {
+/** Canonical content identity shared by discovery and its review/adoption seam. */
+export function landscapeContentHash(value: unknown): string {
   return sha256Bytes(JSON.stringify(canonical(value)));
 }
+
+const contentHash = landscapeContentHash;
 
 function exactCommitSnapshot(root: string, ref: string): { revision: string; timestamp: string } {
   let raw: Buffer;
