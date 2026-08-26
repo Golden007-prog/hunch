@@ -226,7 +226,7 @@ interface McpDeclaration {
 interface DeliveryDeclarationSpec {
   evidenceKind: "ci_declaration" | "deployment_declaration";
   resourceKind: "pipeline" | "artifact" | "deployment_target";
-  provider: "github_actions" | "gitlab_ci" | "circleci" | "buildkite" | "jenkins" | "docker" | "docker_compose" | "kubernetes" | "systemd";
+  provider: "github_actions" | "gitlab_ci" | "circleci" | "buildkite" | "jenkins" | "docker" | "docker_compose" | "helm" | "kubernetes" | "systemd";
   format: "yaml" | "dockerfile" | "jenkinsfile" | "kubernetes_yaml" | "systemd_unit";
   sourceField: string;
   relationship: "contains" | "builds" | "deploys";
@@ -1193,6 +1193,16 @@ function deliveryDeclarationSpec(path: string): DeliveryDeclarationSpec | null {
       format: "yaml",
       sourceField: "services",
       relationship: "deploys",
+    };
+  }
+  if (/(^|\/)Chart\.yaml$/.test(path)) {
+    return {
+      evidenceKind: "deployment_declaration",
+      resourceKind: "artifact",
+      provider: "helm",
+      format: "yaml",
+      sourceField: "apiVersion/name/version",
+      relationship: "contains",
     };
   }
   if (/(^|\/)(?:k8s|kubernetes|manifests|deploy)\/.+\.ya?ml$/.test(path)) {
@@ -2567,10 +2577,32 @@ function validDeliveryDeclaration(path: string, spec: DeliveryDeclarationSpec, s
   }
   const parsed = parseSource(path, source);
   if (!parsed?.parseable) return false;
+  if (spec.provider === "helm") return helmChartApiVersion(source) !== null;
   if (spec.provider === "github_actions" || spec.provider === "circleci") return /^jobs\s*:/m.test(source);
   if (spec.provider === "buildkite") return /^steps\s*:/m.test(source);
   if (spec.provider === "docker_compose") return /^services\s*:/m.test(source);
   return source.trim().length > 0;
+}
+
+function helmChartApiVersion(source: string): "v1" | "v2" | null {
+  const values = new Map<"apiVersion" | "name" | "version", string | null>();
+  let duplicate = false;
+  for (const rawLine of source.split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue;
+    if (rawLine.match(/^ */)![0].length !== 0) continue;
+    const mapping = rawLine.match(/^(apiVersion|name|version)[ \t]*:(.*)$/);
+    if (!mapping) continue;
+    const field = mapping[1] as "apiVersion" | "name" | "version";
+    if (values.has(field)) duplicate = true;
+    values.set(field, boundedYamlScalar(mapping[2]!));
+  }
+  const apiVersion = values.get("apiVersion");
+  const name = values.get("name");
+  const version = values.get("version");
+  if (duplicate || (apiVersion !== "v1" && apiVersion !== "v2")) return null;
+  if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(name)) return null;
+  if (typeof version !== "string" || !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version)) return null;
+  return apiVersion;
 }
 
 function deliveryDeclarations(
@@ -2660,6 +2692,7 @@ function deliveryDeclarations(
       path: blob.path,
       contentHash: blob.contentHash!,
       spec: blob.spec,
+      contractVersion: blob.spec.provider === "helm" ? helmChartApiVersion(source)! : undefined,
       metadata: blob.spec.provider === "systemd" ? { unit_name: posix.basename(blob.path) } : undefined,
     });
   }
@@ -2682,7 +2715,9 @@ function deliveryResourceName(declaration: DeliveryDeclaration): string {
   const label = declaration.spec.resourceKind === "pipeline"
     ? `${declaration.spec.provider.replaceAll("_", " ")} pipeline: ${base}`
     : declaration.spec.resourceKind === "artifact"
-      ? `container image declared by ${base}`
+      ? declaration.spec.provider === "helm"
+        ? `Helm chart: ${declaration.path}`
+        : `container image declared by ${base}`
       : declaration.spec.provider === "systemd"
         ? `systemd service: ${base}`
         : `Docker Compose deployment: ${base}`;

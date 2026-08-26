@@ -1736,6 +1736,73 @@ RUN echo "$PRIVATE_BUILD_VALUE"
     "working-tree delivery edits cannot alter exact-revision discovery");
 });
 
+test("HLG-2 discovers exact Helm chart artifacts without retaining chart bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "charts/payments/Chart.yaml",
+        raw: true,
+        value: `apiVersion: v2
+name: private-payments-chart
+version: 1.2.3
+description: supersecret-chart-description
+dependencies:
+  - name: private-dependency
+    repository: https://private.example.test/charts
+`,
+      },
+      {
+        path: "deploy/legacy/Chart.yaml",
+        raw: true,
+        value: `apiVersion: v1
+name: private-legacy-chart
+version: 0.9.0
+`,
+      },
+      {
+        path: "charts/broken/Chart.yaml",
+        raw: true,
+        value: "apiVersion: v2\nname: private-broken-chart\n",
+      },
+      {
+        path: "node_modules/dependency/Chart.yaml",
+        raw: true,
+        value: "apiVersion: v2\nname: private-vendored-chart\nversion: 9.9.9\n",
+      },
+      {
+        path: "charts/ignored/Chart.yml",
+        raw: true,
+        value: "apiVersion: v2\nname: private-wrong-filename\nversion: 1.0.0\n",
+      },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const charts = first.resources.filter((item) => item.record.kind === "artifact"
+    && item.record.metadata.provider === "helm");
+  assert.deepEqual(charts.map((item) => item.record.id), [
+    "artifact:helm/charts/payments/Chart.yaml",
+    "artifact:helm/deploy/legacy/Chart.yaml",
+  ]);
+  assert.deepEqual(charts.map((item) => item.record.contract_version), ["v2", "v1"]);
+  assert.deepEqual(charts.map((item) => item.record.locator), [
+    "charts/payments/Chart.yaml",
+    "deploy/legacy/Chart.yaml",
+  ]);
+  assert.ok(charts.every((item) => item.evidence[0]!.kind === "deployment_declaration"));
+  assert.ok(charts.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("artifact:helm/")).length, 2);
+  assert.ok(first.issues.some((issue) => issue.code === "delivery_declaration_invalid"
+    && issue.sourcePath === "charts/broken/Chart.yaml"));
+  assert.doesNotMatch(JSON.stringify(first), /private-payments|private-legacy|private-broken|private-vendored|private-wrong|supersecret|private\.example/i);
+
+  writeFileSync(join(root, "charts/payments/Chart.yaml"), "working-copy-only\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree Helm chart edits cannot alter exact-revision discovery");
+});
+
 test("HLG-2 discovers structured Kubernetes workloads and systemd units without retaining operational bodies", (t) => {
   const { root, revision } = repository(t, {
     rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
