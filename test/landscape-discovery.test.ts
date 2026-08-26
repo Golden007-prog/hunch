@@ -688,6 +688,122 @@ test("HLG-2 bounds dashboards before blob hydration and never follows their syml
   assert.doesNotMatch(JSON.stringify(result), /private-dashboard-body/i);
 });
 
+test("HLG-2 discovers exact OpenSLO v1 declarations without retaining objective bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "slo/payments.yaml",
+        raw: true,
+        value: `apiVersion: openslo/v1
+kind: SLO
+metadata:
+  name: private-payments-slo
+spec:
+  service: private-payments-service
+  objectives:
+    - target: 0.999
+      query: private-payment-query
+`,
+      },
+      {
+        path: "services/catalog/openslo.json",
+        value: {
+          apiVersion: "openslo/v1",
+          kind: "SLO",
+          metadata: { name: "private-catalog-slo", labels: { team: "private-team" } },
+          spec: { service: "private-catalog-service", objectives: [{ target: 0.98 }] },
+        },
+      },
+      { path: "docs/reliability.yaml", raw: true, value: "apiVersion: openslo/v1\nkind: SLO\nprivate: ignored\n" },
+      {
+        path: "node_modules/dependency/slos/vendor.yaml",
+        raw: true,
+        value: "apiVersion: openslo/v1\nkind: SLO\nmetadata:\n  name: dependency-private-slo\n",
+      },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const slos = first.resources.filter((item) => item.record.kind === "slo");
+  assert.deepEqual(slos.map((item) => item.record.locator), [
+    "services/catalog/openslo.json",
+    "slo/payments.yaml",
+  ]);
+  assert.deepEqual(slos.map((item) => item.record.contract_version), ["openslo/v1", "openslo/v1"]);
+  assert.deepEqual(slos.map((item) => item.record.metadata.declaration_format), ["json", "yaml"]);
+  assert.ok(slos.every((item) => item.evidence[0]!.kind === "slo_declaration"));
+  assert.ok(slos.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("slo:")).length, 2);
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /private-payments|private-catalog|private-team|private-payment-query|dependency-private/i);
+
+  writeFileSync(join(root, "slo/payments.yaml"), "working-copy-only\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree SLO changes cannot alter exact-revision discovery");
+});
+
+test("HLG-2 rejects unsafe, malformed, oversized, and non-UTF-8 OpenSLO declarations", (t) => {
+  const validHeader = "apiVersion: openslo/v1\nkind: SLO\nmetadata:\n  name: private-slo\n";
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "slos/malformed.yaml", raw: true, value: "apiVersion: openslo/v1\nkind: [private malformed" },
+      { path: "slos/wrong-kind.yaml", raw: true, value: "apiVersion: openslo/v1\nkind: Service\nmetadata:\n  name: private-service\n" },
+      { path: "slos/multiple.yaml", raw: true, value: `${validHeader}---\n${validHeader}` },
+      { path: "slos/missing-name.json", value: { apiVersion: "openslo/v1", kind: "SLO", metadata: {} } },
+      { path: "slos/token=private.yaml", raw: true, value: `${validHeader}spec:\n  private: unsafe\n` },
+      { path: "slos/oversized.yaml", raw: true, value: `${validHeader}${"# private oversized body\n".repeat(50_000)}` },
+    ],
+  });
+  mkdirSync(join(root, "slos"), { recursive: true });
+  writeFileSync(join(root, "slos/binary.yaml"), Buffer.from([0xff, 0xfe, 0xfd]));
+  git(root, "add", "--", "slos/binary.yaml");
+  git(root, "commit", "-qm", "add binary SLO");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "slo"), false);
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_invalid"
+    && issue.sourcePath === "slos/malformed.yaml"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_invalid"
+    && issue.sourcePath === "slos/wrong-kind.yaml"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_invalid"
+    && issue.sourcePath === "slos/multiple.yaml"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_invalid"
+    && issue.sourcePath === "slos/missing-name.json"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_invalid"
+    && issue.sourcePath === "slos/binary.yaml"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_oversized"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_path"));
+  assert.doesNotMatch(JSON.stringify(result), /private malformed|private-service|private oversized|spec.*private|�/i);
+});
+
+test("HLG-2 bounds OpenSLO declarations before hydration and never follows symlinks", (t) => {
+  const files = Array.from({ length: 129 }, (_, index) => ({
+    path: `slos/slo-${String(index).padStart(3, "0")}.yaml`,
+    raw: true,
+    value: `apiVersion: openslo/v1\nkind: SLO\nmetadata:\n  name: private-slo-${index}\n`,
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files,
+  });
+  mkdirSync(join(root, ".openslo"), { recursive: true });
+  symlinkSync("../package.json", join(root, ".openslo/000-symlink.yaml"));
+  git(root, "add", "--", ".openslo/000-symlink.yaml");
+  git(root, "commit", "-qm", "add SLO symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_limit"));
+  assert.ok(result.issues.some((issue) => issue.code === "slo_declaration_mode"
+    && issue.sourcePath === ".openslo/000-symlink.yaml"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "slo").length, 127);
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("slo:")).length, 127);
+  assert.equal(result.resources.some((item) => item.record.id.endsWith("slo-127.yaml")), false);
+  assert.doesNotMatch(JSON.stringify(result), /private-slo-/i);
+});
+
 test("HLG-2 bounds malformed manifests and unsafe workspace declarations as reviewable issues", (t) => {
   const { root } = repository(t, {
     rootManifest: {

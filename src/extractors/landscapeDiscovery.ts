@@ -43,6 +43,8 @@ const MAX_OPERATIONS_DECLARATION_BYTES = 1024 * 1024;
 const MAX_OPERATIONS_DECLARATIONS = 128;
 const MAX_DASHBOARD_DECLARATION_BYTES = 1024 * 1024;
 const MAX_DASHBOARD_DECLARATIONS = 128;
+const MAX_SLO_DECLARATION_BYTES = 1024 * 1024;
+const MAX_SLO_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -74,7 +76,8 @@ export type LandscapeEvidenceKind =
   | "migration_declaration"
   | "ownership_declaration"
   | "operations_declaration"
-  | "dashboard_declaration";
+  | "dashboard_declaration"
+  | "slo_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -146,7 +149,12 @@ export type LandscapeDiscoveryIssueCode =
   | "dashboard_declaration_oversized"
   | "dashboard_declaration_mode"
   | "dashboard_declaration_path"
-  | "dashboard_declaration_limit";
+  | "dashboard_declaration_limit"
+  | "slo_declaration_invalid"
+  | "slo_declaration_oversized"
+  | "slo_declaration_mode"
+  | "slo_declaration_path"
+  | "slo_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -292,6 +300,17 @@ interface OperationsDeclaration {
 interface DashboardDeclaration {
   path: string;
   contentHash: string;
+}
+
+interface SloDeclarationBlob extends ManifestBlob {
+  format: "json" | "yaml" | null;
+}
+
+interface SloDeclaration {
+  path: string;
+  contentHash: string;
+  format: "json" | "yaml";
+  contractVersion: "openslo/v1";
 }
 
 interface ExactTreeEntry {
@@ -2070,6 +2089,196 @@ function dashboardDeclarations(
   return declarations;
 }
 
+/** OpenSLO is a vendor-neutral, durable SLO declaration. Discovery keeps only
+ * its fixed v1/SLO header plus path/content identity; metadata, objectives,
+ * indicators, queries, services and alert policy bodies never leave parsing. */
+function sloDeclarationFormat(path: string): "json" | "yaml" | null {
+  const basename = posix.basename(path);
+  const extension = basename.match(/\.(json|ya?ml)$/i);
+  if (!extension) return null;
+  const stem = basename.slice(0, -extension[0].length);
+  const explicitDirectory = /(?:^|\/)(?:\.openslo|slo|slos)\//i.test(path);
+  const explicitName = /^(?:openslo|slo)(?:[._-].+)?$/i.test(stem);
+  if (!explicitDirectory && !explicitName) return null;
+  return extension[1]!.toLowerCase() === "json" ? "json" : "yaml";
+}
+
+function sloDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: SloDeclarationBlob[]; total: number } {
+  const discovered: SloDeclarationBlob[] = [];
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
+      const approximate = pathBytes.toString("latin1");
+      if (!firstPartyDeclarationPath(approximate) || !sloDeclarationFormat(approximate)) continue;
+      discovered.push({
+        path: `<unsafe-slo-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: entry.oid,
+        bytes: null,
+        contentHash: null,
+        format: null,
+      });
+      continue;
+    }
+    const path = entry.path;
+    if (!firstPartyDeclarationPath(path)) continue;
+    const format = sloDeclarationFormat(path);
+    if (!format) continue;
+    if (!safeDeclarationPath(path)) {
+      discovered.push({
+        path: `<unsafe-slo-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: entry.oid,
+        bytes: null,
+        contentHash: null,
+        format: null,
+      });
+      continue;
+    }
+    discovered.push({
+      path,
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
+      bytes: null,
+      contentHash: null,
+      format,
+    });
+  }
+  discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
+  const total = discovered.length;
+  const blobs = hydrateDeclarationBlobs(
+    root,
+    discovered.slice(0, MAX_SLO_DECLARATIONS),
+    MAX_SLO_DECLARATION_BYTES,
+  );
+  return { blobs, total };
+}
+
+function validOpenSloName(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0 && value.trim().length <= 256;
+}
+
+function validJsonOpenSlo(source: string): boolean {
+  const value = JSON.parse(source) as unknown;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const metadata = record.metadata;
+  return record.apiVersion === "openslo/v1"
+    && record.kind === "SLO"
+    && !!metadata
+    && typeof metadata === "object"
+    && !Array.isArray(metadata)
+    && validOpenSloName((metadata as Record<string, unknown>).name);
+}
+
+function validYamlOpenSlo(path: string, source: string): boolean {
+  if (!parseSource(path, source)?.parseable) return false;
+  const topLevel = new Map<string, string | null>();
+  let duplicate = false;
+  const lines = source.split(/\r?\n/);
+  const significant = lines.map((line, index) => ({ line: line.trim(), index }))
+    .filter(({ line }) => line && !line.startsWith("#"));
+  const documentStarts = significant.filter(({ line }) => line === "---");
+  const documentEnds = significant.filter(({ line }) => line === "...");
+  if (documentStarts.length > 1
+    || (documentStarts.length === 1 && documentStarts[0]!.index !== significant[0]!.index)
+    || documentEnds.length > 1
+    || (documentEnds.length === 1 && documentEnds[0]!.index !== significant.at(-1)!.index)) return false;
+  for (const line of lines) {
+    if (!line.trim() || line.trimStart().startsWith("#") || line.match(/^ */)![0].length !== 0) continue;
+    const mapping = line.match(/^(apiVersion|kind)[ \t]*:(.*)$/);
+    if (!mapping) continue;
+    if (topLevel.has(mapping[1]!)) duplicate = true;
+    topLevel.set(mapping[1]!, boundedYamlScalar(mapping[2]!));
+  }
+  if (duplicate || topLevel.get("apiVersion") !== "openslo/v1" || topLevel.get("kind") !== "SLO") return false;
+  const metadataIndex = lines.findIndex((line) => /^metadata[ \t]*:[ \t]*(?:#.*)?$/.test(line));
+  if (metadataIndex < 0) return false;
+  let directIndent: number | null = null;
+  for (const line of lines.slice(metadataIndex + 1)) {
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const indentation = line.match(/^ */)![0].length;
+    if (indentation === 0) break;
+    directIndent ??= indentation;
+    if (indentation !== directIndent) continue;
+    const name = line.trimStart().match(/^name[ \t]*:(.*)$/);
+    if (name) return validOpenSloName(boundedYamlScalar(name[1]!));
+  }
+  return false;
+}
+
+function sloDeclarations(
+  root: string,
+  tree: ExactTreeEntry[],
+  issues: LandscapeDiscoveryIssue[],
+): SloDeclaration[] {
+  const discovered = sloDeclarationBlobs(root, tree);
+  if (discovered.total > MAX_SLO_DECLARATIONS) {
+    issues.push({
+      code: "slo_declaration_limit",
+      sourcePath: ".",
+      sourceField: "slo",
+      detail: `bounded discovery accepts at most ${MAX_SLO_DECLARATIONS} SLO declarations`,
+    });
+  }
+  const declarations: SloDeclaration[] = [];
+  for (const blob of discovered.blobs) {
+    if (!blob.bytes || !blob.format) {
+      const code = blob.contentHash === "oversized"
+        ? "slo_declaration_oversized"
+        : blob.mode === "unsafe-path"
+          ? "slo_declaration_path"
+          : "slo_declaration_mode";
+      issues.push({
+        code,
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_SLO_DECLARATION_BYTES}-byte SLO declaration limit`
+          : blob.mode === "unsafe-path"
+            ? "an SLO declaration uses an unsafe path"
+            : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    let source: string;
+    try {
+      source = UTF8_DECODER.decode(blob.bytes);
+    } catch {
+      issues.push({
+        code: "slo_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: `${blob.path} is not valid UTF-8 SLO data`,
+      });
+      continue;
+    }
+    let valid = false;
+    try {
+      valid = blob.format === "json" ? validJsonOpenSlo(source) : validYamlOpenSlo(blob.path, source);
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
+      issues.push({
+        code: "slo_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "apiVersion/kind/metadata.name",
+        detail: `${blob.path} is not a structurally valid OpenSLO v1 SLO declaration`,
+      });
+      continue;
+    }
+    declarations.push({
+      path: blob.path,
+      contentHash: blob.contentHash!,
+      format: blob.format,
+      contractVersion: "openslo/v1",
+    });
+  }
+  return declarations;
+}
+
 function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const discovered: DeliveryDeclarationBlob[] = [];
   for (const entry of tree) {
@@ -2972,6 +3181,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const discoveredMigrations = migrationDeclarations(root, revision, tree, issues);
   const discoveredOperations = operationsDeclarations(root, revision, tree, issues);
   const discoveredDashboards = dashboardDeclarations(root, tree, issues);
+  const discoveredSlos = sloDeclarations(root, tree, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -3230,6 +3440,61 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       },
       currentness: resourceCurrentness(revision, [declaration.contentHash]),
       environment: null,
+      metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
+    });
+    relationships.push(candidate(relationship, [evidence]));
+  }
+
+  for (const declaration of discoveredSlos) {
+    const evidence: LandscapeCandidateEvidence = {
+      kind: "slo_declaration",
+      sourcePath: declaration.path,
+      sourceField: "apiVersion/kind",
+      sourceRevision: revision,
+      sourceContentHash: declaration.contentHash,
+    };
+    const sloRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId("slo", `repository/${declaration.path}`),
+      kind: "slo",
+      name: `SLO declaration: ${declaration.path}`.slice(0, 256),
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: declaration.path,
+      lifecycle: "active",
+      contract_version: declaration.contractVersion,
+      provenance: {
+        source: "extracted:openslo-declaration",
+        confidence: 0.9,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      metadata: {
+        discovery_authority: "candidate",
+        declaration_path: declaration.path,
+        declaration_format: declaration.format,
+        slo_dialect: "openslo",
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(sloRecord, [evidence]));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, sloRecord.id, "contains"),
+      from: repositoryRecord.id,
+      to: sloRecord.id,
+      type: "contains",
+      reason: `${declaration.path} declares a repository OpenSLO v1 objective`,
+      strength: 0.9,
+      provenance: {
+        source: "extracted:openslo-declaration",
+        confidence: 0.9,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      environment: null,
+      contract_version: declaration.contractVersion,
       metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
     });
     relationships.push(candidate(relationship, [evidence]));
