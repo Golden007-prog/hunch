@@ -281,6 +281,14 @@ interface OperationsDeclaration {
   contentHash: string;
 }
 
+interface ExactTreeEntry {
+  mode: string;
+  kind: "blob" | "tree" | "commit";
+  oid: string;
+  pathBytes: Buffer;
+  path: string | null;
+}
+
 function gitEnv(): NodeJS.ProcessEnv {
   return {
     ...foreignRepoEnv(process.env),
@@ -343,34 +351,62 @@ function nulRecords(bytes: Buffer): Buffer[] {
   return records;
 }
 
-function manifestBlobs(root: string, revision: string): ManifestBlob[] {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
-  const manifests: ManifestBlob[] = [];
+/** Parse the exact commit tree once. Every discovery family classifies this
+ * immutable snapshot, avoiding repeated Git walks and any chance of the source
+ * families observing different path sets. Invalid UTF-8 remains available as
+ * raw bytes so a relevant unsafe declaration can still fail closed. */
+function exactTreeSnapshot(root: string, revision: string): ExactTreeEntry[] {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-t", "-z", revision], 64 * 1024 * 1024);
+  const entries: ExactTreeEntry[] = [];
   for (const record of nulRecords(raw)) {
     const tab = record.indexOf(0x09);
     if (tab < 0) continue;
     const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
     if (!head) continue;
     const pathBytes = record.subarray(tab + 1);
-    let path: string;
+    let path: string | null = null;
     try {
       path = UTF8_DECODER.decode(pathBytes);
     } catch {
+      // Retain the raw path identity for source-specific unsafe-path handling.
+    }
+    entries.push({
+      mode: head[1]!,
+      kind: head[2]!.toLowerCase() as ExactTreeEntry["kind"],
+      oid: head[3]!.toLowerCase(),
+      pathBytes,
+      path,
+    });
+  }
+  return entries;
+}
+
+function treeEntryMode(entry: ExactTreeEntry): string {
+  return entry.kind === "blob" ? entry.mode : `${entry.kind}:${entry.mode}`;
+}
+
+function manifestBlobs(tree: ExactTreeEntry[]): ManifestBlob[] {
+  const manifests: ManifestBlob[] = [];
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
       const suffix = Buffer.from("package.json", "utf8");
       if (pathBytes.length >= suffix.length && pathBytes.subarray(pathBytes.length - suffix.length).equals(suffix)) {
         manifests.push({
           path: `<non-utf8-package-manifest:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
-          oid: head[3]!.toLowerCase(),
+          oid: entry.oid,
           bytes: null,
           contentHash: null,
         });
       }
       continue;
     }
+    const path = entry.path;
     if (path !== "package.json" && !path.endsWith("/package.json")) continue;
-    const mode = head[1]!;
-    const oid = head[3]!.toLowerCase();
+    const mode = entry.mode;
+    const oid = entry.oid;
     const segments = path.split("/");
     if (path.length > 1024 || path.startsWith("/") || path.includes("\\")
       || segments.some((segment) => !segment || segment === "." || segment === "..")
@@ -378,7 +414,7 @@ function manifestBlobs(root: string, revision: string): ManifestBlob[] {
       manifests.push({ path: "<unsafe-package-manifest>", mode: "unsafe-path", oid, bytes: null, contentHash: null });
       continue;
     }
-    manifests.push({ path, mode: head[2] === "blob" ? mode : `${head[2]}:${mode}`, oid, bytes: null, contentHash: null });
+    manifests.push({ path, mode: treeEntryMode(entry), oid, bytes: null, contentHash: null });
   }
   return manifests.sort((left, right) => compareCodeUnits(left.path, right.path));
 }
@@ -485,25 +521,13 @@ function parseManifests(blobs: ManifestBlob[], issues: LandscapeDiscoveryIssue[]
   return parsed;
 }
 
-function mcpConfigBlobs(root: string, revision: string): ManifestBlob[] {
-  const raw = gitBuffer(root, [
-    "ls-tree", "--full-tree", "-z", revision, "--", ...MCP_CONFIG_SPECS.map((spec) => spec.path),
-  ], 4 * 1024 * 1024);
+function mcpConfigBlobs(root: string, tree: ExactTreeEntry[]): ManifestBlob[] {
   const blobs: ManifestBlob[] = [];
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head) continue;
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(record.subarray(tab + 1));
-    } catch {
-      continue;
-    }
+  for (const entry of tree) {
+    const path = entry.path;
+    if (path === null) continue;
     if (!MCP_CONFIG_BY_PATH.has(path)) continue;
-    const mode = head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`;
-    blobs.push({ path, mode, oid: head[3]!.toLowerCase(), bytes: null, contentHash: null });
+    blobs.push({ path, mode: treeEntryMode(entry), oid: entry.oid, bytes: null, contentHash: null });
   }
   return blobs.sort((left, right) => compareCodeUnits(left.path, right.path)).map((blob) => {
     if (!ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
@@ -913,10 +937,15 @@ function mcpDeclaration(
   };
 }
 
-function mcpDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): McpDeclaration[] {
+function mcpDeclarations(
+  root: string,
+  revision: string,
+  tree: ExactTreeEntry[],
+  issues: LandscapeDiscoveryIssue[],
+): McpDeclaration[] {
   const declarations: McpDeclaration[] = [];
   let considered = 0;
-  for (const blob of mcpConfigBlobs(root, revision)) {
+  for (const blob of mcpConfigBlobs(root, tree)) {
     if (!blob.bytes) {
       issues.push({
         code: blob.contentHash === "oversized" ? "mcp_config_oversized" : "mcp_config_mode",
@@ -1117,25 +1146,18 @@ function apiDeclarationFormat(path: string): ApiDeclarationFormat | null {
   return extension[1]!.toLowerCase() === "json" ? "json" : "yaml";
 }
 
-function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclarationBlob[]; total: number } {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: ApiDeclarationBlob[]; total: number } {
   const discovered: ApiDeclarationBlob[] = [];
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head) continue;
-    const pathBytes = record.subarray(tab + 1);
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(pathBytes);
-    } catch {
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
       if (apiDeclarationFormat(approximate)) {
         discovered.push({
           path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
-          oid: head[3]!.toLowerCase(),
+          oid: entry.oid,
           bytes: null,
           contentHash: null,
           format: null,
@@ -1143,13 +1165,14 @@ function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclar
       }
       continue;
     }
+    const path = entry.path;
     const format = apiDeclarationFormat(path);
     if (!format) continue;
     if (!safeDeclarationPath(path)) {
       discovered.push({
         path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
-        oid: head[3]!.toLowerCase(),
+        oid: entry.oid,
         bytes: null,
         contentHash: null,
         format: null,
@@ -1158,8 +1181,8 @@ function apiDeclarationBlobs(root: string, revision: string): { blobs: ApiDeclar
     }
     discovered.push({
       path,
-      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
-      oid: head[3]!.toLowerCase(),
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
       bytes: null,
       contentHash: null,
       format,
@@ -1355,8 +1378,13 @@ function protobufApiIdentity(source: string): Pick<ApiDeclaration, "dialect" | "
   return { dialect: "protobuf", version };
 }
 
-function apiDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): ApiDeclaration[] {
-  const discovered = apiDeclarationBlobs(root, revision);
+function apiDeclarations(
+  root: string,
+  revision: string,
+  tree: ExactTreeEntry[],
+  issues: LandscapeDiscoveryIssue[],
+): ApiDeclaration[] {
+  const discovered = apiDeclarationBlobs(root, tree);
   if (discovered.total > MAX_API_DECLARATIONS) {
     issues.push({
       code: "api_declaration_limit",
@@ -1496,25 +1524,18 @@ function migrationDeclarationIdentity(path: string): Pick<MigrationDeclaration, 
     : null;
 }
 
-function migrationDeclarationBlobs(root: string, revision: string): { blobs: MigrationDeclarationBlob[]; total: number } {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: MigrationDeclarationBlob[]; total: number } {
   const discovered: MigrationDeclarationBlob[] = [];
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head) continue;
-    const pathBytes = record.subarray(tab + 1);
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(pathBytes);
-    } catch {
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
       if (migrationDeclarationIdentity(approximate)) {
         discovered.push({
           path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
-          oid: head[3]!.toLowerCase(),
+          oid: entry.oid,
           bytes: null,
           contentHash: null,
           provider: null,
@@ -1525,13 +1546,14 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
       }
       continue;
     }
+    const path = entry.path;
     const identity = migrationDeclarationIdentity(path);
     if (!identity) continue;
     if (!safeDeclarationPath(path)) {
       discovered.push({
         path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
-        oid: head[3]!.toLowerCase(),
+        oid: entry.oid,
         bytes: null,
         contentHash: null,
         provider: null,
@@ -1543,8 +1565,8 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
     }
     discovered.push({
       path,
-      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
-      oid: head[3]!.toLowerCase(),
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
       bytes: null,
       contentHash: null,
       ...identity,
@@ -1564,8 +1586,13 @@ function migrationDeclarationBlobs(root: string, revision: string): { blobs: Mig
   return { blobs, total };
 }
 
-function migrationDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): MigrationDeclaration[] {
-  const discovered = migrationDeclarationBlobs(root, revision);
+function migrationDeclarations(
+  root: string,
+  revision: string,
+  tree: ExactTreeEntry[],
+  issues: LandscapeDiscoveryIssue[],
+): MigrationDeclaration[] {
+  const discovered = migrationDeclarationBlobs(root, tree);
   if (discovered.total > MAX_MIGRATION_DECLARATIONS) {
     issues.push({
       code: "migration_declaration_limit",
@@ -1642,27 +1669,16 @@ function migrationProviderName(provider: MigrationProvider): string {
 
 const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"] as const;
 
-function ownershipDeclarationBlob(root: string, revision: string): ManifestBlob | null {
-  const raw = gitBuffer(root, [
-    "ls-tree", "--full-tree", "-z", revision, "--", ...CODEOWNERS_PATHS,
-  ], 4 * 1024 * 1024);
+function ownershipDeclarationBlob(root: string, tree: ExactTreeEntry[]): ManifestBlob | null {
   const discovered = new Map<string, ManifestBlob>();
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head) continue;
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(record.subarray(tab + 1));
-    } catch {
-      continue;
-    }
+  for (const entry of tree) {
+    const path = entry.path;
+    if (path === null) continue;
     if (!(CODEOWNERS_PATHS as readonly string[]).includes(path)) continue;
     discovered.set(path, {
       path,
-      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
-      oid: head[3]!.toLowerCase(),
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
       bytes: null,
       contentHash: null,
     });
@@ -1688,9 +1704,10 @@ function githubTeamOwner(value: string): OwnershipTeam | null {
 function ownershipDeclaration(
   root: string,
   revision: string,
+  tree: ExactTreeEntry[],
   issues: LandscapeDiscoveryIssue[],
 ): OwnershipDeclaration | null {
-  const blob = ownershipDeclarationBlob(root, revision);
+  const blob = ownershipDeclarationBlob(root, tree);
   if (!blob) return null;
   if (!blob.bytes) {
     const code = blob.contentHash === "oversized"
@@ -1756,37 +1773,31 @@ function operationsDeclarationPath(path: string): boolean {
   return !/^(?:README|INDEX)\.mdx?$/i.test(basename);
 }
 
-function operationsDeclarationBlobs(root: string, revision: string): { blobs: ManifestBlob[]; total: number } {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: ManifestBlob[]; total: number } {
   const discovered: ManifestBlob[] = [];
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head) continue;
-    const pathBytes = record.subarray(tab + 1);
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(pathBytes);
-    } catch {
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
       if (operationsDeclarationPath(approximate)) {
         discovered.push({
           path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
-          oid: head[3]!.toLowerCase(),
+          oid: entry.oid,
           bytes: null,
           contentHash: null,
         });
       }
       continue;
     }
+    const path = entry.path;
     if (!operationsDeclarationPath(path)) continue;
     if (!safeDeclarationPath(path)) {
       discovered.push({
         path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
-        oid: head[3]!.toLowerCase(),
+        oid: entry.oid,
         bytes: null,
         contentHash: null,
       });
@@ -1794,8 +1805,8 @@ function operationsDeclarationBlobs(root: string, revision: string): { blobs: Ma
     }
     discovered.push({
       path,
-      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
-      oid: head[3]!.toLowerCase(),
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
       bytes: null,
       contentHash: null,
     });
@@ -1817,9 +1828,10 @@ function operationsDeclarationBlobs(root: string, revision: string): { blobs: Ma
 function operationsDeclarations(
   root: string,
   revision: string,
+  tree: ExactTreeEntry[],
   issues: LandscapeDiscoveryIssue[],
 ): OperationsDeclaration[] {
-  const discovered = operationsDeclarationBlobs(root, revision);
+  const discovered = operationsDeclarationBlobs(root, tree);
   if (discovered.total > MAX_OPERATIONS_DECLARATIONS) {
     issues.push({
       code: "operations_declaration_limit",
@@ -1874,25 +1886,18 @@ function operationsDeclarations(
   return declarations;
 }
 
-function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const discovered: DeliveryDeclarationBlob[] = [];
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head) continue;
-    const pathBytes = record.subarray(tab + 1);
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(pathBytes);
-    } catch {
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
       const approximate = pathBytes.toString("latin1");
       if (deliveryDeclarationSpec(approximate)) {
         discovered.push({
           path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
-          oid: head[3]!.toLowerCase(),
+          oid: entry.oid,
           bytes: null,
           contentHash: null,
           spec: null,
@@ -1900,13 +1905,14 @@ function deliveryDeclarationBlobs(root: string, revision: string): { blobs: Deli
       }
       continue;
     }
+    const path = entry.path;
     const spec = deliveryDeclarationSpec(path);
     if (!spec) continue;
     if (!safeDeclarationPath(path)) {
       discovered.push({
         path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
-        oid: head[3]!.toLowerCase(),
+        oid: entry.oid,
         bytes: null,
         contentHash: null,
         spec: null,
@@ -1915,8 +1921,8 @@ function deliveryDeclarationBlobs(root: string, revision: string): { blobs: Deli
     }
     discovered.push({
       path,
-      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
-      oid: head[3]!.toLowerCase(),
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
       bytes: null,
       contentHash: null,
       spec,
@@ -2157,8 +2163,13 @@ function validDeliveryDeclaration(path: string, spec: DeliveryDeclarationSpec, s
   return source.trim().length > 0;
 }
 
-function deliveryDeclarations(root: string, revision: string, issues: LandscapeDiscoveryIssue[]): DeliveryDeclaration[] {
-  const discovered = deliveryDeclarationBlobs(root, revision);
+function deliveryDeclarations(
+  root: string,
+  revision: string,
+  tree: ExactTreeEntry[],
+  issues: LandscapeDiscoveryIssue[],
+): DeliveryDeclaration[] {
+  const discovered = deliveryDeclarationBlobs(root, tree);
   let limitReported = false;
   const reportLimit = (sourcePath: string): void => {
     if (limitReported) return;
@@ -2291,18 +2302,13 @@ function repositoryKey(identity: string): { key: string; locator: string | null 
   return safe(identity, null);
 }
 
-function gitmodulesBlob(root: string, revision: string): ManifestBlob | null {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-z", revision, "--", ".gitmodules"], 1024 * 1024);
-  const record = nulRecords(raw)[0];
-  if (!record) return null;
-  const tab = record.indexOf(0x09);
-  if (tab < 0 || record.subarray(tab + 1).toString("utf8") !== ".gitmodules") return null;
-  const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-  if (!head) return null;
+function gitmodulesBlob(root: string, tree: ExactTreeEntry[]): ManifestBlob | null {
+  const entry = tree.find((candidate) => candidate.path === ".gitmodules");
+  if (!entry) return null;
   const blob: ManifestBlob = {
     path: ".gitmodules",
-    mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
-    oid: head[3]!.toLowerCase(),
+    mode: treeEntryMode(entry),
+    oid: entry.oid,
     bytes: null,
     contentHash: null,
   };
@@ -2358,21 +2364,11 @@ function submoduleConfigGroups(root: string, blob: ManifestBlob): SubmoduleConfi
   });
 }
 
-function exactGitlinks(root: string, revision: string, paths: Set<string>): Map<string, string> {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+function exactGitlinks(tree: ExactTreeEntry[], paths: Set<string>): Map<string, string> {
   const gitlinks = new Map<string, string>();
-  for (const record of nulRecords(raw)) {
-    const tab = record.indexOf(0x09);
-    if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
-    if (!head || head[1] !== "160000" || head[2] !== "commit") continue;
-    let path: string;
-    try {
-      path = UTF8_DECODER.decode(record.subarray(tab + 1));
-    } catch {
-      continue;
-    }
-    if (paths.has(path)) gitlinks.set(path, head[3]!.toLowerCase());
+  for (const entry of tree) {
+    if (entry.mode !== "160000" || entry.kind !== "commit" || entry.path === null) continue;
+    if (paths.has(entry.path)) gitlinks.set(entry.path, entry.oid);
   }
   return gitlinks;
 }
@@ -2404,10 +2400,11 @@ function canonicalSubmoduleRepository(
 function submoduleDeclarations(
   root: string,
   revision: string,
+  tree: ExactTreeEntry[],
   rootRepositoryIdentity: string | null,
   issues: LandscapeDiscoveryIssue[],
 ): SubmoduleDeclaration[] {
-  const blob = gitmodulesBlob(root, revision);
+  const blob = gitmodulesBlob(root, tree);
   if (!blob) return [];
   if (!blob.bytes) {
     issues.push({
@@ -2441,7 +2438,7 @@ function submoduleDeclarations(
   const selectedGroups = groups.slice(0, MAX_SUBMODULE_DECLARATIONS);
   const safePaths = new Set(selectedGroups
     .flatMap((group) => group.paths.length === 1 && safeDeclarationPath(group.paths[0]!) ? [group.paths[0]!] : []));
-  const gitlinks = exactGitlinks(root, revision, safePaths);
+  const gitlinks = exactGitlinks(tree, safePaths);
   const byPath = new Map<string, SubmoduleDeclaration[]>();
   for (const group of selectedGroups) {
     if (group.paths.length !== 1 || group.urls.length !== 1 || !safeDeclarationPath(group.paths[0]!)) {
@@ -2766,8 +2763,9 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   if (!isGitRepo(root)) throw new Error("landscape discovery requires a Git repository");
   const revision = exactRevision(root, ref);
   const timestamp = revisionTime(root, revision);
+  const tree = exactTreeSnapshot(root, revision);
   const issues: LandscapeDiscoveryIssue[] = [];
-  const blobs = manifestBlobs(root, revision);
+  const blobs = manifestBlobs(tree);
   if (blobs.length > MAX_MANIFESTS) {
     issues.push({
       code: "manifest_limit",
@@ -2786,11 +2784,11 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const discoveredPackages = workspacePackageDeclarations(manifests, issues);
   const discoveredWorkspaceDependencies = workspaceDependencyDeclarations(discoveredPackages, revision, issues);
   const declarations = repositoryDeclarations(root, revision, rootManifest);
-  const discoveredMcp = mcpDeclarations(root, revision, issues);
-  const discoveredDelivery = deliveryDeclarations(root, revision, issues);
-  const discoveredApi = apiDeclarations(root, revision, issues);
-  const discoveredMigrations = migrationDeclarations(root, revision, issues);
-  const discoveredOperations = operationsDeclarations(root, revision, issues);
+  const discoveredMcp = mcpDeclarations(root, revision, tree, issues);
+  const discoveredDelivery = deliveryDeclarations(root, revision, tree, issues);
+  const discoveredApi = apiDeclarations(root, revision, tree, issues);
+  const discoveredMigrations = migrationDeclarations(root, revision, tree, issues);
+  const discoveredOperations = operationsDeclarations(root, revision, tree, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -2805,9 +2803,9 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   } else {
     selected = rootHistoryIdentity(root, revision);
   }
-  const discoveredSubmodules = submoduleDeclarations(root, revision, selected?.identity ?? null, issues);
+  const discoveredSubmodules = submoduleDeclarations(root, revision, tree, selected?.identity ?? null, issues);
   const discoveredOwnership = selected?.key.startsWith("github.com/")
-    ? ownershipDeclaration(root, revision, issues)
+    ? ownershipDeclaration(root, revision, tree, issues)
     : null;
 
   const resources: Array<LandscapeCandidate<Resource>> = [];

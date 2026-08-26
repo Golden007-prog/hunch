@@ -132,6 +132,28 @@ test("HLG-2 preserves conflicting repository declarations as uncertainty instead
   assert.ok(result.resources.every((item) => item.record.scope.length === 0));
 });
 
+test("HLG-2 shared tree snapshot preserves fail-closed modes for exact declaration paths", (t) => {
+  const { root } = repository(t, {
+    rootManifest: {
+      name: "@acme/platform",
+      repository: "https://github.com/acme/platform.git",
+    },
+    files: [
+      { path: ".mcp.json/placeholder", value: "directory", raw: true },
+      { path: ".github/CODEOWNERS/placeholder", value: "directory", raw: true },
+      { path: ".gitmodules/placeholder", value: "directory", raw: true },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "mcp_config_mode"
+    && issue.sourcePath === ".mcp.json"));
+  assert.ok(result.issues.some((issue) => issue.code === "ownership_declaration_mode"
+    && issue.sourcePath === ".github/CODEOWNERS"));
+  assert.ok(result.issues.some((issue) => issue.code === "submodule_declaration_mode"
+    && issue.sourcePath === ".gitmodules"));
+});
+
 test("HLG-2 discovers exact internal workspace dependencies without retaining version specifiers", (t) => {
   const { root, revision } = repository(t, {
     rootManifest: {
