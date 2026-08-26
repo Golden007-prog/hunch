@@ -128,6 +128,111 @@ test("HLG-2 preserves conflicting repository declarations as uncertainty instead
   assert.ok(result.resources.every((item) => item.record.scope.length === 0));
 });
 
+test("HLG-2 discovers the exact repository-wide GitHub team owner without retaining people or path rules", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: {
+      name: "@acme/platform",
+      repository: "https://github.com/Acme/Platform.git",
+    },
+    files: [
+      {
+        path: ".github/CODEOWNERS",
+        raw: true,
+        value: `# private ownership notes are not evidence output
+* @Acme/Platform @private-person private-owner@example.test
+/services/payments/** @Acme/Payments
+* @ACME/Final-Team @acme/final-team @another-person
+`,
+      },
+      { path: "CODEOWNERS", raw: true, value: "* @acme/root-team\n" },
+      { path: "docs/CODEOWNERS", raw: true, value: "* @acme/docs-team\n" },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const teams = first.resources.filter((item) => item.record.kind === "team_ref");
+  assert.deepEqual(teams.map((item) => item.record.id), ["team_ref:github.com/acme/final-team"]);
+  assert.equal(teams[0]!.record.name, "@acme/final-team");
+  assert.equal(teams[0]!.record.locator, "https://github.com/orgs/acme/teams/final-team");
+  assert.equal(teams[0]!.evidence[0]!.kind, "ownership_declaration");
+  assert.equal(teams[0]!.evidence[0]!.sourcePath, ".github/CODEOWNERS");
+  assert.equal(teams[0]!.evidence[0]!.sourceField, "default-owner");
+  assert.equal(teams[0]!.evidence[0]!.sourceRevision, revision);
+  const ownership = first.relationships.filter((item) => item.record.type === "owned_by");
+  assert.equal(ownership.length, 1);
+  assert.equal(ownership[0]!.record.from, "repository:github.com/acme/platform");
+  assert.equal(ownership[0]!.record.to, "team_ref:github.com/acme/final-team");
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /private ownership notes|private-person|private-owner|payments|root-team|docs-team/i);
+
+  writeFileSync(join(root, ".github/CODEOWNERS"), "* @acme/working-copy-team\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree CODEOWNERS changes cannot alter exact-revision discovery");
+});
+
+test("HLG-2 bounds repository-wide GitHub team owners deterministically", (t) => {
+  const owners = Array.from({ length: 33 }, (_, index) => `@acme/team-${String(index).padStart(2, "0")}`);
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [{ path: ".github/CODEOWNERS", raw: true, value: `* ${owners.reverse().join(" ")}\n` }],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "ownership_declaration_limit"));
+  const teams = result.resources.filter((item) => item.record.kind === "team_ref");
+  assert.equal(teams.length, 32);
+  assert.equal(teams.some((item) => item.record.id.endsWith("/team-32")), false);
+  assert.equal(result.relationships.filter((item) => item.record.type === "owned_by").length, 32);
+});
+
+test("HLG-2 rejects oversized CODEOWNERS without retaining its body", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [{
+      path: ".github/CODEOWNERS",
+      raw: true,
+      value: `* @acme/private-oversized-team\n${"# private ownership context\n".repeat(12_000)}`,
+    }],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "ownership_declaration_oversized"));
+  assert.equal(result.resources.some((item) => item.record.kind === "team_ref"), false);
+  assert.doesNotMatch(JSON.stringify(result), /private-oversized-team|private ownership context/i);
+});
+
+test("HLG-2 rejects non-UTF-8 CODEOWNERS without returning its bytes", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  mkdirSync(join(root, ".github"), { recursive: true });
+  writeFileSync(join(root, ".github/CODEOWNERS"), Buffer.from([0x2a, 0x20, 0x40, 0xff, 0xfe, 0x0a]));
+  git(root, "add", "--", ".github/CODEOWNERS");
+  git(root, "commit", "-qm", "add non-UTF-8 CODEOWNERS");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "ownership_declaration_invalid"));
+  assert.equal(result.resources.some((item) => item.record.kind === "team_ref"), false);
+  assert.doesNotMatch(JSON.stringify(result), /�/);
+});
+
+test("HLG-2 never follows a precedence-selected CODEOWNERS symlink", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [{ path: "CODEOWNERS", raw: true, value: "* @acme/lower-precedence-team\n" }],
+  });
+  mkdirSync(join(root, ".github"), { recursive: true });
+  symlinkSync("../package.json", join(root, ".github/CODEOWNERS"));
+  git(root, "add", "--", ".github/CODEOWNERS");
+  git(root, "commit", "-qm", "add CODEOWNERS symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "ownership_declaration_mode"
+    && issue.sourcePath === ".github/CODEOWNERS"));
+  assert.equal(result.resources.some((item) => item.record.kind === "team_ref"), false);
+  assert.doesNotMatch(JSON.stringify(result), /lower-precedence-team/i);
+});
+
 test("HLG-2 bounds malformed manifests and unsafe workspace declarations as reviewable issues", (t) => {
   const { root } = repository(t, {
     rootManifest: {

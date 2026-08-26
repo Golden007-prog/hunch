@@ -34,6 +34,8 @@ const MAX_API_DECLARATION_BYTES = 1024 * 1024;
 const MAX_API_DECLARATIONS = 128;
 const MAX_MIGRATION_DECLARATION_BYTES = 1024 * 1024;
 const MAX_MIGRATION_DECLARATIONS = 128;
+const MAX_OWNERSHIP_DECLARATION_BYTES = 256 * 1024;
+const MAX_OWNERSHIP_TEAMS = 32;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -61,7 +63,8 @@ export type LandscapeEvidenceKind =
   | "ci_declaration"
   | "deployment_declaration"
   | "api_declaration"
-  | "migration_declaration";
+  | "migration_declaration"
+  | "ownership_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -112,7 +115,11 @@ export type LandscapeDiscoveryIssueCode =
   | "migration_declaration_oversized"
   | "migration_declaration_mode"
   | "migration_declaration_path"
-  | "migration_declaration_limit";
+  | "migration_declaration_limit"
+  | "ownership_declaration_invalid"
+  | "ownership_declaration_oversized"
+  | "ownership_declaration_mode"
+  | "ownership_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -218,6 +225,18 @@ interface MigrationDeclaration {
   migrationId: string;
   migrationType: "versioned" | "undo" | "repeatable";
   contractVersion: string | null;
+}
+
+interface OwnershipTeam {
+  handle: string;
+  organization: string;
+  team: string;
+}
+
+interface OwnershipDeclaration {
+  path: string;
+  contentHash: string;
+  teams: OwnershipTeam[];
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -1579,6 +1598,112 @@ function migrationProviderName(provider: MigrationProvider): string {
   return MIGRATION_PROVIDER_NAMES[provider];
 }
 
+const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"] as const;
+
+function ownershipDeclarationBlob(root: string, revision: string): ManifestBlob | null {
+  const raw = gitBuffer(root, [
+    "ls-tree", "--full-tree", "-z", revision, "--", ...CODEOWNERS_PATHS,
+  ], 4 * 1024 * 1024);
+  const discovered = new Map<string, ManifestBlob>();
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head) continue;
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(record.subarray(tab + 1));
+    } catch {
+      continue;
+    }
+    if (!(CODEOWNERS_PATHS as readonly string[]).includes(path)) continue;
+    discovered.set(path, {
+      path,
+      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
+      oid: head[3]!.toLowerCase(),
+      bytes: null,
+      contentHash: null,
+    });
+  }
+  const selected = CODEOWNERS_PATHS.map((path) => discovered.get(path)).find((blob) => blob !== undefined);
+  if (!selected || !ORDINARY_BLOB_MODES.has(selected.mode)) return selected ?? null;
+  const size = Number(gitText(root, ["cat-file", "-s", selected.oid], 1024 * 1024));
+  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_OWNERSHIP_DECLARATION_BYTES) {
+    return { ...selected, contentHash: size > MAX_OWNERSHIP_DECLARATION_BYTES ? "oversized" : null };
+  }
+  const bytes = gitBuffer(root, ["cat-file", "blob", selected.oid], MAX_OWNERSHIP_DECLARATION_BYTES + 1);
+  return { ...selected, bytes, contentHash: sha256Bytes(bytes) };
+}
+
+function githubTeamOwner(value: string): OwnershipTeam | null {
+  const match = value.match(/^@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,99}))$/);
+  if (!match) return null;
+  const organization = match[1]!.toLowerCase();
+  const team = match[2]!.toLowerCase();
+  return { organization, team, handle: `@${organization}/${team}` };
+}
+
+function ownershipDeclaration(
+  root: string,
+  revision: string,
+  issues: LandscapeDiscoveryIssue[],
+): OwnershipDeclaration | null {
+  const blob = ownershipDeclarationBlob(root, revision);
+  if (!blob) return null;
+  if (!blob.bytes) {
+    const code = blob.contentHash === "oversized"
+      ? "ownership_declaration_oversized"
+      : "ownership_declaration_mode";
+    issues.push({
+      code,
+      sourcePath: blob.path,
+      sourceField: "default-owner",
+      detail: blob.contentHash === "oversized"
+        ? `${blob.path} exceeds the ${MAX_OWNERSHIP_DECLARATION_BYTES}-byte ownership declaration limit`
+        : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+    });
+    return null;
+  }
+  let source: string;
+  try {
+    source = UTF8_DECODER.decode(blob.bytes);
+  } catch {
+    issues.push({
+      code: "ownership_declaration_invalid",
+      sourcePath: blob.path,
+      sourceField: "default-owner",
+      detail: `${blob.path} is not valid UTF-8 ownership data`,
+    });
+    return null;
+  }
+  let defaultTeams: OwnershipTeam[] = [];
+  for (const rawLine of source.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const fields = line.split(/\s+/);
+    if (fields[0] !== "*") continue;
+    const teams = new Map<string, OwnershipTeam>();
+    for (const owner of fields.slice(1)) {
+      const team = githubTeamOwner(owner);
+      if (team) teams.set(team.handle, team);
+    }
+    defaultTeams = [...teams.values()].sort((left, right) => compareCodeUnits(left.handle, right.handle));
+  }
+  if (defaultTeams.length > MAX_OWNERSHIP_TEAMS) {
+    issues.push({
+      code: "ownership_declaration_limit",
+      sourcePath: blob.path,
+      sourceField: "default-owner",
+      detail: `bounded discovery accepts at most ${MAX_OWNERSHIP_TEAMS} repository-wide GitHub team owners`,
+    });
+  }
+  return {
+    path: blob.path,
+    contentHash: blob.contentHash!,
+    teams: defaultTeams.slice(0, MAX_OWNERSHIP_TEAMS),
+  };
+}
+
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
   const discovered: DeliveryDeclarationBlob[] = [];
@@ -2157,6 +2282,9 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   } else {
     selected = rootHistoryIdentity(root, revision);
   }
+  const discoveredOwnership = selected?.key.startsWith("github.com/")
+    ? ownershipDeclaration(root, revision, issues)
+    : null;
 
   const resources: Array<LandscapeCandidate<Resource>> = [];
   const relationships: Array<LandscapeCandidate<Edge>> = [];
@@ -2185,6 +2313,59 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       updated_at: timestamp,
     });
     resources.push(candidate(repositoryRecord, repositoryEvidence));
+  }
+
+  if (repositoryRecord && discoveredOwnership) {
+    for (const team of discoveredOwnership.teams) {
+      const evidence: LandscapeCandidateEvidence = {
+        kind: "ownership_declaration",
+        sourcePath: discoveredOwnership.path,
+        sourceField: "default-owner",
+        sourceRevision: revision,
+        sourceContentHash: discoveredOwnership.contentHash,
+      };
+      const teamRecord = ResourceSchema.parse({
+        schema: "hunch.resource/1",
+        id: resourceId("team_ref", `github.com/${team.organization}/${team.team}`),
+        kind: "team_ref",
+        name: team.handle,
+        scope: [],
+        locator: `https://github.com/orgs/${team.organization}/teams/${team.team}`,
+        lifecycle: "active",
+        provenance: {
+          source: "extracted:codeowners-default-team",
+          confidence: 0.8,
+          evidence: [provenanceEvidence(evidence)],
+        },
+        currentness: resourceCurrentness(revision, [discoveredOwnership.contentHash]),
+        metadata: {
+          discovery_authority: "candidate",
+          provider: "github",
+          declaration_path: discoveredOwnership.path,
+        },
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+      resources.push(candidate(teamRecord, [evidence]));
+      const relationship = EdgeSchema.parse({
+        schema: "hunch.resource-relationship/1",
+        id: resourceRelationshipId(repositoryRecord.id, teamRecord.id, "owned_by"),
+        from: repositoryRecord.id,
+        to: teamRecord.id,
+        type: "owned_by",
+        reason: `${discoveredOwnership.path} declares ${team.handle} as a repository-wide owner`,
+        strength: 0.8,
+        provenance: {
+          source: "extracted:codeowners-default-team",
+          confidence: 0.8,
+          evidence: [provenanceEvidence(evidence)],
+        },
+        currentness: resourceCurrentness(revision, [discoveredOwnership.contentHash]),
+        environment: null,
+        metadata: { discovery_authority: "candidate", declaration_path: discoveredOwnership.path },
+      });
+      relationships.push(candidate(relationship, [evidence]));
+    }
   }
 
   const mcpByKey = new Map<string, McpDeclaration[]>();
