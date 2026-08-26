@@ -110,6 +110,8 @@ import { pendingEscalations, policyEscalations } from "../core/escalations.js";
 import { premiseEscalations } from "../core/premises.js";
 import { parseDocAnchors, renderDocGrounding } from "../core/docanchors.js";
 import { compareCandidates } from "../core/compare.js";
+import { planLandscapeAdoption } from "../core/landscapeAdoption.js";
+import { discoverRepositoryLandscape } from "../extractors/landscapeDiscovery.js";
 import { checkConformance } from "../core/conformance.js";
 import { ConstitutionService, policyEvaluationEnvelope, type PolicyEvaluationSet } from "../constitution/service.js";
 import { sourceGraphSnapshot } from "../constitution/evaluator.js";
@@ -2744,6 +2746,91 @@ for (const command of ["status", "report"] as const) {
     });
 }
 
+// ---- landscape (review + explicitly adopt exact repository candidates) ---
+const landscapeCmd = program
+  .command("landscape")
+  .description("Review exact-revision Engineering Landscape candidates and explicitly adopt them into the graph.");
+
+landscapeCmd
+  .command("review")
+  .description("Discover a read-only, hash-bound candidate set. This command never writes graph authority.")
+  .option("--ref <ref>", "Git commit/ref to inspect", "HEAD")
+  .option("--json", "emit the complete machine-readable discovery envelope")
+  .action((opts: { ref: string; json?: boolean }) => {
+    const root = findRoot();
+    const discovery = discoverRepositoryLandscape(root, opts.ref);
+    if (opts.json) {
+      console.log(JSON.stringify(discovery, null, 2));
+      return;
+    }
+    console.log(`Landscape candidates at ${discovery.sourceRevision}`);
+    console.log(`Discovery: ${discovery.discoveryHash}`);
+    console.log(`Repository identity: ${discovery.repositoryRootIdentity}\n`);
+    console.log(`RESOURCES (${discovery.resources.length})`);
+    for (const candidate of discovery.resources) {
+      console.log(`  ${candidate.candidateHash}  ${candidate.record.id}  ${candidate.record.name}`);
+    }
+    console.log(`\nRELATIONSHIPS (${discovery.relationships.length})`);
+    for (const candidate of discovery.relationships) {
+      console.log(`  ${candidate.candidateHash}  ${candidate.record.from} --${candidate.record.type}--> ${candidate.record.to}`);
+    }
+    if (discovery.issues.length) {
+      console.log(`\nISSUES (${discovery.issues.length})`);
+      for (const issue of discovery.issues) {
+        console.log(`  ${issue.code}  ${issue.sourcePath}${issue.sourceField ? `#${issue.sourceField}` : ""} — ${issue.detail}`);
+      }
+    }
+    console.log("\nNothing was written. Review the candidates, then adopt all of them with:");
+    console.log(`  hunch landscape adopt --ref ${discovery.sourceRevision} --expected ${discovery.discoveryHash} --all --reviewed-by <you>${discovery.issues.length ? " --acknowledge-issues" : ""}`);
+    console.log("Or pass --candidate <hash...> to adopt an explicit subset; relationships require both endpoint resources.");
+  });
+
+landscapeCmd
+  .command("adopt")
+  .description("Human-confirm a reviewed candidate set and write only those exact records through Hunch's normal graph boundary.")
+  .option("--ref <ref>", "exact Git commit/ref that was reviewed", "HEAD")
+  .requiredOption("--expected <hash>", "discovery hash printed by landscape review")
+  .requiredOption("--reviewed-by <label>", "credential-free operator/reviewer label")
+  .option("--all", "adopt every candidate in the reviewed discovery")
+  .option("--candidate <hashes...>", "adopt only these candidate hashes")
+  .option("--acknowledge-issues", "confirm that the printed discovery issues were reviewed")
+  .action((opts: {
+    ref: string;
+    expected: string;
+    reviewedBy: string;
+    all?: boolean;
+    candidate?: string[];
+    acknowledgeIssues?: boolean;
+  }) => {
+    if (opts.all && opts.candidate?.length) return fail("choose either --all or --candidate, not both");
+    if (!opts.all && !opts.candidate?.length) return fail("choose --all or name reviewed hashes with --candidate <hashes...>");
+    const { store, root } = storeFor();
+    try {
+      const discovery = discoverRepositoryLandscape(root, opts.ref);
+      const plan = planLandscapeAdoption({
+        discovery,
+        expectedDiscoveryHash: opts.expected,
+        reviewer: opts.reviewedBy,
+        candidateHashes: opts.all ? "all" : opts.candidate!,
+        acknowledgeIssues: opts.acknowledgeIssues,
+        existingResources: store.recs("resources"),
+        existingRelationships: store.recs("edges"),
+      });
+      for (const resource of plan.resourcesToWrite) store.putCapture("resources", resource);
+      for (const relationship of plan.relationshipsToWrite) store.putCapture("edges", relationship);
+      store.reindex();
+      if (plan.resourcesToWrite.length || plan.relationshipsToWrite.length) {
+        pumpMemoryHome(store, root, store.captureHome(false), "hunch: adopt reviewed Engineering Landscape candidates");
+      }
+      console.log(JSON.stringify(plan.receipt, null, 2));
+      console.log(`✓ accepted ${plan.receipt.acceptedResourceIds.length} resource(s) and ${plan.receipt.acceptedRelationshipIds.length} relationship(s); wrote ${plan.resourcesToWrite.length + plan.relationshipsToWrite.length}, reused ${plan.receipt.reusedResourceIds.length + plan.receipt.reusedRelationshipIds.length}.`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    } finally {
+      store.close();
+    }
+  });
+
 // ---- compare (rank N candidate solutions by architectural fit) ------------
 program
   .command("compare")
@@ -3549,7 +3636,14 @@ program
     // used to come back empty while the graph held the answer one FTS query away —
     // the task-shaped entry point must not whiff on task-shaped input. Fall back to
     // search so the caller always leaves with the closest graph matches.
-    const empty = !ctx.constraints.length && !ctx.decisions.length && !ctx.bugs.length && !ctx.blast_radius.length;
+    const empty =
+      !ctx.constraints.length &&
+      !ctx.decisions.length &&
+      !ctx.bugs.length &&
+      !ctx.blast_radius.length &&
+      !ctx.findings.length &&
+      !ctx.landscape?.resources.length &&
+      !ctx.landscape?.relationships.length;
     if (empty && !asOf) {
       const hits = store.search(target, 8);
       if (hits.length) {
@@ -4126,7 +4220,15 @@ program
       // not a block; the commit-time `hunch check` does the actual gating.
       const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
       const hasContent =
-        ctx.constraints.length || ctx.decisions.length || ctx.bugs.length || ctx.blast_radius.length || ctx.findings.length || retired.length || docGround;
+        ctx.constraints.length ||
+        ctx.decisions.length ||
+        ctx.bugs.length ||
+        ctx.blast_radius.length ||
+        ctx.findings.length ||
+        ctx.landscape?.resources.length ||
+        ctx.landscape?.relationships.length ||
+        retired.length ||
+        docGround;
       if (!hasContent) return; // no noise on files Hunch hasn't learned yet
       const envelope = buildDeliveryEnvelope(ctx, {
         root,

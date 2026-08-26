@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { hunchPaths } from "../src/core/paths.js";
+import { resourceId, resourceRelationshipId } from "../src/core/ids.js";
 import { servedSummary } from "../src/core/served.js";
+import { EdgeSchema, ResourceSchema } from "../src/core/types.js";
 import { buildServer } from "../src/mcp/server.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 
@@ -47,6 +49,78 @@ function mcpDeliveryFixture(): string {
   store.reindex();
   store.close();
   return root;
+}
+
+function installReviewedLandscape(root: string): void {
+  const store = new HunchStore(hunchPaths(root));
+  const revision = "a".repeat(40);
+  const reviewedAt = "2026-08-26T15:00:00.000Z";
+  const candidateHash = `sha256:${"b".repeat(64)}`;
+  const discoveryHash = `sha256:${"c".repeat(64)}`;
+  const reviewId = `lr_${"d".repeat(24)}`;
+  const repositoryId = resourceId("repository", "github.com/acme/payments");
+  const apiId = resourceId("api", "openapi.yaml");
+  const authority = {
+    provenance: {
+      source: "extracted:test+human_confirmed",
+      confidence: 0.95,
+      evidence: [`fixture.json#review@${revision}:${candidateHash}`],
+      last_verified: reviewedAt,
+    },
+    currentness: {
+      status: "current" as const,
+      verified_at: reviewedAt,
+      source_revision: revision,
+      source_content_hash: candidateHash,
+    },
+    metadata: {
+      discovery_authority: "human_confirmed",
+      landscape_candidate_hash: candidateHash,
+      landscape_discovery_hash: discoveryHash,
+      landscape_review_id: reviewId,
+      landscape_reviewed_by: "platform-team",
+      landscape_reviewed_at: reviewedAt,
+    },
+  };
+  for (const resource of [
+    ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: repositoryId,
+      kind: "repository",
+      name: "Payments repository",
+      scope: [],
+      locator: "github.com/acme/payments",
+      lifecycle: "active",
+      ...authority,
+      created_at: reviewedAt,
+      updated_at: reviewedAt,
+    }),
+    ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: apiId,
+      kind: "api",
+      name: "Payments API",
+      scope: [repositoryId],
+      locator: "openapi.yaml",
+      lifecycle: "active",
+      ...authority,
+      created_at: reviewedAt,
+      updated_at: reviewedAt,
+    }),
+  ]) store.json.put("resources", resource);
+  store.json.put("edges", EdgeSchema.parse({
+    schema: "hunch.resource-relationship/1",
+    id: resourceRelationshipId(repositoryId, apiId, "contains"),
+    from: repositoryId,
+    to: apiId,
+    type: "contains",
+    reason: "reviewed API declaration",
+    strength: 0.95,
+    environment: null,
+    ...authority,
+  }));
+  store.reindex();
+  store.close();
 }
 
 test("hunch_context exposes the delivery envelope and records exactly what MCP served", async (t) => {
@@ -127,6 +201,66 @@ test("hunch_context exposes the delivery envelope and records exactly what MCP s
     provenance_status: "current",
     token_cost: structured.delivered[0]?.token_cost,
   });
+});
+
+test("hunch_context delivers a reviewed landscape fragment for a plain-English task", async (t) => {
+  const root = mcpDeliveryFixture();
+  installReviewedLandscape(root);
+  const server = buildServer(root);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "mcp-landscape-delivery-test", version: "1.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  t.after(async () => {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const listed = await client.listTools();
+  const outputProperties = listed.tools.find((tool) => tool.name === "hunch_context")?.outputSchema?.properties ?? {};
+  assert.ok("landscape" in outputProperties, "tools/list advertises the reviewed landscape fragment");
+  assert.ok("receipt_id" in outputProperties, "tools/list advertises the exact delivery receipt");
+
+  const result = await client.callTool({
+    name: "hunch_context",
+    arguments: { target: "payments api", budget_tokens: 1_500 },
+  });
+  const structured = result.structuredContent as {
+    schema_version: string;
+    receipt_id: string;
+    text: string;
+    delivered: Array<{ kind: string; record_id: string }>;
+    landscape: {
+      schema: string;
+      authority: string;
+      resources: Array<{ record: { id: string }; required: boolean; blocking: boolean }>;
+      relationships: Array<{ record: { from: string; to: string } }>;
+      reviewIds: string[];
+      discoveryHashes: string[];
+      sourceRevisions: string[];
+      fragmentHash: string;
+    } | null;
+    accounted_chars: number;
+    budget_tokens: number;
+  };
+
+  assert.equal(structured.schema_version, "hunch.delivery-envelope/1");
+  assert.match(structured.receipt_id, /^hdr_[a-f0-9]{24}$/);
+  assert.doesNotMatch(structured.text, /closest graph matches/i, "reviewed landscape context is not replaced by search fallback");
+  assert.equal(structured.landscape?.schema, "hunch.landscape-fragment/1");
+  assert.equal(structured.landscape?.authority, "human_confirmed");
+  assert.deepEqual(structured.landscape?.resources.map((item) => item.record.id), [
+    resourceId("api", "openapi.yaml"),
+    resourceId("repository", "github.com/acme/payments"),
+  ]);
+  assert.ok(structured.landscape?.resources.every((item) => item.required === false && item.blocking === false));
+  assert.equal(structured.landscape?.relationships.length, 1);
+  assert.match(structured.landscape?.fragmentHash ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.ok(structured.accounted_chars <= structured.budget_tokens * 4);
+
+  const receipts = servedSummary(root);
+  assert.equal(receipts.total, 3);
+  assert.deepEqual(new Set(receipts.recent.map((item) => item.kind)), new Set(["resources", "relationships"]));
 });
 
 test("hunch_shortlist exposes an opt-in bounded diagnostic with no exact-owner claim", async (t) => {

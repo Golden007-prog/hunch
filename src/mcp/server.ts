@@ -35,7 +35,7 @@ import { collectCorrectionStageSources } from "../extractors/correctionSources.j
 import { buildDeliveryEnvelope, type DeliveryEnvelope } from "../core/delivery.js";
 import { armExecutionObligations, loadPipelineState, savePipelineState } from "../core/pipeline.js";
 import { recordServed } from "../core/served.js";
-import type { Runbook } from "../core/types.js";
+import { EdgeSchema, ResourceSchema, type Runbook } from "../core/types.js";
 import { compareCandidates } from "../core/compare.js";
 import { checkConformance } from "../core/conformance.js";
 import { ConstitutionService, policyEvaluationEnvelope } from "../constitution/service.js";
@@ -176,13 +176,47 @@ const EXECUTION_OBLIGATION_SCHEMA = z.object({
   }),
 });
 
+const LANDSCAPE_SELECTION_RECEIPT_SCHEMA = z.object({
+  selectionReason: z.enum(["exact-target", "task-match", "orientation-root", "graph-neighbor", "graph-connection"]),
+  selectionRank: z.number().int().positive(),
+  rank: z.number().int().positive(),
+  deliveryReason: z.literal("ranked"),
+  required: z.literal(false),
+  blocking: z.literal(false),
+  provenanceStatus: z.literal("current"),
+  tokenCost: z.number().int().positive(),
+});
+
+const LANDSCAPE_FRAGMENT_SCHEMA = z.object({
+  schema: z.literal("hunch.landscape-fragment/1"),
+  authority: z.literal("human_confirmed"),
+  target: z.string(),
+  resources: z.array(LANDSCAPE_SELECTION_RECEIPT_SCHEMA.extend({ record: ResourceSchema })),
+  relationships: z.array(LANDSCAPE_SELECTION_RECEIPT_SCHEMA.extend({
+    selectionReason: z.literal("graph-connection"),
+    record: EdgeSchema,
+  })),
+  omitted: z.array(z.object({
+    kind: z.enum(["resources", "relationships"]),
+    recordId: z.string(),
+    reason: z.enum(["budget", "stale-provenance", "endpoint-not-delivered", "landscape-cap"]),
+    detail: z.string(),
+  })),
+  reviewIds: z.array(z.string()),
+  discoveryHashes: z.array(z.string()),
+  sourceRevisions: z.array(z.string()),
+  fragmentHash: z.string(),
+});
+
 /** Public MCP shape for the canonical delivery envelope. Keeping the schema on
  *  the tool means orchestrators can consume receipt facts without scraping the
  *  backward-compatible text block. */
 const DELIVERY_OUTPUT_SCHEMA = z.object({
+  schema_version: z.literal("hunch.delivery-envelope/1"),
+  receipt_id: z.string().regex(/^hdr_[a-f0-9]{24}$/),
   text: z.string(),
   delivered: z.array(z.object({
-    kind: z.enum(["constraints", "decisions", "bugs", "findings"]),
+    kind: z.enum(["constraints", "decisions", "bugs", "findings", "resources", "relationships"]),
     record_id: z.string(),
     rank: z.number().int().positive(),
     delivery_reason: z.enum(["ranked", "blocking-reserved"]),
@@ -210,13 +244,15 @@ const DELIVERY_OUTPUT_SCHEMA = z.object({
     token_cost: z.number().int().nonnegative(),
   })),
   omitted: z.array(z.object({
-    kind: z.enum(["constraints", "decisions", "bugs", "findings"]),
+    kind: z.enum(["constraints", "decisions", "bugs", "findings", "resources", "relationships"]),
     record_id: z.string(),
-    reason: z.enum(["budget", "stale-provenance", "retired", "actionability-cap", "low-confidence", "insufficient-context", "low-relevance"]),
+    reason: z.enum(["budget", "stale-provenance", "retired", "actionability-cap", "endpoint-not-delivered", "landscape-cap", "low-confidence", "insufficient-context", "low-relevance"]),
     detail: z.string(),
   })),
+  landscape: LANDSCAPE_FRAGMENT_SCHEMA.nullable(),
   budget_tokens: z.number().int().nonnegative(),
   used_chars: z.number().int().nonnegative(),
+  accounted_chars: z.number().int().nonnegative(),
   blocking_overflow: z.boolean(),
   abstention: z.object({
     active: z.boolean(),
@@ -884,7 +920,14 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
       // Task-phrase input ("improve retrieval ranking") resolves no file/symbol and
       // used to return an empty brief while the graph held the answer — fall back to
       // FTS so the assistant always leaves with the closest matches, not a shrug.
-      const empty = !ctx.constraints.length && !ctx.decisions.length && !ctx.bugs.length && !ctx.blast_radius.length;
+      const empty =
+        !ctx.constraints.length &&
+        !ctx.decisions.length &&
+        !ctx.bugs.length &&
+        !ctx.blast_radius.length &&
+        !ctx.findings.length &&
+        !ctx.landscape?.resources.length &&
+        !ctx.landscape?.relationships.length;
       if (empty && !asOf) {
         const hits = store.search(target, 8);
         if (hits.length) {

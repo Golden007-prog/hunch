@@ -15,8 +15,21 @@ import type { ExecutionObligation } from "./pipeline.js";
 import { pathMatchesGlob, pathsRelated } from "./glob.js";
 import { toPosixTarget } from "./paths.js";
 import { renderGrounding } from "./topics.js";
+import {
+  LANDSCAPE_FRAGMENT_SCHEMA_VERSION,
+  assertLandscapeDeliveryFragment,
+  createLandscapeDeliveryFragment,
+  landscapeFragmentHash,
+  type DeliveredLandscapeRelationship,
+  type DeliveredLandscapeResource,
+  type LandscapeDeliveryFragment,
+  type SelectedLandscapeRelationship,
+  type SelectedLandscapeResource,
+} from "./landscapeDelivery.js";
 
-export type DeliveryKind = "constraints" | "decisions" | "bugs" | "findings";
+export const DELIVERY_ENVELOPE_SCHEMA_VERSION = "hunch.delivery-envelope/1" as const;
+
+export type DeliveryKind = "constraints" | "decisions" | "bugs" | "findings" | "resources" | "relationships";
 export type CommitReachability = "reachable" | "unreachable" | "unknown";
 
 export interface DeliveryRef {
@@ -54,7 +67,8 @@ export interface DeliveredSupplement {
 }
 
 export interface DeliveryOmission extends DeliveryRef {
-  reason: "budget" | "stale-provenance" | "retired" | "actionability-cap" | DeliveryAbstentionReason;
+  reason: "budget" | "stale-provenance" | "retired" | "actionability-cap"
+    | "endpoint-not-delivered" | "landscape-cap" | DeliveryAbstentionReason;
   detail: string;
 }
 
@@ -86,14 +100,21 @@ export interface DeliveryHypothesis {
 }
 
 export interface DeliveryEnvelope {
+  schema_version: typeof DELIVERY_ENVELOPE_SCHEMA_VERSION;
+  /** Content-addressed identity for exactly what this envelope returned. */
+  receipt_id: string;
   text: string;
   delivered: DeliveredItem[];
   hypotheses: DeliveryHypothesis[];
   obligations: ExecutionObligation[];
   supplements: DeliveredSupplement[];
   omitted: DeliveryOmission[];
+  /** Reviewed graph records delivered through this same budget and receipt. */
+  landscape: LandscapeDeliveryFragment | null;
   budget_tokens: number;
   used_chars: number;
+  /** Conservative text + structured landscape payload accounting. */
+  accounted_chars: number;
   /** True only when the requested budget is mathematically too small to name
    * every active blocking invariant. Safety wins, and the overflow is explicit. */
   blocking_overflow: boolean;
@@ -128,6 +149,10 @@ interface Candidate {
   abstainDetail?: string;
   hypothesis?: Omit<DeliveryHypothesis, "rank">;
   relevanceTerms?: string[];
+  landscapeResource?: SelectedLandscapeResource;
+  landscapeRelationship?: SelectedLandscapeRelationship;
+  /** Conservative charge for text plus the structured graph record. */
+  accountedChars?: number;
 }
 
 const SEVERITY = { advisory: 1, warning: 2, blocking: 3, low: 1, medium: 2, high: 3, critical: 4 } as const;
@@ -492,6 +517,69 @@ function estimatedTokens(text: string): number {
   return Math.max(1, Math.ceil(charCount(text) / 4));
 }
 
+type UnsignedDeliveryEnvelope = Omit<DeliveryEnvelope, "receipt_id">;
+
+function finalizeDeliveryEnvelope(unsigned: UnsignedDeliveryEnvelope): DeliveryEnvelope {
+  const digest = landscapeFragmentHash(unsigned);
+  const envelope = {
+    ...unsigned,
+    receipt_id: `hdr_${digest.slice("sha256:".length, "sha256:".length + 24)}`,
+  };
+  assertDeliveryEnvelope(envelope);
+  return envelope;
+}
+
+/** Validate the public receipt without trusting a caller-supplied identity. */
+export function assertDeliveryEnvelope(envelope: DeliveryEnvelope): void {
+  if (envelope.schema_version !== DELIVERY_ENVELOPE_SCHEMA_VERSION) {
+    throw new Error("delivery envelope schema is unsupported");
+  }
+  if (!/^hdr_[a-f0-9]{24}$/.test(envelope.receipt_id)) throw new Error("delivery envelope receipt id is invalid");
+  if (!Number.isSafeInteger(envelope.budget_tokens) || envelope.budget_tokens < 0
+    || !Number.isSafeInteger(envelope.used_chars) || envelope.used_chars !== charCount(envelope.text)
+    || !Number.isSafeInteger(envelope.accounted_chars) || envelope.accounted_chars < envelope.used_chars) {
+    throw new Error("delivery envelope budget accounting is invalid");
+  }
+  if (!envelope.blocking_overflow && envelope.accounted_chars > envelope.budget_tokens * 4) {
+    throw new Error("delivery envelope exceeds its hard caller budget");
+  }
+  if (envelope.landscape) assertLandscapeDeliveryFragment(envelope.landscape);
+  const landscapeReceipts = new Map((envelope.landscape
+    ? [...envelope.landscape.resources, ...envelope.landscape.relationships]
+    : []).map((item) => [`${item.record.schema === "hunch.resource/1" ? "resources" : "relationships"}:${item.record.id}`, item]));
+  const deliveredLandscape = envelope.delivered.filter((item) => item.kind === "resources" || item.kind === "relationships");
+  if (deliveredLandscape.length !== landscapeReceipts.size) {
+    throw new Error("delivery envelope landscape receipts do not match delivered records");
+  }
+  const deliveredLandscapeKeys = new Set<string>();
+  for (const receipt of deliveredLandscape) {
+    const key = `${receipt.kind}:${receipt.record_id}`;
+    const nested = landscapeReceipts.get(key);
+    if (!nested || deliveredLandscapeKeys.has(key)
+      || nested.rank !== receipt.rank || nested.tokenCost !== receipt.token_cost
+      || nested.deliveryReason !== receipt.delivery_reason
+      || nested.provenanceStatus !== receipt.provenance_status) {
+      throw new Error("delivery envelope landscape receipt is inconsistent");
+    }
+    deliveredLandscapeKeys.add(key);
+  }
+  if (deliveredLandscapeKeys.size !== landscapeReceipts.size) {
+    throw new Error("delivery envelope landscape receipts are not one-to-one");
+  }
+  const deliveredRecordChars = envelope.landscape
+    ? [...envelope.landscape.resources, ...envelope.landscape.relationships]
+      .reduce((sum, item) => sum + charCount(JSON.stringify(item.record)), 0)
+    : 0;
+  if (envelope.accounted_chars < envelope.used_chars + deliveredRecordChars) {
+    throw new Error("delivery envelope undercounts its structured landscape records");
+  }
+  const { receipt_id: _receiptId, ...unsigned } = envelope;
+  const expected = landscapeFragmentHash(unsigned);
+  if (envelope.receipt_id !== `hdr_${expected.slice("sha256:".length, "sha256:".length + 24)}`) {
+    throw new Error("delivery envelope receipt does not match its content");
+  }
+}
+
 /** Build the one envelope used by CLI, MCP, and the edit hook. */
 export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOptions = {}): DeliveryEnvelope {
   const budget = Number.isFinite(ctx.budget_tokens) ? Math.max(0, Math.floor(ctx.budget_tokens)) : 1500;
@@ -602,6 +690,40 @@ export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOp
     });
   }
 
+  for (const item of ctx.landscape?.resources ?? []) {
+    const record = item.record;
+    const reviewId = String(record.metadata.landscape_review_id);
+    const revision = record.currentness.source_revision ?? "unknown";
+    const line = `${record.id} | resource/${record.kind}/${record.lifecycle} | ${clipHeadline(record.name, 160)} | ${item.selectionReason} | current@${revision} | review ${reviewId}`;
+    candidates.push({
+      ref: { kind: "resources", record_id: record.id },
+      mandatory: false,
+      score: 550 - item.selectionRank,
+      provenance: "current",
+      line,
+      landscapeResource: item,
+      // The structured record is part of what an MCP caller receives. Charge
+      // it conservatively instead of pretending only the duplicate headline
+      // consumes the caller's context budget.
+      accountedChars: charCount(line) + charCount(JSON.stringify(record)) + 240,
+    });
+  }
+  for (const item of ctx.landscape?.relationships ?? []) {
+    const record = item.record;
+    const reviewId = String(record.metadata.landscape_review_id);
+    const revision = record.currentness?.source_revision ?? "unknown";
+    const line = `${record.id} | relationship/${record.type} | ${record.from} -> ${record.to} | graph-connection | current@${revision} | review ${reviewId}`;
+    candidates.push({
+      ref: { kind: "relationships", record_id: record.id },
+      mandatory: false,
+      score: 525 - item.selectionRank,
+      provenance: "current",
+      line,
+      landscapeRelationship: item,
+      accountedChars: charCount(line) + charCount(JSON.stringify(record)) + 240,
+    });
+  }
+
   for (const dependent of ctx.blast_radius) {
     candidates.push({ mandatory: false, score: 400 - dependent.depth, provenance: "current", line: `graph | blast/d${dependent.depth} | ${clipHeadline(dependent.via, 220)}` });
   }
@@ -609,14 +731,35 @@ export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOp
     candidates.push({ mandatory: false, score: 300, provenance: "current", line: `graph | components | ${clipHeadline(ctx.components.map((component) => component.name).join(", "), 240)}` });
   }
 
-  const hasAnything = candidates.length > 0 || (options.supplements?.length ?? 0) > 0;
+  const hasAnything = candidates.length > 0
+    || (ctx.landscape?.omitted.length ?? 0) > 0
+    || (options.supplements?.length ?? 0) > 0;
   if (!hasAnything) {
     const empty = `# Hunch context for "${ctx.target}"\n\n(No recorded constraints/decisions/bugs for this target yet — Hunch is still learning it.)\n`;
     const text = fitText(empty, cap);
-    return { text, delivered: [], hypotheses: [], obligations: [], supplements: [], omitted: [], budget_tokens: budget, used_chars: charCount(text), blocking_overflow: false, abstention: emptyAbstention() };
+    return finalizeDeliveryEnvelope({
+      schema_version: DELIVERY_ENVELOPE_SCHEMA_VERSION,
+      text,
+      delivered: [],
+      hypotheses: [],
+      obligations: [],
+      supplements: [],
+      omitted: [],
+      landscape: null,
+      budget_tokens: budget,
+      used_chars: charCount(text),
+      accounted_chars: charCount(text),
+      blocking_overflow: false,
+      abstention: emptyAbstention(),
+    });
   }
 
-  const omitted: DeliveryOmission[] = [];
+  const omitted: DeliveryOmission[] = (ctx.landscape?.omitted ?? []).map((item) => ({
+    kind: item.kind,
+    record_id: item.recordId,
+    reason: item.reason,
+    detail: item.detail,
+  }));
   const eligible: Candidate[] = [];
   for (const candidate of candidates) {
     if (candidate.retiredDetail && candidate.ref) {
@@ -683,28 +826,47 @@ export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOp
   if (query.taskPhrase) {
     lines.push("Diagnostic loop: before editing, call hunch_context again with the first concrete failing assertion, stack frame, expected behavior, and API/code path you observe.");
   }
-  let text = `${lines.join("\n")}\n`;
+  if ((ctx.landscape?.resources.length ?? 0) + (ctx.landscape?.relationships.length ?? 0) > 0) {
+    lines.push(`Landscape: only current human-reviewed ${LANDSCAPE_FRAGMENT_SCHEMA_VERSION} records may share this envelope and budget.`);
+  }
+  let text = fitText(`${lines.join("\n")}\n`, cap);
+  let accountedChars = charCount(text);
   const delivered: DeliveredItem[] = [];
   const hypotheses: DeliveryHypothesis[] = [];
   const obligations: ExecutionObligation[] = [];
   const supplements: DeliveredSupplement[] = [];
   let blockingOverflow = false;
+  const deliveredLandscapeResourceIds = new Set<string>();
   for (const [index, candidate] of recordCandidates.entries()) {
     const next = `- ${candidate.line}\n`;
-    if (charCount(text) + charCount(next) <= cap || candidate.mandatory) {
+    if (candidate.landscapeRelationship) {
+      const relationship = candidate.landscapeRelationship.record;
+      if (!deliveredLandscapeResourceIds.has(relationship.from) || !deliveredLandscapeResourceIds.has(relationship.to)) {
+        omitted.push({
+          ...candidate.ref!,
+          reason: "endpoint-not-delivered",
+          detail: "reviewed relationship was withheld because both endpoint resources were not delivered in this budget",
+        });
+        continue;
+      }
+    }
+    const chargedChars = candidate.accountedChars ?? charCount(next);
+    if (accountedChars + chargedChars <= cap || candidate.mandatory) {
       text += next;
+      accountedChars += chargedChars;
       delivered.push({
         ...candidate.ref!,
         rank: index + 1,
         delivery_reason: candidate.mandatory ? "blocking-reserved" : "ranked",
         provenance_status: candidate.provenance,
-        token_cost: estimatedTokens(next),
+        token_cost: Math.max(1, Math.ceil(chargedChars / 4)),
       });
+      if (candidate.landscapeResource) deliveredLandscapeResourceIds.add(candidate.landscapeResource.record.id);
       if (candidate.hypothesis) {
         hypotheses.push({ ...candidate.hypothesis, rank: index + 1 });
         obligations.push(...candidate.hypothesis.obligations);
       }
-      if (charCount(text) > cap && candidate.mandatory) blockingOverflow = true;
+      if (accountedChars > cap && candidate.mandatory) blockingOverflow = true;
     } else if (candidate.ref) {
       omitted.push({ ...candidate.ref, reason: "budget", detail: `ranked headline did not fit the ${budget}-token budget` });
     }
@@ -733,8 +895,9 @@ export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOp
     const abstainedMemory = omitted.some((item) => item.reason === "low-confidence" || item.reason === "insufficient-context" || item.reason === "low-relevance");
     if (abstainedMemory && delivered.length === 0 && supplement.kind.startsWith("search-")) {
       supplements.push({ id: supplement.id, kind: supplement.kind, delivered: false, reason: "abstained", rank: index + 1, token_cost: tokenCost });
-    } else if (charCount(text) + charCount(next) <= cap) {
+    } else if (accountedChars + charCount(next) <= cap) {
       text += next;
+      accountedChars += charCount(next);
       supplements.push({ id: supplement.id, kind: supplement.kind, delivered: true, reason: "supplemental", rank: index + 1, token_cost: tokenCost });
     } else {
       supplements.push({ id: supplement.id, kind: supplement.kind, delivered: false, reason: "budget", rank: index + 1, token_cost: tokenCost });
@@ -743,7 +906,10 @@ export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOp
 
   for (const candidate of structuralCandidates) {
     const next = `- ${candidate.line}\n`;
-    if (charCount(text) + charCount(next) <= cap) text += next;
+    if (accountedChars + charCount(next) <= cap) {
+      text += next;
+      accountedChars += charCount(next);
+    }
   }
 
   const staleCount = omitted.filter((item) => item.reason === "stale-provenance" || item.reason === "retired").length;
@@ -768,21 +934,82 @@ export function buildDeliveryEnvelope(ctx: AssembledContext, options: DeliveryOp
   ].filter(Boolean);
   if (notes.length) {
     const footer = `… ${notes.join(" ")}\n`;
-    if (charCount(text) + charCount(footer) <= cap) text += footer;
+    if (accountedChars + charCount(footer) <= cap) {
+      text += footer;
+      accountedChars += charCount(footer);
+    }
   }
-  if (!text.endsWith("\n") && charCount(text) < cap) text += "\n";
+  if (!text.endsWith("\n") && accountedChars < cap) {
+    text += "\n";
+    accountedChars += 1;
+  }
   if (!blockingOverflow) text = fitText(text, cap);
   omitted.sort((left, right) => left.record_id.localeCompare(right.record_id) || left.reason.localeCompare(right.reason));
-  return {
+  const deliveredById = new Map(delivered.map((item) => [`${item.kind}:${item.record_id}`, item]));
+  const landscapeResources: DeliveredLandscapeResource[] = (ctx.landscape?.resources ?? [])
+    .flatMap((selection) => {
+      const receipt = deliveredById.get(`resources:${selection.record.id}`);
+      if (!receipt) return [];
+      return [{
+        ...selection,
+        rank: receipt.rank,
+        deliveryReason: "ranked" as const,
+        required: false as const,
+        blocking: false as const,
+        provenanceStatus: "current" as const,
+        tokenCost: receipt.token_cost,
+      }];
+    });
+  const landscapeRelationships: DeliveredLandscapeRelationship[] = (ctx.landscape?.relationships ?? [])
+    .flatMap((selection) => {
+      const receipt = deliveredById.get(`relationships:${selection.record.id}`);
+      if (!receipt) return [];
+      return [{
+        ...selection,
+        rank: receipt.rank,
+        deliveryReason: "ranked" as const,
+        required: false as const,
+        blocking: false as const,
+        provenanceStatus: "current" as const,
+        tokenCost: receipt.token_cost,
+      }];
+    });
+  const landscapeOmissions = omitted
+    .filter((item) => item.kind === "resources" || item.kind === "relationships")
+    .flatMap((item) => {
+      if (!["budget", "stale-provenance", "endpoint-not-delivered", "landscape-cap"].includes(item.reason)) return [];
+      return [{
+        kind: item.kind as "resources" | "relationships",
+        recordId: item.record_id,
+        reason: item.reason as "budget" | "stale-provenance" | "endpoint-not-delivered" | "landscape-cap",
+        detail: item.detail,
+      }];
+    });
+  const landscape = ctx.landscape && (
+    landscapeResources.length > 0
+    || landscapeRelationships.length > 0
+    || landscapeOmissions.length > 0
+  )
+    ? createLandscapeDeliveryFragment({
+      selection: ctx.landscape,
+      resources: landscapeResources,
+      relationships: landscapeRelationships,
+      omitted: landscapeOmissions,
+    })
+    : null;
+  return finalizeDeliveryEnvelope({
+    schema_version: DELIVERY_ENVELOPE_SCHEMA_VERSION,
     text,
     delivered,
     hypotheses,
     obligations,
     supplements,
     omitted,
+    landscape,
     budget_tokens: budget,
     used_chars: charCount(text),
+    accounted_chars: accountedChars,
     blocking_overflow: blockingOverflow,
     abstention,
-  };
+  });
 }
