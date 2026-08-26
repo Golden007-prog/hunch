@@ -460,6 +460,89 @@ test("HLG-2 never follows a precedence-selected CODEOWNERS symlink", (t) => {
   assert.doesNotMatch(JSON.stringify(result), /lower-precedence-team/i);
 });
 
+test("HLG-2 discovers exact committed runbooks without retaining operational bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "RUNBOOK.md", raw: true, value: "# Platform recovery\nUse private-root-password during the hidden step.\n" },
+      { path: "docs/runbooks/payments-outage.mdx", raw: true, value: "# Payments\nBearer private-incident-token\n" },
+      { path: "runbooks/README.md", raw: true, value: "private runbook index\n" },
+      { path: "docs/architecture.md", raw: true, value: "# Not an operations declaration\n" },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const runbooks = first.resources.filter((item) => item.record.kind === "runbook");
+  assert.deepEqual(runbooks.map((item) => item.record.id), [
+    "runbook:repository/RUNBOOK.md",
+    "runbook:repository/docs/runbooks/payments-outage.mdx",
+  ]);
+  assert.deepEqual(runbooks.map((item) => item.record.locator), [
+    "RUNBOOK.md",
+    "docs/runbooks/payments-outage.mdx",
+  ]);
+  assert.deepEqual(runbooks.map((item) => item.record.metadata.declaration_format), ["markdown", "mdx"]);
+  assert.ok(runbooks.every((item) => item.evidence[0]!.kind === "operations_declaration"));
+  assert.ok(runbooks.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("runbook:")).length, 2);
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /private-root-password|private-incident-token|private runbook index|Not an operations declaration/i);
+
+  writeFileSync(join(root, "RUNBOOK.md"), "# working-copy-only\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree runbook changes cannot alter exact-revision discovery");
+});
+
+test("HLG-2 reports unsafe, empty, oversized, and non-UTF-8 runbooks without returning their bodies", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "docs/runbooks/empty.md", raw: true, value: "  \n\t\n" },
+      { path: "docs/runbooks/token=private.md", raw: true, value: "private unsafe path body\n" },
+      { path: "docs/runbooks/oversized.md", raw: true, value: "private oversized body\n".repeat(50_000) },
+    ],
+  });
+  mkdirSync(join(root, "runbooks"), { recursive: true });
+  writeFileSync(join(root, "runbooks/binary.md"), Buffer.from([0xff, 0xfe, 0xfd]));
+  git(root, "add", "--", "runbooks/binary.md");
+  git(root, "commit", "-qm", "add binary runbook");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "operations_declaration_invalid"
+    && issue.sourcePath === "docs/runbooks/empty.md"));
+  assert.ok(result.issues.some((issue) => issue.code === "operations_declaration_invalid"
+    && issue.sourcePath === "runbooks/binary.md"));
+  assert.ok(result.issues.some((issue) => issue.code === "operations_declaration_oversized"));
+  assert.ok(result.issues.some((issue) => issue.code === "operations_declaration_path"));
+  assert.equal(result.resources.some((item) => item.record.kind === "runbook"), false);
+  assert.doesNotMatch(JSON.stringify(result), /private unsafe path body|private oversized body|�/i);
+});
+
+test("HLG-2 bounds runbooks before blob hydration and never follows their symlinks", (t) => {
+  const files = Array.from({ length: 129 }, (_, index) => ({
+    path: `docs/runbooks/runbook-${String(index).padStart(3, "0")}.md`,
+    value: `# Runbook ${index}\nprivate-body-${index}\n`,
+    raw: true,
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files,
+  });
+  symlinkSync("package.json", join(root, "RUNBOOK.md"));
+  git(root, "add", "--", "RUNBOOK.md");
+  git(root, "commit", "-qm", "add runbook symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "operations_declaration_limit"));
+  assert.ok(result.issues.some((issue) => issue.code === "operations_declaration_mode"
+    && issue.sourcePath === "RUNBOOK.md"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "runbook").length, 127,
+    "the lexically first 128 declarations include the rejected symlink and 127 ordinary runbooks");
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("runbook:")).length, 127);
+  assert.equal(result.resources.some((item) => item.record.id.endsWith("runbook-127.md")), false);
+});
+
 test("HLG-2 bounds malformed manifests and unsafe workspace declarations as reviewable issues", (t) => {
   const { root } = repository(t, {
     rootManifest: {

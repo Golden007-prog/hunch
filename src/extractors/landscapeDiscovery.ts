@@ -39,6 +39,8 @@ const MAX_MIGRATION_DECLARATION_BYTES = 1024 * 1024;
 const MAX_MIGRATION_DECLARATIONS = 128;
 const MAX_OWNERSHIP_DECLARATION_BYTES = 256 * 1024;
 const MAX_OWNERSHIP_TEAMS = 32;
+const MAX_OPERATIONS_DECLARATION_BYTES = 1024 * 1024;
+const MAX_OPERATIONS_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -68,7 +70,8 @@ export type LandscapeEvidenceKind =
   | "deployment_declaration"
   | "api_declaration"
   | "migration_declaration"
-  | "ownership_declaration";
+  | "ownership_declaration"
+  | "operations_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -130,7 +133,12 @@ export type LandscapeDiscoveryIssueCode =
   | "ownership_declaration_invalid"
   | "ownership_declaration_oversized"
   | "ownership_declaration_mode"
-  | "ownership_declaration_limit";
+  | "ownership_declaration_limit"
+  | "operations_declaration_invalid"
+  | "operations_declaration_oversized"
+  | "operations_declaration_mode"
+  | "operations_declaration_path"
+  | "operations_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -266,6 +274,11 @@ interface OwnershipDeclaration {
   path: string;
   contentHash: string;
   teams: OwnershipTeam[];
+}
+
+interface OperationsDeclaration {
+  path: string;
+  contentHash: string;
 }
 
 function gitEnv(): NodeJS.ProcessEnv {
@@ -1733,6 +1746,134 @@ function ownershipDeclaration(
   };
 }
 
+/** Deliberately narrow conventions: a named runbook file is evidence that the
+ * repository contains operational guidance. Arbitrary Markdown and headings do
+ * not become architecture merely because they mention incidents or dashboards. */
+function operationsDeclarationPath(path: string): boolean {
+  const basename = posix.basename(path);
+  if (/^RUNBOOK\.mdx?$/i.test(path)) return true;
+  if (!/(?:^|\/)runbooks?\/.+\.mdx?$/i.test(path)) return false;
+  return !/^(?:README|INDEX)\.mdx?$/i.test(basename);
+}
+
+function operationsDeclarationBlobs(root: string, revision: string): { blobs: ManifestBlob[]; total: number } {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+  const discovered: ManifestBlob[] = [];
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head) continue;
+    const pathBytes = record.subarray(tab + 1);
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(pathBytes);
+    } catch {
+      const approximate = pathBytes.toString("latin1");
+      if (operationsDeclarationPath(approximate)) {
+        discovered.push({
+          path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+          mode: "unsafe-path",
+          oid: head[3]!.toLowerCase(),
+          bytes: null,
+          contentHash: null,
+        });
+      }
+      continue;
+    }
+    if (!operationsDeclarationPath(path)) continue;
+    if (!safeDeclarationPath(path)) {
+      discovered.push({
+        path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: head[3]!.toLowerCase(),
+        bytes: null,
+        contentHash: null,
+      });
+      continue;
+    }
+    discovered.push({
+      path,
+      mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
+      oid: head[3]!.toLowerCase(),
+      bytes: null,
+      contentHash: null,
+    });
+  }
+  discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
+  const total = discovered.length;
+  const blobs = discovered.slice(0, MAX_OPERATIONS_DECLARATIONS).map((blob) => {
+    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_OPERATIONS_DECLARATION_BYTES) {
+      return { ...blob, contentHash: size > MAX_OPERATIONS_DECLARATION_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_OPERATIONS_DECLARATION_BYTES + 1);
+    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  });
+  return { blobs, total };
+}
+
+function operationsDeclarations(
+  root: string,
+  revision: string,
+  issues: LandscapeDiscoveryIssue[],
+): OperationsDeclaration[] {
+  const discovered = operationsDeclarationBlobs(root, revision);
+  if (discovered.total > MAX_OPERATIONS_DECLARATIONS) {
+    issues.push({
+      code: "operations_declaration_limit",
+      sourcePath: ".",
+      sourceField: "runbook",
+      detail: `bounded discovery accepts at most ${MAX_OPERATIONS_DECLARATIONS} runbook declarations`,
+    });
+  }
+  const declarations: OperationsDeclaration[] = [];
+  for (const blob of discovered.blobs) {
+    if (!blob.bytes) {
+      const code = blob.contentHash === "oversized"
+        ? "operations_declaration_oversized"
+        : blob.mode === "unsafe-path"
+          ? "operations_declaration_path"
+          : "operations_declaration_mode";
+      issues.push({
+        code,
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_OPERATIONS_DECLARATION_BYTES}-byte runbook declaration limit`
+          : blob.mode === "unsafe-path"
+            ? "a runbook declaration uses an unsafe path"
+            : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    let source: string;
+    try {
+      source = UTF8_DECODER.decode(blob.bytes);
+    } catch {
+      issues.push({
+        code: "operations_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: `${blob.path} is not valid UTF-8 runbook data`,
+      });
+      continue;
+    }
+    if (!source.replace(/^\uFEFF/, "").trim()) {
+      issues.push({
+        code: "operations_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: `${blob.path} is an empty runbook declaration`,
+      });
+      continue;
+    }
+    declarations.push({ path: blob.path, contentHash: blob.contentHash! });
+  }
+  return declarations;
+}
+
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
   const discovered: DeliveryDeclarationBlob[] = [];
@@ -2649,6 +2790,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const discoveredDelivery = deliveryDeclarations(root, revision, issues);
   const discoveredApi = apiDeclarations(root, revision, issues);
   const discoveredMigrations = migrationDeclarations(root, revision, issues);
+  const discoveredOperations = operationsDeclarations(root, revision, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -2806,6 +2948,58 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       });
       relationships.push(candidate(relationship, [evidence]));
     }
+  }
+
+  for (const declaration of discoveredOperations) {
+    const evidence: LandscapeCandidateEvidence = {
+      kind: "operations_declaration",
+      sourcePath: declaration.path,
+      sourceField: "path",
+      sourceRevision: revision,
+      sourceContentHash: declaration.contentHash,
+    };
+    const runbookRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId("runbook", `repository/${declaration.path}`),
+      kind: "runbook",
+      name: `Runbook: ${declaration.path}`.slice(0, 256),
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: declaration.path,
+      lifecycle: "active",
+      provenance: {
+        source: "extracted:runbook-declaration",
+        confidence: 0.85,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      metadata: {
+        discovery_authority: "candidate",
+        declaration_path: declaration.path,
+        declaration_format: /\.mdx$/i.test(declaration.path) ? "mdx" : "markdown",
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(runbookRecord, [evidence]));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, runbookRecord.id, "contains"),
+      from: repositoryRecord.id,
+      to: runbookRecord.id,
+      type: "contains",
+      reason: `${declaration.path} declares repository operational guidance`,
+      strength: 0.85,
+      provenance: {
+        source: "extracted:runbook-declaration",
+        confidence: 0.85,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      environment: null,
+      metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
+    });
+    relationships.push(candidate(relationship, [evidence]));
   }
 
   const mcpByKey = new Map<string, McpDeclaration[]>();
