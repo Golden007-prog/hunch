@@ -384,7 +384,7 @@ function exactCommitSnapshot(root: string, ref: string): { revision: string; tim
     // One immutable commit read proves repository availability and binds both
     // identity and time. These were previously three separate Git processes
     // (`isGitRepo`, `rev-parse`, `show`) for every discovery.
-    raw = gitBuffer(root, ["show", "-s", "--format=%H%x00%cI", `${ref}^{commit}`], 1024 * 1024);
+    raw = gitBuffer(root, ["show", "-s", "--format=%H%x00%cI", "--end-of-options", `${ref}^{commit}`], 1024 * 1024);
   } catch {
     throw new Error("landscape discovery requires a Git repository and an exact Git commit");
   }

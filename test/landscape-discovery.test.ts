@@ -114,6 +114,17 @@ test("HLG-2 discovers exact package/workspace and credential-free Git-remote can
   writeFileSync(join(root, "package.json"), committedManifest, "utf8");
 });
 
+test("HLG-2 treats a hostile ref as an operand, never as a Git output option", (t) => {
+  const { root } = repository(t, { rootManifest: { name: "@acme/ref-boundary" } });
+  const output = join(root, "REF_OPTION_MUST_NOT_WRITE");
+  assert.throws(
+    () => discoverRepositoryLandscape(root, `--output=${output}`),
+    /requires a Git repository and an exact Git commit/,
+  );
+  assert.equal(existsSync(`${output}^{commit}`), false, "Git must not reinterpret the hostile ref as --output");
+  assert.equal(existsSync(output), false);
+});
+
 test("HLG-2 preserves conflicting repository declarations as uncertainty instead of choosing authority", (t) => {
   const { root } = repository(t, {
     rootManifest: {
