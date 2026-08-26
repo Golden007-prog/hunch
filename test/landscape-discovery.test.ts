@@ -597,6 +597,92 @@ test("HLG-2 bounds runbooks before blob hydration and never follows their symlin
   assert.equal(result.resources.some((item) => item.record.id.endsWith("runbook-127.md")), false);
 });
 
+test("HLG-2 discovers exact committed JSON dashboards without retaining their bodies", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "grafana/dashboards/team/payments.json",
+        value: { title: "Private payments health", panels: [{ query: "private-payment-query" }] },
+      },
+      {
+        path: "ops/dashboards/platform.json",
+        value: { uid: "private-dashboard-uid", datasource: "private-datasource", links: ["https://private.example.test"] },
+      },
+      { path: "dashboards/README.md", value: "private dashboard instructions", raw: true },
+      { path: "dashboards/platform.yaml", value: "title: ignored-private-dashboard", raw: true },
+      { path: "node_modules/dependency/dashboards/vendor.json", value: { title: "dependency-private-dashboard" } },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const dashboards = first.resources.filter((item) => item.record.kind === "dashboard");
+  assert.deepEqual(dashboards.map((item) => item.record.locator), [
+    "grafana/dashboards/team/payments.json",
+    "ops/dashboards/platform.json",
+  ]);
+  assert.ok(dashboards.every((item) => item.evidence[0]!.kind === "dashboard_declaration"));
+  assert.ok(dashboards.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(first.relationships.filter((item) => item.record.type === "contains"
+    && item.record.to.startsWith("dashboard:")).length, 2);
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /Private payments|private-payment|private-dashboard|private-datasource|private\.example|dashboard instructions|ignored-private|dependency-private/i);
+
+  writeJson(root, "ops/dashboards/platform.json", { title: "working-copy-only" });
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree dashboard changes cannot alter exact-revision discovery");
+});
+
+test("HLG-2 rejects unsafe, malformed, oversized, and non-UTF-8 dashboard declarations without returning bodies", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      { path: "dashboards/malformed.json", value: "{ private malformed dashboard", raw: true },
+      { path: "dashboards/array.json", value: ["private-array-dashboard"] },
+      { path: "dashboards/token=private.json", value: { title: "private unsafe dashboard" } },
+      { path: "dashboards/oversized.json", value: { privateBody: "x".repeat(1024 * 1024) } },
+    ],
+  });
+  writeFileSync(join(root, "dashboards/binary.json"), Buffer.from([0xff, 0xfe, 0xfd]));
+  git(root, "add", "--", "dashboards/binary.json");
+  git(root, "commit", "-qm", "add binary dashboard");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.resources.some((item) => item.record.kind === "dashboard"), false);
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_invalid"
+    && issue.sourcePath === "dashboards/malformed.json"));
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_invalid"
+    && issue.sourcePath === "dashboards/array.json"));
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_invalid"
+    && issue.sourcePath === "dashboards/binary.json"));
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_oversized"));
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_path"));
+  assert.doesNotMatch(JSON.stringify(result), /private malformed|private-array|private unsafe|privateBody|�/i);
+});
+
+test("HLG-2 bounds dashboards before blob hydration and never follows their symlinks", (t) => {
+  const files = Array.from({ length: 129 }, (_, index) => ({
+    path: `dashboards/dashboard-${String(index).padStart(3, "0")}.json`,
+    value: { title: `private-dashboard-body-${index}` },
+  }));
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files,
+  });
+  symlinkSync("../package.json", join(root, "dashboards/000-symlink.json"));
+  git(root, "add", "--", "dashboards/000-symlink.json");
+  git(root, "commit", "-qm", "add dashboard symlink");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_limit"));
+  assert.ok(result.issues.some((issue) => issue.code === "dashboard_declaration_mode"
+    && issue.sourcePath === "dashboards/000-symlink.json"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "dashboard").length, 127);
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("dashboard:")).length, 127);
+  assert.equal(result.resources.some((item) => item.record.id.endsWith("dashboard-127.json")), false);
+  assert.doesNotMatch(JSON.stringify(result), /private-dashboard-body/i);
+});
+
 test("HLG-2 bounds malformed manifests and unsafe workspace declarations as reviewable issues", (t) => {
   const { root } = repository(t, {
     rootManifest: {

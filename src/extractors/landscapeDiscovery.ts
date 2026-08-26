@@ -41,6 +41,8 @@ const MAX_OWNERSHIP_DECLARATION_BYTES = 256 * 1024;
 const MAX_OWNERSHIP_TEAMS = 32;
 const MAX_OPERATIONS_DECLARATION_BYTES = 1024 * 1024;
 const MAX_OPERATIONS_DECLARATIONS = 128;
+const MAX_DASHBOARD_DECLARATION_BYTES = 1024 * 1024;
+const MAX_DASHBOARD_DECLARATIONS = 128;
 const ORDINARY_BLOB_MODES = new Set(["100644", "100755"]);
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 type McpConfigSpec =
@@ -71,7 +73,8 @@ export type LandscapeEvidenceKind =
   | "api_declaration"
   | "migration_declaration"
   | "ownership_declaration"
-  | "operations_declaration";
+  | "operations_declaration"
+  | "dashboard_declaration";
 
 export interface LandscapeCandidateEvidence {
   kind: LandscapeEvidenceKind;
@@ -138,7 +141,12 @@ export type LandscapeDiscoveryIssueCode =
   | "operations_declaration_oversized"
   | "operations_declaration_mode"
   | "operations_declaration_path"
-  | "operations_declaration_limit";
+  | "operations_declaration_limit"
+  | "dashboard_declaration_invalid"
+  | "dashboard_declaration_oversized"
+  | "dashboard_declaration_mode"
+  | "dashboard_declaration_path"
+  | "dashboard_declaration_limit";
 
 export interface LandscapeDiscoveryIssue {
   code: LandscapeDiscoveryIssueCode;
@@ -277,6 +285,11 @@ interface OwnershipDeclaration {
 }
 
 interface OperationsDeclaration {
+  path: string;
+  contentHash: string;
+}
+
+interface DashboardDeclaration {
   path: string;
   contentHash: string;
 }
@@ -1901,6 +1914,117 @@ function operationsDeclarations(
   return declarations;
 }
 
+/** An explicit dashboard directory is durable operations evidence. Dashboard
+ * titles, panels, queries, datasource names, variables and links are content,
+ * not safe identity, so only the committed path and content hash survive. */
+function dashboardDeclarationPath(path: string): boolean {
+  return /(?:^|\/)dashboards\/.+\.json$/i.test(path);
+}
+
+function dashboardDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: ManifestBlob[]; total: number } {
+  const discovered: ManifestBlob[] = [];
+  for (const entry of tree) {
+    if (entry.kind === "tree") continue;
+    const { pathBytes } = entry;
+    if (entry.path === null) {
+      const approximate = pathBytes.toString("latin1");
+      if (!firstPartyDeclarationPath(approximate)) continue;
+      if (dashboardDeclarationPath(approximate)) {
+        discovered.push({
+          path: `<unsafe-dashboard-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+          mode: "unsafe-path",
+          oid: entry.oid,
+          bytes: null,
+          contentHash: null,
+        });
+      }
+      continue;
+    }
+    const path = entry.path;
+    if (!firstPartyDeclarationPath(path) || !dashboardDeclarationPath(path)) continue;
+    if (!safeDeclarationPath(path)) {
+      discovered.push({
+        path: `<unsafe-dashboard-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
+        mode: "unsafe-path",
+        oid: entry.oid,
+        bytes: null,
+        contentHash: null,
+      });
+      continue;
+    }
+    discovered.push({
+      path,
+      mode: treeEntryMode(entry),
+      oid: entry.oid,
+      bytes: null,
+      contentHash: null,
+    });
+  }
+  discovered.sort((left, right) => compareCodeUnits(left.path, right.path));
+  const total = discovered.length;
+  const blobs = discovered.slice(0, MAX_DASHBOARD_DECLARATIONS).map((blob) => {
+    if (blob.mode === "unsafe-path" || !ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+    const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_DASHBOARD_DECLARATION_BYTES) {
+      return { ...blob, contentHash: size > MAX_DASHBOARD_DECLARATION_BYTES ? "oversized" : null };
+    }
+    const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_DASHBOARD_DECLARATION_BYTES + 1);
+    return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  });
+  return { blobs, total };
+}
+
+function dashboardDeclarations(
+  root: string,
+  tree: ExactTreeEntry[],
+  issues: LandscapeDiscoveryIssue[],
+): DashboardDeclaration[] {
+  const discovered = dashboardDeclarationBlobs(root, tree);
+  if (discovered.total > MAX_DASHBOARD_DECLARATIONS) {
+    issues.push({
+      code: "dashboard_declaration_limit",
+      sourcePath: ".",
+      sourceField: "dashboard",
+      detail: `bounded discovery accepts at most ${MAX_DASHBOARD_DECLARATIONS} dashboard declarations`,
+    });
+  }
+  const declarations: DashboardDeclaration[] = [];
+  for (const blob of discovered.blobs) {
+    if (!blob.bytes) {
+      const code = blob.contentHash === "oversized"
+        ? "dashboard_declaration_oversized"
+        : blob.mode === "unsafe-path"
+          ? "dashboard_declaration_path"
+          : "dashboard_declaration_mode";
+      issues.push({
+        code,
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: blob.contentHash === "oversized"
+          ? `${blob.path} exceeds the ${MAX_DASHBOARD_DECLARATION_BYTES}-byte dashboard declaration limit`
+          : blob.mode === "unsafe-path"
+            ? "a dashboard declaration uses an unsafe path"
+            : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+      });
+      continue;
+    }
+    try {
+      const value = JSON.parse(UTF8_DECODER.decode(blob.bytes)) as unknown;
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("dashboard root is not an object");
+    } catch {
+      issues.push({
+        code: "dashboard_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "path",
+        detail: `${blob.path} is not valid JSON object dashboard data`,
+      });
+      continue;
+    }
+    declarations.push({ path: blob.path, contentHash: blob.contentHash! });
+  }
+  return declarations;
+}
+
 function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: DeliveryDeclarationBlob[]; total: number } {
   const discovered: DeliveryDeclarationBlob[] = [];
   for (const entry of tree) {
@@ -2806,6 +2930,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   const discoveredApi = apiDeclarations(root, revision, tree, issues);
   const discoveredMigrations = migrationDeclarations(root, revision, tree, issues);
   const discoveredOperations = operationsDeclarations(root, revision, tree, issues);
+  const discoveredDashboards = dashboardDeclarations(root, tree, issues);
   const identities = [...new Set(declarations.map((declaration) => declaration.identity))].sort(compareCodeUnits);
   let selected: RepositoryDeclaration | null = null;
   if (identities.length > 1) {
@@ -3007,6 +3132,58 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       strength: 0.85,
       provenance: {
         source: "extracted:runbook-declaration",
+        confidence: 0.85,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      environment: null,
+      metadata: { discovery_authority: "candidate", declaration_path: declaration.path },
+    });
+    relationships.push(candidate(relationship, [evidence]));
+  }
+
+  for (const declaration of discoveredDashboards) {
+    const evidence: LandscapeCandidateEvidence = {
+      kind: "dashboard_declaration",
+      sourcePath: declaration.path,
+      sourceField: "path",
+      sourceRevision: revision,
+      sourceContentHash: declaration.contentHash,
+    };
+    const dashboardRecord = ResourceSchema.parse({
+      schema: "hunch.resource/1",
+      id: resourceId("dashboard", `repository/${declaration.path}`),
+      kind: "dashboard",
+      name: `Dashboard: ${declaration.path}`.slice(0, 256),
+      scope: repositoryRecord ? [repositoryRecord.id] : [],
+      locator: declaration.path,
+      lifecycle: "active",
+      provenance: {
+        source: "extracted:dashboard-declaration",
+        confidence: 0.85,
+        evidence: [provenanceEvidence(evidence)],
+      },
+      currentness: resourceCurrentness(revision, [declaration.contentHash]),
+      metadata: {
+        discovery_authority: "candidate",
+        declaration_path: declaration.path,
+        declaration_format: "json",
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    resources.push(candidate(dashboardRecord, [evidence]));
+    if (!repositoryRecord) continue;
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(repositoryRecord.id, dashboardRecord.id, "contains"),
+      from: repositoryRecord.id,
+      to: dashboardRecord.id,
+      type: "contains",
+      reason: `${declaration.path} declares a repository dashboard`,
+      strength: 0.85,
+      provenance: {
+        source: "extracted:dashboard-declaration",
         confidence: 0.85,
         evidence: [provenanceEvidence(evidence)],
       },
