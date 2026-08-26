@@ -27,6 +27,10 @@ function writeJson(root: string, path: string, value: unknown): void {
   writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function addGitlink(root: string, path: string, revision: string): void {
+  git(root, "update-index", "--add", "--cacheinfo", `160000,${revision},${path}`);
+}
+
 function repository(t: test.TestContext, input: {
   rootManifest: Record<string, unknown>;
   manifests?: Array<{ path: string; value: unknown; raw?: boolean }>;
@@ -233,6 +237,122 @@ test("HLG-2 bounds internal workspace dependency relationships", (t) => {
   const result = discoverRepositoryLandscape(root);
   assert.ok(result.issues.some((issue) => issue.code === "package_dependency_limit"));
   assert.equal(result.relationships.filter((item) => item.record.type === "depends_on").length, 512);
+});
+
+test("HLG-2 discovers exact committed network submodules without retaining credentials", (t) => {
+  const { root, revision: gitlinkRevision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    remote: "git@github.com:acme/platform.git",
+  });
+  writeFileSync(join(root, ".gitmodules"), `[submodule "sdk-private-label"]
+  path = vendor/sdk
+  url = https://private-user:private-token@github.com/Acme/SDK.git?access_token=private-query
+[submodule "sdk-mirror"]
+  path = vendor/sdk-mirror
+  url = git@github.com:acme/sdk.git
+[submodule "other"]
+  path = vendor/other
+  url = https://gitlab.com/acme/other.git
+`, "utf8");
+  git(root, "add", "--", ".gitmodules");
+  addGitlink(root, "vendor/sdk", gitlinkRevision);
+  addGitlink(root, "vendor/sdk-mirror", gitlinkRevision);
+  addGitlink(root, "vendor/other", gitlinkRevision);
+  git(root, "commit", "-qm", "add network submodules");
+  const revision = git(root, "rev-parse", "HEAD");
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const external = first.resources.filter((item) => item.record.kind === "repository"
+    && item.record.id !== "repository:github.com/acme/platform");
+  assert.deepEqual(external.map((item) => item.record.id), [
+    "repository:github.com/acme/sdk",
+    "repository:gitlab.com/acme/other",
+  ]);
+  const sdk = external.find((item) => item.record.id.endsWith("/acme/sdk"))!;
+  assert.equal(sdk.record.locator, "https://github.com/acme/sdk");
+  assert.deepEqual(sdk.record.metadata.declaration_paths, ["vendor/sdk", "vendor/sdk-mirror"]);
+  assert.deepEqual(sdk.record.metadata.gitlink_revisions, [gitlinkRevision]);
+  assert.ok(sdk.evidence.every((item) => item.kind === "submodule_declaration"));
+  assert.ok(sdk.evidence.every((item) => item.sourceRevision === revision));
+  const dependencies = first.relationships.filter((item) => item.record.type === "depends_on"
+    && item.record.to.startsWith("repository:"));
+  assert.equal(dependencies.length, 2);
+  assert.ok(dependencies.every((item) => item.record.from === "repository:github.com/acme/platform"));
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /sdk-private-label|private-user|private-token|private-query|access_token/i);
+
+  writeFileSync(join(root, ".gitmodules"), "[submodule \"changed\"]\npath = changed\nurl = ../working-copy\n", "utf8");
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree .gitmodules edits cannot alter exact-revision discovery");
+});
+
+test("HLG-2 leaves local, missing-gitlink and self-referential submodules unresolved", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  writeFileSync(join(root, ".gitmodules"), `[submodule "local"]
+  path = vendor/local
+  url = ../private-local-repository
+[submodule "missing"]
+  path = vendor/missing
+  url = https://github.com/acme/missing.git
+[submodule "self"]
+  path = vendor/self
+  url = https://github.com/acme/platform.git
+[submodule "unsupported"]
+  path = vendor/unsupported
+  url = data:text/plain,private-inline-repository
+`, "utf8");
+  git(root, "add", "--", ".gitmodules");
+  addGitlink(root, "vendor/local", revision);
+  addGitlink(root, "vendor/self", revision);
+  addGitlink(root, "vendor/unsupported", revision);
+  git(root, "commit", "-qm", "add invalid submodule declarations");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.issues.filter((issue) => issue.code === "submodule_declaration_invalid").length, 4);
+  assert.equal(result.resources.filter((item) => item.record.kind === "repository").length, 1);
+  assert.equal(result.relationships.some((item) => item.record.to.startsWith("repository:")
+    && item.record.type === "depends_on"), false);
+  assert.doesNotMatch(JSON.stringify(result), /private-local-repository|private-inline-repository/i);
+});
+
+test("HLG-2 bounds committed Git submodule declarations", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  const declarations = Array.from({ length: 33 }, (_, index) => {
+    const suffix = String(index).padStart(2, "0");
+    return `[submodule "module-${suffix}"]\npath = vendor/module-${suffix}\nurl = https://github.com/acme/module-${suffix}.git\n`;
+  }).join("");
+  writeFileSync(join(root, ".gitmodules"), declarations, "utf8");
+  git(root, "add", "--", ".gitmodules");
+  for (let index = 0; index < 33; index += 1) {
+    addGitlink(root, `vendor/module-${String(index).padStart(2, "0")}`, revision);
+  }
+  git(root, "commit", "-qm", "add many submodules");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "submodule_declaration_limit"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "repository").length, 33,
+    "the root plus the first 32 bounded external repositories remain");
+  assert.equal(result.relationships.filter((item) => item.record.type === "depends_on"
+    && item.record.to.startsWith("repository:")).length, 32);
+  assert.equal(result.resources.some((item) => item.record.id.endsWith("/module-32")), false);
+});
+
+test("HLG-2 rejects oversized .gitmodules without retaining its body", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+  });
+  writeFileSync(join(root, ".gitmodules"), `[submodule "private-oversized-module"]\npath = vendor/private\nurl = https://github.com/acme/private.git\n${"# private submodule context\n".repeat(12_000)}`, "utf8");
+  git(root, "add", "--", ".gitmodules");
+  git(root, "commit", "-qm", "add oversized .gitmodules");
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "submodule_declaration_oversized"));
+  assert.equal(result.resources.filter((item) => item.record.kind === "repository").length, 1);
+  assert.doesNotMatch(JSON.stringify(result), /private-oversized-module|private submodule context/i);
 });
 
 test("HLG-2 discovers the exact repository-wide GitHub team owner without retaining people or path rules", (t) => {

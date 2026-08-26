@@ -27,6 +27,8 @@ export const LANDSCAPE_CANDIDATE_SCHEMA_VERSION = "hunch.landscape-candidate/1" 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MANIFESTS = 128;
 const MAX_WORKSPACE_DEPENDENCIES = 512;
+const MAX_SUBMODULE_DECLARATION_BYTES = 256 * 1024;
+const MAX_SUBMODULE_DECLARATIONS = 32;
 const MAX_MCP_CONFIG_BYTES = 256 * 1024;
 const MAX_MCP_DECLARATIONS = 128;
 const MAX_DELIVERY_DECLARATION_BYTES = 256 * 1024;
@@ -60,6 +62,7 @@ export type LandscapeEvidenceKind =
   | "package_manifest"
   | "git_remote"
   | "git_history"
+  | "submodule_declaration"
   | "mcp_declaration"
   | "ci_declaration"
   | "deployment_declaration"
@@ -97,6 +100,10 @@ export type LandscapeDiscoveryIssueCode =
   | "package_dependency_invalid"
   | "package_dependency_limit"
   | "repository_identity_conflict"
+  | "submodule_declaration_invalid"
+  | "submodule_declaration_oversized"
+  | "submodule_declaration_mode"
+  | "submodule_declaration_limit"
   | "mcp_config_invalid"
   | "mcp_config_oversized"
   | "mcp_config_mode"
@@ -165,6 +172,13 @@ interface WorkspacePackageDeclaration {
 interface WorkspaceDependencyDeclaration {
   from: WorkspacePackageDeclaration;
   to: WorkspacePackageDeclaration;
+  evidence: LandscapeCandidateEvidence[];
+}
+
+interface SubmoduleDeclaration {
+  path: string;
+  gitlinkRevision: string;
+  repository: RepositoryDeclaration;
   evidence: LandscapeCandidateEvidence[];
 }
 
@@ -2136,6 +2150,222 @@ function repositoryKey(identity: string): { key: string; locator: string | null 
   return safe(identity, null);
 }
 
+function gitmodulesBlob(root: string, revision: string): ManifestBlob | null {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-z", revision, "--", ".gitmodules"], 1024 * 1024);
+  const record = nulRecords(raw)[0];
+  if (!record) return null;
+  const tab = record.indexOf(0x09);
+  if (tab < 0 || record.subarray(tab + 1).toString("utf8") !== ".gitmodules") return null;
+  const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+  if (!head) return null;
+  const blob: ManifestBlob = {
+    path: ".gitmodules",
+    mode: head[2] === "blob" ? head[1]! : `${head[2]}:${head[1]}`,
+    oid: head[3]!.toLowerCase(),
+    bytes: null,
+    contentHash: null,
+  };
+  if (!ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
+  const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
+  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_SUBMODULE_DECLARATION_BYTES) {
+    return { ...blob, contentHash: size > MAX_SUBMODULE_DECLARATION_BYTES ? "oversized" : null };
+  }
+  const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_SUBMODULE_DECLARATION_BYTES + 1);
+  return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+}
+
+interface SubmoduleConfigGroup {
+  key: string;
+  paths: string[];
+  urls: string[];
+}
+
+function submoduleConfigGroups(root: string, blob: ManifestBlob): SubmoduleConfigGroup[] | null {
+  let raw: Buffer;
+  try {
+    raw = gitBuffer(root, [
+      "config", `--blob=${blob.oid}`, "--null", "--get-regexp", "^submodule\\..*\\.(path|url)$",
+    ], MAX_SUBMODULE_DECLARATION_BYTES * 2);
+  } catch {
+    return null;
+  }
+  const groups = new Map<string, SubmoduleConfigGroup>();
+  for (const record of nulRecords(raw)) {
+    const newline = record.indexOf(0x0a);
+    if (newline <= 0) return null;
+    let key: string;
+    let value: string;
+    try {
+      key = UTF8_DECODER.decode(record.subarray(0, newline));
+      value = UTF8_DECODER.decode(record.subarray(newline + 1));
+    } catch {
+      return null;
+    }
+    const match = key.match(/^submodule\.(.+)\.(path|url)$/i);
+    if (!match || match[1]!.length > 1024 || /[\u0000-\u001f\u007f]/.test(match[1]!)) return null;
+    const group = groups.get(match[1]!) ?? { key: match[1]!, paths: [], urls: [] };
+    if (match[2]!.toLowerCase() === "path") group.paths.push(value);
+    else group.urls.push(value);
+    groups.set(group.key, group);
+  }
+  return [...groups.values()].sort((left, right) => {
+    const safeKey = (group: SubmoduleConfigGroup): string => {
+      const path = group.paths.length === 1 && safeDeclarationPath(group.paths[0]!) ? group.paths[0]! : null;
+      return path ?? `~${sha256Bytes(group.key)}`;
+    };
+    return compareCodeUnits(safeKey(left), safeKey(right));
+  });
+}
+
+function exactGitlinks(root: string, revision: string, paths: Set<string>): Map<string, string> {
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-z", revision], 64 * 1024 * 1024);
+  const gitlinks = new Map<string, string>();
+  for (const record of nulRecords(raw)) {
+    const tab = record.indexOf(0x09);
+    if (tab < 0) continue;
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    if (!head || head[1] !== "160000" || head[2] !== "commit") continue;
+    let path: string;
+    try {
+      path = UTF8_DECODER.decode(record.subarray(tab + 1));
+    } catch {
+      continue;
+    }
+    if (paths.has(path)) gitlinks.set(path, head[3]!.toLowerCase());
+  }
+  return gitlinks;
+}
+
+function canonicalSubmoduleRepository(
+  url: string,
+  root: string,
+): Omit<RepositoryDeclaration, "evidence"> | null {
+  const value = url.trim();
+  if (!value || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value)) return null;
+  if (/^(?:data|file|ftp|javascript|mailto):/i.test(value)) return null;
+  const scp = !value.includes("://") && /^(?:[^@/]+@)?[^:/]+:.+$/.test(value);
+  if (!scp) {
+    try {
+      const parsed = new URL(value);
+      if (!new Set(["http:", "https:", "ssh:", "git:", "git+ssh:", "ssh+git:"]).has(parsed.protocol)
+        || !parsed.hostname || !parsed.pathname.replace(/^\/+/, "")) return null;
+    } catch {
+      return null;
+    }
+  }
+  const identity = canonicalRemoteRepositoryIdentity(value, root);
+  if (!identity.startsWith("provider:") && !identity.startsWith("net:any://")) return null;
+  const normalized = repositoryKey(identity);
+  if (normalized.key.startsWith("opaque/")) return null;
+  return { identity, ...normalized };
+}
+
+function submoduleDeclarations(
+  root: string,
+  revision: string,
+  rootRepositoryIdentity: string | null,
+  issues: LandscapeDiscoveryIssue[],
+): SubmoduleDeclaration[] {
+  const blob = gitmodulesBlob(root, revision);
+  if (!blob) return [];
+  if (!blob.bytes) {
+    issues.push({
+      code: blob.contentHash === "oversized" ? "submodule_declaration_oversized" : "submodule_declaration_mode",
+      sourcePath: blob.path,
+      sourceField: "submodule",
+      detail: blob.contentHash === "oversized"
+        ? `${blob.path} exceeds the ${MAX_SUBMODULE_DECLARATION_BYTES}-byte submodule declaration limit`
+        : `${blob.path} uses unsupported Git mode ${blob.mode}`,
+    });
+    return [];
+  }
+  const groups = submoduleConfigGroups(root, blob);
+  if (!groups) {
+    issues.push({
+      code: "submodule_declaration_invalid",
+      sourcePath: blob.path,
+      sourceField: "submodule",
+      detail: `${blob.path} is not valid bounded Git submodule configuration`,
+    });
+    return [];
+  }
+  if (groups.length > MAX_SUBMODULE_DECLARATIONS) {
+    issues.push({
+      code: "submodule_declaration_limit",
+      sourcePath: blob.path,
+      sourceField: "submodule",
+      detail: `bounded discovery accepts at most ${MAX_SUBMODULE_DECLARATIONS} Git submodule declarations`,
+    });
+  }
+  const selectedGroups = groups.slice(0, MAX_SUBMODULE_DECLARATIONS);
+  const safePaths = new Set(selectedGroups
+    .flatMap((group) => group.paths.length === 1 && safeDeclarationPath(group.paths[0]!) ? [group.paths[0]!] : []));
+  const gitlinks = exactGitlinks(root, revision, safePaths);
+  const byPath = new Map<string, SubmoduleDeclaration[]>();
+  for (const group of selectedGroups) {
+    if (group.paths.length !== 1 || group.urls.length !== 1 || !safeDeclarationPath(group.paths[0]!)) {
+      issues.push({
+        code: "submodule_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: "submodule",
+        detail: `${blob.path} contains an incomplete, duplicate or unsafe submodule declaration`,
+      });
+      continue;
+    }
+    const path = group.paths[0]!;
+    const url = group.urls[0]!;
+    const gitlinkRevision = gitlinks.get(path);
+    const repository = canonicalSubmoduleRepository(url, root);
+    if (!gitlinkRevision || !repository || repository.identity === rootRepositoryIdentity) {
+      issues.push({
+        code: "submodule_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: `submodule[${path}]`,
+        detail: `${blob.path} submodule ${path} lacks a distinct credential-free network repository and matching committed gitlink`,
+      });
+      continue;
+    }
+    const configEvidence: LandscapeCandidateEvidence = {
+      kind: "submodule_declaration",
+      sourcePath: blob.path,
+      sourceField: `submodule[${path}].url`,
+      sourceRevision: revision,
+      sourceContentHash: blob.contentHash!,
+    };
+    const gitlinkEvidence: LandscapeCandidateEvidence = {
+      kind: "submodule_declaration",
+      sourcePath: path,
+      sourceField: "gitlink",
+      sourceRevision: revision,
+      sourceContentHash: sha256Bytes(`gitlink:${gitlinkRevision}`),
+    };
+    const declaration: SubmoduleDeclaration = {
+      path,
+      gitlinkRevision,
+      repository: { ...repository, evidence: configEvidence },
+      evidence: [configEvidence, gitlinkEvidence],
+    };
+    const pathGroup = byPath.get(path) ?? [];
+    pathGroup.push(declaration);
+    byPath.set(path, pathGroup);
+  }
+  const declarations: SubmoduleDeclaration[] = [];
+  for (const path of [...byPath.keys()].sort(compareCodeUnits)) {
+    const pathGroup = byPath.get(path)!;
+    if (pathGroup.length !== 1) {
+      issues.push({
+        code: "submodule_declaration_invalid",
+        sourcePath: blob.path,
+        sourceField: `submodule[${path}]`,
+        detail: `${blob.path} repeats submodule path ${path}; identity remains unresolved`,
+      });
+      continue;
+    }
+    declarations.push(pathGroup[0]!);
+  }
+  return declarations;
+}
+
 function packageRepositoryValue(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -2433,6 +2663,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   } else {
     selected = rootHistoryIdentity(root, revision);
   }
+  const discoveredSubmodules = submoduleDeclarations(root, revision, selected?.identity ?? null, issues);
   const discoveredOwnership = selected?.key.startsWith("github.com/")
     ? ownershipDeclaration(root, revision, issues)
     : null;
@@ -2464,6 +2695,64 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       updated_at: timestamp,
     });
     resources.push(candidate(repositoryRecord, repositoryEvidence));
+  }
+
+  if (repositoryRecord) {
+    const submodulesByRepository = new Map<string, SubmoduleDeclaration[]>();
+    for (const declaration of discoveredSubmodules) {
+      const group = submodulesByRepository.get(declaration.repository.key) ?? [];
+      group.push(declaration);
+      submodulesByRepository.set(declaration.repository.key, group);
+    }
+    for (const key of [...submodulesByRepository.keys()].sort(compareCodeUnits)) {
+      const group = submodulesByRepository.get(key)!
+        .sort((left, right) => compareCodeUnits(left.path, right.path));
+      const first = group[0]!;
+      const evidence = group.flatMap((declaration) => declaration.evidence);
+      const declarationPaths = group.map((declaration) => declaration.path);
+      const gitlinkRevisions = [...new Set(group.map((declaration) => declaration.gitlinkRevision))].sort(compareCodeUnits);
+      const submoduleRecord = ResourceSchema.parse({
+        schema: "hunch.resource/1",
+        id: resourceId("repository", key),
+        kind: "repository",
+        name: key.slice(0, 256),
+        scope: [repositoryRecord.id],
+        locator: first.repository.locator,
+        lifecycle: "active",
+        provenance: {
+          source: "extracted:git-submodule",
+          confidence: 0.9,
+          evidence: evidence.map(provenanceEvidence),
+        },
+        currentness: resourceCurrentness(revision, evidence.map((item) => item.sourceContentHash)),
+        metadata: {
+          discovery_authority: "candidate",
+          declaration_paths: declarationPaths,
+          gitlink_revisions: gitlinkRevisions,
+        },
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+      resources.push(candidate(submoduleRecord, evidence));
+      const relationship = EdgeSchema.parse({
+        schema: "hunch.resource-relationship/1",
+        id: resourceRelationshipId(repositoryRecord.id, submoduleRecord.id, "depends_on"),
+        from: repositoryRecord.id,
+        to: submoduleRecord.id,
+        type: "depends_on",
+        reason: `committed Git submodule declarations reference repository ${key}`,
+        strength: 0.9,
+        provenance: {
+          source: "extracted:git-submodule",
+          confidence: 0.9,
+          evidence: evidence.map(provenanceEvidence),
+        },
+        currentness: resourceCurrentness(revision, evidence.map((item) => item.sourceContentHash)),
+        environment: null,
+        metadata: { discovery_authority: "candidate", declaration_paths: declarationPaths },
+      });
+      relationships.push(candidate(relationship, evidence));
+    }
   }
 
   if (repositoryRecord && discoveredOwnership) {
