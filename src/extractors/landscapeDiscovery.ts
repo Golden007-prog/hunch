@@ -18,7 +18,6 @@ import {
   canonicalRemoteRepositoryIdentity,
   foreignRepoEnv,
   gitNullDevice,
-  isGitRepo,
 } from "./git.js";
 
 export const LANDSCAPE_DISCOVERY_SCHEMA_VERSION = "hunch.landscape-discovery/1" as const;
@@ -379,16 +378,22 @@ function contentHash(value: unknown): string {
   return sha256Bytes(JSON.stringify(canonical(value)));
 }
 
-function exactRevision(root: string, ref: string): string {
-  const revision = gitText(root, ["rev-parse", "--verify", `${ref}^{commit}`]).toLowerCase();
+function exactCommitSnapshot(root: string, ref: string): { revision: string; timestamp: string } {
+  let raw: Buffer;
+  try {
+    // One immutable commit read proves repository availability and binds both
+    // identity and time. These were previously three separate Git processes
+    // (`isGitRepo`, `rev-parse`, `show`) for every discovery.
+    raw = gitBuffer(root, ["show", "-s", "--format=%H%x00%cI", `${ref}^{commit}`], 1024 * 1024);
+  } catch {
+    throw new Error("landscape discovery requires a Git repository and an exact Git commit");
+  }
+  const separator = raw.indexOf(0);
+  const revision = separator < 0 ? "" : raw.subarray(0, separator).toString("ascii").trim().toLowerCase();
+  const timestamp = separator < 0 ? "" : raw.subarray(separator + 1).toString("utf8").trim();
   if (!/^[0-9a-f]{40,64}$/.test(revision)) throw new Error("landscape discovery requires an exact Git commit");
-  return revision;
-}
-
-function revisionTime(root: string, revision: string): string {
-  const value = gitText(root, ["show", "-s", "--format=%cI", revision], 1024 * 1024);
-  if (!Number.isFinite(Date.parse(value))) throw new Error("landscape discovery commit timestamp is invalid");
-  return value;
+  if (!Number.isFinite(Date.parse(timestamp))) throw new Error("landscape discovery commit timestamp is invalid");
+  return { revision, timestamp };
 }
 
 function nulRecords(bytes: Buffer): Buffer[] {
@@ -3161,9 +3166,7 @@ function rootHistoryIdentity(root: string, revision: string): RepositoryDeclarat
  * never writes Hunch graph state: candidate authority remains explicit until a
  * normal review/capture path accepts the records. */
 export function discoverRepositoryLandscape(root: string, ref = "HEAD"): LandscapeDiscoveryResult {
-  if (!isGitRepo(root)) throw new Error("landscape discovery requires a Git repository");
-  const revision = exactRevision(root, ref);
-  const timestamp = revisionTime(root, revision);
+  const { revision, timestamp } = exactCommitSnapshot(root, ref);
   const tree = exactTreeSnapshot(root, revision);
   const issues: LandscapeDiscoveryIssue[] = [];
   const blobs = manifestBlobs(tree);
