@@ -202,8 +202,10 @@ interface ApiDeclaration {
   version: string;
 }
 
+type MigrationProvider = "prisma" | "flyway" | "rails" | "django" | "laravel" | "alembic";
+
 interface MigrationDeclarationBlob extends ManifestBlob {
-  provider: "prisma" | "flyway" | "rails" | "django" | "laravel" | null;
+  provider: MigrationProvider | null;
   migrationId: string | null;
   migrationType: "versioned" | "undo" | "repeatable" | null;
   contractVersion: string | null;
@@ -212,7 +214,7 @@ interface MigrationDeclarationBlob extends ManifestBlob {
 interface MigrationDeclaration {
   path: string;
   contentHash: string;
-  provider: "prisma" | "flyway" | "rails" | "django" | "laravel";
+  provider: MigrationProvider;
   migrationId: string;
   migrationType: "versioned" | "undo" | "repeatable";
   contractVersion: string | null;
@@ -1414,12 +1416,21 @@ function migrationDeclarationIdentity(path: string): Pick<MigrationDeclaration, 
     };
   }
   const laravel = path.match(/(?:^|\/)database\/migrations\/([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{6})_([a-z][a-z0-9_]{0,127})\.php$/);
-  return laravel
-    ? {
+  if (laravel) {
+    return {
       provider: "laravel",
       migrationId: `${laravel[1]}_${laravel[2]}`,
       migrationType: "versioned",
       contractVersion: laravel[1]!,
+    };
+  }
+  const alembic = path.match(/(?:^|\/)alembic\/versions\/([a-f0-9]{12,32})_([a-z][a-z0-9_]{0,119})\.py$/);
+  return alembic
+    ? {
+      provider: "alembic",
+      migrationId: `${alembic[1]}_${alembic[2]}`,
+      migrationType: "versioned",
+      contractVersion: alembic[1]!,
     }
     : null;
 }
@@ -1555,16 +1566,17 @@ function migrationDeclarations(root: string, revision: string, issues: Landscape
   return declarations;
 }
 
-function migrationProviderName(provider: MigrationDeclaration["provider"]): string {
-  return provider === "prisma"
-    ? "Prisma"
-    : provider === "flyway"
-      ? "Flyway"
-      : provider === "rails"
-        ? "Rails"
-        : provider === "django"
-          ? "Django"
-          : "Laravel";
+const MIGRATION_PROVIDER_NAMES: Record<MigrationProvider, string> = {
+  prisma: "Prisma",
+  flyway: "Flyway",
+  rails: "Rails",
+  django: "Django",
+  laravel: "Laravel",
+  alembic: "Alembic",
+};
+
+function migrationProviderName(provider: MigrationProvider): string {
+  return MIGRATION_PROVIDER_NAMES[provider];
 }
 
 function deliveryDeclarationBlobs(root: string, revision: string): { blobs: DeliveryDeclarationBlob[]; total: number } {

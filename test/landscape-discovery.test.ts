@@ -868,6 +868,47 @@ test("HLG-2 discovers conventional Laravel migrations without retaining PHP bodi
   assert.doesNotMatch(JSON.stringify(result), /secret_accounts|hidden_token|private_invoices|secret_card|PRIVATE_SHORT|PRIVATE_UPPER|PRIVATE_DIRECTORY|PRIVATE_GENERIC/i);
 });
 
+test("HLG-2 discovers conventional Alembic revisions without retaining Python bodies or inferring revision edges", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: { name: "@acme/platform", repository: "https://github.com/acme/platform.git" },
+    files: [
+      {
+        path: "alembic/versions/1a2b3c4d5e6f_create_private_accounts.py",
+        raw: true,
+        value: "from alembic import op\nrevision = '1a2b3c4d5e6f'\ndown_revision = None\ndef upgrade(): op.create_table('secret_accounts')\n",
+      },
+      {
+        path: "services/billing/alembic/versions/abcdef123456_add_invoice_field.py",
+        raw: true,
+        value: "from alembic import op\nrevision = 'abcdef123456'\ndown_revision = 'private_parent'\ndef upgrade(): op.add_column('private_invoices', 'hidden_token')\n",
+      },
+      { path: "alembic/versions/abc123_too_short.py", raw: true, value: "PRIVATE_SHORT = True\n" },
+      { path: "alembic/versions/ABCDEF123456_upper_revision.py", raw: true, value: "PRIVATE_UPPER = True\n" },
+      { path: "alembic/version/123456abcdef_wrong_directory.py", raw: true, value: "PRIVATE_DIRECTORY = True\n" },
+      { path: "versions/123456abcdef_generic.py", raw: true, value: "PRIVATE_GENERIC = True\n" },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root, revision);
+  const migrations = result.resources.filter((item) => item.record.metadata.migration_framework === "alembic");
+  assert.deepEqual(migrations.map((item) => item.record.id), [
+    "artifact:migration/alembic/alembic/versions/1a2b3c4d5e6f_create_private_accounts.py",
+    "artifact:migration/alembic/services/billing/alembic/versions/abcdef123456_add_invoice_field.py",
+  ]);
+  assert.deepEqual(migrations.map((item) => item.record.contract_version), ["1a2b3c4d5e6f", "abcdef123456"]);
+  assert.deepEqual(migrations.map((item) => item.record.metadata.migration_id), [
+    "1a2b3c4d5e6f_create_private_accounts",
+    "abcdef123456_add_invoice_field",
+  ]);
+  assert.ok(migrations.every((item) => item.record.metadata.migration_type === "versioned"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.kind === "migration_declaration"));
+  assert.ok(migrations.every((item) => item.evidence[0]!.sourceRevision === revision));
+  assert.equal(result.relationships.filter((item) => item.record.to.startsWith("artifact:migration/alembic/")).length, 2);
+  assert.equal(result.resources.some((item) => item.record.kind === "database"), false);
+  assert.deepEqual(result.issues, []);
+  assert.doesNotMatch(JSON.stringify(result), /secret_accounts|private_parent|private_invoices|hidden_token|PRIVATE_SHORT|PRIVATE_UPPER|PRIVATE_DIRECTORY|PRIVATE_GENERIC/i);
+});
+
 test("HLG-2 reports malformed, unsupported, oversized, and unsafe OpenAPI declarations without echoing content", (t) => {
   const oversized = `openapi: 3.1.0\ninfo:\n  description: |\n${"    bounded declaration data\n".repeat(40_000)}`;
   const { root } = repository(t, {
