@@ -13,6 +13,7 @@ import {
   hydrateGitHubCandidate,
   outreachReport,
   parseLeads,
+  previewQueueDocument,
   qualifyLead,
   recordFollowUp,
   recordLeadStage,
@@ -124,7 +125,22 @@ test("drafts stay personal, evidence-caveated, and behind the approval gate", ()
   assert.match(message, /detailed architecture instructions/);
   assert.match(message, /small controlled test/);
   assert.match(message, /free 30-minute memory audit/);
-  assert.throws(() => draftForLead(approvedLead({ status: "qualified", approved_at: undefined })), /approved status/);
+  const qualified = approvedLead({ status: "qualified", approved_at: undefined });
+  assert.match(draftForLead(qualified, { preview: true }), /UNAPPROVED PREVIEW — DO NOT SEND/);
+  assert.throws(() => draftForLead(qualified), /approved status/);
+  assert.throws(() => draftForLead(approvedLead(), { preview: true, followUp: true }), /mutually exclusive/);
+  const community = approvedLead({
+    contact: {
+      name: "Acme community",
+      channel: "github_discussions",
+      destination: "https://github.com/acme/payments/discussions/categories/show-and-tell",
+      permission: "community_permission",
+    },
+  });
+  const communityMessage = draftForLead(community, { preview: true });
+  assert.match(communityMessage, /Title: Could Hunch/);
+  assert.match(communityMessage, /show that the repository publishes/);
+  assert.match(communityMessage, /post the actual receipt and its limits here/);
 });
 
 test("qualification, approval and outcome recording are separate evidence transitions", () => {
@@ -173,6 +189,15 @@ test("queue allows one due follow-up and never queues do-not-contact records", (
   assert.throws(() => draftForLead(exhausted, { followUp: true }), /no prior follow-up/);
   assert.throws(() => draftForLead(contacted, { followUp: true, today: "2026-08-26" }), /not due yet/);
   assert.match(draftForLead(contacted, { followUp: true, today: "2026-08-27" }), /will not follow up again/);
+});
+
+test("preview queue is visibly unapproved and contains only qualified leads", () => {
+  const qualified = approvedLead({ status: "qualified", approved_at: undefined });
+  const approved = approvedLead({ id: "already-approved" });
+  const document = previewQueueDocument([qualified, approved]);
+  assert.match(document, /acme\/payments/);
+  assert.match(document, /unapproved — do not send/);
+  assert.doesNotMatch(document, /already-approved/);
 });
 
 test("JSONL parsing is deterministic and refuses duplicate identity", () => {
