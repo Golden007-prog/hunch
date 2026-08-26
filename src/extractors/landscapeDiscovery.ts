@@ -26,6 +26,7 @@ export const LANDSCAPE_CANDIDATE_SCHEMA_VERSION = "hunch.landscape-candidate/1" 
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MANIFESTS = 128;
+const MAX_WORKSPACE_DEPENDENCIES = 512;
 const MAX_MCP_CONFIG_BYTES = 256 * 1024;
 const MAX_MCP_DECLARATIONS = 128;
 const MAX_DELIVERY_DECLARATION_BYTES = 256 * 1024;
@@ -92,6 +93,9 @@ export type LandscapeDiscoveryIssueCode =
   | "workspace_pattern_invalid"
   | "package_name_missing"
   | "package_name_invalid"
+  | "package_identity_conflict"
+  | "package_dependency_invalid"
+  | "package_dependency_limit"
   | "repository_identity_conflict"
   | "mcp_config_invalid"
   | "mcp_config_oversized"
@@ -151,6 +155,17 @@ interface ParsedManifest {
   path: string;
   value: Record<string, unknown>;
   contentHash: string;
+}
+
+interface WorkspacePackageDeclaration {
+  manifest: ParsedManifest;
+  name: string;
+}
+
+interface WorkspaceDependencyDeclaration {
+  from: WorkspacePackageDeclaration;
+  to: WorkspacePackageDeclaration;
+  evidence: LandscapeCandidateEvidence[];
 }
 
 interface RepositoryDeclaration {
@@ -2139,6 +2154,140 @@ function validPackageName(value: unknown): string | null {
     : null;
 }
 
+function workspacePackageDeclarations(
+  manifests: ParsedManifest[],
+  issues: LandscapeDiscoveryIssue[],
+): WorkspacePackageDeclaration[] {
+  const byName = new Map<string, WorkspacePackageDeclaration[]>();
+  for (const manifest of manifests) {
+    const rawName = typeof manifest.value.name === "string" ? manifest.value.name.trim() : "";
+    if (!rawName) {
+      issues.push({
+        code: "package_name_missing",
+        sourcePath: manifest.path,
+        sourceField: "name",
+        detail: `${manifest.path} has no package name`,
+      });
+      continue;
+    }
+    const name = validPackageName(rawName);
+    if (!name) {
+      issues.push({
+        code: "package_name_invalid",
+        sourcePath: manifest.path,
+        sourceField: "name",
+        detail: `${manifest.path} has an invalid package name`,
+      });
+      continue;
+    }
+    const group = byName.get(name) ?? [];
+    group.push({ manifest, name });
+    byName.set(name, group);
+  }
+  const declarations: WorkspacePackageDeclaration[] = [];
+  for (const name of [...byName.keys()].sort(compareCodeUnits)) {
+    const group = byName.get(name)!.sort((left, right) => compareCodeUnits(left.manifest.path, right.manifest.path));
+    if (group.length > 1) {
+      issues.push({
+        code: "package_identity_conflict",
+        sourcePath: group[0]!.manifest.path,
+        sourceField: "name",
+        detail: `package ${name} is declared by ${group.length} workspace manifests; identity remains unresolved`,
+      });
+      continue;
+    }
+    declarations.push(group[0]!);
+  }
+  return declarations;
+}
+
+const WORKSPACE_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+] as const;
+
+function workspaceDependencyDeclarations(
+  packages: WorkspacePackageDeclaration[],
+  revision: string,
+  issues: LandscapeDiscoveryIssue[],
+): WorkspaceDependencyDeclaration[] {
+  const byName = new Map(packages.map((declaration) => [declaration.name, declaration]));
+  const byRelationship = new Map<string, WorkspaceDependencyDeclaration>();
+  for (const from of packages) {
+    for (const field of WORKSPACE_DEPENDENCY_FIELDS) {
+      const raw = from.manifest.value[field];
+      if (raw === undefined) continue;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        issues.push({
+          code: "package_dependency_invalid",
+          sourcePath: from.manifest.path,
+          sourceField: field,
+          detail: `${from.manifest.path} must declare ${field} as an object`,
+        });
+        continue;
+      }
+      for (const [rawTarget, specifier] of Object.entries(raw).sort(([left], [right]) => compareCodeUnits(left, right))) {
+        const targetName = validPackageName(rawTarget);
+        const to = targetName ? byName.get(targetName) : undefined;
+        if (!to) continue;
+        if (typeof specifier !== "string" || !specifier.trim() || from.name === to.name) {
+          issues.push({
+            code: "package_dependency_invalid",
+            sourcePath: from.manifest.path,
+            sourceField: `${field}.${targetName}`,
+            detail: from.name === to.name
+              ? `${from.manifest.path} declares a self-dependency on its own workspace package identity`
+              : `${from.manifest.path} declares a non-string workspace dependency specifier`,
+          });
+          continue;
+        }
+        const relationshipKey = `${from.name}\u0000${to.name}`;
+        const evidence: LandscapeCandidateEvidence = {
+          kind: "package_manifest",
+          sourcePath: from.manifest.path,
+          sourceField: `${field}.${to.name}`,
+          sourceRevision: revision,
+          sourceContentHash: from.manifest.contentHash,
+        };
+        const existing = byRelationship.get(relationshipKey);
+        if (existing) {
+          existing.evidence.push(evidence);
+        } else {
+          byRelationship.set(relationshipKey, {
+            from,
+            to,
+            evidence: [
+              evidence,
+              {
+                kind: "package_manifest",
+                sourcePath: to.manifest.path,
+                sourceField: "name",
+                sourceRevision: revision,
+                sourceContentHash: to.manifest.contentHash,
+              },
+            ],
+          });
+        }
+      }
+    }
+  }
+  const declarations = [...byRelationship.values()].sort((left, right) => compareCodeUnits(
+    `${left.from.name}:${left.to.name}`,
+    `${right.from.name}:${right.to.name}`,
+  ));
+  if (declarations.length > MAX_WORKSPACE_DEPENDENCIES) {
+    issues.push({
+      code: "package_dependency_limit",
+      sourcePath: "package.json",
+      sourceField: "workspaces",
+      detail: `bounded discovery accepts at most ${MAX_WORKSPACE_DEPENDENCIES} internal workspace dependency relationships`,
+    });
+  }
+  return declarations.slice(0, MAX_WORKSPACE_DEPENDENCIES);
+}
+
 function configuredRemotes(root: string, revision: string): RepositoryDeclaration[] {
   let output = "";
   try {
@@ -2263,6 +2412,8 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
   }
   const patterns = workspacePatterns(rootManifest?.value.workspaces, issues);
   const manifests = parsed.filter((manifest) => isWorkspaceManifest(manifest.path, patterns));
+  const discoveredPackages = workspacePackageDeclarations(manifests, issues);
+  const discoveredWorkspaceDependencies = workspaceDependencyDeclarations(discoveredPackages, revision, issues);
   const declarations = repositoryDeclarations(root, revision, rootManifest);
   const discoveredMcp = mcpDeclarations(root, revision, issues);
   const discoveredDelivery = deliveryDeclarations(root, revision, issues);
@@ -2630,17 +2781,9 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
     relationships.push(candidate(relationship, [evidence]));
   }
 
-  for (const manifest of manifests) {
-    const rawName = typeof manifest.value.name === "string" ? manifest.value.name.trim() : "";
-    if (!rawName) {
-      issues.push({ code: "package_name_missing", sourcePath: manifest.path, sourceField: "name", detail: `${manifest.path} has no package name` });
-      continue;
-    }
-    const name = validPackageName(rawName);
-    if (!name) {
-      issues.push({ code: "package_name_invalid", sourcePath: manifest.path, sourceField: "name", detail: `${manifest.path} has an invalid package name` });
-      continue;
-    }
+  const packageRecords = new Map<string, Resource>();
+  for (const declaration of discoveredPackages) {
+    const { manifest, name } = declaration;
     const evidence: LandscapeCandidateEvidence = {
       kind: "package_manifest",
       sourcePath: manifest.path,
@@ -2667,6 +2810,7 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       created_at: timestamp,
       updated_at: timestamp,
     });
+    packageRecords.set(name, packageRecord);
     resources.push(candidate(packageRecord, [evidence]));
     if (!repositoryRecord) continue;
     const relationship = EdgeSchema.parse({
@@ -2683,6 +2827,37 @@ export function discoverRepositoryLandscape(root: string, ref = "HEAD"): Landsca
       metadata: { discovery_authority: "candidate", manifest_path: manifest.path },
     });
     relationships.push(candidate(relationship, [evidence]));
+  }
+
+  for (const declaration of discoveredWorkspaceDependencies) {
+    const from = packageRecords.get(declaration.from.name);
+    const to = packageRecords.get(declaration.to.name);
+    if (!from || !to) continue;
+    const evidence = declaration.evidence;
+    const dependencyFields = [...new Set(evidence
+      .filter((item) => item.sourcePath === declaration.from.manifest.path && item.sourceField !== "name")
+      .map((item) => item.sourceField.split(".", 1)[0]!))].sort(compareCodeUnits);
+    const relationship = EdgeSchema.parse({
+      schema: "hunch.resource-relationship/1",
+      id: resourceRelationshipId(from.id, to.id, "depends_on"),
+      from: from.id,
+      to: to.id,
+      type: "depends_on",
+      reason: `${declaration.from.name} declares an internal workspace dependency on ${declaration.to.name}`,
+      strength: 1,
+      provenance: {
+        source: "extracted:workspace-dependency",
+        confidence: 0.95,
+        evidence: evidence.map(provenanceEvidence),
+      },
+      currentness: resourceCurrentness(revision, evidence.map((item) => item.sourceContentHash)),
+      environment: null,
+      metadata: {
+        discovery_authority: "candidate",
+        dependency_fields: dependencyFields,
+      },
+    });
+    relationships.push(candidate(relationship, evidence));
   }
 
   resources.sort((left, right) => compareCodeUnits(left.record.id, right.record.id));

@@ -128,6 +128,113 @@ test("HLG-2 preserves conflicting repository declarations as uncertainty instead
   assert.ok(result.resources.every((item) => item.record.scope.length === 0));
 });
 
+test("HLG-2 discovers exact internal workspace dependencies without retaining version specifiers", (t) => {
+  const { root, revision } = repository(t, {
+    rootManifest: {
+      name: "@acme/platform",
+      version: "1.0.0",
+      repository: "https://github.com/acme/platform.git",
+      workspaces: ["packages/*"],
+      dependencies: { "@acme/api": "https://private-user:private-token@registry.example.test/api.tgz" },
+      devDependencies: { "@acme/api": "workspace:*", external: "private-external-specifier" },
+    },
+    manifests: [
+      {
+        path: "packages/api/package.json",
+        value: { name: "@acme/api", peerDependencies: { "@acme/shared": "^2.0.0" } },
+      },
+      { path: "packages/shared/package.json", value: { name: "@acme/shared", version: "2.0.0" } },
+    ],
+  });
+
+  const first = discoverRepositoryLandscape(root, revision);
+  const dependencies = first.relationships.filter((item) => item.record.type === "depends_on"
+    && item.record.from.startsWith("package:"));
+  assert.deepEqual(dependencies.map((item) => [item.record.from, item.record.to])
+    .sort((left, right) => left.join("\u0000").localeCompare(right.join("\u0000"))), [
+    ["package:npm/@acme/api", "package:npm/@acme/shared"],
+    ["package:npm/@acme/platform", "package:npm/@acme/api"],
+  ]);
+  const platformDependency = dependencies.find((item) => item.record.from.endsWith("/@acme/platform"))!;
+  assert.deepEqual(platformDependency.record.metadata.dependency_fields, ["dependencies", "devDependencies"]);
+  assert.deepEqual(platformDependency.evidence.map((item) => item.sourceField), [
+    "dependencies.@acme/api",
+    "devDependencies.@acme/api",
+    "name",
+  ]);
+  assert.ok(dependencies.every((item) => item.authority === "candidate"));
+  assert.ok(dependencies.every((item) => item.evidence.every((evidence) => evidence.sourceRevision === revision)));
+  assert.deepEqual(first.issues, []);
+  assert.doesNotMatch(JSON.stringify(first), /private-user|private-token|private-external-specifier|registry\.example/i);
+
+  writeJson(root, "package.json", {
+    name: "@acme/platform",
+    workspaces: ["packages/*"],
+    dependencies: { "@acme/shared": "working-copy-only" },
+  });
+  assert.deepEqual(discoverRepositoryLandscape(root, revision), first,
+    "working-tree dependency edits cannot alter exact-revision discovery");
+});
+
+test("HLG-2 leaves duplicate workspace package identities unresolved", (t) => {
+  const { root } = repository(t, {
+    rootManifest: { name: "@acme/root", workspaces: ["packages/*"] },
+    manifests: [
+      { path: "packages/a/package.json", value: { name: "@acme/duplicate" } },
+      { path: "packages/b/package.json", value: { name: "@acme/duplicate" } },
+      {
+        path: "packages/consumer/package.json",
+        value: { name: "@acme/consumer", dependencies: { "@acme/duplicate": "workspace:*" } },
+      },
+    ],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "package_identity_conflict"));
+  assert.equal(result.resources.some((item) => item.record.id === "package:npm/@acme/duplicate"), false);
+  assert.equal(result.relationships.some((item) => item.record.type === "depends_on"), false);
+  assert.equal(new Set(result.resources.map((item) => item.record.id)).size, result.resources.length);
+});
+
+test("HLG-2 reports malformed and self-referential workspace dependencies", (t) => {
+  const { root } = repository(t, {
+    rootManifest: {
+      name: "@acme/root",
+      workspaces: ["packages/*"],
+      dependencies: { "@acme/root": "workspace:*", "@acme/tool": 42 },
+      peerDependencies: ["@acme/tool"],
+    },
+    manifests: [{ path: "packages/tool/package.json", value: { name: "@acme/tool" } }],
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.equal(result.issues.filter((issue) => issue.code === "package_dependency_invalid").length, 3);
+  assert.equal(result.relationships.some((item) => item.record.type === "depends_on"), false);
+  assert.doesNotMatch(JSON.stringify(result), /workspace:\*/i, "dependency specifier bodies are never retained");
+});
+
+test("HLG-2 bounds internal workspace dependency relationships", (t) => {
+  const names = ["@acme/root", ...Array.from({ length: 24 }, (_, index) => `@acme/package-${index}`)];
+  const dependenciesFor = (name: string): Record<string, string> => Object.fromEntries(
+    names.filter((candidate) => candidate !== name).map((candidate) => [candidate, "workspace:*"]),
+  );
+  const { root } = repository(t, {
+    rootManifest: {
+      name: names[0],
+      workspaces: ["packages/*"],
+      dependencies: dependenciesFor(names[0]!),
+    },
+    manifests: names.slice(1).map((name, index) => ({
+      path: `packages/p${String(index).padStart(2, "0")}/package.json`,
+      value: { name, dependencies: dependenciesFor(name) },
+    })),
+  });
+
+  const result = discoverRepositoryLandscape(root);
+  assert.ok(result.issues.some((issue) => issue.code === "package_dependency_limit"));
+  assert.equal(result.relationships.filter((item) => item.record.type === "depends_on").length, 512);
+});
+
 test("HLG-2 discovers the exact repository-wide GitHub team owner without retaining people or path rules", (t) => {
   const { root, revision } = repository(t, {
     rootManifest: {
