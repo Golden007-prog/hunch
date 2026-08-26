@@ -83,7 +83,7 @@ function gitSafeWithoutReplacements(args: string[], cwd: string, maxBuffer = 64 
     return execFileSync("git", args, {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" },
+      env: { ...foreignRepoEnv(process.env), GIT_NO_REPLACE_OBJECTS: "1" },
       maxBuffer,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -469,7 +469,7 @@ export function stableRepositoryName(root: string): string {
     const digest = createHash("sha256").update(fetchRemote, "utf8").digest("hex");
     return `git-remote:sha256:${digest}`;
   }
-  const shallow = gitSafe(["rev-parse", "--is-shallow-repository"], root) === "true";
+  const shallow = gitSafeIsolated(["rev-parse", "--is-shallow-repository"], root) === "true";
   if (shallow) return basename(mainWorktreeRoot(root));
   const roots = gitSafeWithoutReplacements(["rev-list", "--max-parents=0", "HEAD"], root)
     .split(/\s+/)

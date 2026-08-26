@@ -97,6 +97,38 @@ test("stableRepositoryName is remote-name, checkout-name, worktree, and shallow-
   }
 });
 
+test("stableRepositoryName ignores ambient repository selectors for a remote-less checkout", () => {
+  const target = tempRepo();
+  const ambient = tempRepo();
+  const previous = {
+    GIT_DIR: process.env.GIT_DIR,
+    GIT_WORK_TREE: process.env.GIT_WORK_TREE,
+    GIT_INDEX_FILE: process.env.GIT_INDEX_FILE,
+  };
+  try {
+    writeFileSync(join(ambient.root, "f.txt"), "ambient-only-root\n");
+    g(ambient.root, "add", "f.txt");
+    g(ambient.root, "commit", "--amend", "-qm", "ambient root");
+    const expected = stableRepositoryName(target.root);
+    const ambientIdentity = stableRepositoryName(ambient.root);
+    assert.match(expected, /^git:[a-f0-9]{40,64}$/);
+    assert.notEqual(ambientIdentity, expected);
+
+    process.env.GIT_DIR = join(ambient.root, ".git");
+    process.env.GIT_WORK_TREE = ambient.root;
+    process.env.GIT_INDEX_FILE = join(ambient.root, ".git", "index");
+    assert.equal(stableRepositoryName(target.root), expected,
+      "the explicit checkout, not a hook's ambient repository, owns the stable identity");
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    target.cleanup();
+    ambient.cleanup();
+  }
+});
+
 test("P1: a linked worktree auto-discovers the overlay via the shared common-dir pointer (no per-worktree local.json)", () => {
   const { root, cleanup } = tempRepo();
   const wt = `${root}-wt`;
