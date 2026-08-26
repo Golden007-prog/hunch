@@ -178,6 +178,7 @@ interface ManifestBlob {
   path: string;
   mode: string;
   oid: string;
+  objectSize: number | null;
   bytes: Buffer | null;
   contentHash: string | null;
 }
@@ -317,6 +318,7 @@ interface ExactTreeEntry {
   mode: string;
   kind: "blob" | "tree" | "commit";
   oid: string;
+  objectSize: number | null;
   pathBytes: Buffer;
   path: string | null;
 }
@@ -405,13 +407,15 @@ function nulRecords(bytes: Buffer): Buffer[] {
  * families observing different path sets. Invalid UTF-8 remains available as
  * raw bytes so a relevant unsafe declaration can still fail closed. */
 function exactTreeSnapshot(root: string, revision: string): ExactTreeEntry[] {
-  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-t", "-z", revision], 64 * 1024 * 1024);
+  const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-r", "-t", "-l", "-z", revision], 64 * 1024 * 1024);
   const entries: ExactTreeEntry[] = [];
   for (const record of nulRecords(raw)) {
     const tab = record.indexOf(0x09);
     if (tab < 0) continue;
-    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64})$/i);
+    const head = record.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) (blob|tree|commit) ([0-9a-f]{40,64}) +(-|[0-9]+)$/i);
     if (!head) continue;
+    const objectSize = head[4] === "-" ? null : Number(head[4]);
+    if (objectSize !== null && (!Number.isSafeInteger(objectSize) || objectSize < 0)) continue;
     const pathBytes = record.subarray(tab + 1);
     let path: string | null = null;
     try {
@@ -423,6 +427,7 @@ function exactTreeSnapshot(root: string, revision: string): ExactTreeEntry[] {
       mode: head[1]!,
       kind: head[2]!.toLowerCase() as ExactTreeEntry["kind"],
       oid: head[3]!.toLowerCase(),
+      objectSize,
       pathBytes,
       path,
     });
@@ -434,9 +439,9 @@ function treeEntryMode(entry: ExactTreeEntry): string {
   return entry.kind === "blob" ? entry.mode : `${entry.kind}:${entry.mode}`;
 }
 
-/** Resolve object sizes in one batch, then request only bodies inside the
- * source-family byte bound. The entire response is itself bounded by
- * selected-count × per-file limit, preserving the existing memory ceiling. */
+/** Request only bodies whose exact-tree size is inside the source-family
+ * bound. The entire response is itself bounded by selected-count × per-file
+ * limit, preserving the existing memory ceiling without another Git process. */
 function hydrateDeclarationBlobs<T extends ManifestBlob>(
   root: string,
   blobs: T[],
@@ -446,16 +451,10 @@ function hydrateDeclarationBlobs<T extends ManifestBlob>(
   const eligible = blobs.map((blob, index) => ({ blob, index }))
     .filter(({ blob }) => blob.mode !== "unsafe-path" && ORDINARY_BLOB_MODES.has(blob.mode));
   if (!eligible.length) return result;
-  const input = `${eligible.map(({ blob }) => blob.oid).join("\n")}\n`;
-  const checked = gitBufferInput(root, [
-    "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
-  ], input, Math.max(1024 * 1024, eligible.length * 256)).toString("ascii").trimEnd().split("\n");
   const accepted: Array<{ blob: T; index: number; size: number }> = [];
-  for (const [position, candidate] of eligible.entries()) {
-    const fields = checked[position]?.match(/^([0-9a-f]{40,64}) (blob) ([0-9]+)$/i);
-    const size = fields ? Number(fields[3]) : Number.NaN;
-    if (!fields || fields[1]!.toLowerCase() !== candidate.blob.oid
-      || !Number.isSafeInteger(size) || size < 0) continue;
+  for (const candidate of eligible) {
+    const size = candidate.blob.objectSize;
+    if (size === null) continue;
     if (size > maxBytes) {
       result[candidate.index] = { ...candidate.blob, contentHash: "oversized" };
       continue;
@@ -502,6 +501,7 @@ function manifestBlobs(tree: ExactTreeEntry[]): ManifestBlob[] {
           path: `<non-utf8-package-manifest:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
           oid: entry.oid,
+          objectSize: entry.objectSize,
           bytes: null,
           contentHash: null,
         });
@@ -516,10 +516,10 @@ function manifestBlobs(tree: ExactTreeEntry[]): ManifestBlob[] {
     if (path.length > 1024 || path.startsWith("/") || path.includes("\\")
       || segments.some((segment) => !segment || segment === "." || segment === "..")
       || /[\u0000-\u001f\u007f]/.test(path) || !isCredentialFreeText(path)) {
-      manifests.push({ path: "<unsafe-package-manifest>", mode: "unsafe-path", oid, bytes: null, contentHash: null });
+      manifests.push({ path: "<unsafe-package-manifest>", mode: "unsafe-path", oid, objectSize: entry.objectSize, bytes: null, contentHash: null });
       continue;
     }
-    manifests.push({ path, mode: treeEntryMode(entry), oid, bytes: null, contentHash: null });
+    manifests.push({ path, mode: treeEntryMode(entry), oid, objectSize: entry.objectSize, bytes: null, contentHash: null });
   }
   return manifests.sort((left, right) => compareCodeUnits(left.path, right.path));
 }
@@ -624,7 +624,7 @@ function mcpConfigBlobs(root: string, tree: ExactTreeEntry[]): ManifestBlob[] {
     const path = entry.path;
     if (path === null) continue;
     if (!MCP_CONFIG_BY_PATH.has(path)) continue;
-    blobs.push({ path, mode: treeEntryMode(entry), oid: entry.oid, bytes: null, contentHash: null });
+    blobs.push({ path, mode: treeEntryMode(entry), oid: entry.oid, objectSize: entry.objectSize, bytes: null, contentHash: null });
   }
   return hydrateDeclarationBlobs(
     root,
@@ -1261,6 +1261,7 @@ function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Api
           path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
           oid: entry.oid,
+          objectSize: entry.objectSize,
           bytes: null,
           contentHash: null,
           format: null,
@@ -1277,6 +1278,7 @@ function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Api
         path: `<unsafe-api-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
         format: null,
@@ -1287,6 +1289,7 @@ function apiDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Api
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
       format,
@@ -1637,6 +1640,7 @@ function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
           path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
           oid: entry.oid,
+          objectSize: entry.objectSize,
           bytes: null,
           contentHash: null,
           provider: null,
@@ -1656,6 +1660,7 @@ function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
         path: `<unsafe-migration-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
         provider: null,
@@ -1669,6 +1674,7 @@ function migrationDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
       ...identity,
@@ -1777,18 +1783,14 @@ function ownershipDeclarationBlob(root: string, tree: ExactTreeEntry[]): Manifes
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
     });
   }
   const selected = CODEOWNERS_PATHS.map((path) => discovered.get(path)).find((blob) => blob !== undefined);
   if (!selected || !ORDINARY_BLOB_MODES.has(selected.mode)) return selected ?? null;
-  const size = Number(gitText(root, ["cat-file", "-s", selected.oid], 1024 * 1024));
-  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_OWNERSHIP_DECLARATION_BYTES) {
-    return { ...selected, contentHash: size > MAX_OWNERSHIP_DECLARATION_BYTES ? "oversized" : null };
-  }
-  const bytes = gitBuffer(root, ["cat-file", "blob", selected.oid], MAX_OWNERSHIP_DECLARATION_BYTES + 1);
-  return { ...selected, bytes, contentHash: sha256Bytes(bytes) };
+  return hydrateDeclarationBlobs(root, [selected], MAX_OWNERSHIP_DECLARATION_BYTES)[0]!;
 }
 
 function githubTeamOwner(value: string): OwnershipTeam | null {
@@ -1884,6 +1886,7 @@ function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blo
           path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
           oid: entry.oid,
+          objectSize: entry.objectSize,
           bytes: null,
           contentHash: null,
         });
@@ -1898,6 +1901,7 @@ function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blo
         path: `<unsafe-operations-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
       });
@@ -1907,6 +1911,7 @@ function operationsDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blo
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
     });
@@ -2002,6 +2007,7 @@ function dashboardDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
           path: `<unsafe-dashboard-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
           oid: entry.oid,
+          objectSize: entry.objectSize,
           bytes: null,
           contentHash: null,
         });
@@ -2015,6 +2021,7 @@ function dashboardDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
         path: `<unsafe-dashboard-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
       });
@@ -2024,6 +2031,7 @@ function dashboardDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blob
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
     });
@@ -2115,6 +2123,7 @@ function sloDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Slo
         path: `<unsafe-slo-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
         format: null,
@@ -2130,6 +2139,7 @@ function sloDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Slo
         path: `<unsafe-slo-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
         format: null,
@@ -2140,6 +2150,7 @@ function sloDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs: Slo
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
       format,
@@ -2292,6 +2303,7 @@ function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs
           path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
           mode: "unsafe-path",
           oid: entry.oid,
+          objectSize: entry.objectSize,
           bytes: null,
           contentHash: null,
           spec: null,
@@ -2308,6 +2320,7 @@ function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs
         path: `<unsafe-delivery-declaration:sha256:${createHash("sha256").update(pathBytes).digest("hex")}>`,
         mode: "unsafe-path",
         oid: entry.oid,
+        objectSize: entry.objectSize,
         bytes: null,
         contentHash: null,
         spec: null,
@@ -2318,6 +2331,7 @@ function deliveryDeclarationBlobs(root: string, tree: ExactTreeEntry[]): { blobs
       path,
       mode: treeEntryMode(entry),
       oid: entry.oid,
+      objectSize: entry.objectSize,
       bytes: null,
       contentHash: null,
       spec,
@@ -2700,16 +2714,12 @@ function gitmodulesBlob(root: string, tree: ExactTreeEntry[]): ManifestBlob | nu
     path: ".gitmodules",
     mode: treeEntryMode(entry),
     oid: entry.oid,
+    objectSize: entry.objectSize,
     bytes: null,
     contentHash: null,
   };
   if (!ORDINARY_BLOB_MODES.has(blob.mode)) return blob;
-  const size = Number(gitText(root, ["cat-file", "-s", blob.oid], 1024 * 1024));
-  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_SUBMODULE_DECLARATION_BYTES) {
-    return { ...blob, contentHash: size > MAX_SUBMODULE_DECLARATION_BYTES ? "oversized" : null };
-  }
-  const bytes = gitBuffer(root, ["cat-file", "blob", blob.oid], MAX_SUBMODULE_DECLARATION_BYTES + 1);
-  return { ...blob, bytes, contentHash: sha256Bytes(bytes) };
+  return hydrateDeclarationBlobs(root, [blob], MAX_SUBMODULE_DECLARATION_BYTES)[0]!;
 }
 
 interface SubmoduleConfigGroup {
