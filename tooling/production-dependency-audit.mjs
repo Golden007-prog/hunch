@@ -7,56 +7,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-// The MCP SDK currently installs the Hono Node adapter for optional HTTP
-// transports. Hunch exposes only its stdio server, so GHSA-frvp-7c67-39w9's
-// serve-static path traversal is unreachable. Keep the exception exact: a new
-// advisory, changed range/severity, package placement, or HTTP/Hono import
-// fails the release gate until it receives a fresh review.
-export const REVIEWED_AUDIT_VULNERABILITIES = Object.freeze({
-  "@hono/node-server": Object.freeze({
-    severity: "moderate",
-    isDirect: false,
-    range: "<2.0.5",
-    effects: Object.freeze(["@modelcontextprotocol/sdk"]),
-    nodes: Object.freeze(["node_modules/@modelcontextprotocol/sdk/node_modules/@hono/node-server"]),
-    via: Object.freeze([Object.freeze({
-      source: 1124006,
-      name: "@hono/node-server",
-      dependency: "@hono/node-server",
-      title: "Node.js Adapter for Hono: Path traversal in `serve-static` on Windows via encoded backslash (`%5C`)",
-      url: "https://github.com/advisories/GHSA-frvp-7c67-39w9",
-      severity: "moderate",
-      cwe: Object.freeze(["CWE-22"]),
-      cvss: Object.freeze({
-        score: 5.9,
-        vectorString: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
-      }),
-      range: "<2.0.5",
-    })]),
-    fixAvailable: Object.freeze({
-      name: "@modelcontextprotocol/sdk",
-      version: "1.24.3",
-      isSemVerMajor: true,
-    }),
-  }),
-  "@modelcontextprotocol/sdk": Object.freeze({
-    severity: "moderate",
-    isDirect: true,
-    // Re-reviewed 2026-08-04: upstream shipped fixed SDK releases, so the
-    // registry narrowed the advisory's vulnerable range from ">=1.25.0" to the
-    // bounded window below. Same advisory (via @hono/node-server,
-    // GHSA-frvp-7c67-39w9); the stdio-only unreachability review still holds.
-    range: "1.25.0 - 1.29.0",
-    effects: Object.freeze([]),
-    nodes: Object.freeze(["node_modules/@modelcontextprotocol/sdk"]),
-    via: Object.freeze(["@hono/node-server"]),
-    fixAvailable: Object.freeze({
-      name: "@modelcontextprotocol/sdk",
-      version: "1.24.3",
-      isSemVerMajor: true,
-    }),
-  }),
-});
+// Empty by design: production `npm audit` currently finds nothing. This used to hold a
+// reviewed, byte-exact exception for GHSA-frvp-7c67-39w9 (a Hono serve-static path
+// traversal, transitively pulled in via the MCP SDK's optional HTTP transport — Hunch
+// exposes only its stdio server, so it was unreachable). That advisory was resolved by
+// bumping @modelcontextprotocol/sdk to 1.30.0+, which widened its own @hono/node-server
+// range enough for `npm audit fix` to resolve every affected package in-range (no
+// semver-major). If a future `npm audit` finding needs a reviewed exception instead of a
+// real fix, add its exact reported shape here — any drift from what's added fails closed.
+export const REVIEWED_AUDIT_VULNERABILITIES = Object.freeze({});
 
 const DISALLOWED_PRODUCTION_IMPORTS = Object.freeze([
   /^@hono\/node-server(?:\/|$)/,
@@ -124,7 +83,7 @@ export function assertReviewedProductionImports(imports) {
   return true;
 }
 
-export function evaluateProductionAudit(report, productionImports = []) {
+export function evaluateProductionAudit(report, productionImports = [], reviewedVulnerabilities = REVIEWED_AUDIT_VULNERABILITIES) {
   if (!report || report.auditReportVersion !== 2 || !report.vulnerabilities
     || typeof report.vulnerabilities !== "object") {
     throw new Error("npm audit returned an unsupported or malformed JSON report");
@@ -134,7 +93,7 @@ export function evaluateProductionAudit(report, productionImports = []) {
   const names = Object.keys(report.vulnerabilities).sort();
   for (const name of names) {
     const actual = report.vulnerabilities[name];
-    const reviewed = REVIEWED_AUDIT_VULNERABILITIES[name];
+    const reviewed = reviewedVulnerabilities[name];
     if (!reviewed) throw new Error(`unreviewed production vulnerability: ${name}`);
     if (actual?.name !== name
       || actual.severity !== reviewed.severity
