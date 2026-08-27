@@ -243,6 +243,39 @@ export class HunchStore {
     return home === "private" ? this.putPrivate(kind, record) : this.json.put(kind, record);
   }
 
+  /** Replace one capture kind in its routed home as a single bulk operation.
+   *
+   * Snapshot producers use this instead of calling putCapture once per record.
+   * That distinction is material for array-backed graph kinds: repeated puts
+   * parse, sort, and atomically rewrite the complete index for every symbol or
+   * edge, while JsonStore.replaceAll validates the full input before performing
+   * one write. Routing and cross-home collision rules remain identical to an
+   * ordinary capture, so the optimization cannot create a second source of truth.
+   */
+  replaceCaptures<K extends EntityKind>(kind: K, records: EntityFor[K][], isPrivate = false): void {
+    const home = this.captureHome(isPrivate);
+    const target = home === "private" ? this.privateJson : this.json;
+    if (!target) {
+      throw new Error("No private store configured — set HUNCH_PRIVATE_DIR to a directory Hunch can write sensitive records into.");
+    }
+
+    const targetIds = new Set(target.loadAll(kind).map((record) => (record as { id: string }).id));
+    const other = home === "private" ? this.json : this.privateJson;
+    const otherIds = new Set((other?.loadAll(kind) ?? []).map((record) => (record as { id: string }).id));
+    const incomingIds = new Set<string>();
+    for (const record of records) {
+      const id = (record as { id: string }).id;
+      if (incomingIds.has(id)) throw new Error(`${kind} replacement contains duplicate record id ${id}`);
+      incomingIds.add(id);
+      if (!targetIds.has(id) && otherIds.has(id)) {
+        throw new Error(`${kind} record ${id} already exists in the other memory home; refusing to create a public/private id collision`);
+      }
+    }
+
+    target.ensureDirs();
+    target.replaceAll(kind, records);
+  }
+
   /** Read a record by id from wherever it lives (private overlay wins on collision). */
   getRec<K extends EntityKind>(kind: K, id: string): EntityFor[K] | undefined {
     return this.privateJson?.get(kind, id) ?? this.json.get(kind, id);

@@ -18,7 +18,7 @@ import { ensureTeamOverlay, writeTeamConfig, readTeamConfig, safeGitUrl } from "
 import { ensureGitignore } from "../src/integrations/gitignore.js";
 import { installMergeDriver } from "../src/integrations/mergeDriver.js";
 import { mainWorktreeRoot } from "../src/extractors/git.js";
-import type { Decision } from "../src/core/types.js";
+import type { Decision, Symbol } from "../src/core/types.js";
 import { SYMLINK_SKIP } from "./helpers.js";
 
 const g = (cwd: string, ...a: string[]): string =>
@@ -45,6 +45,20 @@ function dec(id: string): Decision {
     retired: { symbols: [], deps: [] },
     provenance: { source: "human_confirmed", confidence: 0.9, evidence: [] }, date: now,
   } as unknown as Decision;
+}
+
+function sym(id: string, file = `src/${id}.ts`): Symbol {
+  return {
+    id,
+    file,
+    name: id,
+    kind: "function",
+    signature_hash: id,
+    calls: [],
+    called_by: [],
+    metrics: { loc: 1, churn_90d: 0, bug_count: 0, fan_in: 0, fan_out: 0 },
+    last_changed: "",
+  };
 }
 
 function withoutPrivateEnv<T>(fn: () => T): T {
@@ -93,6 +107,38 @@ test("captureHome: one home per record in every mode — public, private-split, 
       assert.ok(existsSync(join(overlay, "decisions", "dec_unified.json"))); // landed in the overlay…
       assert.ok(!existsSync(join(root, ".hunch", "decisions", "dec_unified.json"))); // …and ONLY there
       shared.close();
+    });
+  } finally { cleanup(); }
+});
+
+test("replaceCaptures bulk-replaces array graph kinds in the routed home without weakening collision safety", () => {
+  const { root, cleanup } = repo();
+  try {
+    withoutPrivateEnv(() => {
+      const overlay = standaloneOverlay(root);
+      writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ privateDir: overlay, mode: "shared" }) + "\n");
+      const store = new HunchStore(hunchPaths(root));
+
+      store.putCapture("symbols", sym("sym_stale"));
+      store.replaceCaptures("symbols", [sym("sym_current"), sym("sym_next")]);
+      assert.deepEqual(store.recsInHome("symbols", "private").map((record) => record.id).sort(), ["sym_current", "sym_next"]);
+      assert.deepEqual(store.recsInHome("symbols", "public"), []);
+
+      assert.throws(
+        () => store.replaceCaptures("symbols", [sym("sym_duplicate"), sym("sym_duplicate")]),
+        /duplicate record id sym_duplicate/,
+      );
+      assert.deepEqual(store.recsInHome("symbols", "private").map((record) => record.id).sort(), ["sym_current", "sym_next"],
+        "a rejected replacement must leave the prior snapshot intact");
+
+      store.json.put("symbols", sym("sym_public_only"));
+      assert.throws(
+        () => store.replaceCaptures("symbols", [sym("sym_public_only")]),
+        /already exists in the other memory home/,
+      );
+      assert.deepEqual(store.recsInHome("symbols", "private").map((record) => record.id).sort(), ["sym_current", "sym_next"],
+        "a cross-home collision must fail before replacing the routed graph");
+      store.close();
     });
   } finally { cleanup(); }
 });
