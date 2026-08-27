@@ -1,6 +1,6 @@
 /**
  * The indexer (DESIGN.md §4 "File changes" row, and `hunch index`).
- * Deterministic, no LLM: walk the repo, parse every TS/JS file into symbols,
+ * Deterministic, no LLM: walk the repo, parse every registered source file into symbols,
  * resolve a best-effort call graph + import dependency graph, derive components
  * from the directory layout, and compute churn / fan-in / fan-out metrics.
  *
@@ -11,16 +11,26 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
-import { parseSource, attributeCalls } from "./parse.js";
+import { parseSource, attributeCalls, attributeRelations, type ParsedRelation } from "./parse.js";
 import { extractHelmDirectives } from "./helm.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
 import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import { resolveRelativeImport } from "../core/relativeImports.js";
+import { compareCodeUnits } from "../core/canonicalOrder.js";
 import { extracted, inferred, type Symbol, type Edge, type Component } from "../core/types.js";
 import { isGitRepo, fileGitMetrics, revExists } from "./git.js";
 import { languageFor } from "./languages.js";
 import {
+  composerPsr4Mappings,
+  phpExternalSpecifier,
+  resolvePhpImportTargets,
+  resolvePhpReference,
+  type PhpPsr4Mapping,
+} from "./php.js";
+import {
+  assertCleanAuxiliarySources,
   assertCleanIndexedCode,
+  repoAuxiliarySource,
   repoSourceInventory,
   type RepoScanSource,
   type RepoScanSourceIdentity,
@@ -34,6 +44,13 @@ export interface IndexResult {
   components: number;
   /** Files that could not be parsed (read error / oversized / extraction error). */
   skipped: number;
+  coverage: Array<{
+    language: string;
+    eligible: number;
+    parsed: number;
+    skipped: number;
+    reasons: Record<string, number>;
+  }>;
 }
 
 export interface RepoScan {
@@ -83,6 +100,42 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   const inventory = repoSourceInventory(root, opts.source);
   const files = inventory.entries;
   const useGit = isGitRepo(root);
+  const issues: RepoSourceIssue[] = [];
+  const sourceFingerprint: Array<{ path: string; mode: string; content: string }> = [];
+  const coverage = new Map<string, { language: string; eligible: number; parsed: number; skipped: number; reasons: Record<string, number> }>();
+  const noteCoverage = (path: string, field: "eligible" | "parsed", amount = 1) => {
+    const language = languageFor(path)?.id;
+    if (!language) return;
+    const current = coverage.get(language) ?? { language, eligible: 0, parsed: 0, skipped: 0, reasons: {} };
+    current[field] += amount;
+    coverage.set(language, current);
+  };
+  const noteSkip = (path: string, code: RepoSourceIssue["code"]) => {
+    const language = languageFor(path)?.id;
+    if (!language) return;
+    const current = coverage.get(language) ?? { language, eligible: 0, parsed: 0, skipped: 0, reasons: {} };
+    current.skipped++;
+    current.reasons[code] = (current.reasons[code] ?? 0) + 1;
+    coverage.set(language, current);
+  };
+
+  let phpPsr4: PhpPsr4Mapping[] = [];
+  if (files.some((file) => languageFor(file.path)?.id === "php")) {
+    const composer = repoAuxiliarySource(root, opts.source, "composer.json");
+    if (!composer.absent) {
+      if (composer.source === null) {
+        issues.push(composer.issue ?? { path: "composer.json", code: "read_failed", detail: "composer.json could not be read" });
+        sourceFingerprint.push({ path: "composer.json", mode: composer.mode, content: composer.contentHash ?? `skipped:${composer.issue?.code ?? "read_failed"}` });
+      } else {
+        sourceFingerprint.push({ path: "composer.json", mode: composer.mode, content: composer.contentHash! });
+        try {
+          phpPsr4 = composerPsr4Mappings(JSON.parse(composer.source));
+        } catch {
+          issues.push({ path: "composer.json", code: "parse_failed", detail: "composer.json is not valid JSON; PHP PSR-4 resolution is incomplete" });
+        }
+      }
+    }
+  }
 
   // Fast scans intentionally skip the expensive 90-day history walk. Zero is
   // not a fresh measurement, though: overwriting a previously measured value
@@ -104,6 +157,9 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   const fileSymbolIndexId = new Map<string, Map<number, string>>(); // file -> (symbol index in parsed.symbols -> id)
   const perFileCalls: Array<{ file: string; bySym: Map<number, Map<string, boolean>> }> = [];
   const perFileImports: Array<{ file: string; imports: string[] }> = [];
+  const perFileRelations: Array<{ file: string; bySym: Map<number, ParsedRelation[]> }> = [];
+  const phpNamespaces = new Map<string, string | null>();
+  const phpUseDeclarations = new Map<string, string[]>();
   // Batched per-file git metrics (churn + last commit) in TWO `git log` spawns
   // total, instead of two per file — the dominant cost of indexing a large repo.
   const rels = files.map((file) => file.path);
@@ -117,8 +173,6 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   }
   const gitMeta = useGit ? fileGitMetrics(root, rels, opts.churn === false ? 0 : 90) : null;
   let skipped = 0;
-  const issues: RepoSourceIssue[] = [];
-  const sourceFingerprint: Array<{ path: string; mode: string; content: string }> = [];
 
   for (const file of files) {
     const rel = file.path;
@@ -127,10 +181,12 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       sourceFingerprint.push({ path: rel, mode: read.mode, content: "absent" });
       continue;
     }
+    noteCoverage(rel, "eligible");
     if (read.source === null) {
       skipped++;
       const issue = read.issue ?? { path: rel, code: "read_failed" as const, detail: `${rel} could not be read` };
       issues.push(issue);
+      noteSkip(rel, issue.code);
       sourceFingerprint.push({ path: rel, mode: read.mode, content: read.contentHash ?? `skipped:${issue.code}` });
       continue;
     }
@@ -143,18 +199,22 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     } catch {
       skipped++;
       issues.push({ path: rel, code: "parse_failed", detail: `${rel} could not be parsed` });
+      noteSkip(rel, "parse_failed");
       continue;
     }
     if (!parsed) {
       skipped++;
       issues.push({ path: rel, code: "parse_failed", detail: `${rel} has no supported parser` });
+      noteSkip(rel, "parse_failed");
       continue;
     }
     if (!parsed.parseable) {
       skipped++;
       issues.push({ path: rel, code: "parse_failed", detail: `${rel} contains syntax errors and cannot prove a complete semantic graph` });
+      noteSkip(rel, "parse_failed");
       continue;
     }
+    noteCoverage(rel, "parsed");
 
     const chartRoot = languageFor(rel)?.id === "yaml" ? chartRootFor(rel) : null;
     // Explicit null check, not truthiness: a chart rooted at the repo root
@@ -194,6 +254,11 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     fileSymbolIndexId.set(rel, symbolIndexId);
     perFileCalls.push({ file: rel, bySym: attributeCalls(parsed) });
     perFileImports.push({ file: rel, imports: parsed.imports });
+    perFileRelations.push({ file: rel, bySym: attributeRelations(parsed) });
+    if (languageFor(rel)?.id === "php") {
+      phpNamespaces.set(rel, parsed.namespace);
+      phpUseDeclarations.set(rel, parsed.imports.filter((capture) => /^\s*use\b/i.test(capture)));
+    }
   }
 
   const byId = new Map(symbols.map((s) => [s.id, s]));
@@ -205,16 +270,25 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   const hasSrcLayout = [...fileSymbols.keys()].some((f) => f.startsWith("src/"));
   const pyRoots = hasSrcLayout ? ["", "src"] : [""];
   const goModule = readGoModulePath(root);
-  const resolveImportTarget = (file: string, spec: string): string | null => {
+  const trackedFiles = new Set(fileSymbols.keys());
+  const resolveImportTargets = (file: string, spec: string): string[] => {
     const langId = languageFor(file)?.id;
-    if (langId === "python") return resolvePythonImport(file, spec, fileSymbols, pyRoots);
-    if (langId === "go") return resolveGoImport(spec, fileSymbols, goModule);
-    return resolveImport(file, spec, fileSymbols);
+    if (langId === "python") return [resolvePythonImport(file, spec, fileSymbols, pyRoots)].filter((target): target is string => !!target);
+    if (langId === "go") return [resolveGoImport(spec, fileSymbols, goModule)].filter((target): target is string => !!target);
+    if (langId === "php") {
+      return resolvePhpImportTargets(
+        file,
+        spec,
+        phpNamespaces.get(file) ?? null,
+        phpUseDeclarations.get(file) ?? [],
+        phpPsr4,
+        trackedFiles,
+      );
+    }
+    return [resolveImport(file, spec, fileSymbols)].filter((target): target is string => !!target);
   };
   const importedFiles = new Map(perFileImports.map(({ file, imports }) => {
-    const targets = new Set(
-      imports.map((specifier) => resolveImportTarget(file, specifier)).filter((target): target is string => !!target),
-    );
+    const targets = new Set(imports.flatMap((specifier) => resolveImportTargets(file, specifier)));
     const chartRoot = languageFor(file)?.id === "yaml" ? chartRootFor(file) : null;
     // Explicit null check, not truthiness — see the matching comment above on
     // the per-file Helm merge step: a repo-root chart's scope is "", not null.
@@ -243,7 +317,20 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       if (!callerId) continue;
       const callerName = byId.get(callerId)?.name ?? "?";
       for (const [calleeName, memberOnly] of callees) {
-        const calleeId = resolveName(calleeName, file, importedFiles.get(file) ?? new Set(), nameIndex, byId);
+        let resolvedName = calleeName;
+        const candidates = new Set(importedFiles.get(file) ?? []);
+        if (languageFor(file)?.id === "php") {
+          const reference = resolvePhpReference(
+            calleeName,
+            phpNamespaces.get(file) ?? null,
+            phpUseDeclarations.get(file) ?? [],
+            phpPsr4,
+            trackedFiles,
+          );
+          resolvedName = reference.symbolName;
+          for (const target of reference.files) candidates.add(target);
+        }
+        const calleeId = resolveName(resolvedName, file, candidates, nameIndex, byId);
         if (!calleeId || calleeId === callerId) continue;
         // A member call `x.foo()` only yields an edge when `foo` resolves to a
         // method or a same-file symbol — not a coincidentally-named top-level fn.
@@ -259,6 +346,42 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
           provenance: extracted(0.8, [file]),
           environment: null,
           metadata: {},
+        });
+      }
+    }
+  }
+
+  // PHP's static type relationships use the same symbol graph and conservative
+  // resolver as calls. Ambiguous or dynamic targets produce no edge.
+  for (const { file, bySym } of perFileRelations) {
+    const indexToId = fileSymbolIndexId.get(file) ?? new Map<number, string>();
+    for (const [sourceIndex, relations] of bySym) {
+      const sourceId = indexToId.get(sourceIndex);
+      if (!sourceId) continue;
+      const sourceName = byId.get(sourceId)?.name ?? "?";
+      for (const relation of relations) {
+        const resolved = resolvePhpReference(
+          relation.target,
+          phpNamespaces.get(file) ?? null,
+          phpUseDeclarations.get(file) ?? [],
+          phpPsr4,
+          trackedFiles,
+        );
+        const candidates = new Set(importedFiles.get(file) ?? []);
+        for (const target of resolved.files) candidates.add(target);
+        const targetId = resolveName(resolved.symbolName, file, candidates, nameIndex, byId);
+        if (!targetId || targetId === sourceId) continue;
+        addEdge({
+          schema: "hunch.edge/1",
+          id: edgeId(sourceId, targetId, relation.edgeType),
+          from: sourceId,
+          to: targetId,
+          type: relation.edgeType,
+          reason: `${sourceName} ${relation.label} ${resolved.symbolName}`,
+          strength: 1,
+          provenance: extracted(1, [file]),
+          environment: null,
+          metadata: { php_relation: relation.label },
         });
       }
     }
@@ -289,8 +412,9 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     const fromCmp = fileToComponent.get(file);
     if (!fromCmp) continue;
     for (const spec of imports) {
-      const target = resolveImportTarget(file, spec);
-      if (target) {
+      const targets = resolveImportTargets(file, spec);
+      if (targets.length) {
+        for (const target of targets) {
         const toCmp = fileToComponent.get(target);
         if (!toCmp || toCmp === fromCmp) continue;
         addEdge({
@@ -302,10 +426,12 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
           environment: null,
           metadata: {},
         });
+        }
         continue;
       }
-      const dependency = externalPackage(spec);
-      const external = externalImportNodeId(spec);
+      const externalSpecifier = languageFor(file)?.id === "php" ? phpExternalSpecifier(spec) : spec;
+      const dependency = externalSpecifier ? externalPackage(externalSpecifier) : null;
+      const external = externalSpecifier ? externalImportNodeId(externalSpecifier) : null;
       const anchors = [...(fileSymbols.get(file) ?? [])].sort();
       if (!dependency || !external || !anchors.length) continue;
       for (const anchor of anchors) {
@@ -345,7 +471,14 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     return stamp(merged) === stamp(prev) ? prev : { ...merged, updated_at: draft.updated_at };
   });
   return {
-    result: { files: files.length, symbols: symbols.length, edges: edges.length, components: compsOut.length, skipped },
+    result: {
+      files: files.length,
+      symbols: symbols.length,
+      edges: edges.length,
+      components: compsOut.length,
+      skipped,
+      coverage: [...coverage.values()].sort((left, right) => compareCodeUnits(left.language, right.language)),
+    },
     symbols,
     edges,
     components: compsOut,
@@ -356,7 +489,10 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
 
 /** Persist one pure scan into the Git-native source of truth. */
 export function indexRepo(store: HunchStore, root: string, opts: IndexRepoOptions = {}): IndexResult {
-  if (opts.requireClean) assertCleanIndexedCode(root);
+  if (opts.requireClean) {
+    assertCleanIndexedCode(root);
+    assertCleanAuxiliarySources(root, ["composer.json"]);
+  }
   // A clean preflight followed by a filesystem read still has a TOCTOU seam.
   // Durable Git-backed publication therefore derives from immutable HEAD blobs;
   // unborn and non-Git repositories retain the historical safe-filesystem path.

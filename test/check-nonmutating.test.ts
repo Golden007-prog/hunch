@@ -391,7 +391,9 @@ for (const unsafe of ["symlink", "oversized"] as const) {
 
       assert.equal(run.status, 1, `${run.stdout}${run.stderr}`);
       assert.match(run.stdout as string, /Incomplete semantic source scan/i);
-      assert.match(run.stdout as string, unsafe === "symlink" ? /unsupported Git mode 120000/i : /exceeds the .* source limit/i);
+      assert.match(run.stdout as string, unsafe === "symlink"
+        ? /Git-tracked symlink; its target is not read \[symlink\]/i
+        : /exceeds the .* source limit/i);
       assertRepositoryState(f.root, before);
     } finally {
       f.cleanup();

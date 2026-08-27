@@ -21,6 +21,7 @@
  * so re-importing an updated corpus is an idempotent per-record update, never a
  * duplicate. Parsing is pure (string in, records out) — the CLI owns all IO.
  */
+import { createHash } from "node:crypto";
 import { decisionId } from "../core/ids.js";
 import type { Decision } from "../core/types.js";
 
@@ -36,12 +37,22 @@ export const ADR_DIR_CANDIDATES = [
 
 /** An ADR file is NNNN-slug.md (adr-tools / MADR convention). Templates and
  *  indexes (adr-template.md, README.md, index.md) never match. */
-export const ADR_FILE_RE = /^(\d{1,5})-([a-z0-9][a-z0-9._-]*)\.md$/i;
+export const ADR_FILE_RE = /^(\d{1,5})-([a-z0-9@][a-z0-9@._-]*)\.md$/i;
+
+/** Decision.date is required even when an ADR has no date and no Git history is
+ * available (for example, a copied corpus outside a repository). Use an honest,
+ * deterministic sentinel instead of the import clock: re-importing the same
+ * bytes must not silently make an old decision look current. */
+export const UNDATED_ADR_DATE = "1970-01-01T00:00:00.000Z";
 
 export interface AdrSource {
   /** repo-relative posix path, e.g. docs/adr/0005-use-postgres.md */
   relPath: string;
   text: string;
+  /** ISO date of the source file's introduction commit, when available. */
+  sourceDate?: string | null;
+  /** Full source introduction commit, when available. */
+  sourceRevision?: string | null;
 }
 
 export interface ParsedAdr {
@@ -58,6 +69,7 @@ export interface ParsedAdr {
   consequences: string[];
   consideredOptions: string[];
   chosenOption: string | null;
+  sourceHash: string;
   /** ADR numbers this one supersedes / is superseded by (from status text + links) */
   supersedesNumbers: number[];
   supersededByNumbers: number[];
@@ -76,33 +88,54 @@ function frontmatterField(fm: string, key: string): string | null {
   return m[1]!.trim().replace(/^["']|["']$/g, "");
 }
 
-/** Split a markdown body into `## `-heading sections (heading -> body text).
- *  `###` subsections stay inside their parent's body. */
+/** Normalize a Markdown section heading for the small ADR vocabulary. */
+function normalizeHeading(value: string): string {
+  return value
+    .replace(/\s+\(optional\)\s*$/i, "")
+    .replace(/[*_`]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** Read level-2+ Markdown sections while preserving their hierarchy. A level-2
+ * MADR section includes its nested level-3 text, and the nested section is also
+ * addressable on its own. Infection's older ADRs use level 3 for every top-level
+ * section, so accepting only `##` silently lost their status and content. */
 function sections(body: string): Map<string, string> {
   const out = new Map<string, string>();
   const lines = body.split(/\r?\n/);
-  let current: string | null = null;
-  let buf: string[] = [];
-  const flush = () => {
-    if (current !== null) out.set(current.toLowerCase(), buf.join("\n").trim());
-    buf = [];
-  };
-  for (const line of lines) {
-    const h = /^##\s+(.+?)\s*$/.exec(line);
-    if (h && !line.startsWith("###")) {
-      flush();
-      current = h[1]!;
-    } else if (current !== null) {
-      buf.push(line);
+  const headings: Array<{ line: number; level: number; title: string }> = [];
+  let fence: { char: "`" | "~"; length: number } | null = null;
+  for (let line = 0; line < lines.length; line++) {
+    const value = lines[line]!;
+    const marker = /^\s*(`{3,}|~{3,})/.exec(value)?.[1];
+    if (marker) {
+      const char = marker[0] as "`" | "~";
+      if (!fence) fence = { char, length: marker.length };
+      else if (fence.char === char && marker.length >= fence.length) fence = null;
+      continue;
     }
+    if (fence) continue;
+    const heading = /^(#{2,6})\s+(.+?)\s*$/.exec(value);
+    if (heading) headings.push({ line, level: heading[1]!.length, title: heading[2]! });
   }
-  flush();
+  for (let index = 0; index < headings.length; index++) {
+    const heading = headings[index]!;
+    let end = lines.length;
+    for (let next = index + 1; next < headings.length; next++) {
+      if (headings[next]!.level <= heading.level) {
+        end = headings[next]!.line;
+        break;
+      }
+    }
+    out.set(normalizeHeading(heading.title), lines.slice(heading.line + 1, end).join("\n").trim());
+  }
   return out;
 }
 
 function sectionOf(secs: Map<string, string>, ...names: string[]): string {
   for (const n of names) {
-    const v = secs.get(n.toLowerCase());
+    const v = secs.get(normalizeHeading(n));
     if (v) return v;
   }
   return "";
@@ -126,16 +159,37 @@ function consequenceItems(sectionText: string): string[] {
   return prose ? [stripMdLinks(prose)] : [];
 }
 
+/** MADR usually lists options, while older corpora often describe rejected
+ * alternatives as prose paragraphs. Preserve either form instead of silently
+ * dropping the latter from alternatives_rejected. */
+function alternativeItems(sectionText: string): string[] {
+  const listed = listItems(sectionText);
+  if (listed.length) return listed;
+  return sectionText
+    .split(/\r?\n\s*\r?\n/)
+    .map((paragraph) => stripMdLinks(paragraph).replace(/\s+/g, " ").trim())
+    .filter((paragraph) => paragraph.length > 0 && !/^\[[^\]]+\]:\s*/.test(paragraph));
+}
+
 function stripMdLinks(s: string): string {
-  return s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
+  return s
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1")
+    .trim();
 }
 
 /** ADR cross-reference numbers in a status/frontmatter phrase, e.g.
  *  "Superseded by [ADR-0007](0007-x.md)" or "supersedes 3". */
-function refNumbers(text: string): number[] {
-  const out: number[] = [];
-  for (const m of text.matchAll(/(?:adr[-\s]?)?0*(\d{1,5})\b/gi)) out.push(Number(m[1]));
-  return out;
+function adrRefNumbers(text: string): number[] {
+  const out = new Set<number>();
+  for (const match of text.matchAll(/\bADR[-\s]+0*(\d{1,5})\b/gi)) out.add(Number(match[1]));
+  for (const match of text.matchAll(/(?:^|[(/])0*(\d{1,5})-[a-z0-9@][a-z0-9@._-]*\.md\b/gi)) out.add(Number(match[1]));
+  // Frontmatter commonly uses `supersedes: 4`; accept a bare number only when
+  // the entire field is numeric. Never treat issue/PR references such as #1760
+  // as ADR relationships.
+  const bare = /^\s*0*(\d{1,5})\s*$/.exec(text);
+  if (bare) out.add(Number(bare[1]));
+  return [...out];
 }
 
 function mapStatus(raw: string): ParsedAdr["status"] {
@@ -160,6 +214,7 @@ export function parseAdrMarkdown(text: string, relPath: string): ParsedAdr | nul
   if (!nameMatch) return null;
   const number = Number(nameMatch[1]);
   const slug = nameMatch[2]!.toLowerCase();
+  if (number === 0 && /^(?:adr[-_.]?)?template(?:[-_.]|$)/i.test(slug)) return null;
 
   const fmMatch = FRONTMATTER_RE.exec(text);
   const fm = fmMatch ? fmMatch[1]! : "";
@@ -180,19 +235,19 @@ export function parseAdrMarkdown(text: string, relPath: string): ParsedAdr | nul
   const supersededByNumbers: number[] = [];
   const supersedesNumbers: number[] = [];
   for (const line of statusText.split(/\r?\n/)) {
-    if (/superseded\s+by|deprecated\s+by|replaced\s+by/i.test(line)) supersededByNumbers.push(...refNumbers(line.replace(/.*?(?:by)/i, "")));
-    else if (/supersedes|replaces/i.test(line)) supersedesNumbers.push(...refNumbers(line.replace(/.*?(?:supersedes|replaces)/i, "")));
+    if (/superseded\s+by|deprecated\s+by|replaced\s+by/i.test(line)) supersededByNumbers.push(...adrRefNumbers(line.replace(/.*?(?:by)/i, "")));
+    else if (/supersedes|replaces/i.test(line)) supersedesNumbers.push(...adrRefNumbers(line.replace(/.*?(?:supersedes|replaces)/i, "")));
   }
   for (const key of ["superseded-by", "superseded_by"]) {
     const v = frontmatterField(fm, key);
-    if (v) supersededByNumbers.push(...refNumbers(v));
+    if (v) supersededByNumbers.push(...adrRefNumbers(v));
   }
   const fmSupersedes = frontmatterField(fm, "supersedes");
-  if (fmSupersedes) supersedesNumbers.push(...refNumbers(fmSupersedes));
+  if (fmSupersedes) supersedesNumbers.push(...adrRefNumbers(fmSupersedes));
 
   const decisionOutcome = sectionOf(secs, "Decision Outcome", "Decision");
   const chosenMatch = /chosen option:\s*["“]?([^"”\n,]+)["”]?/i.exec(decisionOutcome);
-  const consideredOptions = listItems(sectionOf(secs, "Considered Options", "Options"));
+  const consideredOptions = alternativeItems(sectionOf(secs, "Considered Options", "Alternatives Considered", "Options"));
 
   // "### Consequences" nests inside Decision Outcome in MADR; Nygard has it top-level.
   let consequencesText = sectionOf(secs, "Consequences");
@@ -214,6 +269,7 @@ export function parseAdrMarkdown(text: string, relPath: string): ParsedAdr | nul
     consequences: consequenceItems(consequencesText),
     consideredOptions,
     chosenOption: chosenMatch ? chosenMatch[1]!.trim() : null,
+    sourceHash: createHash("sha256").update(text).digest("hex"),
     supersedesNumbers: [...new Set(supersedesNumbers)],
     supersededByNumbers: [...new Set(supersededByNumbers)],
   };
@@ -240,6 +296,7 @@ export function mapAdrCorpus(sources: AdrSource[]): AdrImportResult {
     parsed.push(p);
   }
   const byNumber = new Map<number, ParsedAdr>();
+  const sourceByPath = new Map(sources.map((source) => [source.relPath, source] as const));
   for (const p of parsed) {
     if (byNumber.has(p.number)) warnings.push(`duplicate ADR number ${p.number}: ${byNumber.get(p.number)!.relPath} and ${p.relPath} — cross-links resolve to the first`);
     else byNumber.set(p.number, p);
@@ -266,7 +323,11 @@ export function mapAdrCorpus(sources: AdrSource[]): AdrImportResult {
       warnings.push(`${p.relPath}: deprecated status names no resolvable successor — kept in force as accepted; raw status remains in provenance evidence, review and record an explicit successor or rejection`);
     }
     const superseded = p.status === "superseded" || !!successor;
-    const validTo = superseded ? (successor?.date ?? p.date) : null;
+    const sourceDate = sourceByPath.get(p.relPath)?.sourceDate || null;
+    const sourceRevision = sourceByPath.get(p.relPath)?.sourceRevision || null;
+    const effectiveDate = p.date ?? sourceDate ?? UNDATED_ADR_DATE;
+    const successorSourceDate = successor ? (sourceByPath.get(successor.relPath)?.sourceDate || null) : null;
+    const validTo = superseded ? (successor?.date ?? successorSourceDate ?? p.date ?? sourceDate) : null;
     const alternatives = p.consideredOptions.filter(
       (o) => !p.chosenOption || o.toLowerCase() !== p.chosenOption.toLowerCase(),
     );
@@ -285,16 +346,21 @@ export function mapAdrCorpus(sources: AdrSource[]): AdrImportResult {
       supersedes: p.supersedesNumbers.map((n) => byNumber.get(n)).filter(Boolean).map((t) => adrDecisionId(t!.relPath))[0] ?? null,
       superseded_by: successor ? adrDecisionId(successor.relPath) : null,
       caused_by_bug: null,
-      commit: null,
-      valid_from: p.date ?? undefined,
+      commit: sourceRevision,
+      valid_from: p.date ?? sourceDate ?? undefined,
       valid_to: validTo,
       retired: { symbols: [], deps: [] },
       provenance: {
         source: "imported:madr",
         confidence: 0.75,
-        evidence: [p.relPath, `status: ${p.statusRaw || "(none)"}`],
+        evidence: [
+          p.relPath,
+          `sha256:${p.sourceHash}`,
+          ...(sourceRevision ? [`source-commit:${sourceRevision}`] : []),
+          `status: ${p.statusRaw || "(none)"}`,
+        ],
       },
-      date: p.date ?? new Date().toISOString(),
+      date: effectiveDate,
     };
   });
 

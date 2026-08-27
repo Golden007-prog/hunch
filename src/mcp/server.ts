@@ -50,6 +50,7 @@ import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } fro
 import { pendingEscalations, policyEscalations, type Escalation } from "../core/escalations.js";
 import { scanRecord, publicationWarning, loadVocabulary } from "../core/publication.js";
 import { premiseEscalations } from "../core/premises.js";
+import { applyImportedAdrReview, pendingImportedAdrReviews } from "../core/importReview.js";
 import { issueCaptureToken as issueToken, consumeCaptureToken as consumeToken } from "../core/capturetoken.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -1016,7 +1017,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
     {
       title: "Recent activity + the roadmap (the hot view)",
       description:
-        "What just happened and what's next, straight from the graph: the last N decisions (any status — a supersession IS activity) and the ROADMAP (every live human-vouched PROPOSED decision). Call at session start to orient, or before planning what to work on. Same data as the wiki's now.md. Public store only.",
+        "What just happened and what's next, straight from the graph: the last N decisions, the ROADMAP, and any inline human question such as an imported ADR awaiting explicit approve/decline. Call at session start to orient, or before planning what to work on. Same data as the wiki's now.md. Public store only.",
       inputSchema: {
         recent_limit: z.number().optional().describe("How many recent decisions to include (default 10)."),
       },
@@ -1050,7 +1051,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
     {
       title: "Decisions the human must make now (ask inline, not a queue)",
       description:
-        "The rare decisions the graph cannot resolve on its own — surfaced so you ASK THE USER in the prompt at the moment, then act. Auto-captured memory is trusted automatically and never appears here; this returns topic conflicts (>1 live decision for one topic), premise-stale decisions (a live decision whose recorded REASON no longer holds — its authority is unchanged until the human re-attests, supersedes, or retires), and Constitution human moments (candidate policies awaiting review, proposed policies awaiting an activation decision). Normally empty. Raise each question with the user; do NOT decide it for them — an entry is a question, never an approval. Reads the public store, or the unified overlay when the repo is in shared mode (where the overlay IS the store) — never private-mode overlay records.",
+        "The rare decisions the graph cannot resolve on its own — surfaced so you ASK THE USER in the prompt at the moment, then act. This includes one exact imported ADR at a time awaiting approve/decline, topic conflicts, premise-stale decisions, and Constitution human moments. Normally empty. Raise each question with the user; do NOT decide it for them — an entry is a question, silence is never approval. Reads the public store, or the unified overlay when the repo is in shared mode (where the overlay IS the store) — never private-mode overlay records.",
       inputSchema: {},
     },
     async (): Promise<ToolResult> => {
@@ -1069,6 +1070,51 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         L.push(`   → ${e.resolution}`, "");
       }
       return ok(L.join("\n"));
+    },
+  );
+
+  // -- hunch_review_imported_adr (the chat-native countersign) --------------
+  server.registerTool(
+    "hunch_review_imported_adr",
+    {
+      title: "Apply the human's exact imported-ADR answer",
+      description:
+        "Use ONLY after the human explicitly answers the currently surfaced imported-ADR question with approve or decline in this conversation. Never infer approval from silence, continued work, a generic earlier sign-off, or the ADR file's own status. The source and review hashes bind the answer to both the exact bytes and mapped meaning shown. Approve grants human-confirmed authority; decline records review but keeps the ADR advisory.",
+      inputSchema: {
+        decision_id: z.string().regex(/^dec_[A-Za-z0-9_-]+$/),
+        expected_source_hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        expected_review_hash: z.string().regex(/^sha256:[a-f0-9]{64}$/).describe("Mapped-decision hash printed with the question; catches importer-semantic changes even when source bytes are unchanged."),
+        disposition: z.enum(["approve", "decline"]),
+        reviewed_by: z.string().min(1).max(128).optional().describe("Credential-free reviewer label; defaults to human:interactive-chat for a direct answer in this chat."),
+        cwd: cwdHintField,
+      },
+    },
+    async ({ decision_id, expected_source_hash, expected_review_hash, disposition, reviewed_by }): Promise<ToolResult> => {
+      try {
+        const decision = store.advisoryRecs("decisions").find((candidate) => candidate.id === decision_id);
+        if (!decision) return err(`Imported ADR ${decision_id} is not present in the current advisory memory home.`);
+        const reviewed = applyImportedAdrReview(decision, {
+          disposition,
+          expectedSourceHash: expected_source_hash,
+          expectedReviewHash: expected_review_hash,
+          reviewer: reviewed_by ?? "human:interactive-chat",
+        });
+        const home = store.captureHome(false);
+        store.putCapture("decisions", reviewed, home === "private");
+        store.reindex();
+        if (home === "public" && !store.autoCommit) refreshExistingGrounding(root, store);
+        const flush = flushCapture(store, hunchPaths(root).hunch, home === "private", `hunch: ${disposition} imported ADR ${decision_id}`, startupTeamRoute ?? undefined);
+        const remaining = pendingImportedAdrReviews(store.advisoryRecs("decisions"));
+        const outcome = disposition === "approve"
+          ? `${decision_id} is now human-confirmed authority for ${expected_source_hash}.`
+          : `${decision_id} was reviewed for ${expected_source_hash} and remains advisory.`;
+        const next = remaining.length
+          ? ` ${remaining.length} imported live ADR(s) remain; call hunch_escalations and ask the next question separately.`
+          : " No imported ADR review questions remain.";
+        return ok(`✓ ${outcome}${flushNote(flush, home, store.mode)}${next}`);
+      } catch (error) {
+        return err(`Could not apply the imported-ADR answer: ${error instanceof Error ? error.message : String(error)}`);
+      }
     },
   );
 

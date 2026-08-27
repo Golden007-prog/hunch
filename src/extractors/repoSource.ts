@@ -302,6 +302,8 @@ function stagedInventory(root: string): RepoSourceInventory {
     const row = rows.find((candidate) => candidate.stage === 0);
     if (!row) {
       entries.push(issueEntry(path, "conflicted", "conflicted", `${path} has no stage-0 Git index blob`));
+    } else if (row.mode === "120000") {
+      entries.push(issueEntry(path, row.mode, "symlink", `${path} is a Git-tracked symlink; its target is not read`));
     } else if (!ORDINARY_BLOB_MODES.has(row.mode)) {
       entries.push(issueEntry(path, row.mode, "unsafe_mode", `${path} uses unsupported Git mode ${row.mode}`));
     } else {
@@ -338,7 +340,9 @@ function treeInventory(root: string, kind: "commit" | "base", ref: string): Repo
     const preflight = normalizeCandidate(path, mode);
     if (preflight === "skip") continue;
     if (preflight) { entries.push(preflight); continue; }
-    if (type !== "blob" || !ORDINARY_BLOB_MODES.has(mode)) {
+    if (mode === "120000") {
+      entries.push(issueEntry(path, mode, "symlink", `${path} is a Git-tracked symlink; its target is not read`));
+    } else if (type !== "blob" || !ORDINARY_BLOB_MODES.has(mode)) {
       entries.push(issueEntry(path, mode, "unsafe_mode", `${path} uses unsupported Git ${type} mode ${mode}`));
     } else {
       entries.push(gitBlobEntry(root, path, mode, oid));
@@ -422,6 +426,51 @@ export function repoSourceInventory(root: string, source: RepoScanSource = { kin
   return filesystemInventory(root, source.kind);
 }
 
+function absentAuxiliarySource(): RepoSourceRead {
+  return { source: null, mode: "absent", absent: true };
+}
+
+/** Read a known, safe auxiliary manifest from the exact same source selection as
+ * the semantic code scan. This is intentionally path-specific rather than a
+ * second inventory: manifests inform resolution but never become code files. */
+export function repoAuxiliarySource(
+  root: string,
+  source: RepoScanSource = { kind: "checkout" },
+  path: string,
+): RepoSourceRead {
+  if (!isSafeRelativePath(path) || isSkippedPath(path)) {
+    return { source: null, mode: "unsafe", issue: { path, code: "unsafe_path", detail: `${path} is not a safe auxiliary source path` } };
+  }
+  if (source.kind === "commit" || source.kind === "base") {
+    if (!isGitRepository(root)) return absentAuxiliarySource();
+    const revision = exactCommit(root, source.kind === "commit" ? source.ref : "HEAD");
+    const raw = gitBuffer(root, ["ls-tree", "--full-tree", "-z", revision, "--", path], 1024 * 1024);
+    const records = nulRecords(raw);
+    if (records.length === 0) return absentAuxiliarySource();
+    if (records.length !== 1) return { source: null, mode: "ambiguous", issue: { path, code: "read_failed", detail: `${path} did not resolve to one exact Git object` } };
+    const tab = records[0]!.indexOf(0x09);
+    const match = tab < 0 ? null : records[0]!.subarray(0, tab).toString("ascii").match(/^([0-7]{6}) blob ([0-9a-f]{40,64})$/i);
+    if (!match || records[0]!.subarray(tab + 1).toString("utf8") !== path || !ORDINARY_BLOB_MODES.has(match[1]!)) {
+      return { source: null, mode: match?.[1] ?? "invalid", issue: { path, code: "unsafe_mode", detail: `${path} is not an ordinary exact Git blob` } };
+    }
+    return gitBlobEntry(root, path, match[1]!, match[2]!).read();
+  }
+  if (source.kind === "staged") {
+    if (!isGitRepository(root)) return absentAuxiliarySource();
+    const rows = indexRows(root, true).filter((row) => !row.invalidUtf8 && row.path === path);
+    if (rows.length === 0) return absentAuxiliarySource();
+    const row = rows.find((candidate) => candidate.stage === 0);
+    if (!row || rows.some((candidate) => candidate.stage !== 0)) {
+      return { source: null, mode: "conflicted", issue: { path, code: "conflicted", detail: `${path} has unresolved Git index stages` } };
+    }
+    if (!ORDINARY_BLOB_MODES.has(row.mode)) {
+      return { source: null, mode: row.mode, issue: { path, code: "unsafe_mode", detail: `${path} uses unsupported Git mode ${row.mode}` } };
+    }
+    return gitBlobEntry(root, path, row.mode, row.oid).read();
+  }
+  return filesystemEntry(root, path, true).read();
+}
+
 export function dirtyIndexedCodePaths(root: string): string[] {
   if (!isGitRepository(root)) return [];
   const paths = [
@@ -438,4 +487,18 @@ export function assertCleanIndexedCode(root: string): void {
   const sample = dirty.slice(0, 5).join(", ");
   const more = dirty.length > 5 ? ` (+${dirty.length - 5} more)` : "";
   throw new Error(`refusing to persist a derived graph from dirty indexed code: ${sample}${more}; commit or stash code changes, then retry`);
+}
+
+/** Auxiliary manifests can change graph resolution just like source code. A
+ * durable checkout scan must therefore prove these selected paths are clean. */
+export function assertCleanAuxiliarySources(root: string, paths: readonly string[]): void {
+  if (!isGitRepository(root) || paths.length === 0) return;
+  const selected = new Set(paths);
+  const dirty = [
+    ...nulPaths(root, ["diff", "--cached", "--no-ext-diff", "--name-only", "-z", "--", ...paths], true),
+    ...nulPaths(root, ["diff", "--no-ext-diff", "--name-only", "-z", "--", ...paths], true),
+    ...nulPaths(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths], true),
+  ].map((entry) => entry.path).filter((path) => selected.has(path));
+  const unique = [...new Set(dirty)].sort(compareCodeUnits);
+  if (unique.length) throw new Error(`refusing to persist a derived graph from dirty auxiliary source: ${unique.join(", ")}; commit or stash it, then retry`);
 }

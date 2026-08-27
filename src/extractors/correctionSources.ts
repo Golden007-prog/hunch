@@ -16,14 +16,14 @@ export interface CorrectionSourceCollection {
   files_skipped: number;
 }
 
-/** Safely read a bounded working-tree TypeScript corpus. Stage-relevant paths
+/** Safely read a bounded working-tree TypeScript/PHP corpus. Stage-relevant paths
  * are read first so a huge repository cannot crowd the likely correction layer
  * out of the fixed source budget. */
 export function collectCorrectionStageSources(root: string, issue: string): CorrectionSourceCollection {
   const pattern = correctionStagePathPattern(inferIssueCorrectionStage(issue), issue);
   const eligible = repoSourceInventory(root, { kind: "working" }).entries
-    .filter((entry) => /^[A-Za-z0-9._/-]+\.tsx?$/.test(entry.path)
-      && !/(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.test\.tsx?$/.test(entry.path))
+    .filter((entry) => /^[A-Za-z0-9._/-]+\.(?:tsx?|php)$/.test(entry.path)
+      && !/(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.test\.(?:tsx?|php)$/.test(entry.path))
     .sort((a, b) => Number(pattern.test(b.path)) - Number(pattern.test(a.path)) || compareCodeUnits(a.path, b.path));
   const attempted = eligible.slice(0, SOURCE_FILE_LIMIT);
   const sources: ContractAxisOwnerSource[] = [];

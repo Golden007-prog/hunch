@@ -976,13 +976,13 @@ export class HunchStore {
       /* sql */ `
       SELECT e."to" AS nb
         FROM edges e
-       WHERE e."from" = ? AND e.type IN ('calls','depends_on','imports','contains')
+       WHERE e."from" = ? AND e.type IN ('calls','depends_on','imports','contains','implements')
          AND (EXISTS (SELECT 1 FROM symbols s WHERE s.id = e."to")
            OR EXISTS (SELECT 1 FROM components c WHERE c.id = e."to"))
       UNION
       SELECT e."from" AS nb
         FROM edges e
-       WHERE e."to" = ? AND e.type IN ('calls','depends_on','imports','contains')
+       WHERE e."to" = ? AND e.type IN ('calls','depends_on','imports','contains','implements')
          AND (EXISTS (SELECT 1 FROM symbols s WHERE s.id = e."from")
            OR EXISTS (SELECT 1 FROM components c WHERE c.id = e."from"))
        ORDER BY nb`,
@@ -1087,7 +1087,7 @@ export class HunchStore {
         UNION
         SELECT e."from", up.depth + 1
         FROM edges e JOIN up ON e."to" = up.node
-        WHERE e.type IN ('calls','depends_on','imports','contains') AND up.depth < ?
+        WHERE e.type IN ('calls','depends_on','imports','contains','implements') AND up.depth < ?
       )
       SELECT up.node AS id, MIN(up.depth) AS depth,
              COALESCE(s.name || ' @ ' || s.file, c.name, up.node) AS via
@@ -1107,7 +1107,7 @@ export class HunchStore {
         UNION
         SELECT e."to", down.depth + 1
         FROM edges e JOIN down ON e."from" = down.node
-        WHERE e.type IN ('calls','depends_on','imports','contains') AND down.depth < ?
+        WHERE e.type IN ('calls','depends_on','imports','contains','implements') AND down.depth < ?
       )
       SELECT down.node AS id, MIN(down.depth) AS depth,
              COALESCE(s.name || ' @ ' || s.file, c.name, down.node) AS via
@@ -1133,7 +1133,7 @@ export class HunchStore {
         UNION
         SELECT e."from", up.depth + 1
         FROM edges e JOIN up ON e."to" = up.node
-        WHERE e.type IN ('calls','depends_on','imports','contains') AND up.depth < ?
+        WHERE e.type IN ('calls','depends_on','imports','contains','implements') AND up.depth < ?
       )
       SELECT s.file AS file, s.name AS via, MIN(up.depth) AS depth
       FROM up JOIN symbols s ON s.id = up.node
@@ -1143,29 +1143,42 @@ export class HunchStore {
   }
 
   /** Shortest undirected path between two graph nodes (symbols/components) over
-   *  call/dep/import/contains edges — "how does A reach B?" (hunch path / hunch_path).
-   *  BFS via a recursive CTE; visited ids ride a |-delimited list so cycles terminate.
+   *  call/dep/import/contains/type-relation edges — "how does A reach B?" (hunch
+   *  path / hunch_path). An iterative BFS visits each node once; the old recursive
+   *  SQL enumerated simple paths and grew exponentially on dense real repositories.
    *  Returns the node chain in order, or null when no path exists within maxDepth. */
   shortestPath(fromId: string, toId: string, maxDepth = 8): Array<{ id: string; via: string }> | null {
     if (fromId === toId) return [{ id: fromId, via: this.nodeLabel(fromId) }];
-    const row = this.db.prepare(
+    const depthLimit = Number.isFinite(maxDepth) ? Math.max(0, Math.trunc(maxDepth)) : 8;
+    const neighbors = this.db.prepare(
       /* sql */ `
-      WITH RECURSIVE step(node, path, depth) AS (
-        SELECT ?, '|' || ? || '|', 0
-        UNION
-        SELECT x.nb, step.path || x.nb || '|', step.depth + 1
-        FROM (
-          SELECT e."from" AS frm, e."to" AS nb FROM edges e WHERE e.type IN ('calls','depends_on','imports','contains')
-          UNION ALL
-          SELECT e."to" AS frm, e."from" AS nb FROM edges e WHERE e.type IN ('calls','depends_on','imports','contains')
-        ) x JOIN step ON x.frm = step.node
-        WHERE step.depth < ? AND instr(step.path, '|' || x.nb || '|') = 0
-      )
-      SELECT path FROM step WHERE node = ? ORDER BY depth LIMIT 1`,
-    ).get(fromId, fromId, maxDepth, toId) as { path: string } | undefined;
-    if (!row) return null;
-    const ids = row.path.split("|").filter(Boolean);
-    return ids.map((id) => ({ id, via: this.nodeLabel(id) }));
+      SELECT e."to" AS nb FROM edges e
+      WHERE e."from" = ? AND e.type IN ('calls','depends_on','imports','contains','implements')
+      UNION
+      SELECT e."from" AS nb FROM edges e
+      WHERE e."to" = ? AND e.type IN ('calls','depends_on','imports','contains','implements')
+      ORDER BY nb`,
+    );
+    const parent = new Map<string, string | null>([[fromId, null]]);
+    let frontier = [fromId];
+    for (let depth = 0; depth < depthLimit && frontier.length; depth++) {
+      const next: string[] = [];
+      for (const current of frontier) {
+        for (const { nb } of neighbors.all(current, current) as Array<{ nb: string }>) {
+          if (parent.has(nb)) continue;
+          parent.set(nb, current);
+          if (nb === toId) {
+            const ids: string[] = [];
+            for (let cursor: string | null = toId; cursor !== null; cursor = parent.get(cursor) ?? null) ids.push(cursor);
+            ids.reverse();
+            return ids.map((id) => ({ id, via: this.nodeLabel(id) }));
+          }
+          next.push(nb);
+        }
+      }
+      frontier = next;
+    }
+    return null;
   }
 
   /** Human label for a graph node id: "name @ file" for a symbol, the component name,
@@ -1283,8 +1296,8 @@ export class HunchStore {
   /** Labelled one-hop edge neighbors of a node ("in" = who reaches it, "out" = what it reaches). */
   private edgeNeighbors(id: string, dir: "in" | "out", limit: number): string[] {
     const sql = dir === "in"
-      ? `SELECT e."from" AS nb FROM edges e WHERE e."to" = ? AND e.type IN ('calls','depends_on','imports','contains') LIMIT ?`
-      : `SELECT e."to" AS nb FROM edges e WHERE e."from" = ? AND e.type IN ('calls','depends_on','imports','contains') LIMIT ?`;
+      ? `SELECT e."from" AS nb FROM edges e WHERE e."to" = ? AND e.type IN ('calls','depends_on','imports','contains','implements') LIMIT ?`
+      : `SELECT e."to" AS nb FROM edges e WHERE e."from" = ? AND e.type IN ('calls','depends_on','imports','contains','implements') LIMIT ?`;
     return (this.db.prepare(sql).all(id, limit) as Array<{ nb: string }>).map((r) => this.nodeLabel(r.nb));
   }
 

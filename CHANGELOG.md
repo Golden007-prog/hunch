@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+## 1.20.0-rc.4 — 2026-08-27
+
+### PHP repositories enter the production graph
+
+PHP now uses the existing native Tree-sitter graph pipeline instead of a parallel index. Hunch
+extracts namespaces, classes, interfaces, traits, enums, functions and methods; resolves safe
+Composer PSR-4 identities, namespace imports, includes, conservative calls and type relationships;
+and reports per-language eligible, parsed and skipped coverage. Type relationships now participate
+in path and impact queries, whose bounded BFS avoids the exponential simple-path enumeration exposed
+by Infection's 45,792-edge graph. The correction-source scan also includes production PHP while
+keeping exact-owner claims disabled.
+
+Pinned acceptance receipts cover Infection (1,822/1,823 PHP files parsed, with one tracked external
+symlink rejected) and Composer (622/622), including graph behavior and explicit uncertainty.
+
+### ADR import preserves corpus lifecycle and provenance
+
+ADR import now handles nested Markdown sections, safe `@` filenames, reference links, prose
+alternatives and explicit successor references without confusing issue numbers for ADRs. Corpus
+templates are excluded, source bytes and first-introduction commits are recorded, and successor
+dates close historical validity windows deterministically. The complete 13-record Infection receipt
+is checked in and intentionally remains pending human sign-off.
+
+Imported live ADRs now enter the graph as advisory memory and surface as plain approve/decline
+questions during normal assistant sessions, one at a time. The answer is bound to both the exact
+source bytes and the complete mapped decision meaning: approve adds human-confirmed authority,
+decline records review while keeping the memory advisory, silence changes nothing, and changed
+source or importer semantics reopen the question. CLI and MCP use the same review state.
+
 ## 1.20.0-rc.3 — 2026-08-27
 
 ### Exact graph snapshots no longer rewrite dense indexes once per record

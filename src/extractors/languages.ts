@@ -9,7 +9,7 @@ import { basename } from "node:path";
 import { loadNativeTreeSitter } from "./nativeTreeSitter.js";
 import type { Edge } from "../core/types.js";
 
-export type ParsedSymbolKind = "function" | "method" | "class" | "interface" | "type" | "variable" | "file";
+export type ParsedSymbolKind = "function" | "method" | "class" | "interface" | "trait" | "enum" | "type" | "variable" | "file";
 
 export interface LanguageSpec {
   /** Stable id, also used as the grammar-bundle cache key by parse.ts. */
@@ -28,10 +28,16 @@ export interface LanguageSpec {
   defKindOf: Record<string, ParsedSymbolKind>;
   /** Query capture-name (ending in ".name") -> the matching ".def" capture-name. */
   nameToDef: Record<string, string>;
+  /** Optional semantic relationship captures. The generic parser/indexer emit
+   * these through the normal graph path; languages only describe syntax. */
+  relationKindOf?: Record<string, { edgeType: Edge["type"]; label: string }>;
   /** Common builtin/stdlib method names. Member calls to these (e.g. `arr.map(...)`)
    *  must NOT create call edges to unrelated repo symbols that happen to share the
    *  name (DESIGN: keep the graph clean). */
   builtinMethods: Set<string>;
+  /** Direct-call builtins for languages such as PHP. These never become repo
+   * call edges merely because a project symbol shares the runtime name. */
+  builtinFunctions?: Set<string>;
   /** Edge type emitted for this language's calls-list entries (e.g. YAML's
    *  alias->anchor references aren't function calls). Defaults to "calls"
    *  when omitted — every language before YAML. */
@@ -244,6 +250,73 @@ const GO: LanguageSpec = {
   builtinMethods: GO_BUILTIN_METHODS,
 };
 
+const PHP_QUERY = `
+  (namespace_definition name: (namespace_name) @namespace.name) @namespace.def
+  (class_declaration name: (name) @class.name) @class.def
+  (interface_declaration name: (name) @iface.name) @iface.def
+  (trait_declaration name: (name) @trait.name) @trait.def
+  (enum_declaration name: (name) @enum.name) @enum.def
+  (function_definition name: (name) @fn.name) @fn.def
+  (method_declaration name: (name) @method.name) @method.def
+
+  ;; Keep whole namespace-use declarations so Composer resolution can retain
+  ;; aliases, grouped imports, and function/const import modifiers.
+  (namespace_use_declaration) @import.src
+  ;; Static include/require expressions are resolved conservatively by the PHP
+  ;; resolver. Dynamic expressions remain visible as unresolved, never guessed.
+  [(include_expression) (include_once_expression)
+   (require_expression) (require_once_expression)] @import.src
+
+  (object_creation_expression [(name) (qualified_name)] @import.src)
+  (scoped_call_expression scope: [(name) (qualified_name)] @import.src)
+
+  (function_call_expression function: (name) @call.id)
+  (function_call_expression function: (qualified_name) @call.id)
+  (object_creation_expression [(name) (qualified_name)] @call.id)
+  (scoped_call_expression name: (name) @call.member)
+  (member_call_expression name: (name) @call.member)
+  (nullsafe_member_call_expression name: (name) @call.member)
+
+  (base_clause [(name) (qualified_name) (relative_name)] @relation.extends)
+  (class_interface_clause [(name) (qualified_name) (relative_name)] @relation.implements)
+  (use_declaration [(name) (qualified_name) (relative_name)] @relation.trait)
+`;
+
+const PHP_BUILTIN_METHODS = new Set([
+  "count", "strlen", "array_map", "array_filter", "array_reduce", "array_values", "array_keys",
+  "in_array", "sprintf", "printf", "implode", "explode", "trim", "ltrim", "rtrim", "str_replace",
+  "preg_match", "preg_replace", "json_encode", "json_decode", "getenv", "putenv", "class_exists",
+  "interface_exists", "trait_exists", "method_exists", "property_exists", "is_array", "is_string",
+  "is_int", "is_bool", "is_null", "assert", "call_user_func", "call_user_func_array",
+]);
+
+const PHP: LanguageSpec = {
+  id: "php",
+  extensions: [".php"],
+  grammarKey: "php",
+  loadGrammar: () => loadNativeTreeSitter().php,
+  query: PHP_QUERY,
+  defNodeTypes: new Set([
+    "namespace_definition", "class_declaration", "interface_declaration", "trait_declaration",
+    "enum_declaration", "function_definition", "method_declaration",
+  ]),
+  defKindOf: {
+    "namespace.def": "type", "class.def": "class", "iface.def": "interface",
+    "trait.def": "trait", "enum.def": "enum", "fn.def": "function", "method.def": "method",
+  },
+  nameToDef: {
+    "namespace.name": "namespace.def", "class.name": "class.def", "iface.name": "iface.def",
+    "trait.name": "trait.def", "enum.name": "enum.def", "fn.name": "fn.def", "method.name": "method.def",
+  },
+  relationKindOf: {
+    "relation.extends": { edgeType: "implements", label: "extends" },
+    "relation.implements": { edgeType: "implements", label: "implements" },
+    "relation.trait": { edgeType: "implements", label: "uses trait" },
+  },
+  builtinMethods: PHP_BUILTIN_METHODS,
+  builtinFunctions: PHP_BUILTIN_METHODS,
+};
+
 const YAML_QUERY = `
   (block_node (anchor (anchor_name) @anchor.name)) @anchor.def
   (flow_node (anchor (anchor_name) @anchor.name)) @anchor.def
@@ -280,7 +353,7 @@ const YAML: LanguageSpec = {
   alwaysTemplatedExtensions: [".tpl"],
 };
 
-export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO, YAML];
+export const LANGUAGES: LanguageSpec[] = [TYPESCRIPT, TSX, PYTHON, GO, PHP, YAML];
 
 export const CODE_EXTENSIONS: string[] = [...new Set(LANGUAGES.flatMap((l) => l.extensions))];
 

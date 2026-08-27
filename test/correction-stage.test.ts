@@ -103,6 +103,37 @@ test("correction-stage diagnostic caps the shortlist and states calibrated uncer
     entry.mechanism === "additive-same-file-frontier"), true);
 });
 
+test("correction-stage diagnostic ranks bounded PHP owners without treating methods as top-level declarations", () => {
+  const phpSources = [{
+    path: "src/Source/Matcher/GitDiffSourceLineMatcher.php",
+    content: `<?php
+namespace Infection\\Source\\Matcher;
+final class GitDiffSourceLineMatcher implements SourceLineMatcher
+{
+    public function touches(string $file): bool { return true; }
+}
+`,
+  }, {
+    path: "src/Source/Matcher/NullSourceLineMatcher.php",
+    content: `<?php
+namespace Infection\\Source\\Matcher;
+final class NullSourceLineMatcher implements SourceLineMatcher
+{
+    public function touches(string $file): bool { return false; }
+}
+`,
+  }];
+  const diagnostic = diagnoseIssueCorrectionStage(
+    "Replace @final with final when the source class is no longer mocked",
+    phpSources,
+  );
+  assert.ok(diagnostic.candidates.length > 0);
+  assert.ok(diagnostic.candidates.every((candidate) => candidate.owner.endsWith("SourceLineMatcher")));
+  assert.ok(diagnostic.candidates.every((candidate) => candidate.runtime_declaration));
+  assert.ok(!diagnostic.candidates.some((candidate) => candidate.owner.endsWith("::touches")));
+  assert.equal(diagnostic.exact_owner_enabled, false);
+});
+
 test("evidence-guided reserve promotes bounded behavior-sensitive candidates while preserving baseline slots", () => {
   const claim = "the emitted schema loses a nested reference";
   const map = compileVerifiedEvidenceMap({

@@ -8,8 +8,9 @@
  * as a short, question-framed list the assistant raises in conversation at the
  * moment, then normally EMPTY.
  *
- * Deterministic only. Today the sole kind is a topic conflict (>1 live decision for
- * one topic — a git merge can create these; see topics.topicCollisions). We do NOT
+ * Deterministic only. Memory questions include a topic conflict (>1 live decision for
+ * one topic — a git merge can create these; see topics.topicCollisions) and one
+ * exact imported ADR awaiting a hash-bound approve/decline answer. We do NOT
  * guess semantically which un-anchored decisions "contradict" each other — that
  * stays the assistant's judgment, asked in chat, never a machine verdict (same
  * explicit-anchors-only ethos as the drift detector).
@@ -19,8 +20,9 @@
  */
 import type { Decision } from "./types.js";
 import { topicCollisions } from "./topics.js";
+import { importedAdrReviewHash, importedAdrSourceHash, pendingImportedAdrReviews } from "./importReview.js";
 
-export type EscalationKind = "topic-conflict" | "policy-candidate" | "policy-proposal" | "policy-repaired" | "premise-stale";
+export type EscalationKind = "topic-conflict" | "imported-adr-review" | "policy-candidate" | "policy-proposal" | "policy-repaired" | "premise-stale";
 
 export interface Escalation {
   kind: EscalationKind;
@@ -47,6 +49,26 @@ export function pendingEscalations(decisions: readonly Decision[]): Escalation[]
       question: `Topic "${topic}" has ${decs.length} live decisions — which one is current?`,
       detail: decs.map((d) => `${d.id} — "${d.title}"`).join("  ·  "),
       resolution: `supersede the others: re-record the chosen one with supersedes:<other-id>, or split the topic.`,
+    });
+  }
+  // Imported ADRs are immediately useful as advisory memory, but reading a file
+  // cannot mint human authority. Ask about exactly one at a time in ordinary
+  // session orientation; once answered, the next one naturally surfaces.
+  const imported = pendingImportedAdrReviews(decisions);
+  const next = imported[0];
+  if (next) {
+    const sourceHash = importedAdrSourceHash(next)!;
+    const reviewHash = importedAdrReviewHash(next);
+    const sourcePath = next.related_files[0] ?? "its ADR source";
+    const remaining = imported.length - 1;
+    const clip = (value: string, max: number): string => value.length > max ? value.slice(0, max - 1).trimEnd() + "…" : value;
+    out.push({
+      kind: "imported-adr-review",
+      topic: next.topic ?? next.id,
+      decisionIds: [next.id],
+      question: `I imported ADR “${clip(next.title, 90)}” (${next.id}) as advisory memory. Approve it as human-confirmed project authority, or decline and keep it advisory?`,
+      detail: `${sourcePath} · source ${sourceHash} · review ${reviewHash} · ${clip(next.decision, 180)}${remaining ? ` · ${remaining} more imported ADR(s) will follow one at a time` : ""}`,
+      resolution: `after the human answers, call hunch_review_imported_adr with decision_id=${next.id}, expected_source_hash=${sourceHash}, expected_review_hash=${reviewHash}, and disposition=approve|decline; CLI: hunch review --approve-import|--decline-import ${next.id} --expected-source-hash ${sourceHash} --expected-review-hash ${reviewHash} --reviewed-by <you>`,
     });
   }
   return out;

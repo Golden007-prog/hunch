@@ -269,7 +269,7 @@ export const EdgeSchema = z.object({
 });
 export type Edge = z.infer<typeof EdgeSchema>;
 
-export const SymbolKind = z.enum(["function", "method", "class", "interface", "type", "variable", "file"]);
+export const SymbolKind = z.enum(["function", "method", "class", "interface", "trait", "enum", "type", "variable", "file"]);
 
 export const SymbolMetricsSchema = z.object({
   loc: z.number().default(0),

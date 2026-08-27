@@ -12,6 +12,7 @@
  */
 import type TreeSitterParser from "tree-sitter";
 import type { SyntaxNode } from "tree-sitter";
+import type { Edge } from "../core/types.js";
 import { languageFor, type LanguageSpec, type ParsedSymbolKind } from "./languages.js";
 import { loadNativeTreeSitter } from "./nativeTreeSitter.js";
 
@@ -34,10 +35,19 @@ export interface ParsedCall {
   /** true for `x.foo()` (property access), false for a direct `foo()` call. */
   member: boolean;
 }
+export interface ParsedRelation {
+  target: string;
+  atByte: number;
+  endByte: number;
+  edgeType: Edge["type"];
+  label: string;
+}
 export interface ParsedFile {
   symbols: ParsedSymbol[];
   imports: string[];
   calls: ParsedCall[];
+  relations: ParsedRelation[];
+  namespace: string | null;
   parseable: boolean;
 }
 
@@ -95,6 +105,8 @@ export function parseSource(file: string, source: string): ParsedFile | null {
   const symbols: ParsedSymbol[] = [];
   const imports: string[] = [];
   const calls: ParsedCall[] = [];
+  const relations: ParsedRelation[] = [];
+  let namespace: string | null = null;
 
   // group captures by their enclosing @*.def via a quick pass: we record names
   // keyed by the def node, then emit a symbol per def.
@@ -118,13 +130,25 @@ export function parseSource(file: string, source: string): ParsedFile | null {
         if (existing) existing.name = node.text;
         else pendingDefs.set(defNode.id, { kind: spec.defKindOf[spec.nameToDef[cname]!]!, def: defNode, name: node.text });
       }
+      if (cname === "namespace.name") namespace = node.text;
     } else if (cname === "import.src") {
       imports.push(node.text.replace(STR_QUOTES, ""));
     } else if (cname === "call.id") {
-      calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: false });
+      if (!spec.builtinFunctions?.has(node.text)) {
+        calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: false });
+      }
     } else if (cname === "call.member") {
       // skip builtin method names to avoid false edges to similarly-named symbols
       if (!spec.builtinMethods.has(node.text)) calls.push({ callee: node.text, atByte: node.startIndex, endByte: node.endIndex, member: true });
+    } else if (spec.relationKindOf?.[cname]) {
+      const relation = spec.relationKindOf[cname]!;
+      relations.push({
+        target: node.text,
+        atByte: node.startIndex,
+        endByte: node.endIndex,
+        edgeType: relation.edgeType,
+        label: relation.label,
+      });
     }
   }
 
@@ -155,7 +179,7 @@ export function parseSource(file: string, source: string): ParsedFile | null {
     });
   }
   symbols.sort((a, b) => a.startByte - b.startByte);
-  return { symbols, imports, calls, parseable: templated || isParseable(tree.rootNode, spec) };
+  return { symbols, imports, calls, relations, namespace, parseable: templated || isParseable(tree.rootNode, spec) };
 }
 
 /** True when every ERROR/MISSING node in the tree sits in an ancestor shape this
@@ -238,6 +262,30 @@ export function attributeCalls(parsed: ParsedFile): Map<number, Map<string, bool
       const prev = m.get(call.callee);
       m.set(call.callee, prev === undefined ? call.member : prev && call.member);
     }
+  }
+  return out;
+}
+
+/** Map static semantic relationships (extends/implements/trait use) to the
+ * innermost enclosing declaration using the same stable symbol-index identity
+ * as call attribution. */
+export function attributeRelations(parsed: ParsedFile): Map<number, ParsedRelation[]> {
+  const out = new Map<number, ParsedRelation[]>();
+  for (const relation of parsed.relations) {
+    let best: ParsedSymbol | null = null;
+    let bestIndex = -1;
+    for (let index = 0; index < parsed.symbols.length; index++) {
+      const symbol = parsed.symbols[index]!;
+      if (relation.atByte >= symbol.startByte && relation.atByte < symbol.endByte
+        && (!best || symbol.endByte - symbol.startByte < best.endByte - best.startByte)) {
+        best = symbol;
+        bestIndex = index;
+      }
+    }
+    if (bestIndex < 0) continue;
+    const list = out.get(bestIndex) ?? [];
+    list.push(relation);
+    out.set(bestIndex, list);
   }
   return out;
 }
