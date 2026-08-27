@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.20.0-rc.2 — 2026-08-27
+
+### The release candidate reports what actually happened
+
+When the selected synthesis provider exits successfully without returning a draft, Hunch can fall
+back to its deterministic local synthesis. The result now names that fallback as the provider that
+actually produced the draft instead of incorrectly crediting the silent provider. The release also
+removes a dependency-audit exception automatically once its formerly vulnerable package is no
+longer present, so an obsolete allowlist cannot linger unnoticed.
+
+The reviewed engineering-landscape transport introduced in rc.1 is otherwise unchanged.
+
 ## 1.20.0-rc.1 — 2026-08-26
 
 ### Reviewed engineering landscapes become a transportable contract
