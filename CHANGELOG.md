@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.20.0-rc.3 — 2026-08-27
+
+### Exact graph snapshots no longer rewrite dense indexes once per record
+
+Snapshot producers can now replace one routed capture kind in a validated bulk operation while
+preserving Hunch's single-home collision rules. This removes quadratic JSON work for array-backed
+symbols and edges without weakening immutable-source scanning, atomic writes, shared-store routing,
+or fail-closed currentness. On the 667-file ORC production tree, the Hunch Memory pilot derived and
+persisted 5,247 symbols plus 16,051 edges in 28.1 seconds locally; the previous production path
+spent about 55 minutes repeatedly rewriting those arrays.
+
 ## 1.20.0-rc.2 — 2026-08-27
 
 ### The release candidate reports what actually happened
