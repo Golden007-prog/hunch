@@ -25,6 +25,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { compareCodeUnits } from "./canonicalOrder.js";
 
 export type Firmness = "off" | "advisory" | "firm" | "strict";
 
@@ -96,6 +97,29 @@ export interface ContractAxisRiskHint {
 export interface ContractAxisOwnerSource {
   path: string;
   content: string;
+}
+
+interface OwnerDeclaration {
+  kind: string;
+  symbol: string;
+  index: number;
+}
+
+function ownerSourcePath(path: string): boolean {
+  return /^[A-Za-z0-9._/-]+\.(?:tsx?|php)$/.test(path)
+    && !/(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.test\.(?:tsx?|php)$/.test(path);
+}
+
+/** Extract top-level declarations for the bounded correction diagnostic. PHP
+ * declarations deliberately require column-zero PSR-style layout so methods or
+ * nested conditional declarations cannot masquerade as repository owners. */
+function ownerDeclarations(path: string, content: string): OwnerDeclaration[] {
+  const declaration = path.endsWith(".php")
+    ? /^(?:(?:#\[[^\r\n]*\])\r?\n)*(?:(abstract|final|readonly)\s+)*(class|interface|trait|enum|function)\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)/gm
+    : /(?:^|\n)\s*(?:export\s+)?(?:declare\s+)?(interface|class|function|const|type)\s+([$A-Za-z_][$\w]*)/g;
+  return [...content.matchAll(declaration)].map((match) => path.endsWith(".php")
+    ? { kind: match[2]!, symbol: match[3]!, index: match.index ?? 0 }
+    : { kind: match[1]!, symbol: match[2]!, index: match.index ?? 0 });
 }
 
 export interface ContractAxisOwnerInference {
@@ -565,17 +589,14 @@ export function rankContractAxisRiskOwners(
     const path = boundedText(item.path, 240);
     const content = typeof item.content === "string" && item.content.length <= 1_000_000 ? item.content : null;
     if (!path || !content || seen.has(path) || path.startsWith("/") || path.split("/").includes("..")) continue;
-    if (!/^[A-Za-z0-9._/-]+\.tsx?$/.test(path) || /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.test\.tsx?$/.test(path)) continue;
+    if (!ownerSourcePath(path)) continue;
     seen.add(path);
     sources.push({ path, content });
   }
 
   const ranked: Array<{ owner: string; anchor: string; score: number }> = [];
-  const declaration = /(?:^|\n)\s*(?:export\s+)?(?:declare\s+)?(interface|class|function|const|type)\s+([$A-Za-z_][$\w]*)/g;
   for (const source of sources) {
-    for (const match of source.content.matchAll(declaration)) {
-      const kind = match[1]!;
-      const symbol = match[2]!;
+    for (const { kind, symbol } of ownerDeclarations(source.path, source.content)) {
       const normalized = symbol.toLowerCase().replace(/[^a-z0-9]/g, "");
       for (const [anchor, evidenceWeight] of candidates) {
         if (!normalized.includes(anchor)) continue;
@@ -595,7 +616,7 @@ export function rankContractAxisRiskOwners(
       }
     }
   }
-  ranked.sort((a, b) => b.score - a.score || a.owner.localeCompare(b.owner));
+  ranked.sort((a, b) => b.score - a.score || compareCodeUnits(a.owner, b.owner));
   const ownerScores = new Map<string, { owner: string; anchor: string; score: number }>();
   for (const item of ranked) {
     if (!ownerScores.has(item.owner)) ownerScores.set(item.owner, item);
@@ -686,7 +707,7 @@ export function rankIssueImplementationOwners(
     const path = boundedText(item.path, 240);
     const content = typeof item.content === "string" && item.content.length <= 1_000_000 ? item.content : null;
     if (!path || !content || seen.has(path) || path.startsWith("/") || path.split("/").includes("..")) continue;
-    if (!/^[A-Za-z0-9._/-]+\.tsx?$/.test(path) || /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.test\.tsx?$/.test(path)) continue;
+    if (!ownerSourcePath(path)) continue;
     seen.add(path);
     sources.push({ path, content });
   }
@@ -699,13 +720,12 @@ export function rankIssueImplementationOwners(
     counts: Map<string, number>;
     length: number;
   }> = [];
-  const declaration = /^(?:export\s+)?(?:declare\s+)?(?:interface|class|function|const|type)\s+([$A-Za-z_][$\w]*)/gm;
   for (const source of sources) {
-    const matches = [...source.content.matchAll(declaration)];
+    const matches = ownerDeclarations(source.path, source.content);
     for (let index = 0; index < matches.length; index++) {
       const match = matches[index]!;
-      const symbol = match[1]!;
-      const start = match.index ?? 0;
+      const symbol = match.symbol;
+      const start = match.index;
       const end = matches[index + 1]?.index ?? source.content.length;
       const text = `${symbol} ${symbol} ${source.content.slice(start, end)}`.slice(0, 80_000);
       const tokens = implementationOwnerTokens(text);
@@ -751,7 +771,7 @@ export function rankIssueImplementationOwners(
       symbol_disclosed: symbolDisclosed,
       path_disclosed: pathDisclosed,
     };
-  }).sort((a, b) => b.score - a.score || a.owner.localeCompare(b.owner));
+  }).sort((a, b) => b.score - a.score || compareCodeUnits(a.owner, b.owner));
   const limit = Number.isSafeInteger(candidateLimit) ? Math.max(1, Math.min(4_000, candidateLimit)) : 20;
   return { candidates: candidates.slice(0, limit) };
 }

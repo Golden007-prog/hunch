@@ -11,7 +11,7 @@ import {
   type StructuralSymbolRef,
 } from "./schema.js";
 
-const CODE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const CODE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|php)$/;
 const SKIP_SEGMENTS = new Set(["node_modules", ".git", ".hunch", "dist", "build", "coverage", ".next", "out", "vendor"]);
 const MAX_CODE_FILES = 64;
 const MAX_SOURCE_BYTES = 8 * 1024 * 1024;

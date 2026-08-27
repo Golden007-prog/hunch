@@ -12,7 +12,7 @@
 
 export interface SymbolChange {
   name: string;
-  kind: "function" | "class" | "interface" | "type" | "const";
+  kind: "function" | "class" | "interface" | "trait" | "enum" | "type" | "const";
 }
 
 export interface RenamePair {
@@ -39,6 +39,10 @@ export interface DiffAnalysis {
 }
 
 const DECL_PATTERNS: Array<{ kind: SymbolChange["kind"]; re: RegExp }> = [
+  { kind: "class", re: /^\s*(?:(?:final|abstract|readonly)\s+)+class\s+([A-Za-z_][\w]*)/ },
+  { kind: "trait", re: /^\s*trait\s+([A-Za-z_][\w]*)/ },
+  { kind: "enum", re: /^\s*enum\s+([A-Za-z_][\w]*)/ },
+  { kind: "function", re: /^\s*(?:(?:public|protected|private|final|abstract|static)\s+)*function\s*&?\s*([A-Za-z_][\w]*)\s*\(/ },
   { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/ },
   { kind: "class", re: /^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/ },
   { kind: "interface", re: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/ },
@@ -56,6 +60,7 @@ import { languageFor } from "./languages.js";
 const IMPORT_RE = /^\s*import\s+(?:[^'"]*from\s+)?['"]([^'"]+)['"]/;
 const CONT_IMPORT_RE = /^\s*\}?\s*from\s+['"]([^'"]+)['"]/; // multi-line: "} from 'x'"
 const REQUIRE_RE = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/;
+const PHP_REQUIRE_RE = /\b(?:require|require_once|include|include_once)\s*(?:\(\s*)?['"]([^'"]+)['"]/;
 // "import os" / "import a.b.c" / "import os as o" / "import os, sys" / trailing "# comment".
 // Anchored to the END of the line (optional "as alias", comma-separated modules, comment)
 // so it matches a COMPLETE Python import statement only — this deliberately rejects
@@ -78,6 +83,7 @@ function importOf(line: string): string | null {
     IMPORT_RE.exec(line) ??
     CONT_IMPORT_RE.exec(line) ??
     REQUIRE_RE.exec(line) ??
+    PHP_REQUIRE_RE.exec(line) ??
     PY_FROM_IMPORT_RE.exec(line) ??
     PY_IMPORT_RE.exec(line);
   return m ? m[1]! : null;

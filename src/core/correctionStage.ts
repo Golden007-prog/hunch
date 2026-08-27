@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { compareCodeUnits } from "./canonicalOrder.js";
 import {
   rankIssueImplementationOwners,
   type ContractAxisOwnerSource,
@@ -236,8 +237,10 @@ function terms(value: string): Set<string> {
  * but runtime declarations win ties in the selected layer. */
 function runtimeDeclarationOwners(sources: ContractAxisOwnerSource[]): Set<string> {
   const owners = new Set<string>();
-  const declaration = /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|enum|const|let|var)\s+([$A-Za-z_][$\w]*)/gm;
   for (const source of sources) {
+    const declaration = source.path.endsWith(".php")
+      ? /^(?:(?:#\[[^\r\n]*\])\r?\n)*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum|function)\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)/gm
+      : /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|enum|const|let|var)\s+([$A-Za-z_][$\w]*)/gm;
     for (const match of source.content.matchAll(declaration)) {
       owners.add(`${source.path}::${match[1]}`);
     }
@@ -281,7 +284,7 @@ export function rankIssueCorrectionStageCandidates(
     || Number(a.type_scaffolding) - Number(b.type_scaffolding)
     || b.symbol_overlap - a.symbol_overlap
     || b.lexical_score - a.lexical_score
-    || a.owner.localeCompare(b.owner));
+    || compareCodeUnits(a.owner, b.owner));
 
   // Overloads and repeated declarations can produce the same owner more than
   // once. A shortlist must spend each slot on a distinct correction candidate.
@@ -425,7 +428,7 @@ export function selectGuardedExecutionBridge(
         : [];
     }).sort((left, right) => right.execution_ratio - left.execution_ratio
       || left.static_rank - right.static_rank
-      || left.owner.localeCompare(right.owner))[0];
+      || compareCodeUnits(left.owner, right.owner))[0];
     if (direct) return [direct];
 
     const maxRatio = evidence.reduce((best, entry) => Math.max(best, entry.ratio), 0);
@@ -444,7 +447,7 @@ export function selectGuardedExecutionBridge(
     - Number(left.strategy === "direct-high-contrast-execution")
     || right.execution_ratio - left.execution_ratio
     || left.static_rank - right.static_rank
-    || left.owner.localeCompare(right.owner));
+    || compareCodeUnits(left.owner, right.owner));
   return choices[0] ?? null;
 }
 
@@ -519,7 +522,7 @@ export function rankIssueAdaptiveCorrectionCandidates(
     || b.path_overlap - a.path_overlap
     || b.symbol_overlap - a.symbol_overlap
     || Number(b.runtime_declaration) - Number(a.runtime_declaration)
-    || a.owner.localeCompare(b.owner));
+    || compareCodeUnits(a.owner, b.owner));
   const deeper = ranked.filter((candidate) => !candidate.invoked_entrance
     && (candidate.path_overlap > 0 || candidate.symbol_overlap > 0));
   return deeper.length ? ranked.filter((candidate) => !candidate.invoked_entrance) : ranked;

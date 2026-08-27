@@ -39,7 +39,7 @@ import {
   normalizeProviderName,
   type SynthPreference,
 } from "../synthesis/provider.js";
-import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunchStatus, syncExistingHunch, gitUntrackCached, gitCommonDir, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, type HunchPullStatus } from "../extractors/git.js";
+import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunchStatus, syncExistingHunch, gitUntrackCached, gitCommonDir, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, type HunchPullStatus } from "../extractors/git.js";
 import { parseMemoryLog, type MemoryMove } from "../core/memorylog.js";
 import { renamesOf, planRepair, repairDecision, repairConstraint, type RepairPlan } from "../core/repair.js";
 import { planPolicyRepair, repairPolicySpec, type PolicyBindingRewrite } from "../constitution/repairPolicies.js";
@@ -263,6 +263,10 @@ program
         const res = indexRepo(store, root, { source: { kind: "commit", ref: "HEAD" } });
         store.reindex();
         console.log(`  ✓ indexed committed HEAD (${res.files} files) → ${res.symbols} symbols, ${res.edges} edges, ${res.components} components`);
+        for (const item of res.coverage) {
+          const reasons = Object.entries(item.reasons).map(([reason, count]) => `${reason}:${count}`).join(", ");
+          console.log(`    coverage ${item.language}: ${item.eligible} eligible · ${item.parsed} parsed · ${item.skipped} skipped${reasons ? ` (${reasons})` : ""}`);
+        }
         if (res.skipped) console.log(`  ⚠ ${res.skipped} file(s) could not be parsed (skipped)`);
       } else {
         // A checkout-derived graph can be swept into a later memory commit by
@@ -399,6 +403,10 @@ program
     const healed = shouldAutoCommit ? [] : refreshExistingGrounding(root, store);
     console.log(`Indexed ${res.files} files:`);
     console.log(`  ${counts.symbols} symbols, ${counts.edges} edges, ${counts.components} components`);
+    for (const item of res.coverage) {
+      const reasons = Object.entries(item.reasons).map(([reason, count]) => `${reason}:${count}`).join(", ");
+      console.log(`  coverage ${item.language}: ${item.eligible} eligible · ${item.parsed} parsed · ${item.skipped} skipped${reasons ? ` (${reasons})` : ""}`);
+    }
     if (correctionSweep.scanned) {
       console.log(`  correction reviews: ${correctionSweep.proved} proved · ${correctionSweep.already_proved} current · ${correctionSweep.pending} pending · ${correctionSweep.legacy_only} legacy-only · ${correctionSweep.conflicted} conflicted · ${correctionSweep.failed.length} failed; authority none`);
     }
@@ -2987,7 +2995,16 @@ program
       }
       const files = readdirSync(join(root, dir)).filter((f) => ADR_FILE_RE.test(f)).sort();
       if (!files.length) return fail(`no NNNN-slug.md ADR files in ${dir}`);
-      const sources = files.map((f) => ({ relPath: `${dir}/${f}`, text: readFileSync(join(root, dir, f), "utf8") }));
+      const sources = files.map((f) => {
+        const relPath = `${dir}/${f}`;
+        const sourceRevision = firstCommitForFile(relPath, root) || null;
+        return {
+          relPath,
+          text: readFileSync(join(root, dir, f), "utf8"),
+          sourceDate: sourceRevision ? (asOfDate(sourceRevision, root) ?? null) : null,
+          sourceRevision,
+        };
+      });
       const { decisions, warnings } = mapAdrCorpus(sources);
       for (const w of warnings) console.log(`  ⚠ ${w}`);
 

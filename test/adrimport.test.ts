@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseAdrMarkdown, mapAdrCorpus, adrDecisionId, ADR_FILE_RE } from "../src/extractors/adrImport.js";
+import { createHash } from "node:crypto";
+import { parseAdrMarkdown, mapAdrCorpus, adrDecisionId, ADR_FILE_RE, UNDATED_ADR_DATE } from "../src/extractors/adrImport.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 
@@ -109,6 +110,74 @@ Every service originally deployed through one account.
 Use the shared account until per-service identities are available.
 `;
 
+const INFECTION_HEADING_STYLE = `# Use \`$this\` instead of \`self\`
+
+### Context
+
+The repository consistently uses instance assertion calls.
+
+### Decision
+
+Continue to use \`$this\` for PHPUnit assertions.
+
+### Status
+
+Accepted ([#1061][1061])
+`;
+
+const INFECTION_DEPRECATED = `# \`@covers\` annotations usage
+
+### Context
+
+Coverage annotations were historically optional.
+
+### Decision
+
+Keep the historical convention until explicit attributes replace it.
+
+### Status
+
+Deprecated.
+
+It was accepted in [#1060][1060] and superseded by [ADR 0007][ADR-0007]
+`;
+
+const INFECTION_SUPERSEDED_WITH_ISSUE = `# Bumping PHP version requirements
+
+## Context
+
+The supported PHP floor needs a durable policy.
+
+## Decision
+
+Drop unsupported versions deliberately.
+
+## Status
+
+Superseded by [ADR 0008](0008-PHP-version-support-policy.md). Was accepted in [#1760].
+`;
+
+const INFECTION_PROSE_ALTERNATIVES = `# Compare objects directly
+
+## Context
+
+Tests need to compare independently-created objects.
+
+## Decision
+
+Use a strict object comparator.
+
+## Alternatives considered
+
+Using identity for every comparison was rejected because equal objects are not identical.
+
+Comparing every property manually was rejected because it is easy to omit new properties.
+
+## Status
+
+Proposed.
+`;
+
 test("parseAdrMarkdown reads MADR frontmatter, options, chosen option, nested consequences", () => {
   const p = parseAdrMarkdown(MADR_ACCEPTED, "docs/adr/0001-use-postgresql.md")!;
   assert.ok(p, "did not parse");
@@ -133,11 +202,61 @@ test("parseAdrMarkdown reads Nygard headings, strips the numbered title, extract
   assert.deepEqual(p.consequences, ["Redis becomes a hard runtime dependency."]);
 });
 
-test("template and index filenames never match the ADR pattern", () => {
+test("template and index files never import, while a safe @ slug remains eligible", () => {
   for (const name of ["adr-template.md", "README.md", "index.md", "template.md"]) {
     assert.equal(ADR_FILE_RE.test(name), false, `${name} must not import`);
   }
+  assert.equal(ADR_FILE_RE.test("0002-@covers-annotations.md"), true);
+  assert.equal(ADR_FILE_RE.test("0000-template.md"), true, "the filename is structurally valid; semantic template exclusion happens during parsing");
   assert.equal(parseAdrMarkdown("# X", "docs/adr/README.md"), null);
+  assert.equal(parseAdrMarkdown("# Short decision title", "adr/0000-template.md"), null);
+});
+
+test("Infection-style level-3 headings preserve accepted status, context, and decision", () => {
+  const parsed = parseAdrMarkdown(INFECTION_HEADING_STYLE, "adr/0003-PHPUnit-this-over-self.md")!;
+  assert.equal(parsed.status, "accepted");
+  assert.match(parsed.context, /consistently uses/);
+  assert.match(parsed.decision, /Continue to use/);
+});
+
+test("Infection's @covers ADR imports and resolves only its explicit ADR successor", () => {
+  const parsed = parseAdrMarkdown(INFECTION_DEPRECATED, "adr/0002-@covers-annotations.md")!;
+  assert.equal(parsed.status, "accepted", "bare deprecated remains advisory until the corpus proves a successor");
+  assert.deepEqual(parsed.supersededByNumbers, [7]);
+  assert.ok(!parsed.supersededByNumbers.includes(1060), "a pull request reference is not an ADR relationship");
+});
+
+test("an issue number on a successor line is never mistaken for an ADR", () => {
+  const parsed = parseAdrMarkdown(INFECTION_SUPERSEDED_WITH_ISSUE, "adr/0005-Bump-PHP-versions.md")!;
+  assert.deepEqual(parsed.supersededByNumbers, [8]);
+  assert.ok(!parsed.supersededByNumbers.includes(1760));
+});
+
+test("prose alternatives remain visible instead of being silently discarded", () => {
+  const mapped = mapAdrCorpus([{
+    relPath: "adr/0010-compare-objects-directly.md",
+    text: INFECTION_PROSE_ALTERNATIVES,
+  }]).decisions[0]!;
+  assert.equal(mapped.alternatives_rejected.length, 2);
+  assert.match(mapped.alternatives_rejected[0]!, /identity/);
+  assert.match(mapped.alternatives_rejected[1]!, /property manually/);
+});
+
+test("source hashes and dates make undated imports deterministic and reviewable", () => {
+  const relPath = "adr/0003-PHPUnit-this-over-self.md";
+  const expectedHash = createHash("sha256").update(INFECTION_HEADING_STYLE).digest("hex");
+  const withoutGit = mapAdrCorpus([{ relPath, text: INFECTION_HEADING_STYLE }]).decisions[0]!;
+  assert.equal(withoutGit.date, UNDATED_ADR_DATE);
+  assert.equal(withoutGit.valid_from, undefined);
+  assert.ok(withoutGit.provenance.evidence.includes(`sha256:${expectedHash}`));
+
+  const sourceDate = "2026-08-25T12:34:56+00:00";
+  const sourceRevision = "a".repeat(40);
+  const withGit = mapAdrCorpus([{ relPath, text: INFECTION_HEADING_STYLE, sourceDate, sourceRevision }]).decisions[0]!;
+  assert.equal(withGit.date, sourceDate);
+  assert.equal(withGit.valid_from, sourceDate);
+  assert.equal(withGit.commit, sourceRevision);
+  assert.ok(withGit.provenance.evidence.includes(`source-commit:${sourceRevision}`));
 });
 
 test("mapAdrCorpus closes the superseded window and sets both pointers from a one-sided link", () => {

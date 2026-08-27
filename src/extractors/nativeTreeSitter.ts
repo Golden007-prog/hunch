@@ -11,6 +11,7 @@ const NATIVE_PACKAGES = [
   "tree-sitter-typescript",
   "tree-sitter-python",
   "tree-sitter-go",
+  "tree-sitter-php",
   "@tree-sitter-grammars/tree-sitter-yaml",
 ] as const;
 
@@ -22,6 +23,7 @@ export interface NativeTreeSitterRuntime {
   tsx: unknown;
   python: unknown;
   go: unknown;
+  php: unknown;
   yaml: unknown;
 }
 
@@ -90,7 +92,7 @@ export function loadNativeTreeSitter(): NativeTreeSitterRuntime {
   // already-loaded source-built addon slip past this guard and defeat the
   // file-lock isolation entirely (issue #52).
   const preloaded = Object.keys(runtimeRequire.cache).filter((path) =>
-    /(?:tree-sitter(?:-typescript|-python|-go|-yaml)?|tree_sitter(?:_[a-z]+)*_binding)\.node$/.test(path)
+    /(?:tree-sitter(?:-typescript|-python|-go|-php|-yaml)?|tree_sitter(?:_[a-z]+)*_binding)\.node$/.test(path)
     && !new RegExp(`(?:^|[\\\\/])${COPY_PREFIX}\\d+-`).test(path));
   if (preloaded.length) {
     throw new Error(`tree-sitter native addon was loaded before Hunch could isolate it: ${preloaded.join(", ")}`);
@@ -110,8 +112,9 @@ export function loadNativeTreeSitter(): NativeTreeSitterRuntime {
     const languages = runtimeRequire("tree-sitter-typescript") as { typescript: unknown; tsx: unknown };
     const python = runtimeRequire("tree-sitter-python") as unknown;
     const go = runtimeRequire("tree-sitter-go") as unknown;
+    const php = runtimeRequire("tree-sitter-php") as { php: unknown };
     const yaml = runtimeRequire("@tree-sitter-grammars/tree-sitter-yaml") as unknown;
-    runtime = { Parser, typescript: languages.typescript, tsx: languages.tsx, python, go, yaml };
+    runtime = { Parser, typescript: languages.typescript, tsx: languages.tsx, python, go, php: php.php, yaml };
   } catch (error) {
     try { rmSync(copyRoot, { recursive: true, force: true }); } catch { /* best effort */ }
     throw error;

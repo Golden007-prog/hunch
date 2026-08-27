@@ -18,7 +18,7 @@ export type DataClass = z.infer<typeof DataClassSchema>;
 export const StructuralSymbolRefSchema = z.object({
   file: z.string().min(1),
   name: z.string().min(1),
-  kind: z.enum(["function", "method", "class", "interface", "type", "variable", "file"]),
+  kind: z.enum(["function", "method", "class", "interface", "trait", "enum", "type", "variable", "file"]),
 });
 export type StructuralSymbolRef = z.infer<typeof StructuralSymbolRefSchema>;
 

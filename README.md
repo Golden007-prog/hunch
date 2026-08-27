@@ -58,7 +58,7 @@ existing configuration.
   passes, needs attention, or should be blocked.
 - **Past bugs stay useful** — see which old incident a piece of code fixed before accidentally
   undoing it.
-- **Understands how code connects** — for TypeScript, JavaScript, Python, Go, YAML, and Helm, Hunch
+- **Understands how code connects** — for TypeScript, JavaScript, Python, Go, PHP, YAML, and Helm, Hunch
   can see what calls or depends on the code you are about to change. Its memory works with any
   language.
 - **Works with existing decision documents** — import your architecture decision records into
