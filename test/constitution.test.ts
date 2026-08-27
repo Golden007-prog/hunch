@@ -65,6 +65,10 @@ function layeredRepo(apiBody = 'import { fetchOrders } from "../services/orders.
   const root = mkdtempSync(join(tmpdir(), "hunch-constitution-"));
   const git = (...args: string[]): void => { execFileSync("git", args, { cwd: root, stdio: "ignore" }); };
   git("init", "-q");
+  // Keep fixture repositories synchronous. Auto-maintenance can recreate .git entries after the
+  // command that triggered it returns, racing Node 22's recursive cleanup under CI parallelism.
+  git("config", "maintenance.auto", "false");
+  git("config", "gc.auto", "0");
   git("config", "user.email", "test@example.com");
   git("config", "user.name", "Test Human");
   mkdirSync(join(root, "src/api"), { recursive: true });
@@ -79,7 +83,14 @@ function layeredRepo(apiBody = 'import { fetchOrders } from "../services/orders.
   store.json.ensureDirs();
   indexRepo(store, root, { churn: false });
   store.reindex();
-  return { root, store, cleanup: () => { store.close(); rmSync(root, { recursive: true, force: true }); } };
+  return {
+    root,
+    store,
+    cleanup: () => {
+      store.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    },
+  };
 }
 
 function duplicatePolicyHomesFixture() {
