@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The pinned Infection audit now has one content-bound final receipt covering the real ADR corpus,
+  PHP graph, retrieval order, behavioral probes, Git-history participation, and explicit remaining
+  limitations. The 13-record corpus is human-signed, all 10 live imported ADRs carry hash-bound human
+  approval, and the 3 historical records remain historical. Corpus templates are also excluded
+  without the former false "malformed filename" warning.
+
 ## 1.20.0-rc.4 — 2026-08-27
 
 ### PHP repositories enter the production graph

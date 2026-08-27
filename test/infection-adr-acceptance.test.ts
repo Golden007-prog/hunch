@@ -37,7 +37,7 @@ interface AcceptanceReceipt {
 const here = fileURLToPath(new URL(".", import.meta.url));
 const receipt = JSON.parse(readFileSync(resolve(here, "../bench/infection/adr-acceptance-v1.json"), "utf8")) as AcceptanceReceipt;
 
-test("the Infection ADR acceptance receipt is complete, unique, and explicitly awaits human sign-off", () => {
+test("the Infection ADR acceptance receipt is complete, unique, and explicitly signed", () => {
   assert.equal(receipt.schema, "hunch.infection-adr-acceptance/1");
   assert.equal(receipt.repository, "https://github.com/infection/infection");
   assert.match(receipt.revision, /^[0-9a-f]{40}$/);
@@ -54,9 +54,9 @@ test("the Infection ADR acceptance receipt is complete, unique, and explicitly a
     assert.ok(record.retrieval_query.length >= 20);
   }
   assert.deepEqual(receipt.excluded.map((entry) => entry.path), ["adr/0000-template.md"]);
-  assert.equal(receipt.human_signoff.status, "required");
-  assert.equal(receipt.human_signoff.reviewer, null);
-  assert.equal(receipt.human_signoff.signed_at, null);
+  assert.equal(receipt.human_signoff.status, "signed");
+  assert.equal(receipt.human_signoff.reviewer, "human:David-Sheffer");
+  assert.ok(Number.isFinite(Date.parse(receipt.human_signoff.signed_at!)));
 });
 
 const infectionRoot = process.env.HUNCH_INFECTION_REPO;

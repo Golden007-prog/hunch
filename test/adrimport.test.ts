@@ -212,6 +212,15 @@ test("template and index files never import, while a safe @ slug remains eligibl
   assert.equal(parseAdrMarkdown("# Short decision title", "adr/0000-template.md"), null);
 });
 
+test("mapAdrCorpus excludes a structurally valid corpus template without a false filename warning", () => {
+  const result = mapAdrCorpus([
+    { relPath: "adr/0000-template.md", text: "# ADR template\n\n## Status\n\nProposed" },
+    { relPath: "adr/0003-PHPUnit-this-over-self.md", text: INFECTION_HEADING_STYLE },
+  ]);
+  assert.equal(result.decisions.length, 1);
+  assert.deepEqual(result.warnings, []);
+});
+
 test("Infection-style level-3 headings preserve accepted status, context, and decision", () => {
   const parsed = parseAdrMarkdown(INFECTION_HEADING_STYLE, "adr/0003-PHPUnit-this-over-self.md")!;
   assert.equal(parsed.status, "accepted");

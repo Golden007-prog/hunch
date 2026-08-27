@@ -39,6 +39,18 @@ export const ADR_DIR_CANDIDATES = [
  *  indexes (adr-template.md, README.md, index.md) never match. */
 export const ADR_FILE_RE = /^(\d{1,5})-([a-z0-9@][a-z0-9@._-]*)\.md$/i;
 
+/** A structurally valid ADR filename can still name corpus scaffolding rather
+ * than a decision. Keep this classification separate from parse failure so the
+ * CLI can exclude templates quietly instead of falsely calling their filename
+ * malformed. */
+export function isAdrCorpusTemplate(relPath: string): boolean {
+  const base = relPath.split("/").pop() ?? relPath;
+  const match = ADR_FILE_RE.exec(base);
+  return match !== null
+    && Number(match[1]) === 0
+    && /^(?:adr[-_.]?)?template(?:[-_.]|$)/i.test(match[2]!);
+}
+
 /** Decision.date is required even when an ADR has no date and no Git history is
  * available (for example, a copied corpus outside a repository). Use an honest,
  * deterministic sentinel instead of the import clock: re-importing the same
@@ -214,7 +226,7 @@ export function parseAdrMarkdown(text: string, relPath: string): ParsedAdr | nul
   if (!nameMatch) return null;
   const number = Number(nameMatch[1]);
   const slug = nameMatch[2]!.toLowerCase();
-  if (number === 0 && /^(?:adr[-_.]?)?template(?:[-_.]|$)/i.test(slug)) return null;
+  if (isAdrCorpusTemplate(relPath)) return null;
 
   const fmMatch = FRONTMATTER_RE.exec(text);
   const fm = fmMatch ? fmMatch[1]! : "";
@@ -290,7 +302,9 @@ export function mapAdrCorpus(sources: AdrSource[]): AdrImportResult {
   for (const src of sources) {
     const p = parseAdrMarkdown(src.text, src.relPath);
     if (!p) {
-      warnings.push(`${src.relPath}: filename does not follow NNNN-slug.md — skipped`);
+      if (!isAdrCorpusTemplate(src.relPath)) {
+        warnings.push(`${src.relPath}: filename does not follow NNNN-slug.md — skipped`);
+      }
       continue;
     }
     parsed.push(p);
