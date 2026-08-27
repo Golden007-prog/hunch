@@ -104,6 +104,7 @@ import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWiki
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, isInForce, liveForTopic } from "../core/topics.js";
 import { ADR_DIR_CANDIDATES, ADR_FILE_RE, mapAdrCorpus } from "../extractors/adrImport.js";
+import { applyImportedAdrReview, carryImportedAdrReview, importedAdrReviewHash, importedAdrSourceHash, isImportedAdrDecision, pendingImportedAdrReviews } from "../core/importReview.js";
 import { exportMadrCorpus, isRegenerableMadr } from "../integrations/madrExport.js";
 import { buildMadrManifest, writeMadrManifest, refreshMadrCorpus } from "../integrations/madrManifest.js";
 import { pendingEscalations, policyEscalations } from "../core/escalations.js";
@@ -3031,8 +3032,12 @@ program
 
       store.json.ensureDirs();
       let created = 0, updated = 0;
-      for (const d of decisions) {
-        if (store.getRec("decisions", d.id)) updated++;
+      for (let index = 0; index < decisions.length; index++) {
+        const candidate = decisions[index]!;
+        const previous = opts.private ? store.getRec("decisions", candidate.id) : store.json.get("decisions", candidate.id);
+        const d = carryImportedAdrReview(previous, candidate);
+        decisions[index] = d;
+        if (previous) updated++;
         else created++;
         store.putCapture("decisions", d, opts.private);
       }
@@ -3042,6 +3047,18 @@ program
       const flush = flushCapture(store, hunchPaths(root).hunch, !!opts.private, `hunch: import ${decisions.length} ADR(s) from ${dir}`);
       const live = decisions.filter((d) => d.status === "accepted").length;
       console.log(`✓ imported ${decisions.length} ADR(s) from ${dir} (${created} new, ${updated} updated; ${live} live, ${decisions.length - live} historical)${opts.private ? " [private overlay]" : ""}`);
+      const pending = pendingImportedAdrReviews(decisions);
+      if (pending.length) {
+        const first = pending[0]!;
+        const sourceHash = importedAdrSourceHash(first)!;
+        const reviewHash = importedAdrReviewHash(first);
+        console.log(`\n⚖ HUMAN REVIEW  ${pending.length} imported live ADR(s) are advisory until you answer.`);
+        console.log(`  “${first.title}” (${first.id})`);
+        console.log("  Approve it as human-confirmed project authority, or decline and keep it advisory?");
+        console.log(`  Approve: hunch review --approve-import ${first.id} --expected-source-hash ${sourceHash} --expected-review-hash ${reviewHash} --reviewed-by <you>`);
+        console.log(`  Decline: hunch review --decline-import ${first.id} --expected-source-hash ${sourceHash} --expected-review-hash ${reviewHash} --reviewed-by <you>`);
+        console.log("  Your coding assistant will also ask this inline in the next Hunch session; silence never approves it.");
+      }
       if (flush === "pushed") console.log("  ↳ private memory committed + pushed");
     } finally {
       store.close();
@@ -3795,6 +3812,7 @@ program
     const precise = blocking.filter((c) => !!effectiveForbids(c));
     const scopeOnly = blocking.filter((c) => !effectiveForbids(c));
     const drafts = store.json.loadAll("decisions").filter(isReviewDraft);
+    const importedReviews = pendingImportedAdrReviews(store.json.loadAll("decisions"));
     const { ready, scrutiny } = partitionReview(drafts, READY_MIN_GROUNDED);
     const stale = store.staleness((f) => lastChangeDate(f, root)).filter((s) => s.kind === "constraint");
 
@@ -3813,6 +3831,9 @@ program
     }
     if (ready.length || scrutiny.length) {
       console.log(`\n  ⏳ TO CONFIRM   ${ready.length} ready · ${scrutiny.length} need scrutiny   → hunch review${ready.length ? " --accept-verified" : ""}`);
+    }
+    if (importedReviews.length) {
+      console.log(`\n  ⚖ ADR REVIEW   ${importedReviews.length} imported live ADR(s) need an approve/decline answer   → hunch review`);
     }
     if (stale.length) {
       console.log(`\n  ♻ STALE        ${stale.length} rule(s) whose guarded code moved since last verified   → re-confirm to keep the teeth`);
@@ -4395,23 +4416,64 @@ program
 
 program
   .command("review")
-  .description("Triage drafts: segmented list, accept/reject one, or batch-accept Critic-verified drafts.")
+  .description("Answer hash-bound imported-ADR questions, or triage deliberate proposed drafts.")
   .option("--accept <id>", "promote a decision to accepted/human-confirmed (confirms its tripwires)")
   .option("--reject <id>", "reject a draft decision with a durable lifecycle tombstone")
+  .option("--approve-import <id>", "approve one exact imported ADR as human-confirmed authority")
+  .option("--decline-import <id>", "record that one exact imported ADR was reviewed and must stay advisory")
+  .option("--expected-source-hash <hash>", "exact sha256 source hash printed with the imported-ADR question")
+  .option("--expected-review-hash <hash>", "exact sha256 mapped-meaning hash printed with the imported-ADR question")
+  .option("--reviewed-by <label>", "credential-free human reviewer label for an imported-ADR answer")
   .option("--accept-verified", "batch-accept every Critic-verified, well-grounded draft (>= --min-grounded)")
   .option("--reject-duplicates", "batch-reject drafts that near-duplicate an accepted record (deterministic term+file similarity — hygiene, not judgment)")
   .option("--min-grounded <n>", "grounded-ness threshold for the ready group / --accept-verified", String(READY_MIN_GROUNDED))
   .option("--private", "include local private/shared-overlay drafts; terminal output may contain private memory")
-  .action((opts: { accept?: string; reject?: string; acceptVerified?: boolean; rejectDuplicates?: boolean; minGrounded?: string; private?: boolean }) => {
+  .action((opts: { accept?: string; reject?: string; approveImport?: string; declineImport?: string; expectedSourceHash?: string; expectedReviewHash?: string; reviewedBy?: string; acceptVerified?: boolean; rejectDuplicates?: boolean; minGrounded?: string; private?: boolean }) => {
     const { store, root } = storeFor();
     const minGrounded = Number.isFinite(Number(opts.minGrounded)) ? Number(opts.minGrounded) : READY_MIN_GROUNDED;
     if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
+    const actionCount = [opts.accept, opts.reject, opts.approveImport, opts.declineImport, opts.acceptVerified, opts.rejectDuplicates].filter(Boolean).length;
+    if (actionCount > 1) { store.close(); return fail("choose exactly one review action at a time"); }
     const decisions = () => opts.private ? store.recs("decisions") : store.json.loadAll("decisions");
     let publicGroundingChanged = false;
     const touchedHomes = new Set<MemoryHome>();
-    if (opts.accept) {
+    if (opts.approveImport || opts.declineImport) {
+      const id = opts.approveImport ?? opts.declineImport!;
+      if (!opts.expectedSourceHash || !opts.expectedReviewHash || !opts.reviewedBy) {
+        store.close();
+        return fail("an imported-ADR answer requires --expected-source-hash <hash>, --expected-review-hash <hash>, and --reviewed-by <label>");
+      }
+      const d = opts.private ? store.getRec("decisions", id) : store.json.get("decisions", id);
+      if (!d) { store.close(); return fail(`decision ${id} not found`); }
+      try {
+        const reviewed = applyImportedAdrReview(d, {
+          disposition: opts.approveImport ? "approve" : "decline",
+          expectedSourceHash: opts.expectedSourceHash,
+          expectedReviewHash: opts.expectedReviewHash,
+          reviewer: opts.reviewedBy,
+        });
+        const home = opts.private ? decisionMemoryHome(store, id) : "public";
+        putDecisionInHome(store, reviewed, home);
+        touchedHomes.add(home);
+        store.reindex();
+        if (home === "public") {
+          publicGroundingChanged = true;
+          if (!store.autoCommit) refreshExistingGrounding(root, store);
+        }
+        console.log(opts.approveImport
+          ? `✓ approved ${id} for exact source ${opts.expectedSourceHash} (now human-confirmed authority)`
+          : `✓ declined authority for ${id} at exact source ${opts.expectedSourceHash} (reviewed; remains advisory)`);
+      } catch (error) {
+        store.close();
+        return fail(error instanceof Error ? error.message : String(error));
+      }
+    } else if (opts.accept) {
       const d = opts.private ? store.getRec("decisions", opts.accept) : store.json.get("decisions", opts.accept);
       if (!d) { store.close(); return fail(`decision ${opts.accept} not found`); }
+      if (isImportedAdrDecision(d)) {
+        store.close();
+        return fail(`imported ADR ${d.id} requires the hash-bound --approve-import flow shown by hunch review`);
+      }
       const { source, armed, home } = acceptDecision(store, d, opts.private ? decisionMemoryHome(store, d.id) : "public");
       touchedHomes.add(home);
       store.reindex();
@@ -4471,11 +4533,25 @@ program
         for (const it of ready) console.log(`   ${it.d.id}  grounded=${it.synth.grounded ?? "?"}  ${it.d.title}`);
       }
     } else {
-      const drafts = decisions().filter(isReviewDraft);
+      const allDecisions = decisions();
+      const imported = pendingImportedAdrReviews(allDecisions);
+      const drafts = allDecisions.filter(isReviewDraft);
       const { ready, scrutiny } = partitionReview(drafts, minGrounded);
-      if (!ready.length && !scrutiny.length) {
+      if (!ready.length && !scrutiny.length && !imported.length) {
         console.log("✓ No drafts awaiting review — captured memory auto-trusts (advisory) the moment it lands.");
       } else {
+        if (imported.length) {
+          const d = imported[0]!;
+          const sourceHash = importedAdrSourceHash(d)!;
+          const reviewHash = importedAdrReviewHash(d);
+          console.log(`⚖ ${imported.length} imported live ADR(s) need a human answer (one at a time):\n`);
+          console.log(`  ${d.id}  ${d.title}`);
+          console.log(`      ${d.related_files[0] ?? "source unknown"}  source ${sourceHash}  review ${reviewHash}`);
+          console.log(`      ${d.decision.slice(0, 180)}`);
+          console.log("\n  Approve as human-confirmed authority, or decline and keep advisory?");
+          console.log(`  Approve: hunch review --approve-import ${d.id} --expected-source-hash ${sourceHash} --expected-review-hash ${reviewHash} --reviewed-by <you>`);
+          console.log(`  Decline: hunch review --decline-import ${d.id} --expected-source-hash ${sourceHash} --expected-review-hash ${reviewHash} --reviewed-by <you>\n`);
+        }
         if (ready.length) {
           console.log(`✓ ${ready.length} ready to confirm — Critic-verified, grounded ≥ ${minGrounded} (best first):\n`);
           for (const it of ready) printReviewItem(it);
@@ -4687,7 +4763,7 @@ program
 // ---- escalations (the inline "ask the human" surface) ---------------------
 program
   .command("escalations")
-  .description("The decisions a human must make NOW — surfaced to be asked INLINE (in the prompt), never a background queue. Captured memory auto-trusts on landing; this lists only what the graph genuinely can't resolve itself: topic conflicts, Constitution candidates awaiting review, and proposed policies whose activation is a human call. Normally empty. Exits non-zero when any are open, so an assistant/CI knows to raise them.")
+  .description("The decisions a human must make NOW — surfaced to be asked INLINE, never inferred: one exact imported ADR at a time, topic conflicts, stale premises, and Constitution activation calls. Normally empty. Exits non-zero when any are open.")
   .option("--json", "emit the escalation entries as JSON (the VS Code panel's data source)")
   .action(async (opts: { json?: boolean }) => {
     const { store, root } = storeFor();

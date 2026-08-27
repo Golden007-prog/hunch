@@ -62,7 +62,9 @@ existing configuration.
   can see what calls or depends on the code you are about to change. Its memory works with any
   language.
 - **Works with existing decision documents** — import your architecture decision records into
-  Hunch, or export Hunch decisions back to a standard format other tools can read.
+  Hunch, or export Hunch decisions back to a standard format other tools can read. Imported ADRs
+  start as useful advisory memory; during normal work your assistant asks you to approve or decline
+  one exact ADR at a time. Silence never grants authority, and changed ADR text is asked again.
 
 The source of truth is readable JSON in `.hunch/`. A local SQLite index makes retrieval fast but
 is always rebuildable.
@@ -98,6 +100,7 @@ Most memory work happens automatically after commits. These commands cover the c
 | `hunch check --working` | Check current changes against the decisions and rules your team trusts |
 | `hunch log` | See what Hunch remembered and undo a memory change if needed |
 | `hunch escalations` | See the rare questions that need a human answer |
+| `hunch review` | Answer the current imported-ADR approve/decline question from the terminal |
 | `hunch doctor` | Diagnose setup problems |
 
 <details>

@@ -25,6 +25,12 @@ templates are excluded, source bytes and first-introduction commits are recorded
 dates close historical validity windows deterministically. The complete 13-record Infection receipt
 is checked in and intentionally remains pending human sign-off.
 
+Imported live ADRs now enter the graph as advisory memory and surface as plain approve/decline
+questions during normal assistant sessions, one at a time. The answer is bound to both the exact
+source bytes and the complete mapped decision meaning: approve adds human-confirmed authority,
+decline records review while keeping the memory advisory, silence changes nothing, and changed
+source or importer semantics reopen the question. CLI and MCP use the same review state.
+
 ## 1.20.0-rc.3 — 2026-08-27
 
 ### Exact graph snapshots no longer rewrite dense indexes once per record
