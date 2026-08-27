@@ -2,11 +2,32 @@
 
 ## Unreleased
 
-- The pinned Infection audit now has one content-bound final receipt covering the real ADR corpus,
-  PHP graph, retrieval order, behavioral probes, Git-history participation, and explicit remaining
-  limitations. The 13-record corpus is human-signed, all 10 live imported ADRs carry hash-bound human
-  approval, and the 3 historical records remain historical. Corpus templates are also excluded
-  without the former false "malformed filename" warning.
+## 1.20.0-rc.5 — 2026-08-28
+
+### Outcome evidence can return without silently becoming authority
+
+Hunch now owns the strict, content-addressed `hunch.usefulness-observation/1` contract. One terminal
+episode, exact Hunch Memory receipt, and delivered record identity produce one deterministic key;
+changed content under that key conflicts instead of becoming a second observation. The seal binds
+the episode, provider-native receipt hash, graph/source revision, record revision/content hash,
+bounded evidence references, and retention window while excluding transcripts and provider output.
+
+Every usefulness signal declares zero ranking, promotion, policy, or enforcement effect. Only
+contradiction and staleness can be converted into a new open advisory Finding, so outcome evidence
+creates review work without rewriting trusted knowledge. The contract is independently exercised
+through Hunch Memory's store-scoped issuance proof before that service enables its intake capability.
+
+### Infection evidence is signed and the next validation is blind
+
+The pinned Infection audit now has one content-bound final receipt covering the real ADR corpus,
+PHP graph, retrieval order, behavioral probes, Git-history participation, and explicit remaining
+limitations. The 13-record corpus is human-signed, all 10 live imported ADRs carry hash-bound human
+approval, and the 3 historical records remain historical. Corpus templates are also excluded
+without the former false "malformed filename" warning.
+
+The roadmap now requires the next Infection checkpoint to run on a fresh real Issue/PR whose target
+and expected answer were not used to build the feature. This separates implementation fixtures from
+transfer evidence and prevents a polished replay from being presented as independent validation.
 
 ## 1.20.0-rc.4 — 2026-08-27
 
