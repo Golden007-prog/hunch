@@ -137,8 +137,8 @@ test("rank priors: a changed decision anchor dims after HEAD advances while the 
   git(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "change stale anchor"], "2026-03-01T00:00:00Z");
 
   const changed = scopedLastChangeDates(["src/stale.ts", "src/fresh.ts"], root);
-  assert.equal(changed?.get("src/stale.ts"), "2026-03-01T00:00:00+00:00");
-  assert.equal(changed?.get("src/fresh.ts"), "2026-01-01T00:00:00+00:00");
+  assert.equal(Date.parse(changed?.get("src/stale.ts") ?? ""), Date.parse("2026-03-01T00:00:00Z"));
+  assert.equal(Date.parse(changed?.get("src/fresh.ts") ?? ""), Date.parse("2026-01-01T00:00:00Z"));
   const after = store.rankedSearch("nimblecache batching", 5).map((hit) => hit.ref);
   assert.ok(after.indexOf("dec_z_fresh") < after.indexOf("dec_a_stale"), `fresh anchor must outrank changed anchor: ${after.join(",")}`);
   assert.ok(after.includes("dec_a_stale"), "staleness dims the decision but never withholds it");
