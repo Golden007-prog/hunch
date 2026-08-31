@@ -1,37 +1,37 @@
 # Hunch
 
-## Give your AI coding assistant the missing story behind your code.
+## Your repo remembers why — and teaches every coding agent how the project works.
 
 [![npm version](https://img.shields.io/npm/v/@davesheffer/hunch?color=2742ff&label=npm)](https://www.npmjs.com/package/@davesheffer/hunch)
 [![GitHub stars](https://img.shields.io/github/stars/davesheffer/hunch?color=2742ff&label=%E2%98%85%20star)](https://github.com/davesheffer/hunch)
 [![license](https://img.shields.io/npm/l/@davesheffer/hunch?color=2742ff)](LICENSE)
 
-Git remembers what changed. Chat history disappears. A future Claude, Cursor, Codex, or Copilot
-session can read your code, but it usually does not know why your team chose this design, which
-alternative failed, or which old bug a strange-looking line prevents.
+Every new AI coding session can read your code. It cannot automatically see why your team chose
+this design, which alternative already failed, what an odd-looking line protects, or how this
+repository expects work to be explained and reviewed.
 
-**Hunch is project memory for the AI coding tools you already use.** It saves decisions, bug fixes,
-rejected approaches, and important rules. Before an assistant changes code, Hunch brings back the
-relevant reasons. After the change, it can check whether the work conflicts with a rule your team
-explicitly trusts.
+That is how settled decisions get reopened, fixed bugs return, and technically plausible changes
+arrive feeling foreign to the project.
 
-### A simple example
+**Hunch is evidence-backed project intelligence for the AI coding tools you already use.** It gives
+Claude, Codex, Cursor, Copilot, Windsurf, Antigravity, and other MCP clients the same durable
+understanding of your codebase:
 
-Your team once moved login sessions to the server so stolen tokens could be disabled immediately.
-Months later, an AI assistant sees the extra code and proposes a “simpler” token-only design. Hunch
-shows the assistant why the server-side design exists and which security bug it prevents—before the
-edit happens.
+- why the code is shaped this way;
+- how the repository communicates, reviews, and builds;
+- what depends on the code about to change; and
+- which trusted decisions, fixes, and architectural boundaries the result must preserve.
 
-That means less time repeating old explanations, fewer old mistakes returning, and the same project
-context across every coding assistant.
+For precise rules your team has explicitly trusted, the promise is **Never Twice**: an agent may
+propose a different direction, but it cannot quietly re-make a decided decision or re-introduce a
+fixed failure without Hunch surfacing the conflict and its evidence.
 
-Hunch is **not another AI model** and it does not replace your coding assistant. It is the memory and
-safety layer behind it. Memory is advisory by default; nothing blocks work unless you deliberately
-turn on strict checks for a precise rule.
+Memory starts advisory. Nothing blocks until a human deliberately trusts a precise rule and opts
+into strict enforcement.
 
 ## Start in five minutes
 
-Requires Node 22.13+ and a git repository.
+Requires Node 22.13+ and a Git repository.
 
 ```bash
 npm i -g @davesheffer/hunch
@@ -44,134 +44,139 @@ Reload your coding assistant, then ask a normal question:
 
 > Why is this built this way?
 
-Hunch answers from your project's saved history and shows where the answer came from. `hunch init`
-indexes the repo, installs local hooks, and connects supported assistants without replacing their
-existing configuration.
+`hunch init` indexes the repository, installs local lifecycle hooks, and connects supported
+assistants without replacing their existing configuration. The next session receives the relevant
+story with its sources, not a giant transcript or a generic prompt wall.
 
-## What Hunch gives you
+## One evidence loop, not another model
 
-- **A memory that outlives chat** — decisions and corrections are still available next week, next
-  year, and in a different assistant.
-- **One shared story** — Claude Code, Cursor, Copilot, Windsurf, Antigravity, Codex, and any MCP
-  client get the same project context.
-- **Warnings with reasons** — review a change against trusted project rules and see exactly why it
-  passes, needs attention, or should be blocked.
-- **Past bugs stay useful** — see which old incident a piece of code fixed before accidentally
-  undoing it.
-- **Fresh context without lost history** — decisions whose code anchors are still current rank
-  ahead of ones whose files changed after verification; older evidence remains visible and keeps
-  its existing authority.
-- **Understands how code connects** — for TypeScript, JavaScript, Python, Go, PHP, YAML, and Helm, Hunch
-  can see what calls or depends on the code you are about to change. Its memory works with any
-  language.
-- **Works with existing decision documents** — import your architecture decision records into
-  Hunch, or export Hunch decisions back to a standard format other tools can read. Imported ADRs
-  start as useful advisory memory; during normal work your assistant asks you to approve or decline
-  one exact ADR at a time. Silence never grants authority, and changed ADR text is asked again.
+```text
+Git history + ADRs + corrections + tests + repository conventions
+                              │
+                              ▼
+                  Hunch's evidence graph
+                 /            │             \
+      engineering memory   Project DNA   reviewed landscape
+                 \            │             /
+                              ▼
+             role-shaped, budgeted context delivery
+                              │
+                              ▼
+             Claude / Codex / Cursor / any MCP agent
+                              │
+                              ▼
+                  deterministic change receipt
+```
 
-The source of truth is readable JSON in `.hunch/`. A local SQLite index makes retrieval fast but
-is always rebuildable.
+Hunch is not an agent, orchestrator, or hosted knowledge service. It is the durable reasoning and
+validation layer behind the tools that write the code.
 
-## What improved in v1.19
+## What Hunch understands
 
-Hunch now gives developers a better, shorter list of code to inspect when they describe a problem.
-In a 12-problem test on unfamiliar code, it found the changed piece of code in 6 cases instead of 3
-and found the correct file in 10 cases instead of 8. In a separate test, it kept the same five
-successful finds while reducing the average number of named code items to inspect—such as functions
-or classes—from 18.9 to 11.
+| Layer | What it adds |
+| --- | --- |
+| **Engineering Memory** | Decisions, rejected alternatives, corrections, bug lineage, findings, and the rationale a future session would otherwise miss. |
+| **Code Graph** | Symbols, calls, imports, dependencies, components, blast radius, and architectural reachability across TypeScript, JavaScript, Python, Go, PHP, YAML, and Helm. Memory itself works with any language. |
+| **Project DNA** | Revision-specific, evidence-backed observations about how a repository communicates and works: vocabulary, contribution habits, review expectations, engineering conventions, and culture. |
+| **Engineering Landscape** | Human-reviewed links from product and capability to system, repository, service, interface, data, delivery resources, runbooks, ownership, dashboards, and SLOs. |
+| **Validated Delivery** | The smallest relevant evidence for the current builder, reviewer, or architect, with provenance, currentness, omissions, authority, and a content-addressed receipt. |
+| **Change Gate + Constitution** | Deterministic checks for trusted constraints and architectural intent. Policies are compiled, proved, inspected, and explicitly activated by a human—never promoted by an agent in the background. |
 
-| What the test measured | Before | v1.19 | Result |
-| --- | ---: | ---: | ---: |
-| Problems where Hunch found the changed code | 3/12 | 6/12 | 2× as many in this test |
-| Problems where Hunch found the correct file | 8/12 | 10/12 | 2 more correct files |
-| Pieces of code inspected for the same five finds | 18.9 average | 11 average | 41.9% less to inspect |
+Readable JSON in `.hunch/` is the source of truth. SQLite is a fast, rebuildable projection. Git
+keeps the memory portable, reviewable, and reversible.
 
-These are small, controlled tests—not a promise that Hunch is twice as accurate everywhere. Hunch
-also refuses to pretend it knows the exact fix when the evidence only shows where to investigate.
-The detailed receipts live in [`bench/external/results`](bench/external/results).
+## Project DNA: help the agent work like it belongs here
 
-See the public [roadmap](ROADMAP.md) for what is next and what is deliberately out of scope.
+Project DNA is Hunch's evidence-bound model of **how a repository communicates and works**. It is
+not a persona, does not impersonate a maintainer, and does not turn frequent behavior into policy.
 
-## Common tasks
+The deterministic baseline reads an exact Git revision, bounded commit history, and committed
+convention files. The current release can also accept bounded, caller-authorized pull-request and
+review evidence. Every evidence batch is validated and sealed; raw collaboration text does not
+enter the profile.
 
-Most memory work happens automatically after commits. These commands cover the common manual paths:
+Each trait keeps its category, confidence, freshness, repository revision, and evidence hash. Hunch
+can then include only the relevant DNA in normal context, explain how well a commit, PR, issue, or
+message matches repository conventions, and show how the profile changed between two revisions.
+
+```bash
+hunch dna inspect
+hunch dna context
+hunch dna diff <older-ref> <newer-ref>
+```
+
+DNA may shape orientation, terminology, and advisory Project Match checks. It cannot create or
+override a decision, constraint, finding, conformance rule, policy, or permission.
+
+Read the [Project DNA contract](docs/project-dna.md) and the broader
+[Project DNA vision](docs/project-dna-engine.md).
+
+## Day-to-day
+
+Most capture happens around normal commits and test failures. These commands cover the common
+manual paths:
 
 | Command | Use it for |
 | --- | --- |
-| `hunch why <file>` | Explain why a file is built this way and what could be affected by changing it |
-| `hunch query "<question>"` | Search project memory |
-| `hunch context "<task>" --profile reviewer` | Get a bounded builder, reviewer, or architect view without changing enforcement |
-| `hunch change-id <base> [head]` | Bind a branch and its exact squash merge to the same content-based change ID |
-| `hunch check --working` | Check current changes against the decisions and rules your team trusts |
-| `hunch log` | See what Hunch remembered and undo a memory change if needed |
-| `hunch escalations` | See the rare questions that need a human answer |
-| `hunch review` | Answer the current imported-ADR approve/decline question from the terminal |
-| `hunch doctor` | Diagnose setup problems |
+| `hunch context "<task>" --profile builder` | Get a bounded builder, reviewer, or architect brief before work starts |
+| `hunch why <file-or-symbol>` | See the decisions, bugs, constraints, and blast radius behind code |
+| `hunch structure [target]` | Inspect the indexed repository shape without repeated search rounds |
+| `hunch findings [scope]` | Inherit known-but-unfixed gaps instead of rediscovering them |
+| `hunch check --working` | Review the current tree against trusted project rules |
+| `hunch conform` | Prove the code still satisfies recorded architectural intent |
+| `hunch impact origin/main` | See the dependency and memory surface of a branch |
+| `hunch compare branch-a branch-b` | Rank candidate changes by the fewest invariant and decision conflicts |
+| `hunch landscape review` | Inspect a hash-bound repository landscape without writing authority |
+| `hunch now` | See recent memory and the live decision-backed roadmap |
+| `hunch escalations` | See the rare questions that genuinely require a human answer |
+| `hunch doctor` | Diagnose setup, provider, index, or overlay problems |
 
-<details>
-<summary><strong>Advanced: problem shortlisting and evidence receipts</strong></summary>
-
-These tools help researchers and maintainers investigate where a described behavior may live. They
-show uncertainty instead of claiming to know the exact fix.
-
-| Command | Use it for |
-| --- | --- |
-| `hunch shortlist --issue "..."` | Build a bounded list of files and named code items to inspect |
-| `hunch evidence-map receipt.json` | Add observed execution evidence without guessing the exact owner |
-
-`hunch evidence-map` accepts a bounded JSON receipt containing a red target, a distinct green
-control, optional execution counts, and optional intervention outcomes. It reports target-only and
-shared execution plus behavior-sensitive files. It does not run the probes, edit the repository, or
-claim that behaviorally influential code owns the correction. Use `--json` for the machine-readable
-map; MCP clients can submit the same receipt through `hunch_evidence_map`.
-
-`hunch shortlist --evidence` attaches authenticated observations to the relevant candidates but does
-not reorder them. Three fresh transfer experiments failed to prove that execution or intervention
-influence identifies the correction owner, so the production path converts that result into a hard
-safeguard: no candidate is promoted or displaced by evidence. JSON output still includes a
-deterministic receipt and the explicit `exact_owner_enabled: false` policy.
-
-Every shortlist also preserves its flat top five and adds a deterministic hierarchical inspection
-view anchored to those files: at most five files, two semantic declaration families per file, and
-three declarations per family. On a preregistered 12-case fresh transfer, the preserved union found
-6/12 changed declarations versus 3/12 for the flat top five (**+25 percentage points**, three
-rescues), while correct-file coverage improved from 8/12 to 10/12. The view averaged 18.8 unique
-declarations and never exceeded 24. This promotes the clusters as a supplemental diagnostic, not as
-a top-five accuracy claim; exact-owner output and per-case confidence remain disabled. JSON output
-includes the deterministic cluster receipt and the transfer calibration.
-
-The default output also turns those clusters into a progressive inspection queue. It preserves the
-flat shortlist, adds only the strongest members of already-selected semantic families, stops at ten
-when the behavior is explained, and permits one final fallback declaration before reporting
-uncertainty. Development replay retained all 21/36 combined hits from the full cluster view while
-reducing the hard inspection ceiling to 11 from an average of 19.8 declarations (44% less). On a
-separate preregistered 12-case ArkType transfer it retained all 5 full-cluster hits with zero losses
-and reduced mean inspection from 18.9 declarations to 11 (41.9% less). It found no additional fresh
-hit, so the queue is retained as an efficiency advisory rather than promoted as an accuracy gain.
-
-Follow-up optimization attempts stay out of production. Replacing cluster slots with same-file
-declarations produced four development rescues but also three losses. Appending two same-file slots
-removed those development losses, but a second blind 12-case ArkType transfer produced 3/12 hits for
-both the existing and expanded plans, with zero rescues. Product-source filtering lost one prior hit,
-one-hop relationship expansion added none, and evidence/causal rerankers also failed their frozen
-transfer gates. The receipts remain in `bench/external/results`; rejected mechanisms cannot silently
-change the production ordering.
-
-</details>
-
-Corrections can become scoped rules, but captured memory cannot hard-block on its own. Enforcement is
-deterministic and opt-in:
+When you are ready for deterministic enforcement:
 
 ```bash
 hunch firmness strict
 hunch check --staged --strict
 ```
 
-## Share the same memory with your team
+That is the one moment of teeth. Captured memory cannot silently hard-block on its own.
 
-For a team, Hunch can keep everyone’s decisions, corrections, and rules in one private Git
-repository, separate from the code repository. Hunch does not host it. Create a private repository
-that every teammate can access, install Hunch on team machines and CI, then have one maintainer run:
+## What changed after v1.19
+
+The v1.19 correction-search benchmark is still useful evidence, but it no longer describes the
+whole product.
+
+- **v1.20 — one validated path from reason to result.** Role-shaped context, reviewed Engineering
+  Landscape fragments, exact change identity, PHP graph support, and hash-bound ADR review moved
+  source, provenance, currentness, omissions, and human authority through one delivery contract.
+- **v1.21 — Project DNA.** Hunch gained deterministic, revision-specific repository profiles,
+  bounded DNA context delivery, explainable Project Match checks, and auditable profile deltas.
+- **v1.22 — authorized collaboration evidence.** Hosts can contribute bounded PR and review
+  evidence to Project DNA through a typed, sealed contract without storing raw collaboration text
+  or changing policy authority.
+
+See the [changelog](CHANGELOG.md) for the release-by-release detail and the
+[roadmap](ROADMAP.md) for what is next and deliberately out of scope.
+
+<details>
+<summary><strong>The scoped v1.19 benchmark</strong></summary>
+
+On a preregistered 12-problem transfer, the supplemental inspection view found the changed
+declaration in 6 cases instead of 3 and the correct file in 10 cases instead of 8. On a separate
+12-case transfer, its progressive queue retained the same five successful finds while reducing the
+average declarations to inspect from 18.9 to 11 (41.9% less).
+
+These are bounded diagnostic results, not a claim that Hunch is universally twice as accurate.
+Failed evidence and causal rerankers remain disabled; evidence can annotate the shortlist but does
+not reorder it or claim an exact correction owner. The detailed receipts live in
+[`bench/external/results`](bench/external/results).
+
+</details>
+
+## Share one living memory with your team
+
+Hunch can keep a team's memory in a dedicated private Git repository, separate from the code. Hunch
+does not host that repository. Give teammates and CI normal Git access, keep credentials in SSH or
+the Git credential helper, and have one maintainer connect it:
 
 ```bash
 npm i -g @davesheffer/hunch@1.22.0
@@ -181,12 +186,7 @@ git commit -m "chore: connect shared Hunch memory"
 git push
 ```
 
-Use a credential-free URL in the command; keep tokens in your Git credential helper or use SSH.
-If this project already publishes memory in `.hunch/` and you want to move it into the dedicated
-repo, add `--migrate`, review the reported untrack/ignore changes, and follow the commit instructions
-printed by Hunch. Omit `--migrate` for a new setup.
-
-After the pointer commit lands, teammates need Hunch installed and Git access to the memory repo:
+Teammates then install the same version and run:
 
 ```bash
 npm i -g @davesheffer/hunch@1.22.0
@@ -195,103 +195,39 @@ hunch init
 hunch doctor
 ```
 
-`hunch init` validates and connects an ignored local clone of the memory repo. Memory-reading and
-writing CLI operations attempt a bounded refresh at startup; connected MCP sessions check for new
-team memory at each tool-request boundary and rebuild their local index only when the JSON changed.
-New captures route to that repo and are committed and synchronized automatically by default. If a
-push cannot complete, a later capture or `hunch shared --sync` retries it.
+The committed pointer contains a credential-free repository locator and branch. The local clone,
+paths, preferences, and private overlays stay ignored. MCP sessions refresh shared memory at tool
+boundaries, and failed pushes are retried by a later capture or `hunch shared --sync`.
 
-The committed `.hunch/team.json` contains only the credential-free memory-repo locator and canonical
-branch. The ignored `.hunch/local.json` contains local paths and preferences, not credentials;
-authentication stays in SSH or the normal Git credential helper. Shared memory records,
-`.hunch/local.json`, and `.hunch-private/` stay out of code history. Use
-`hunch check --base origin/main --strict --public-only --format markdown` for output that may be
-posted publicly; omit `--public-only` for an internal check that should enforce team memory.
-`HUNCH_PRIVATE_DIR` remains an explicit process-level override for CI and portability. When it
-redirects a repo away from `.hunch/local.json` or bypasses an advertised team store, CLI and MCP
-startup warn on stderr and `hunch doctor` labels the effective source.
+Use `hunch firmness off` to pause hook enforcement without deleting history. Use
+`hunch shared --repo <url> --no-auto-commit` when captures should remain local until an explicit
+`hunch shared --sync`.
 
-For a correction that Hunch can express as a deterministic policy, create and inspect its
-proof-backed proposal:
+## Trust boundaries that stay visible
 
-```bash
-hunch policy upgrade-correction con_...
-hunch policy card pol_...
-```
-
-The upgrade creates evidence, a plan, and a proof but leaves the policy proposed with
-`authority: none`. A proved policy still requires explicit, audited human acceptance before it can
-become advisory or blocking; Hunch never grants that authority automatically.
-
-Need to pause or roll back without deleting memory?
-
-```bash
-hunch firmness off
-hunch shared --repo git@github.com:acme/project-hunch-memory.git --no-auto-commit
-# Later, publish any pending local memory explicitly:
-hunch shared --sync
-```
-
-The first command turns off agent-hook enforcement; the second keeps shared reads and local captures
-but stops automatic memory commits and pushes. As a team-coordinated rollback, revert the setup
-commit to stop discovery after teammates pull the revert. Existing machines retain their ignored
-local overlay until they are deliberately disconnected; do not delete the memory repo as part of a
-rollback. For this rollout, reinstall the previous published package with
-`npm i -g @davesheffer/hunch@1.20.3`; the release receipt resolves and records the verified rollback
-target from the npm registry instead of trusting Git tags. Pause enforcement first as shown above,
-and keep every team client on the same release before resuming Matrix policy workflows.
-
-## Synthesis without surprise billing
-
-Hunch can draft structured memory through:
-
-- a selected Claude Code, Codex, or Cursor subscription CLI;
-- an opt-in OpenAI-compatible local endpoint such as Ollama, vLLM, LM Studio, or llama.cpp; or
-- the built-in deterministic fallback when no model is available.
-
-When several subscription CLIs are installed, Hunch does not guess which plan to use:
-
-```bash
-hunch provider codex-cli
-```
-
-Local and private-network endpoints work without a billing flag. Every public remote requires the
-explicit `HUNCH_SYNTH_ALLOW_METERED=1` opt-in, because Hunch cannot infer cost from a hostname.
-See [Synthesis & billing](https://hunch-pi.vercel.app/docs#synthesis) for setup details.
-
-## Local-first and portable
-
-Hunch has no hosted memory service or telemetry. Your graph travels with git and speaks MCP, so it
-is not tied to one editor or model provider.
-
-Sensitive reasoning can live in a separate private overlay:
-
-```bash
-hunch private --repo git@github.com:you/project-memory.git
-```
-
-Local tools see the combined graph; public CI and committed documentation stay public-only.
-
-## Releases you can trace to source
-
-Hunch releases are built and tested without publication credentials. The resulting npm tarball or
-VSIX is content-addressed, carried unchanged into a minimal publisher, and checked again against the
-registry after publication. The npm path also runs native, atomic-write, and Matrix safety checks on
-Windows and macOS and verifies provenance back to the exact source tag.
-
-The editor companion is published from an exact `vscode-v*` tag to
-[Open VSX](https://open-vsx.org/extension/davesheffer/hunch-vscode). The workflow verifies the
-downloaded public VSIX has the same digest as the credential-free release candidate.
+- **Local-first.** Hunch has no hosted memory service or telemetry. The graph travels with Git and
+  speaks MCP instead of belonging to one editor or model provider.
+- **Private when needed.** `hunch private --repo <url>` keeps sensitive reasoning in a separate
+  overlay. Local tools see the union; public CI and documentation remain public-only.
+- **Human authority.** Observations, generated drafts, imported ADRs, discovered landscape records,
+  and proved policy candidates do not silently become trusted truth.
+- **Deterministic core.** Indexing, retrieval receipts, currentness, conformance, checks, Project
+  DNA discovery, and policy evaluation do not require a model.
+- **No surprise synthesis bill.** Optional drafting can use a selected Claude Code, Codex, or
+  Cursor subscription CLI, a local OpenAI-compatible endpoint, or the deterministic fallback.
+  Public remote endpoints require explicit `HUNCH_SYNTH_ALLOW_METERED=1` opt-in.
+- **Traceable releases.** npm packages and the VS Code extension are content-addressed, verified
+  against their public registries, and tied back to exact source tags.
 
 ## Learn more
 
 - [Full documentation](https://hunch-pi.vercel.app/docs)
 - [Copy-paste cookbook](https://hunch-pi.vercel.app/cookbook)
-- [VS Code extension guide](vscode-extension/README.md)
-- [Contributing](CONTRIBUTING.md)
+- [Project DNA](docs/project-dna.md)
+- [Engineering Landscape Graph](docs/engineering-landscape.md)
+- [Hunch roadmap](ROADMAP.md)
+- [VS Code extension](vscode-extension/README.md)
 - [Architecture benchmark](bench/architectural-conformance.md)
-- [Engineering Landscape Graph and ORC boundary](docs/engineering-landscape.md)
-- [ORC outcome/experience protocol](docs/outcome-experience-protocol.md)
-- [Competitive landscape (dated; re-verify before quoting)](docs/competitive-landscape.md)
+- [Contributing](CONTRIBUTING.md)
 
 Apache-2.0
