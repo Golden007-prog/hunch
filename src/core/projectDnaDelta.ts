@@ -20,6 +20,7 @@ export interface ProjectDnaTraitChange {
 export interface ProjectDnaDelta {
   schema: typeof PROJECT_DNA_DELTA_SCHEMA_VERSION;
   delta_id: string;
+  repository_id: string;
   from_profile_id: string;
   to_profile_id: string;
   from_revision: string;
@@ -64,6 +65,9 @@ export function diffProjectDna(fromValue: unknown, toValue: unknown): ProjectDna
   assertProjectDnaProfile(toValue);
   const from = fromValue;
   const to = toValue;
+  if (from.repository_id !== to.repository_id) {
+    throw new Error("project DNA profiles belong to different repositories");
+  }
   const before = mapTraits(from);
   const after = mapTraits(to);
   const keys = [...new Set([...before.keys(), ...after.keys()])].sort(compareCodeUnits);
@@ -120,6 +124,7 @@ export function diffProjectDna(fromValue: unknown, toValue: unknown): ProjectDna
 
   const unsigned = {
     schema: PROJECT_DNA_DELTA_SCHEMA_VERSION,
+    repository_id: from.repository_id,
     from_profile_id: from.profile_id,
     to_profile_id: to.profile_id,
     from_revision: from.repository_revision,
@@ -138,10 +143,11 @@ export function assertProjectDnaDelta(value: unknown): asserts value is ProjectD
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("project DNA delta is invalid");
   const delta = value as ProjectDnaDelta;
   const expectedFields = [
-    "schema", "delta_id", "from_profile_id", "to_profile_id", "from_revision", "to_revision", "changes", "changed", "content_hash",
+    "schema", "delta_id", "repository_id", "from_profile_id", "to_profile_id", "from_revision", "to_revision", "changes", "changed", "content_hash",
   ].sort(compareCodeUnits);
   if (Object.keys(value as Record<string, unknown>).sort(compareCodeUnits).join("\0") !== expectedFields.join("\0")
     || delta.schema !== PROJECT_DNA_DELTA_SCHEMA_VERSION || !DELTA_ID.test(delta.delta_id)
+    || !/^pdnar_[a-f0-9]{24}$/.test(delta.repository_id)
     || !/^pdna_[a-f0-9]{24}$/.test(delta.from_profile_id) || !/^pdna_[a-f0-9]{24}$/.test(delta.to_profile_id)
     || !/^[a-f0-9]{40,64}$/.test(delta.from_revision) || !/^[a-f0-9]{40,64}$/.test(delta.to_revision)
     || !Array.isArray(delta.changes) || delta.changes.length > 128 || delta.changed !== (delta.changes.length > 0)
@@ -160,6 +166,15 @@ export function assertProjectDnaDelta(value: unknown): asserts value is ProjectD
       || (change.before_confidence !== null && (!Number.isFinite(change.before_confidence) || change.before_confidence < 0 || change.before_confidence > 1))
       || (change.after_confidence !== null && (!Number.isFinite(change.after_confidence) || change.after_confidence < 0 || change.after_confidence > 1))) {
       throw new Error("project DNA trait change fields are invalid");
+    }
+    if ((change.kind === "added" && (change.before_trait_id !== null || change.before_confidence !== null
+      || change.after_trait_id === null || change.after_confidence === null))
+      || (change.kind === "removed" && (change.before_trait_id === null || change.before_confidence === null
+        || change.after_trait_id !== null || change.after_confidence !== null))
+      || ((change.kind === "evidence_changed" || change.kind === "confidence_changed")
+        && (change.before_trait_id === null || change.before_confidence === null
+          || change.after_trait_id === null || change.after_confidence === null))) {
+      throw new Error("project DNA trait change transition is invalid");
     }
     seen.add(change.key);
   }

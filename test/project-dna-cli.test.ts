@@ -42,9 +42,10 @@ test("Project DNA CLI exposes sealed profile, context, match, and drift", (t) =>
 
   const profileRun = run(root, "--revision", before, "--json");
   assert.equal(profileRun.status, 0, profileRun.stderr);
-  const profile = JSON.parse(profileRun.stdout) as { schema: string; profile_id: string; repository_revision: string };
+  const profile = JSON.parse(profileRun.stdout) as { schema: string; profile_id: string; repository_id: string; repository_revision: string };
   assert.equal(profile.schema, "hunch.project-dna/1");
   assert.match(profile.profile_id, /^pdna_[a-f0-9]{24}$/);
+  assert.match(profile.repository_id, /^pdnar_[a-f0-9]{24}$/);
   assert.equal(profile.repository_revision, before);
 
   const contextRun = run(root, "context", "--revision", before, "--traits", "3");

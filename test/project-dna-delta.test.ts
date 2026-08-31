@@ -46,6 +46,7 @@ test("DNA drift is an immutable profile delta rather than an in-place rewrite", 
 
   assert.notEqual(before.profile_id, after.profile_id);
   assert.equal(delta.from_profile_id, before.profile_id);
+  assert.equal(delta.repository_id, before.repository_id);
   assert.equal(delta.to_profile_id, after.profile_id);
   assert.equal(delta.changed, true);
   assert.equal(delta.changes.some((change) => change.key === "review.tests_expected" && change.kind === "added"), true);

@@ -1,6 +1,6 @@
 {
   "name": "@davesheffer/hunch",
-  "version": "1.20.3",
+  "version": "1.21.0",
   "mcpName": "io.github.davesheffer/hunch",
   "license": "Apache-2.0",
   "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
@@ -16,6 +16,14 @@
   "type": "module",
   "bin": {
     "hunch": "dist/cli/index.js"
+  },
+  "exports": {
+    "./project-dna": {
+      "types": "./dist/projectDna.d.ts",
+      "default": "./dist/projectDna.js"
+    },
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist/**/*.js",

@@ -7,6 +7,7 @@ const revision = "a".repeat(40);
 const profile: ProjectDnaProfile = {
   schema: "hunch.project-dna/1",
   profile_id: "pdna_000000000000000000000000",
+  repository_id: "pdnar_000000000000000000000000",
   repository_revision: revision,
   history_sample_count: 0,
   source_files: [],

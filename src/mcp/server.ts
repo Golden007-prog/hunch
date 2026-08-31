@@ -50,6 +50,8 @@ import {
   discoverProjectDna,
   evaluateProjectDnaMatch,
 } from "../core/projectDna.js";
+import { PROJECT_DNA_DELTA_SCHEMA_VERSION, diffProjectDna } from "../core/projectDnaDelta.js";
+import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
 import { armExecutionObligations, loadPipelineState, savePipelineState } from "../core/pipeline.js";
 import { recordServed } from "../core/served.js";
 import { EdgeSchema, ResourceSchema, type Runbook } from "../core/types.js";
@@ -307,11 +309,14 @@ const PROJECT_DNA_EVIDENCE_SCHEMA = z.object({
   revision: z.string().regex(/^[a-f0-9]{40,64}$/),
   content_hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   sample_count: z.number().int().positive(),
+  provenance: z.literal("committed-repository"),
+  visibility: z.literal("repository"),
 });
 
 const PROJECT_DNA_PROFILE_OUTPUT_SCHEMA = z.object({
   schema: z.literal(PROJECT_DNA_SCHEMA_VERSION),
   profile_id: z.string().regex(/^pdna_[a-f0-9]{24}$/),
+  repository_id: z.string().regex(/^pdnar_[a-f0-9]{24}$/),
   repository_revision: z.string().regex(/^[a-f0-9]{40,64}$/),
   history_sample_count: z.number().int().nonnegative(),
   source_files: z.array(z.string()),
@@ -321,6 +326,9 @@ const PROJECT_DNA_PROFILE_OUTPUT_SCHEMA = z.object({
     key: z.string(),
     claim: z.string(),
     confidence: z.number().min(0).max(1),
+    observation_state: z.literal("observed"),
+    freshness: z.literal("current"),
+    contradiction: z.literal("none"),
     evidence: z.array(PROJECT_DNA_EVIDENCE_SCHEMA),
   })),
   content_hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
@@ -330,6 +338,7 @@ const PROJECT_DNA_MATCH_OUTPUT_SCHEMA = z.object({
   schema: z.literal(PROJECT_DNA_MATCH_SCHEMA_VERSION),
   match_id: z.string().regex(/^pdnam_[a-f0-9]{24}$/),
   profile_id: z.string().regex(/^pdna_[a-f0-9]{24}$/),
+  repository_id: z.string().regex(/^pdnar_[a-f0-9]{24}$/),
   repository_revision: z.string().regex(/^[a-f0-9]{40,64}$/),
   artifact_kind: z.enum(["commit", "pull_request", "issue", "message"]),
   score: z.number().min(0).max(100).nullable(),
@@ -342,6 +351,26 @@ const PROJECT_DNA_MATCH_OUTPUT_SCHEMA = z.object({
     weight: z.number().int().positive(),
     detail: z.string(),
   })),
+  content_hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+});
+
+const PROJECT_DNA_DELTA_OUTPUT_SCHEMA = z.object({
+  schema: z.literal(PROJECT_DNA_DELTA_SCHEMA_VERSION),
+  delta_id: z.string().regex(/^pdnad_[a-f0-9]{24}$/),
+  repository_id: z.string().regex(/^pdnar_[a-f0-9]{24}$/),
+  from_profile_id: z.string().regex(/^pdna_[a-f0-9]{24}$/),
+  to_profile_id: z.string().regex(/^pdna_[a-f0-9]{24}$/),
+  from_revision: z.string().regex(/^[a-f0-9]{40,64}$/),
+  to_revision: z.string().regex(/^[a-f0-9]{40,64}$/),
+  changes: z.array(z.object({
+    key: z.string(),
+    kind: z.enum(["added", "removed", "evidence_changed", "confidence_changed"]),
+    before_trait_id: z.string().regex(/^pdnat_[a-f0-9]{20}$/).nullable(),
+    after_trait_id: z.string().regex(/^pdnat_[a-f0-9]{20}$/).nullable(),
+    before_confidence: z.number().min(0).max(1).nullable(),
+    after_confidence: z.number().min(0).max(1).nullable(),
+  })),
+  changed: z.boolean(),
   content_hash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
 });
 
@@ -1066,6 +1095,39 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
     },
   );
 
+  // -- hunch_project_dna_delta ---------------------------------------------
+  server.registerTool(
+    "hunch_project_dna_delta",
+    {
+      title: "Compare Project DNA across two exact repository revisions",
+      description:
+        "Return a sealed, explainable delta between two immutable Project DNA profiles. Read-only: reports observation drift and never rewrites history or graph authority.",
+      inputSchema: {
+        from_ref: z.string().min(1).max(1_024).describe("Older Git commit/ref."),
+        to_ref: z.string().min(1).max(1_024).describe("Newer Git commit/ref."),
+        cwd: cwdHintField,
+      },
+      outputSchema: PROJECT_DNA_DELTA_OUTPUT_SCHEMA,
+    },
+    async ({ from_ref, to_ref }): Promise<ToolResult> => {
+      try {
+        const delta = PROJECT_DNA_DELTA_OUTPUT_SCHEMA.parse(diffProjectDna(
+          discoverProjectDna(root, from_ref),
+          discoverProjectDna(root, to_ref),
+        ));
+        return {
+          content: [{
+            type: "text",
+            text: `${delta.delta_id}: ${delta.changed ? `${delta.changes.length} observed DNA change(s)` : "no observed DNA change"} from ${delta.from_revision} to ${delta.to_revision}. Advisory only.`,
+          }],
+          structuredContent: delta,
+        };
+      } catch (error) {
+        return err((error as Error).message);
+      }
+    },
+  );
+
   // -- hunch_context (surgical retrieval) -----------------------------------
   server.registerTool(
     "hunch_context",
@@ -1085,6 +1147,14 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return err(`Could not resolve as_of "${as_of}" to a commit.`);
       const ctx = store.assembleContext(target, budget_tokens ?? 1500, { asOf });
+      let dnaSupplement: ReturnType<typeof projectDnaDeliverySupplement> = null;
+      try {
+        dnaSupplement = projectDnaDeliverySupplement(discoverProjectDna(root, as_of ?? "HEAD"));
+      } catch {
+        // Context retrieval must keep its existing graceful behavior when the
+        // Git checkout cannot provide DNA; the dedicated DNA tool reports the
+        // exact derivation error when a caller needs diagnostics.
+      }
       const options = {
         root,
         symbols: store.recs("symbols"),
@@ -1092,6 +1162,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         decisionCorpus: store.recs("decisions"),
         historical: !!asOf,
         profile: profile ?? "builder",
+        supplements: dnaSupplement ? [dnaSupplement] : [],
       };
       // Task-phrase input ("improve retrieval ranking") resolves no file/symbol and
       // used to return an empty brief while the graph held the answer — fall back to
@@ -1117,7 +1188,9 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
           };
           const envelope = buildDeliveryEnvelope(fallback, {
             ...options,
-            supplements: hits
+            supplements: [
+              ...(dnaSupplement ? [dnaSupplement] : []),
+              ...hits
               .filter((hit) => !["constraints", "decisions", "bugs", "findings"].includes(hit.kind))
               .map((hit, index) => ({
                 id: hit.ref,
@@ -1125,6 +1198,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
                 text: `${hit.ref} — ${hit.title}: ${hit.snippet}`,
                 priority: 100 - index,
               })),
+            ],
           });
           return deliveredContext(root, target, envelope, extra.sessionId);
         }

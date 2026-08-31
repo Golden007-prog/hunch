@@ -8,6 +8,7 @@ export const PROJECT_DNA_MATCH_SCHEMA_VERSION = "hunch.project-dna-match/1" as c
 const GIT_OBJECT = /^[a-f0-9]{40,64}$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const PROFILE_ID = /^pdna_[a-f0-9]{24}$/;
+const REPOSITORY_ID = /^pdnar_[a-f0-9]{24}$/;
 const MATCH_ID = /^pdnam_[a-f0-9]{24}$/;
 const MAX_GIT_OUTPUT = 8 * 1024 * 1024;
 const MAX_HISTORY = 200;
@@ -26,6 +27,8 @@ export interface ProjectDnaEvidence {
   revision: string;
   content_hash: string;
   sample_count: number;
+  provenance: "committed-repository";
+  visibility: "repository";
 }
 
 export interface ProjectDnaTrait {
@@ -34,12 +37,17 @@ export interface ProjectDnaTrait {
   key: string;
   claim: string;
   confidence: number;
+  observation_state: "observed";
+  freshness: "current";
+  contradiction: "none";
   evidence: ProjectDnaEvidence[];
 }
 
 export interface ProjectDnaProfile {
   schema: typeof PROJECT_DNA_SCHEMA_VERSION;
   profile_id: string;
+  /** Clone-stable identity for the repository lineage, derived from its root commits. */
+  repository_id: string;
   repository_revision: string;
   history_sample_count: number;
   source_files: string[];
@@ -66,6 +74,7 @@ export interface ProjectDnaMatch {
   schema: typeof PROJECT_DNA_MATCH_SCHEMA_VERSION;
   match_id: string;
   profile_id: string;
+  repository_id: string;
   repository_revision: string;
   artifact_kind: ProjectDnaArtifact["kind"];
   score: number | null;
@@ -194,6 +203,9 @@ function makeTrait(
     key,
     claim,
     confidence: Number(Math.max(0, Math.min(1, confidenceValue)).toFixed(3)),
+    observation_state: "observed",
+    freshness: "current",
+    contradiction: "none",
     evidence: [...evidence].sort((left, right) => compareCodeUnits(left.ref, right.ref)).slice(0, MAX_EVIDENCE),
   };
 }
@@ -205,6 +217,8 @@ function historyEvidence(revision: string, subjects: string[]): ProjectDnaEviden
     revision,
     content_hash: sha256(subjects.join("\0")),
     sample_count: subjects.length,
+    provenance: "committed-repository",
+    visibility: "repository",
   };
 }
 
@@ -215,7 +229,21 @@ function fileEvidence(revision: string, path: string, bytes: Buffer): ProjectDna
     revision,
     content_hash: sha256(bytes),
     sample_count: 1,
+    provenance: "committed-repository",
+    visibility: "repository",
   };
+}
+
+function repositoryId(root: string, revision: string): string {
+  const roots = gitText(root, ["rev-list", "--max-parents=0", revision, "--"])
+    .split("\n")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort(compareCodeUnits);
+  if (!roots.length || roots.some((value) => !GIT_OBJECT.test(value))) {
+    throw new Error("Git did not return a stable repository lineage identity");
+  }
+  return `pdnar_${sha256(canonical({ roots })).slice("sha256:".length, "sha256:".length + 24)}`;
 }
 
 function firstAlphabetic(value: string): string | null {
@@ -360,6 +388,7 @@ function dedupeTraits(traits: ProjectDnaTrait[]): ProjectDnaTrait[] {
  */
 export function discoverProjectDna(root: string, ref = "HEAD"): ProjectDnaProfile {
   const repositoryRevision = exactCommit(root, ref);
+  const repositoryIdentity = repositoryId(root, repositoryRevision);
   const historyRaw = gitText(root, [
     "log", repositoryRevision, "--no-merges", `--max-count=${MAX_HISTORY}`, "--format=%s", "--",
   ]);
@@ -376,6 +405,7 @@ export function discoverProjectDna(root: string, ref = "HEAD"): ProjectDnaProfil
   ]);
   const unsigned = {
     schema: PROJECT_DNA_SCHEMA_VERSION,
+    repository_id: repositoryIdentity,
     repository_revision: repositoryRevision,
     history_sample_count: subjects.length,
     source_files: files.map((file) => file.path).sort(compareCodeUnits),
@@ -389,7 +419,7 @@ export function discoverProjectDna(root: string, ref = "HEAD"): ProjectDnaProfil
 }
 
 function expectedTraitFields(): string[] {
-  return ["id", "category", "key", "claim", "confidence", "evidence"].sort(compareCodeUnits);
+  return ["id", "category", "key", "claim", "confidence", "observation_state", "freshness", "contradiction", "evidence"].sort(compareCodeUnits);
 }
 
 function assertExactFields(value: Record<string, unknown>, fields: string[], label: string): void {
@@ -402,10 +432,10 @@ export function assertProjectDnaProfile(value: unknown): asserts value is Projec
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("project DNA profile is invalid");
   const profile = value as ProjectDnaProfile;
   assertExactFields(value as Record<string, unknown>, [
-    "schema", "profile_id", "repository_revision", "history_sample_count", "source_files", "traits", "content_hash",
+    "schema", "profile_id", "repository_id", "repository_revision", "history_sample_count", "source_files", "traits", "content_hash",
   ], "project DNA profile");
   if (profile.schema !== PROJECT_DNA_SCHEMA_VERSION || !PROFILE_ID.test(profile.profile_id)
-    || !GIT_OBJECT.test(profile.repository_revision) || !Number.isSafeInteger(profile.history_sample_count)
+    || !REPOSITORY_ID.test(profile.repository_id) || !GIT_OBJECT.test(profile.repository_revision) || !Number.isSafeInteger(profile.history_sample_count)
     || profile.history_sample_count < 0 || profile.history_sample_count > MAX_HISTORY
     || !Array.isArray(profile.source_files) || profile.source_files.length > SOURCE_FILES.length
     || profile.source_files.some((path) => typeof path !== "string" || !SOURCE_FILES.includes(path as (typeof SOURCE_FILES)[number]))
@@ -420,6 +450,7 @@ export function assertProjectDnaProfile(value: unknown): asserts value is Projec
     if (!/^pdnat_[a-f0-9]{20}$/.test(trait.id) || !PROJECT_DNA_CATEGORIES.includes(trait.category)
       || !/^[a-z][a-z0-9_.-]{2,100}$/.test(trait.key) || !trait.claim.trim() || trait.claim.length > 500
       || !Number.isFinite(trait.confidence) || trait.confidence < 0 || trait.confidence > 1
+      || trait.observation_state !== "observed" || trait.freshness !== "current" || trait.contradiction !== "none"
       || !Array.isArray(trait.evidence) || trait.evidence.length < 1 || trait.evidence.length > MAX_EVIDENCE
       || seen.has(trait.key)) {
       throw new Error("project DNA trait fields are invalid");
@@ -428,10 +459,13 @@ export function assertProjectDnaProfile(value: unknown): asserts value is Projec
     if (trait.id !== traitId(trait.category, trait.key, trait.claim)) throw new Error("project DNA trait identity is invalid");
     for (const evidence of trait.evidence) {
       if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error("project DNA evidence is invalid");
-      assertExactFields(evidence as unknown as Record<string, unknown>, ["kind", "ref", "revision", "content_hash", "sample_count"], "project DNA evidence");
+      assertExactFields(evidence as unknown as Record<string, unknown>, [
+        "kind", "ref", "revision", "content_hash", "sample_count", "provenance", "visibility",
+      ], "project DNA evidence");
       if (!(["git-history", "committed-file"] as const).includes(evidence.kind) || !evidence.ref.trim() || evidence.ref.length > 512
         || evidence.revision !== profile.repository_revision || !SHA256.test(evidence.content_hash)
-        || !Number.isSafeInteger(evidence.sample_count) || evidence.sample_count < 1 || evidence.sample_count > MAX_HISTORY) {
+        || !Number.isSafeInteger(evidence.sample_count) || evidence.sample_count < 1 || evidence.sample_count > MAX_HISTORY
+        || evidence.provenance !== "committed-repository" || evidence.visibility !== "repository") {
         throw new Error("project DNA evidence fields are invalid");
       }
     }
@@ -487,6 +521,7 @@ export function evaluateProjectDnaMatch(profileValue: unknown, artifact: Project
   const unsigned = {
     schema: PROJECT_DNA_MATCH_SCHEMA_VERSION,
     profile_id: profile.profile_id,
+    repository_id: profile.repository_id,
     repository_revision: profile.repository_revision,
     artifact_kind: artifact.kind,
     score,
@@ -505,10 +540,11 @@ export function assertProjectDnaMatch(value: unknown): asserts value is ProjectD
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("project DNA match is invalid");
   const match = value as ProjectDnaMatch;
   assertExactFields(value as Record<string, unknown>, [
-    "schema", "match_id", "profile_id", "repository_revision", "artifact_kind", "score", "applicable_checks", "checks", "content_hash",
+    "schema", "match_id", "profile_id", "repository_id", "repository_revision", "artifact_kind", "score", "applicable_checks", "checks", "content_hash",
   ], "project DNA match");
   if (match.schema !== PROJECT_DNA_MATCH_SCHEMA_VERSION || !MATCH_ID.test(match.match_id) || !PROFILE_ID.test(match.profile_id)
-    || !GIT_OBJECT.test(match.repository_revision) || !(["commit", "pull_request", "issue", "message"] as const).includes(match.artifact_kind)
+    || !REPOSITORY_ID.test(match.repository_id) || !GIT_OBJECT.test(match.repository_revision)
+    || !(["commit", "pull_request", "issue", "message"] as const).includes(match.artifact_kind)
     || (match.score !== null && (!Number.isFinite(match.score) || match.score < 0 || match.score > 100))
     || !Number.isSafeInteger(match.applicable_checks) || match.applicable_checks < 0
     || !Array.isArray(match.checks) || match.applicable_checks > match.checks.length || !SHA256.test(match.content_hash)) {

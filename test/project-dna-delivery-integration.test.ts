@@ -4,8 +4,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { discoverProjectDna } from "../src/core/projectDna.js";
 import { projectDnaDeliverySupplement } from "../src/core/projectDnaDelivery.js";
+import { hunchPaths } from "../src/core/paths.js";
+import { buildServer } from "../src/mcp/server.js";
+import { HunchStore } from "../src/store/hunchStore.js";
 
 const gitEnv = {
   ...process.env,
@@ -47,4 +52,56 @@ test("a sealed DNA profile becomes a bounded advisory delivery supplement", (t) 
   assert.match(supplement.text, new RegExp(profile.repository_revision));
   assert.match(supplement.text, /never override Hunch decisions, constraints, policy/i);
   assert.equal((supplement.text.match(/^• /gm) ?? []).length <= 4, true, "trait cap plus optional omission marker stays bounded");
+});
+
+test("normal MCP context delivery includes Project DNA and exposes sealed profile deltas", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-project-dna-mcp-"));
+  git(root, "init", "-q", "-b", "main");
+  writeFileSync(join(root, "CONTRIBUTING.md"), "Behavior changes must include tests. Keep pull requests small and focused.\n");
+  writeFileSync(join(root, "value.txt"), "0\n");
+  git(root, "add", ".");
+  git(root, "commit", "-qm", "fix: initialize mutation fixture");
+  for (let index = 1; index <= 5; index++) {
+    writeFileSync(join(root, "value.txt"), `${index}\n`);
+    git(root, "add", "value.txt");
+    git(root, "commit", "-qm", `fix: update mutation fixture ${index}`);
+  }
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  store.reindex();
+  store.close();
+
+  const server = buildServer(root);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "project-dna-mcp-test", version: "1.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  t.after(async () => {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const tools = (await client.listTools()).tools;
+  assert.ok(tools.some((tool) => tool.name === "hunch_project_dna" && tool.outputSchema));
+  assert.ok(tools.some((tool) => tool.name === "hunch_project_dna_delta" && tool.outputSchema));
+
+  const context = await client.callTool({
+    name: "hunch_context",
+    arguments: { target: "mutation fixture", budget_tokens: 900 },
+  });
+  const contextEnvelope = context.structuredContent as {
+    text: string;
+    supplements: Array<{ id: string; kind: string; delivered: boolean }>;
+  };
+  assert.match(contextEnvelope.text, /PROJECT DNA/);
+  assert.equal(contextEnvelope.supplements.some((item) => item.kind === "project-dna" && item.delivered), true);
+
+  const deltaResult = await client.callTool({
+    name: "hunch_project_dna_delta",
+    arguments: { from_ref: "HEAD~1", to_ref: "HEAD" },
+  });
+  const delta = deltaResult.structuredContent as { schema: string; repository_id: string; changed: boolean };
+  assert.equal(delta.schema, "hunch.project-dna-delta/1");
+  assert.match(delta.repository_id, /^pdnar_[a-f0-9]{24}$/);
+  assert.equal(delta.changed, true);
 });

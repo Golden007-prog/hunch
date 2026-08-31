@@ -72,6 +72,7 @@ test("project DNA is deterministic and bound to one exact revision", (t) => {
 
   assert.deepEqual(first, second);
   assert.equal(first.repository_revision, revision);
+  assert.match(first.repository_id, /^pdnar_[a-f0-9]{24}$/);
   assert.equal(first.history_sample_count, 10);
   assert.deepEqual(first.source_files, ["CONTRIBUTING.md"]);
   assert.doesNotThrow(() => assertProjectDnaProfile(first));
@@ -86,6 +87,10 @@ test("project DNA is deterministic and bound to one exact revision", (t) => {
   assert.equal(keys.has("engineering.documentation_expected"), true);
   assert.equal(keys.has("pr.explain_why"), true);
   assert.equal(keys.has("term.mutation"), true);
+  assert.equal(first.traits.every((trait) => trait.observation_state === "observed"
+    && trait.freshness === "current" && trait.contradiction === "none"), true);
+  assert.equal(first.traits.flatMap((trait) => trait.evidence).every((evidence) =>
+    evidence.provenance === "committed-repository" && evidence.visibility === "repository"), true);
 
   writeFileSync(join(root, "CONTRIBUTING.md"), "uncommitted local instructions must not affect DNA\n");
   assert.deepEqual(discoverProjectDna(root, revision), first, "worktree state is outside the exact-revision profile");

@@ -67,6 +67,8 @@ import { collectCorrectionStageSources } from "../extractors/correctionSources.j
 import { buildDeliveryEnvelope, DELIVERY_PROFILES, type DeliveryProfile } from "../core/delivery.js";
 import { deriveChangeIdentity } from "../core/changeIdentity.js";
 import { discoverProjectDna, evaluateProjectDnaMatch, type ProjectDnaArtifact } from "../core/projectDna.js";
+import { diffProjectDna } from "../core/projectDnaDelta.js";
+import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
@@ -2861,6 +2863,45 @@ dnaCmd
         console.log(`  ${check.passed ? "PASS" : "FAIL"}  ${check.key} — ${check.detail}`);
       }
       console.log("Advisory only; the score does not grant or change enforcement authority.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+dnaCmd
+  .command("context")
+  .description("Render the bounded advisory Project DNA supplement used by normal Hunch context delivery.")
+  .option("--ref <ref>", "Git commit/ref to inspect", "HEAD")
+  .option("--traits <count>", "maximum traits in the orientation slice", "8")
+  .option("--json", "emit the complete machine-readable supplement")
+  .action((opts: { ref: string; traits: string; json?: boolean }) => {
+    try {
+      const traitCap = Number(opts.traits);
+      const supplement = projectDnaDeliverySupplement(discoverProjectDna(findRoot(), opts.ref), traitCap);
+      if (opts.json) console.log(JSON.stringify(supplement, null, 2));
+      else console.log(supplement?.text ?? "No evidence-backed Project DNA traits yet.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+dnaCmd
+  .command("diff")
+  .description("Compare two exact-revision DNA profiles without rewriting either snapshot.")
+  .argument("<from>", "older Git revision")
+  .argument("<to>", "newer Git revision")
+  .option("--json", "emit the complete sealed delta")
+  .action((from: string, to: string, opts: { json?: boolean }) => {
+    try {
+      const root = findRoot();
+      const delta = diffProjectDna(discoverProjectDna(root, from), discoverProjectDna(root, to));
+      if (opts.json) {
+        console.log(JSON.stringify(delta, null, 2));
+        return;
+      }
+      console.log(`Project DNA drift ${delta.delta_id}: ${delta.changed ? `${delta.changes.length} change(s)` : "no observed change"}`);
+      for (const change of delta.changes) console.log(`  ${change.kind}  ${change.key}`);
+      console.log("Observation only; no Project DNA profile or graph authority was rewritten.");
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
     }

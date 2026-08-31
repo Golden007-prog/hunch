@@ -63,9 +63,12 @@ program
       title: options.title,
       ...(options.body !== undefined ? { body: options.body } : {}),
     };
-    const profile = discoverProjectDna(gitRoot(), options.revision);
+    const globals = program.opts<{ revision?: string; json?: boolean }>();
+    const revision = options.revision ?? globals.revision ?? "HEAD";
+    const json = options.json ?? globals.json ?? false;
+    const profile = discoverProjectDna(gitRoot(), revision);
     const match = evaluateProjectDnaMatch(profile, artifact);
-    if (options.json) process.stdout.write(`${JSON.stringify(match, null, 2)}\n`);
+    if (json) process.stdout.write(`${JSON.stringify(match, null, 2)}\n`);
     else {
       process.stdout.write(`Project DNA match: ${match.score === null ? "n/a" : `${match.score}%`} (${match.applicable_checks} applicable checks)\n`);
       for (const check of match.checks.filter((item) => item.applicable)) {
@@ -81,9 +84,12 @@ program
   .option("--traits <count>", "maximum DNA traits in the orientation slice", "8")
   .option("--json", "emit supplement JSON")
   .action((options: { revision: string; traits: string; json?: boolean }) => {
+    const globals = program.opts<{ revision?: string; json?: boolean }>();
+    const revision = options.revision ?? globals.revision ?? "HEAD";
+    const json = options.json ?? globals.json ?? false;
     const cap = Number(options.traits);
-    const supplement = projectDnaDeliverySupplement(discoverProjectDna(gitRoot(), options.revision), cap);
-    if (options.json) process.stdout.write(`${JSON.stringify(supplement, null, 2)}\n`);
+    const supplement = projectDnaDeliverySupplement(discoverProjectDna(gitRoot(), revision), cap);
+    if (json) process.stdout.write(`${JSON.stringify(supplement, null, 2)}\n`);
     else process.stdout.write(`${supplement?.text ?? "No evidence-backed Project DNA traits yet."}\n`);
   });
 
@@ -96,7 +102,8 @@ program
   .action((from: string, to: string, options: { json?: boolean }) => {
     const root = gitRoot();
     const delta = diffProjectDna(discoverProjectDna(root, from), discoverProjectDna(root, to));
-    if (options.json) process.stdout.write(`${JSON.stringify(delta, null, 2)}\n`);
+    const json = options.json ?? program.opts<{ json?: boolean }>().json ?? false;
+    if (json) process.stdout.write(`${JSON.stringify(delta, null, 2)}\n`);
     else {
       process.stdout.write(`Project DNA drift ${delta.delta_id}: ${delta.changed ? `${delta.changes.length} change(s)` : "no observed change"}\n`);
       for (const change of delta.changes) process.stdout.write(`- ${change.kind}: ${change.key}\n`);
