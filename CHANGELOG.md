@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 1.21.1 — 2026-08-31
+
+### The agent speaks the repository's language
+
+Project DNA gives Hunch an evidence-bound, revision-specific view of how a repository communicates
+and works. Normal `hunch_context` delivery can now include a compact DNA supplement, while new CLI,
+MCP and library surfaces expose the sealed profile, explainable Project Match checks and profile
+deltas. The result is repository-native terminology and contribution guidance without turning
+observed style into policy or impersonating a maintainer.
+
+This patch also makes 1.21 upgrades safe for installed clients: generated Claude hooks keep a
+portable exact npm pin, legacy Hunch hooks are replaced instead of duplicated, and unrelated user
+hooks remain untouched.
+
 ## 1.20.2 — 2026-08-29
 
 ### Snapshot deletion is durable without risking source
