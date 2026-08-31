@@ -999,7 +999,7 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
         !ctx.landscape?.resources.length &&
         !ctx.landscape?.relationships.length;
       if (empty && !asOf) {
-        const hits = store.search(target, 8);
+        const hits = store.rankedSearch(target, 8);
         if (hits.length) {
           const resolved = hits.map((hit) => ({ hit, record: store.resolve(hit.ref)?.record }));
           const fallback = {

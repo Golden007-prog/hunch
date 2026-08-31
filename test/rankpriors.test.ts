@@ -1,5 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { scopedLastChangeDates } from "../src/extractors/git.js";
 import { tempStore, prov } from "./helpers.js";
 
 const NOW = "2026-07-05T00:00:00Z";
@@ -11,6 +16,14 @@ const DEC = (over: Record<string, unknown> = {}) => ({
   retired: { symbols: [], deps: [] }, provenance: prov(0.9), date: NOW,
   ...over,
 });
+
+function git(root: string, args: string[], date?: string): string {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: date ? { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : process.env,
+  }).trim();
+}
 
 test("rank priors: a LIVE human-confirmed decision outranks its superseded twin on the same terms", async (t) => {
   const { store, cleanup } = tempStore();
@@ -91,4 +104,67 @@ test("rank priors: the memory prior re-ranks WITHOUT excluding code symbols", as
   store.reindex();
   const refs = (await store.hybridSearch("wobblesprocket", 5)).map((h) => h.ref);
   assert.ok(refs.includes("sym_only"), `symbols stay reachable, got ${refs.join(",")}`);
+});
+
+test("rank priors: a changed decision anchor dims after HEAD advances while the exact record stays visible", (t) => {
+  const { store, cleanup } = tempStore();
+  const codeRoot = mkdtempSync(join(tmpdir(), "hunch-freshness-code-"));
+  t.after(cleanup);
+  t.after(() => rmSync(codeRoot, { recursive: true, force: true }));
+  git(codeRoot, ["init", "--initial-branch=main"]);
+  mkdirSync(join(codeRoot, "src"), { recursive: true });
+  writeFileSync(join(codeRoot, "src", "stale.ts"), "export const stale = 1;\n");
+  writeFileSync(join(codeRoot, "src", "fresh.ts"), "export const fresh = 1;\n");
+  git(codeRoot, ["add", "src"]);
+  git(codeRoot, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "base"], "2026-01-01T00:00:00Z");
+
+  const verified = "2026-02-01T00:00:00Z";
+  const provenance = { source: "human_confirmed", confidence: 1, evidence: [], last_verified: verified };
+  store.json.put("decisions", DEC({
+    id: "dec_z_fresh", title: "Nimblecache batching policy", decision: "Nimblecache batches writes.",
+    related_files: ["src/fresh.ts"], provenance,
+  }) as never);
+  store.json.put("decisions", DEC({
+    id: "dec_a_stale", title: "Nimblecache batching policy", decision: "Nimblecache batches writes.",
+    related_files: ["src/stale.ts"], provenance,
+  }) as never);
+  store.reindex();
+
+  const lexical = store.search("nimblecache batching", 5).map((hit) => hit.ref);
+  assert.ok(lexical.indexOf("dec_a_stale") < lexical.indexOf("dec_z_fresh"), `fixture starts with the stale candidate first: ${lexical.join(",")}`);
+  const before = store.rankedSearch("nimblecache batching", 5, { freshnessRoot: codeRoot }).map((hit) => hit.ref);
+  assert.ok(before.indexOf("dec_a_stale") < before.indexOf("dec_z_fresh"), `equal-currentness ties preserve fused order: ${before.join(",")}`);
+
+  writeFileSync(join(codeRoot, "src", "stale.ts"), "export const stale = 2;\n");
+  git(codeRoot, ["add", "src/stale.ts"]);
+  git(codeRoot, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "change stale anchor"], "2026-03-01T00:00:00Z");
+
+  const changed = scopedLastChangeDates(["src/stale.ts", "src/fresh.ts"], codeRoot);
+  assert.equal(Date.parse(changed?.get("src/stale.ts") ?? ""), Date.parse("2026-03-01T00:00:00Z"));
+  assert.equal(Date.parse(changed?.get("src/fresh.ts") ?? ""), Date.parse("2026-01-01T00:00:00Z"));
+  const after = store.rankedSearch("nimblecache batching", 5, { freshnessRoot: codeRoot }).map((hit) => hit.ref);
+  assert.ok(after.indexOf("dec_z_fresh") < after.indexOf("dec_a_stale"), `fresh anchor must outrank changed anchor: ${after.join(",")}`);
+  assert.ok(after.includes("dec_a_stale"), "staleness dims the decision but never withholds it");
+});
+
+test("rank priors: missing freshness clocks remain neutral rather than guessed stale", (t) => {
+  const { store, root, cleanup } = tempStore();
+  t.after(cleanup);
+  git(root, ["init", "--initial-branch=main"]);
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src", "unknown.ts"), "export const value = 1;\n");
+  git(root, ["add", "src/unknown.ts"]);
+  git(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "base"], "2026-03-01T00:00:00Z");
+  store.json.put("decisions", DEC({
+    id: "dec_unknown", title: "Quasarqueue policy", decision: "Quasarqueue is bounded.",
+    related_files: ["src/unknown.ts"], provenance: { source: "human_confirmed", confidence: 1, evidence: [] },
+  }) as never);
+  store.json.put("decisions", DEC({
+    id: "dec_peer", title: "Quasarqueue policy", decision: "Quasarqueue is bounded.",
+    related_files: [], provenance: { source: "human_confirmed", confidence: 1, evidence: [] },
+  }) as never);
+  store.reindex();
+  const lexical = store.search("quasarqueue policy", 5).map((hit) => hit.ref);
+  const refs = store.rankedSearch("quasarqueue policy", 5).map((hit) => hit.ref);
+  assert.deepEqual(refs, lexical, "unknown freshness stays neutral and preserves lexical order");
 });

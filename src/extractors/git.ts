@@ -2077,6 +2077,53 @@ export function lastChangeDate(file: string, cwd: string): string {
   return gitSafe(["log", "-1", "--format=%aI", "--", file], cwd);
 }
 
+/**
+ * Newest author date for every changed path selected by a bounded set of repository-relative
+ * Hunch scopes. One Git history walk replaces the per-file process loop used by `staleness()`.
+ *
+ * The return keys are the concrete paths Git observed, not the input scopes: callers can apply
+ * Hunch's own exact/glob/directory matcher without treating Git pathspec interpretation as graph
+ * authority. A failed or oversized read returns null, so freshness stays unknown rather than
+ * partially scoring a record.
+ */
+export function scopedLastChangeDates(
+  scopes: readonly string[],
+  cwd: string,
+  maxChangedPaths = 4_096,
+): Map<string, string> | null {
+  const pathspecs = [...new Set(scopes)].map((scope) => {
+    const normalized = scope.replaceAll("\\", "/");
+    return /[*?[]/.test(normalized) ? `:(glob)${normalized}` : `:(literal)${normalized}`;
+  });
+  if (pathspecs.length === 0) return new Map();
+  const raw = gitRawSafeIsolated([
+    "-c", "core.quotePath=false",
+    "log", "-z", "--name-only", "--format=HUNCH_DATE:%aI%x00", "--", ...pathspecs,
+  ], cwd, 64 * 1024 * 1024);
+  if (raw === null) return null;
+  const out = new Map<string, string>();
+  let commitDate = "";
+  for (const rawToken of raw.split("\0")) {
+    // Git inserts one presentation newline between a custom commit format and its
+    // first NUL-delimited path. Remove exactly that byte; a real leading newline in
+    // a path remains as the second byte and therefore cannot alias a normal path.
+    const token = rawToken.startsWith("\n") ? rawToken.slice(1) : rawToken;
+    if (!token) continue;
+    if (token.startsWith("HUNCH_DATE:")) {
+      const candidate = token.slice("HUNCH_DATE:".length);
+      commitDate = Number.isFinite(Date.parse(candidate)) ? candidate : "";
+      continue;
+    }
+    if (!commitDate) continue;
+    const previous = out.get(token);
+    if (!previous || Date.parse(commitDate) > Date.parse(previous)) {
+      out.set(token, commitDate);
+      if (out.size > maxChangedPaths) return null;
+    }
+  }
+  return out;
+}
+
 /** Batched per-file git metrics for indexing: churn (commits touching the file in
  *  the last `days`; pass 0 to skip) and the most-recent commit (`commit:<sha>`).
  *
