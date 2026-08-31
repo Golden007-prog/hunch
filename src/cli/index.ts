@@ -1323,13 +1323,13 @@ program
       const emb = await selectEmbedder();
       if (!store.semanticReady(emb)) {
         console.log("· semantic search isn't enabled yet — run `hunch embed` (using keyword search for now).\n");
-        hits = store.search(q, 12);
+        hits = store.rankedSearch(q, 12);
       } else {
         hits = await store.hybridSearch(q, 12, { embedder: emb });
         how = " (semantic + keyword)";
       }
     } else {
-      hits = store.search(q, 12);
+      hits = store.rankedSearch(q, 12);
     }
     if (!hits.length) {
       console.log(`No matches for "${q}".`);
@@ -3742,7 +3742,7 @@ program
       !ctx.landscape?.resources.length &&
       !ctx.landscape?.relationships.length;
     if (empty && !asOf) {
-      const hits = store.search(target, 8);
+      const hits = store.rankedSearch(target, 8);
       if (hits.length) {
         console.log(`No file/symbol resolves for "${target}" — closest graph matches instead:\n`);
         for (const h of hits) console.log(`• ${h.ref} — ${h.title}\n    ${h.snippet}`);

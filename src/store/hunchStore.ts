@@ -18,7 +18,13 @@ import { openDb, withTx, type DB } from "./db.js";
 import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
 import { JsonStore } from "./jsonStore.js";
-import { gitCommonDir, gitWorktreeRoot, sameGitPublication } from "../extractors/git.js";
+import {
+  gitCommonDir,
+  gitWorktreeRoot,
+  isolatedHeadSha,
+  sameGitPublication,
+  scopedLastChangeDates,
+} from "../extractors/git.js";
 import { pathMatchesGlob, pathsRelated } from "../core/glob.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
@@ -133,6 +139,10 @@ export class HunchStore {
    *  equal to a committed file (dec_d7bad4ccb7). */
   private suppressPrivate = false;
   private _db: DB | null = null;
+  /** HEAD-keyed, process-local ranking evidence. It never changes record authority or storage. */
+  private decisionFreshnessHead = "";
+  private readonly decisionFreshnessScopes = new Set<string>();
+  private readonly decisionFreshnessChanges = new Map<string, string>();
 
   constructor(private readonly paths: HunchPaths) {
     this.json = new JsonStore(paths);
@@ -706,7 +716,8 @@ export class HunchStore {
   /** Post-fusion rerank by graph PRIORS (dec_25e277f479): relevance ordering, not
    *  just reachability. Trust weight w = liveness × provenance × recency: liveness 0.6
    *  for superseded/retired/rejected, provenance 1.0 / 0.85 / 0.75 for
-   *  human_confirmed / llm_draft / extracted-inferred, recency 0.7 + 0.3·½^(age/90d).
+   *  human_confirmed / llm_draft / extracted-inferred, recency 0.7 + 0.3·½^(age/90d),
+   *  and proven anchored-file staleness 0.8. Every factor is ranking-only.
    *  Runbook trigger phrases matching the query boost ×1.5 (exact intent beats
    *  keyword luck). Structural refs (symbols/components/edges) stay neutral.
    *
@@ -753,6 +764,12 @@ export class HunchStore {
         pos: i + 0.5,
       });
     }
+    const decisionsById = new Map(this.recs("decisions").map((decision) => [decision.id, decision]));
+    const staleDecisionIds = this.staleDecisionIds(
+      pool.filter(({ h }) => h.kind === "decisions")
+        .map(({ h }) => decisionsById.get(h.ref))
+        .filter((decision): decision is Decision => !!decision),
+    );
     const scored = pool.map(({ h, pos }) => {
       const m = this.priorMeta(h.ref, h.kind);
       let w = 1;
@@ -773,6 +790,9 @@ export class HunchStore {
           const ageDays = Math.max(0, now - Date.parse(m.at)) / 86400000;
           if (Number.isFinite(ageDays)) w *= 0.7 + 0.3 * Math.pow(0.5, ageDays / 90);
         }
+        // File-change staleness is a bounded relevance signal only. It cannot retire,
+        // withhold, supersede, or weaken a decision's enforcement authority.
+        if (h.kind === "decisions" && staleDecisionIds.has(h.ref)) w *= STALE_DECISION_PRIOR_WEIGHT;
         if (q && m.triggers?.some((tr) => q.includes(tr) || tr.includes(q))) w *= 1.5;
       }
       // w > 1 (a trigger match) shifts UP, w < 1 shifts DOWN, both clamped.
@@ -785,6 +805,70 @@ export class HunchStore {
     });
     scored.sort((a, b) => a.pos - b.pos);
     return scored.slice(0, limit).map((x) => x.h);
+  }
+
+  /**
+   * Score only freshness that the existing graph clocks can prove: an anchored path changed after
+   * `provenance.last_verified`. One bounded Git pass fills a HEAD-keyed cache for newly encountered
+   * scopes; repeated MCP/CLI queries perform no history walk until HEAD changes.
+   */
+  private staleDecisionIds(decisions: readonly Decision[]): Set<string> {
+    const head = isolatedHeadSha(this.paths.root);
+    if (!head) return new Set();
+    if (head !== this.decisionFreshnessHead) {
+      this.decisionFreshnessHead = head;
+      this.decisionFreshnessScopes.clear();
+      this.decisionFreshnessChanges.clear();
+    }
+    const eligible = new Map<string, { verifiedAt: number; scopes: string[] }>();
+    let scopeCount = 0;
+    for (const decision of decisions) {
+      const verifiedAt = Date.parse(decision.provenance.last_verified ?? "");
+      if (!Number.isFinite(verifiedAt)) continue;
+      const scopes = [...new Set(decision.related_files.map(safeFreshnessScope).filter(Boolean) as string[])];
+      if (scopes.length === 0 || scopeCount + scopes.length > DECISION_FRESHNESS_SCOPE_QUERY_CAP) continue;
+      scopeCount += scopes.length;
+      eligible.set(decision.id, { verifiedAt, scopes });
+    }
+    let missing = [...new Set([...eligible.values()].flatMap((candidate) => candidate.scopes))]
+      .filter((scope) => !this.decisionFreshnessScopes.has(scope));
+    if (missing.length) {
+      if (this.decisionFreshnessScopes.size + missing.length > DECISION_FRESHNESS_SCOPE_CACHE_CAP) {
+        this.decisionFreshnessScopes.clear();
+        this.decisionFreshnessChanges.clear();
+        missing = [...new Set([...eligible.values()].flatMap((candidate) => candidate.scopes))];
+      }
+      const observed = scopedLastChangeDates(missing, this.paths.root, DECISION_FRESHNESS_PATH_CACHE_CAP);
+      if (observed) {
+        if (this.decisionFreshnessChanges.size + observed.size > DECISION_FRESHNESS_PATH_CACHE_CAP) {
+          this.decisionFreshnessScopes.clear();
+          this.decisionFreshnessChanges.clear();
+        } else {
+          missing.forEach((scope) => this.decisionFreshnessScopes.add(scope));
+          observed.forEach((date, path) => {
+            const previous = this.decisionFreshnessChanges.get(path);
+            if (!previous || Date.parse(date) > Date.parse(previous)) this.decisionFreshnessChanges.set(path, date);
+          });
+        }
+      }
+    }
+    const stale = new Set<string>();
+    for (const [decisionId, candidate] of eligible) {
+      if (candidate.scopes.some((scope) => !this.decisionFreshnessScopes.has(scope))) continue;
+      for (const [changedPath, changedAt] of this.decisionFreshnessChanges) {
+        if (Date.parse(changedAt) <= candidate.verifiedAt) continue;
+        if (candidate.scopes.some((scope) => freshnessScopeMatches(changedPath, scope))) {
+          stale.add(decisionId);
+          break;
+        }
+      }
+    }
+    return stale;
+  }
+
+  /** Fast relevance ranking for task-phrase context fallback: FTS + bounded graph priors, no model. */
+  rankedSearch(query: string, limit = 12): SearchHit[] {
+    return this.rerankByPriors(this.search(query, Math.max(limit, 24)), limit, query);
   }
 
   /** The prior-bearing metadata for a hit: liveness, provenance, effective date,
@@ -1920,6 +2004,11 @@ const GRAPH_TOKEN_CAP = boundedWhole(numEnv("HUNCH_GRAPH_TOKEN_CAP", 2_000), 2_0
  *  rerankByPriors for the measurement that fixed it at 4. */
 const PRIOR_SHIFT_SCALE = numEnv("HUNCH_PRIOR_SHIFT_SCALE", 12);
 const MAX_PRIOR_SHIFT = numEnv("HUNCH_MAX_PRIOR_SHIFT", 4);
+/** A stale anchored decision stays visible and authoritative; it moves down by at most the shared prior clamp. */
+const STALE_DECISION_PRIOR_WEIGHT = Math.min(1, numEnv("HUNCH_STALE_DECISION_PRIOR_WEIGHT", 0.8));
+const DECISION_FRESHNESS_SCOPE_QUERY_CAP = 256;
+const DECISION_FRESHNESS_SCOPE_CACHE_CAP = 512;
+const DECISION_FRESHNESS_PATH_CACHE_CAP = 4_096;
 /** Memory-record prior: a "why" question is answered by RECORDED INTENT (decisions,
  *  constraints, bugs, runbooks, policies), not by the code symbols that merely share
  *  its vocabulary. Symbols carry a neutral prior (priorMeta -> null), so on a graph
@@ -1932,6 +2021,21 @@ const MAX_PRIOR_SHIFT = numEnv("HUNCH_MAX_PRIOR_SHIFT", 4);
  *  0.402 -> 0.575. Set HUNCH_MEMORY_PRIOR_SHIFT=0 to disable. */
 const MEMORY_PRIOR_SHIFT = numEnv("HUNCH_MEMORY_PRIOR_SHIFT", 12);
 const MEMORY_KINDS = new Set(["decisions", "constraints", "bugs", "runbooks", "policies"]);
+function safeFreshnessScope(value: string): string | null {
+  const normalized = toPosixTarget(value.trim());
+  if (!normalized || normalized.length > 1_024 || normalized.includes("\0")
+    || isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)
+    || normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")
+    || normalized.startsWith("private:")) return null;
+  return normalized.replace(/^\.\//, "");
+}
+function freshnessScopeMatches(path: string, scope: string): boolean {
+  try {
+    return pathsRelated(path, scope) || pathMatchesGlob(path, scope);
+  } catch {
+    return false;
+  }
+}
 function numEnv(name: string, dflt: number): number {
   const v = Number(process.env[name]);
   // >= 0, not > 0: zero is the documented kill-switch (HUNCH_RRF_W_*=0 disables

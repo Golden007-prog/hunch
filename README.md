@@ -58,6 +58,9 @@ existing configuration.
   passes, needs attention, or should be blocked.
 - **Past bugs stay useful** — see which old incident a piece of code fixed before accidentally
   undoing it.
+- **Fresh context without lost history** — decisions whose code anchors are still current rank
+  ahead of ones whose files changed after verification; older evidence remains visible and keeps
+  its existing authority.
 - **Understands how code connects** — for TypeScript, JavaScript, Python, Go, PHP, YAML, and Helm, Hunch
   can see what calls or depends on the code you are about to change. Its memory works with any
   language.
