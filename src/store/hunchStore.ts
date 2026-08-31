@@ -51,6 +51,13 @@ export interface HybridSearchOpts {
   graphDepth?: number;
   graphNodeCap?: number;
   graphTokenCap?: number;
+  /** Repository whose HEAD/file history proves decision-anchor freshness. Defaults to this store's root. */
+  freshnessRoot?: string;
+}
+
+export interface RankedSearchOpts {
+  /** Repository whose HEAD/file history proves decision-anchor freshness. Defaults to this store's root. */
+  freshnessRoot?: string;
 }
 
 export type OverlayResolutionSource = "environment" | "local-config" | null;
@@ -140,6 +147,7 @@ export class HunchStore {
   private suppressPrivate = false;
   private _db: DB | null = null;
   /** HEAD-keyed, process-local ranking evidence. It never changes record authority or storage. */
+  private decisionFreshnessRoot = "";
   private decisionFreshnessHead = "";
   private readonly decisionFreshnessScopes = new Set<string>();
   private readonly decisionFreshnessChanges = new Map<string, string>();
@@ -739,7 +747,7 @@ export class HunchStore {
    *  a stale or low-provenance record visibly dims, an exact runbook-trigger match
    *  visibly promotes, and neither can leapfrog the whole pool. Same measurement
    *  after: 0% evicted from fused ranks 0–8. Deterministic; ties keep fused order. */
-  private rerankByPriors(hits: SearchHit[], limit: number, query?: string): SearchHit[] {
+  private rerankByPriors(hits: SearchHit[], limit: number, query?: string, freshnessRoot = this.paths.root): SearchHit[] {
     if (!hits.length) return hits; // a SINGLE hit still runs — topic-chain promotion must fire for the lone stale match
     const now = Date.now();
     const q = query?.toLowerCase();
@@ -769,6 +777,7 @@ export class HunchStore {
       pool.filter(({ h }) => h.kind === "decisions")
         .map(({ h }) => decisionsById.get(h.ref))
         .filter((decision): decision is Decision => !!decision),
+      freshnessRoot,
     );
     const scored = pool.map(({ h, pos }) => {
       const m = this.priorMeta(h.ref, h.kind);
@@ -812,10 +821,12 @@ export class HunchStore {
    * `provenance.last_verified`. One bounded Git pass fills a HEAD-keyed cache for newly encountered
    * scopes; repeated MCP/CLI queries perform no history walk until HEAD changes.
    */
-  private staleDecisionIds(decisions: readonly Decision[]): Set<string> {
-    const head = isolatedHeadSha(this.paths.root);
+  private staleDecisionIds(decisions: readonly Decision[], freshnessRoot: string): Set<string> {
+    const root = resolve(freshnessRoot);
+    const head = isolatedHeadSha(root);
     if (!head) return new Set();
-    if (head !== this.decisionFreshnessHead) {
+    if (root !== this.decisionFreshnessRoot || head !== this.decisionFreshnessHead) {
+      this.decisionFreshnessRoot = root;
       this.decisionFreshnessHead = head;
       this.decisionFreshnessScopes.clear();
       this.decisionFreshnessChanges.clear();
@@ -838,7 +849,7 @@ export class HunchStore {
         this.decisionFreshnessChanges.clear();
         missing = [...new Set([...eligible.values()].flatMap((candidate) => candidate.scopes))];
       }
-      const observed = scopedLastChangeDates(missing, this.paths.root, DECISION_FRESHNESS_PATH_CACHE_CAP);
+      const observed = scopedLastChangeDates(missing, root, DECISION_FRESHNESS_PATH_CACHE_CAP);
       if (observed) {
         if (this.decisionFreshnessChanges.size + observed.size > DECISION_FRESHNESS_PATH_CACHE_CAP) {
           this.decisionFreshnessScopes.clear();
@@ -867,8 +878,13 @@ export class HunchStore {
   }
 
   /** Fast relevance ranking for task-phrase context fallback: FTS + bounded graph priors, no model. */
-  rankedSearch(query: string, limit = 12): SearchHit[] {
-    return this.rerankByPriors(this.search(query, Math.max(limit, 24)), limit, query);
+  rankedSearch(query: string, limit = 12, opts: RankedSearchOpts = {}): SearchHit[] {
+    return this.rerankByPriors(
+      this.search(query, Math.max(limit, 24)),
+      limit,
+      query,
+      opts.freshnessRoot ?? this.paths.root,
+    );
   }
 
   /** The prior-bearing metadata for a hit: liveness, provenance, effective date,
@@ -934,9 +950,14 @@ export class HunchStore {
       nodeCap: boundedWhole(opts.graphNodeCap, GRAPH_NODE_CAP, GRAPH_NODE_HARD_MAX),
       tokenCap: boundedWhole(opts.graphTokenCap, GRAPH_TOKEN_CAP, GRAPH_TOKEN_HARD_MAX),
     }, gw);
-    if (!sem.length && !graph.length) return this.rerankByPriors(fts, limit, query);
+    if (!sem.length && !graph.length) return this.rerankByPriors(fts, limit, query, opts.freshnessRoot ?? this.paths.root);
     // Fuse with headroom so the prior rerank can promote from below the cut line.
-    return this.rerankByPriors(this.rrfFuse(fts, sem, graph, Math.max(limit, 24), gw), limit, query);
+    return this.rerankByPriors(
+      this.rrfFuse(fts, sem, graph, Math.max(limit, 24), gw),
+      limit,
+      query,
+      opts.freshnessRoot ?? this.paths.root,
+    );
   }
 
   /** Runbook-scoped retrieval (roadmap #5): the same FTS+graph(+semantic) fusion,

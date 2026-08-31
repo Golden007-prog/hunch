@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scopedLastChangeDates } from "../src/extractors/git.js";
 import { tempStore, prov } from "./helpers.js";
@@ -106,14 +107,16 @@ test("rank priors: the memory prior re-ranks WITHOUT excluding code symbols", as
 });
 
 test("rank priors: a changed decision anchor dims after HEAD advances while the exact record stays visible", (t) => {
-  const { store, root, cleanup } = tempStore();
+  const { store, cleanup } = tempStore();
+  const codeRoot = mkdtempSync(join(tmpdir(), "hunch-freshness-code-"));
   t.after(cleanup);
-  git(root, ["init", "--initial-branch=main"]);
-  mkdirSync(join(root, "src"), { recursive: true });
-  writeFileSync(join(root, "src", "stale.ts"), "export const stale = 1;\n");
-  writeFileSync(join(root, "src", "fresh.ts"), "export const fresh = 1;\n");
-  git(root, ["add", "src"]);
-  git(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "base"], "2026-01-01T00:00:00Z");
+  t.after(() => rmSync(codeRoot, { recursive: true, force: true }));
+  git(codeRoot, ["init", "--initial-branch=main"]);
+  mkdirSync(join(codeRoot, "src"), { recursive: true });
+  writeFileSync(join(codeRoot, "src", "stale.ts"), "export const stale = 1;\n");
+  writeFileSync(join(codeRoot, "src", "fresh.ts"), "export const fresh = 1;\n");
+  git(codeRoot, ["add", "src"]);
+  git(codeRoot, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "base"], "2026-01-01T00:00:00Z");
 
   const verified = "2026-02-01T00:00:00Z";
   const provenance = { source: "human_confirmed", confidence: 1, evidence: [], last_verified: verified };
@@ -129,17 +132,17 @@ test("rank priors: a changed decision anchor dims after HEAD advances while the 
 
   const lexical = store.search("nimblecache batching", 5).map((hit) => hit.ref);
   assert.ok(lexical.indexOf("dec_a_stale") < lexical.indexOf("dec_z_fresh"), `fixture starts with the stale candidate first: ${lexical.join(",")}`);
-  const before = store.rankedSearch("nimblecache batching", 5).map((hit) => hit.ref);
+  const before = store.rankedSearch("nimblecache batching", 5, { freshnessRoot: codeRoot }).map((hit) => hit.ref);
   assert.ok(before.indexOf("dec_a_stale") < before.indexOf("dec_z_fresh"), `equal-currentness ties preserve fused order: ${before.join(",")}`);
 
-  writeFileSync(join(root, "src", "stale.ts"), "export const stale = 2;\n");
-  git(root, ["add", "src/stale.ts"]);
-  git(root, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "change stale anchor"], "2026-03-01T00:00:00Z");
+  writeFileSync(join(codeRoot, "src", "stale.ts"), "export const stale = 2;\n");
+  git(codeRoot, ["add", "src/stale.ts"]);
+  git(codeRoot, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "change stale anchor"], "2026-03-01T00:00:00Z");
 
-  const changed = scopedLastChangeDates(["src/stale.ts", "src/fresh.ts"], root);
+  const changed = scopedLastChangeDates(["src/stale.ts", "src/fresh.ts"], codeRoot);
   assert.equal(Date.parse(changed?.get("src/stale.ts") ?? ""), Date.parse("2026-03-01T00:00:00Z"));
   assert.equal(Date.parse(changed?.get("src/fresh.ts") ?? ""), Date.parse("2026-01-01T00:00:00Z"));
-  const after = store.rankedSearch("nimblecache batching", 5).map((hit) => hit.ref);
+  const after = store.rankedSearch("nimblecache batching", 5, { freshnessRoot: codeRoot }).map((hit) => hit.ref);
   assert.ok(after.indexOf("dec_z_fresh") < after.indexOf("dec_a_stale"), `fresh anchor must outrank changed anchor: ${after.join(",")}`);
   assert.ok(after.includes("dec_a_stale"), "staleness dims the decision but never withholds it");
 });
