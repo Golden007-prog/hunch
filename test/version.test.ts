@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { publishedMcpInvocation } from "../src/cli/invocation.js";
+import { publishedMcpInvocation, shellInvocation } from "../src/cli/invocation.js";
 import { HUNCH_NPX_PACKAGE_SPEC, HUNCH_PACKAGE_SPEC, HUNCH_VERSION } from "../src/core/version.js";
 
 test("HUNCH_VERSION reflects package.json — never the old hardcoded 0.1.0", () => {
@@ -28,6 +28,11 @@ test("distributed MCP launchers pin the exact npm package version", () => {
     command: "npx",
     args: ["-y", `--package=${expectedNpxPackage}`, "hunch"],
   });
+  assert.equal(
+    shellInvocation(publishedMcpInvocation()),
+    `npx -y --package=${expectedNpxPackage} hunch`,
+    "tracked assistant hooks use the same exact portable package pin",
+  );
   assert.deepEqual(plugin.mcpServers.hunch, {
     command: "npx",
     args: ["-y", `--package=${expectedNpxPackage}`, "hunch", "mcp"],

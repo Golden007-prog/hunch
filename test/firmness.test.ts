@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
 import { readConfig, writeConfig, DEFAULT_FIRMNESS } from "../src/core/config.js";
 import { installClaudeHooks } from "../src/integrations/scaffold.js";
+import { publishedMcpInvocation, shellInvocation } from "../src/cli/invocation.js";
 
 function tmpRoot(): string {
   return mkdtempSync(join(tmpdir(), "hunch-firmness-"));
@@ -104,7 +105,7 @@ test("installClaudeHooks replaces a legacy published npx entry during upgrade", 
       },
     }, null, 2));
 
-    const current = `"node" "/current/hunch/dist/cli/index.js" hook`;
+    const current = `${shellInvocation(publishedMcpInvocation())} hook`;
     installClaudeHooks(root, current);
 
     const j = JSON.parse(readFileSync(file, "utf8"));
@@ -113,6 +114,7 @@ test("installClaudeHooks replaces a legacy published npx entry during upgrade", 
     assert.equal(j.hooks.UserPromptSubmit.length, 1, "legacy prompt hook is replaced, not duplicated");
     assert.equal(j.hooks.PreToolUse[0].hooks[0].command, current);
     assert.equal(j.hooks.UserPromptSubmit[0].hooks[0].command, current);
+    assert.match(current, /^npx -y --package=hunch-exact@npm:@davesheffer\/hunch@\d+\.\d+\.\d+ hunch hook$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -12,6 +12,8 @@ import { HUNCH_NPX_PACKAGE_SPEC } from "../core/version.js";
 export interface ResolvedInvocation {
   /** Shell command prefix for the git hook (e.g. `node /abs/dist/cli/index.js`). */
   shell: string;
+  /** Portable shell command prefix for tracked assistant hook configuration. */
+  agentHookShell: string;
   /** Structured command/args for .mcp.json (subcommand appended by the writer). */
   mcp: Invocation;
 }
@@ -25,6 +27,14 @@ export function dim(s: string): string {
  * regress to npm's moving latest tag. */
 export function publishedMcpInvocation(): Invocation {
   return { command: "npx", args: ["-y", `--package=${HUNCH_NPX_PACKAGE_SPEC}`, "hunch"] };
+}
+
+/** Render a structured invocation for the host shell. Safe tokens stay bare so
+ *  PowerShell can execute the first token; paths and other unsafe tokens use
+ *  JSON string quoting, which is accepted by PowerShell, cmd, and POSIX sh. */
+export function shellInvocation(inv: Invocation): string {
+  const token = (part: string) => /^[A-Za-z0-9_@:=+.,/-]+$/.test(part) ? part : JSON.stringify(part);
+  return [inv.command, ...inv.args].map(token).join(" ");
 }
 
 /** The doctor command's synthesis-status line(s) for a resolved provider.
@@ -90,23 +100,29 @@ export function resolveInvocation(): ResolvedInvocation {
   // absolute-node invocation below.
   const installed = !isDev && entry.replace(/\\/g, "/").includes("/node_modules/");
   if (installed) {
+    const mcp = publishedMcpInvocation();
     return {
       shell: `${q(process.execPath)} ${q(entry)}`,
-      mcp: publishedMcpInvocation(),
+      agentHookShell: shellInvocation(mcp),
+      mcp,
     };
   }
 
   if (isDev) {
+    const mcp = { command: "npx", args: ["tsx", entry] };
     return {
       shell: `npx tsx ${q(entry)}`,
-      mcp: { command: "npx", args: ["tsx", entry] },
+      agentHookShell: shellInvocation(mcp),
+      mcp,
     };
   }
   // Source-checkout dist run (e.g. `node dist/cli/index.js`, npm link): inherently
   // per-machine. Use the absolute node binary (process.execPath) rather than a bare
   // `node`, so the hook works even when nvm's `node` isn't on the hook's PATH.
+  const mcp = { command: process.execPath, args: [entry] };
   return {
     shell: `${q(process.execPath)} ${q(entry)}`,
-    mcp: { command: process.execPath, args: [entry] },
+    agentHookShell: shellInvocation(mcp),
+    mcp,
   };
 }
