@@ -66,6 +66,7 @@ import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/e
 import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
 import { buildDeliveryEnvelope, DELIVERY_PROFILES, type DeliveryProfile } from "../core/delivery.js";
 import { deriveChangeIdentity } from "../core/changeIdentity.js";
+import { discoverProjectDna, evaluateProjectDnaMatch, type ProjectDnaArtifact } from "../core/projectDna.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
@@ -2797,6 +2798,72 @@ landscapeCmd
     console.log("\nNothing was written. Review the candidates, then adopt all of them with:");
     console.log(`  hunch landscape adopt --ref ${discovery.sourceRevision} --expected ${discovery.discoveryHash} --all --reviewed-by <you>${discovery.issues.length ? " --acknowledge-issues" : ""}`);
     console.log("Or pass --candidate <hash...> to adopt an explicit subset; relationships require both endpoint resources.");
+  });
+
+// ---- dna (read-only, exact-revision repository convention profile) -------
+const dnaCmd = program
+  .command("dna")
+  .description("Inspect evidence-backed Project DNA and evaluate repository-native artifacts without writing graph authority.");
+
+dnaCmd
+  .command("inspect")
+  .description("Derive a deterministic Project DNA profile from one exact Git revision. This command never writes memory.")
+  .option("--ref <ref>", "Git commit/ref to inspect", "HEAD")
+  .option("--json", "emit the complete machine-readable profile")
+  .action((opts: { ref: string; json?: boolean }) => {
+    try {
+      const profile = discoverProjectDna(findRoot(), opts.ref);
+      if (opts.json) {
+        console.log(JSON.stringify(profile, null, 2));
+        return;
+      }
+      console.log(`Project DNA at ${profile.repository_revision}`);
+      console.log(`Profile: ${profile.profile_id} (${profile.content_hash})`);
+      console.log(`Evidence: ${profile.history_sample_count} commit subject(s), ${profile.source_files.length} convention file(s)`);
+      if (profile.source_files.length) console.log(`Sources: ${profile.source_files.join(", ")}`);
+      console.log(`\nTRAITS (${profile.traits.length})`);
+      for (const trait of profile.traits) {
+        console.log(`  ${trait.id}  [${trait.category}/${trait.confidence.toFixed(3)}] ${trait.claim}`);
+        console.log(`    ${trait.evidence.map((evidence) => `${evidence.ref} @ ${evidence.revision.slice(0, 12)} (${evidence.content_hash})`).join("; ")}`);
+      }
+      console.log("\nAdvisory observation only; no trait was adopted into graph authority.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+dnaCmd
+  .command("match")
+  .description("Explainably score a commit, PR, issue, or message against deterministic checks in an exact-revision DNA profile.")
+  .requiredOption("--kind <kind>", "artifact kind: commit, pull_request, issue, or message")
+  .requiredOption("--title <title>", "artifact title or commit subject")
+  .option("--body <body>", "artifact body (for example a PR description)")
+  .option("--ref <ref>", "Git commit/ref whose DNA should be used", "HEAD")
+  .option("--json", "emit the complete machine-readable match envelope")
+  .action((opts: { kind: string; title: string; body?: string; ref: string; json?: boolean }) => {
+    try {
+      if (!( ["commit", "pull_request", "issue", "message"] as const).includes(opts.kind as ProjectDnaArtifact["kind"])) {
+        return fail("--kind must be commit, pull_request, issue, or message");
+      }
+      const profile = discoverProjectDna(findRoot(), opts.ref);
+      const match = evaluateProjectDnaMatch(profile, {
+        kind: opts.kind as ProjectDnaArtifact["kind"],
+        title: opts.title,
+        body: opts.body,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(match, null, 2));
+        return;
+      }
+      console.log(`Project Match: ${match.score === null ? "not enough deterministic checks" : `${match.score.toFixed(1)}/100`}`);
+      console.log(`Profile: ${match.profile_id} @ ${match.repository_revision}`);
+      for (const check of match.checks.filter((candidate) => candidate.applicable)) {
+        console.log(`  ${check.passed ? "PASS" : "FAIL"}  ${check.key} — ${check.detail}`);
+      }
+      console.log("Advisory only; the score does not grant or change enforcement authority.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   });
 
 landscapeCmd

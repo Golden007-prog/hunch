@@ -117,6 +117,14 @@ test("project DNA match scores only deterministic applicable traits", (t) => {
   const tampered = structuredClone(profile);
   tampered.traits[0]!.claim = "invented project culture";
   assert.throws(() => assertProjectDnaProfile(tampered), /identity|seal/);
+
+  const tamperedMatch = structuredClone(native);
+  tamperedMatch.checks[0]!.passed = false;
+  assert.throws(() => assertProjectDnaMatch(tamperedMatch), /identity|seal/);
+
+  const malformedMatch = structuredClone(native);
+  malformedMatch.checks[0]!.passed = null;
+  assert.throws(() => assertProjectDnaMatch(malformedMatch), /fields/);
 });
 
 test("small histories do not manufacture communication conventions", (t) => {

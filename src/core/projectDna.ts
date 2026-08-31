@@ -493,7 +493,10 @@ export function evaluateProjectDnaMatch(profileValue: unknown, artifact: Project
     applicable_checks: applicable.length,
     checks,
   } as const;
-  const matchId = `pdnam_${sha256(canonical({ profile: profile.profile_id, artifact, checks })).slice("sha256:".length, "sha256:".length + 24)}`;
+  // The identity is derived from the public envelope, rather than from artifact
+  // bytes that are deliberately not retained. That makes a received match fully
+  // self-validating without storing PR/issue bodies in Hunch.
+  const matchId = `pdnam_${sha256(canonical(unsigned)).slice("sha256:".length, "sha256:".length + 24)}`;
   const sealed = { ...unsigned, match_id: matchId };
   return { ...sealed, content_hash: sha256(canonical(sealed)) };
 }
@@ -511,8 +514,28 @@ export function assertProjectDnaMatch(value: unknown): asserts value is ProjectD
     || !Array.isArray(match.checks) || match.applicable_checks > match.checks.length || !SHA256.test(match.content_hash)) {
     throw new Error("project DNA match fields are invalid");
   }
-  const applicable = match.checks.filter((check) => check.applicable && check.passed !== null).length;
+  const traitIds = new Set<string>();
+  for (const check of match.checks) {
+    if (!check || typeof check !== "object" || Array.isArray(check)) throw new Error("project DNA match check is invalid");
+    assertExactFields(check as unknown as Record<string, unknown>, [
+      "trait_id", "key", "applicable", "passed", "weight", "detail",
+    ], "project DNA match check");
+    if (!/^pdnat_[a-f0-9]{20}$/.test(check.trait_id) || traitIds.has(check.trait_id)
+      || !/^[a-z][a-z0-9_.-]{2,100}$/.test(check.key)
+      || typeof check.applicable !== "boolean"
+      || !(check.passed === true || check.passed === false || check.passed === null)
+      || (check.applicable ? check.passed === null : check.passed !== null)
+      || !Number.isSafeInteger(check.weight) || check.weight < 1 || check.weight > 100
+      || typeof check.detail !== "string" || !check.detail.trim() || check.detail.length > 500) {
+      throw new Error("project DNA match check fields are invalid");
+    }
+    traitIds.add(check.trait_id);
+  }
+  const applicable = match.checks.filter((check) => check.applicable).length;
   if (applicable !== match.applicable_checks) throw new Error("project DNA match applicable count is invalid");
-  const { content_hash: _contentHash, ...unsigned } = match;
+  const { content_hash: _contentHash, match_id: _matchId, ...base } = match;
+  const expectedMatchId = `pdnam_${sha256(canonical(base)).slice("sha256:".length, "sha256:".length + 24)}`;
+  const unsigned = { ...base, match_id: match.match_id };
+  if (match.match_id !== expectedMatchId) throw new Error("project DNA match identity is invalid");
   if (match.content_hash !== sha256(canonical(unsigned))) throw new Error("project DNA match seal is invalid");
 }
