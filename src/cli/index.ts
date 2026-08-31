@@ -357,7 +357,7 @@ program
     // Claude's native hooks run alongside provider-specific hooks below. Every
     // adapter reads firmness at run time, so changing it needs no config rewrite.
     if (opts.agentHooks !== false) {
-      const a = installClaudeHooks(root, `${inv.shell} hook`);
+      const a = installClaudeHooks(root, `${inv.agentHookShell} hook`);
       console.log(`  ✓ Claude Code agent hooks ${a.action} (firmness: ${firmness} — change with \`hunch firmness <level>\`)`);
     }
 

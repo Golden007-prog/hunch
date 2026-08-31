@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { hunchPaths } from "../src/core/paths.js";
 import { readConfig, writeConfig, DEFAULT_FIRMNESS } from "../src/core/config.js";
 import { installClaudeHooks } from "../src/integrations/scaffold.js";
+import { publishedMcpInvocation, shellInvocation } from "../src/cli/invocation.js";
 
 function tmpRoot(): string {
   return mkdtempSync(join(tmpdir(), "hunch-firmness-"));
@@ -85,6 +86,35 @@ test("installClaudeHooks replaces a stale Hunch entry after a folder rename (no 
     const j = JSON.parse(readFileSync(join(root, ".claude", "settings.json"), "utf8"));
     assert.equal(j.hooks.PreToolUse.length, 1, "old path entry replaced, not appended");
     assert.equal(j.hooks.PreToolUse[0].hooks[0].command, renamed);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installClaudeHooks replaces a legacy published npx entry during upgrade", () => {
+  const root = tmpRoot();
+  try {
+    const file = join(root, ".claude", "settings.json");
+    const legacy = 'npx -y --package=hunch-exact@npm:@davesheffer/hunch@1.17.0 hunch hook';
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(file, JSON.stringify({
+      permissions: { allow: ["Bash(git commit *)"] },
+      hooks: {
+        PreToolUse: [{ matcher: "Edit|Write|MultiEdit", hooks: [{ type: "command", command: legacy }] }],
+        UserPromptSubmit: [{ hooks: [{ type: "command", command: legacy }] }],
+      },
+    }, null, 2));
+
+    const current = `${shellInvocation(publishedMcpInvocation())} hook`;
+    installClaudeHooks(root, current);
+
+    const j = JSON.parse(readFileSync(file, "utf8"));
+    assert.deepEqual(j.permissions.allow, ["Bash(git commit *)"], "non-Hunch settings stay intact");
+    assert.equal(j.hooks.PreToolUse.length, 1, "legacy PreToolUse entry is replaced, not duplicated");
+    assert.equal(j.hooks.UserPromptSubmit.length, 1, "legacy prompt hook is replaced, not duplicated");
+    assert.equal(j.hooks.PreToolUse[0].hooks[0].command, current);
+    assert.equal(j.hooks.UserPromptSubmit[0].hooks[0].command, current);
+    assert.match(current, /^npx -y --package=hunch-exact@npm:@davesheffer\/hunch@\d+\.\d+\.\d+ hunch hook$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -122,14 +122,24 @@ interface HookEntry {
   hooks?: Array<{ type?: string; command?: string }>;
 }
 
-/** A settings.json hook entry is Hunch's if any of its commands ends with the
- *  Hunch CLI entry + the `hook` subcommand (e.g. `…/index.js hook`). Matching the
- *  command TAIL — not the absolute path — makes re-init idempotent AND survives a
- *  repo-folder rename (the path before index.js changes; the tail does not). The
- *  leading path separator (`/` or `\`) requires `index` to be a full path segment,
- *  so a foreign tool's `…/myindex.js hook` isn't mistaken for ours and clobbered. */
+/** A settings.json hook entry is Hunch's if any of its commands is either the
+ *  native/source CLI entry (`…/index.js hook`) or the exact published-package
+ *  launcher written by older Hunch versions (`npx --package=…@davesheffer/hunch…
+ *  hunch hook`). Matching both generations makes an upgrade idempotent instead
+ *  of leaving the portable old hook alongside the new native invocation. The
+ *  source form still requires `index` to be a full path segment, and the npx form
+ *  requires both the scoped package and the `hunch hook` tail, so foreign hooks
+ *  are preserved. */
 function isHunchHook(entry: HookEntry): boolean {
-  return !!entry.hooks?.some((h) => typeof h.command === "string" && /[\\/]index\.(js|ts)"?\s+hook\s*$/.test(h.command));
+  return !!entry.hooks?.some((h) => {
+    if (typeof h.command !== "string") return false;
+    const command = h.command;
+    const nativeOrSource = /[\\/]index\.(js|ts)"?\s+hook\s*$/.test(command);
+    const publishedNpx = /^\s*"?npx(?:\.cmd)?"?\s+/i.test(command)
+      && /--package=(?:hunch-exact@npm:)?@davesheffer\/hunch(?:@[^"\s]+)?/.test(command)
+      && /\s"?hunch"?\s+"?hook"?\s*$/.test(command);
+    return nativeOrSource || publishedNpx;
+  });
 }
 
 /**
