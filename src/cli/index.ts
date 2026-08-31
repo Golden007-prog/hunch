@@ -66,6 +66,9 @@ import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/e
 import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
 import { buildDeliveryEnvelope, DELIVERY_PROFILES, type DeliveryProfile } from "../core/delivery.js";
 import { deriveChangeIdentity } from "../core/changeIdentity.js";
+import { discoverProjectDna, evaluateProjectDnaMatch, type ProjectDnaArtifact } from "../core/projectDna.js";
+import { diffProjectDna } from "../core/projectDnaDelta.js";
+import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
@@ -2797,6 +2800,111 @@ landscapeCmd
     console.log("\nNothing was written. Review the candidates, then adopt all of them with:");
     console.log(`  hunch landscape adopt --ref ${discovery.sourceRevision} --expected ${discovery.discoveryHash} --all --reviewed-by <you>${discovery.issues.length ? " --acknowledge-issues" : ""}`);
     console.log("Or pass --candidate <hash...> to adopt an explicit subset; relationships require both endpoint resources.");
+  });
+
+// ---- dna (read-only, exact-revision repository convention profile) -------
+const dnaCmd = program
+  .command("dna")
+  .description("Inspect evidence-backed Project DNA and evaluate repository-native artifacts without writing graph authority.");
+
+dnaCmd
+  .command("inspect")
+  .description("Derive a deterministic Project DNA profile from one exact Git revision. This command never writes memory.")
+  .option("--ref <ref>", "Git commit/ref to inspect", "HEAD")
+  .option("--json", "emit the complete machine-readable profile")
+  .action((opts: { ref: string; json?: boolean }) => {
+    try {
+      const profile = discoverProjectDna(findRoot(), opts.ref);
+      if (opts.json) {
+        console.log(JSON.stringify(profile, null, 2));
+        return;
+      }
+      console.log(`Project DNA at ${profile.repository_revision}`);
+      console.log(`Profile: ${profile.profile_id} (${profile.content_hash})`);
+      console.log(`Evidence: ${profile.history_sample_count} commit subject(s), ${profile.source_files.length} convention file(s)`);
+      if (profile.source_files.length) console.log(`Sources: ${profile.source_files.join(", ")}`);
+      console.log(`\nTRAITS (${profile.traits.length})`);
+      for (const trait of profile.traits) {
+        console.log(`  ${trait.id}  [${trait.category}/${trait.confidence.toFixed(3)}] ${trait.claim}`);
+        console.log(`    ${trait.evidence.map((evidence) => `${evidence.ref} @ ${evidence.revision.slice(0, 12)} (${evidence.content_hash})`).join("; ")}`);
+      }
+      console.log("\nAdvisory observation only; no trait was adopted into graph authority.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+dnaCmd
+  .command("match")
+  .description("Explainably score a commit, PR, issue, or message against deterministic checks in an exact-revision DNA profile.")
+  .requiredOption("--kind <kind>", "artifact kind: commit, pull_request, issue, or message")
+  .requiredOption("--title <title>", "artifact title or commit subject")
+  .option("--body <body>", "artifact body (for example a PR description)")
+  .option("--ref <ref>", "Git commit/ref whose DNA should be used", "HEAD")
+  .option("--json", "emit the complete machine-readable match envelope")
+  .action((opts: { kind: string; title: string; body?: string; ref: string; json?: boolean }) => {
+    try {
+      if (!( ["commit", "pull_request", "issue", "message"] as const).includes(opts.kind as ProjectDnaArtifact["kind"])) {
+        return fail("--kind must be commit, pull_request, issue, or message");
+      }
+      const profile = discoverProjectDna(findRoot(), opts.ref);
+      const match = evaluateProjectDnaMatch(profile, {
+        kind: opts.kind as ProjectDnaArtifact["kind"],
+        title: opts.title,
+        body: opts.body,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(match, null, 2));
+        return;
+      }
+      console.log(`Project Match: ${match.score === null ? "not enough deterministic checks" : `${match.score.toFixed(1)}/100`}`);
+      console.log(`Profile: ${match.profile_id} @ ${match.repository_revision}`);
+      for (const check of match.checks.filter((candidate) => candidate.applicable)) {
+        console.log(`  ${check.passed ? "PASS" : "FAIL"}  ${check.key} — ${check.detail}`);
+      }
+      console.log("Advisory only; the score does not grant or change enforcement authority.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+dnaCmd
+  .command("context")
+  .description("Render the bounded advisory Project DNA supplement used by normal Hunch context delivery.")
+  .option("--ref <ref>", "Git commit/ref to inspect", "HEAD")
+  .option("--traits <count>", "maximum traits in the orientation slice", "8")
+  .option("--json", "emit the complete machine-readable supplement")
+  .action((opts: { ref: string; traits: string; json?: boolean }) => {
+    try {
+      const traitCap = Number(opts.traits);
+      const supplement = projectDnaDeliverySupplement(discoverProjectDna(findRoot(), opts.ref), traitCap);
+      if (opts.json) console.log(JSON.stringify(supplement, null, 2));
+      else console.log(supplement?.text ?? "No evidence-backed Project DNA traits yet.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+dnaCmd
+  .command("diff")
+  .description("Compare two exact-revision DNA profiles without rewriting either snapshot.")
+  .argument("<from>", "older Git revision")
+  .argument("<to>", "newer Git revision")
+  .option("--json", "emit the complete sealed delta")
+  .action((from: string, to: string, opts: { json?: boolean }) => {
+    try {
+      const root = findRoot();
+      const delta = diffProjectDna(discoverProjectDna(root, from), discoverProjectDna(root, to));
+      if (opts.json) {
+        console.log(JSON.stringify(delta, null, 2));
+        return;
+      }
+      console.log(`Project DNA drift ${delta.delta_id}: ${delta.changed ? `${delta.changes.length} change(s)` : "no observed change"}`);
+      for (const change of delta.changes) console.log(`  ${change.kind}  ${change.key}`);
+      console.log("Observation only; no Project DNA profile or graph authority was rewritten.");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   });
 
 landscapeCmd
