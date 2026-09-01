@@ -1,0 +1,24 @@
+{
+  "id": "con_0b231a5a00",
+  "type": "architecture",
+  "statement": "Mouse interaction on the homepage particle helicoid should create a small, localized, ASMR-like scatter: nearby points separate subtly with a soft tangential drift, respond to pointer velocity, and ease back into the weave. Avoid large repulsion, explosive movement, or mobile/touch activation.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user requested a pleasing, restrained scatter effect rather than a large cursor distortion.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:11:20.004Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:11:20.004Z"
+  }
+}
