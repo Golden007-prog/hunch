@@ -6,7 +6,7 @@ description: Hunch engineering memory — consult the hunch_* MCP tools before e
 <!-- HUNCH:START — auto-generated, do not edit by hand -->
 ## 🧠 Hunch (Engineering Memory)
 
-This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **200 decisions, 2 bugs, 10 constraints, 19 components, 3 policies, 1 open findings**.
+This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **202 decisions, 2 bugs, 28 constraints, 19 components, 3 policies, 1 open findings**.
 
 **Consult Hunch via the `hunch_*` MCP tools — pick by MOMENT, not from memory:**
 
@@ -50,8 +50,8 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 - **[blocking]** All JSON writes to .hunch/ must be atomic (temp-file + rename) so an interrupted write can never truncate the index _(scope: src/store/**, src/core/io.ts; con_902759b3dc)_
 - **[blocking]** Forward-migrate raw JSON to the current schema BEFORE Zod validation; never silently drop unmigratable records _(scope: src/core/migrate.ts, src/store/jsonStore.ts; con_947c578b2c)_
 - **[blocking]** Semantic vectors are a derived layer in SQLite, never the source of truth; reconcile by content hash on reindex _(scope: src/store/**; con_a87360128b)_
+- **[warning]** Replace the blue-violet palette in the homepage particle helicoid with the prior green Hunch palette; convey gene mapping through structured loci, paired bands, quiet gaps, and moving mapped regions woven into the surface, without external labels or geometry/background changes. _(scope: site/dna-hero.js; con_009f720549)_
 - **[warning]** The agent hook must never block an edit on failure: any error or unrecognized input emits nothing and exits 0 _(scope: src/core/hookpolicy.ts; con_03a0b94b2e)_
-- **[warning]** Regression guard: "Flaky test failure under parallelism: native tree-sitter module resolution race on Windows" must not recur. _(scope: src/constitution/experiment.ts, test/experiment.test.ts, vscode-extension/src/memoryView.ts, test/singlesource.test.ts, test/sync.test.ts, test/autocommit.test.ts; con_7217ab24ab)_
 
 _Hunch updates itself from commits and test failures. Records carry provenance + confidence; treat low-confidence items as advisory._
 <!-- HUNCH:END -->
