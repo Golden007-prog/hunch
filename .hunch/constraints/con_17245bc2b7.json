@@ -1,0 +1,24 @@
+{
+  "id": "con_17245bc2b7",
+  "type": "architecture",
+  "statement": "The homepage particle helicoid must remain one continuously visible sculpture throughout the hero scroll. Do not fade it out, move it fully away, or re-introduce it as a second element; use continuous rotation, translation, and depth movement instead.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user rejected the two-part move-out/re-entry choreography and asked for one uninterrupted scroll motion.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:08:35.244Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:08:35.244Z"
+  }
+}
