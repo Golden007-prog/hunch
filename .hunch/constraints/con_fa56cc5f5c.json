@@ -1,0 +1,24 @@
+{
+  "id": "con_fa56cc5f5c",
+  "type": "architecture",
+  "statement": "Make the homepage particle helicoid folds wider and its scroll motion much larger. During the extended hero scroll, the sculpture should drift out and fade into ambient particles, then re-form lower and closer in a new position. Keep the hero copy fully opaque and preserve the light background, green palette, and gene-mapping pattern.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The visual should feel like Hunch's repository memory emerging and relocating through the page, not like a fixed DNA illustration or a set of cheap labeled scroll states.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:48:37.132Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:48:37.132Z"
+  }
+}
