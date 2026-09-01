@@ -1,0 +1,24 @@
+{
+  "id": "con_92c0b74b3a",
+  "type": "architecture",
+  "statement": "Keep a soft feathered blur behind the trailing/right side of the homepage hero text so the copy remains prominent over the particle DNA. The blur must read as an optical veil, not a visible card, panel, or background-color change.",
+  "scope": [
+    "site/index.html"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user asked for more text prominence while preserving the approved light background and continuous DNA sculpture.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:39:54.883Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:39:54.883Z"
+  }
+}

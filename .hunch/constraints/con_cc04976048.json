@@ -1,0 +1,24 @@
+{
+  "id": "con_cc04976048",
+  "type": "architecture",
+  "statement": "The homepage DNA hero must visibly communicate code and repository context; keep the headline fully opaque while scrolling and do not use floating label cards or scattered scroll effects.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The initial molecule-style helix was acceptable at rest but read as generic biotech rather than code, and its faded copy plus floating labels made the scroll sequence feel cheap and weakened the product message.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:01:10.874Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:01:10.874Z"
+  }
+}

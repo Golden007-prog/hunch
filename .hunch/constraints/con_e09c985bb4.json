@@ -1,0 +1,24 @@
+{
+  "id": "con_e09c985bb4",
+  "type": "architecture",
+  "statement": "The homepage cursor scatter must be clearly noticeable, not barely perceptible: use a wider localized influence, stronger but smooth point separation, and a restrained center bloom while keeping the effect calm, bounded, and non-explosive.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user tested the first ASMR scatter strength and said it needs to be more obvious.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:13:23.028Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:13:23.028Z"
+  }
+}

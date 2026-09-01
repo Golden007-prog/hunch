@@ -1,0 +1,24 @@
+{
+  "id": "con_59d0e01d60",
+  "type": "architecture",
+  "statement": "Remove the homepage eyebrow 'Project DNA for AI coding assistants'. Do not draw a separate straight or continuous line for the thinking path. Decision pulses must move through and activate the existing DNA particles dot-to-dot, while mapped gene bands briefly respond as rule checks before the pulse continues.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user rejected the separate path line and wants the thinking process to live inside the actual DNA points, visibly checking rules and making decisions.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:27:07.719Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:27:07.719Z"
+  }
+}

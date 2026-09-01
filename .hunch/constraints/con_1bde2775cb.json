@@ -1,0 +1,24 @@
+{
+  "id": "con_1bde2775cb",
+  "type": "architecture",
+  "statement": "The homepage hero must express Hunch as remembered engineering judgment: revisions pair with decisions through provenance, and scroll traces a current change back to why; avoid generic code-glyph, code-rain, scanner, or developer-tool motifs.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The hero should communicate Hunch's distinctive product nature—decision memory with evidence—not a generic coding visual.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:09:32.173Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:09:32.173Z"
+  }
+}

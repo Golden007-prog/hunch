@@ -1,0 +1,24 @@
+{
+  "id": "con_5255703cc9",
+  "type": "architecture",
+  "statement": "Do not use a different opening pose for the homepage particle helicoid. The initial hero must use the exact approved second/re-formed pose and composition; on scroll it may leave, dissolve, and re-enter, but it must settle back into that same approved pose.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user explicitly rejected the first visible position and clarified that the second incoming element is the composition they want.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:05:23.570Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:05:23.570Z"
+  }
+}

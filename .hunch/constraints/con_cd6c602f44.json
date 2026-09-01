@@ -1,0 +1,24 @@
+{
+  "id": "con_cd6c602f44",
+  "type": "architecture",
+  "statement": "Remove the homepage hero note beginning 'Not a persona'. Express the missing idea visually with one embedded moving thought trace: a dotted green path whose brighter sequence continuously travels through the particle DNA as evidence moving through repository memory, without labels or literal code text.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user no longer wants the explanatory paragraph and asked for a thinking chain running through the DNA.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:17:59.785Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:17:59.785Z"
+  }
+}

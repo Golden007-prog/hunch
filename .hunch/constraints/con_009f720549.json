@@ -1,0 +1,24 @@
+{
+  "id": "con_009f720549",
+  "type": "architecture",
+  "statement": "Replace the blue-violet palette in the homepage particle helicoid with the prior green Hunch palette; convey gene mapping through structured loci, paired bands, quiet gaps, and moving mapped regions woven into the surface, without external labels or geometry/background changes.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user clarified that the supplied multicolor image was a reference for encoded gene-mapping variation, not a request to adopt its blue-purple colors.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:40:34.046Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:40:34.046Z"
+  }
+}

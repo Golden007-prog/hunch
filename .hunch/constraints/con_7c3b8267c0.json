@@ -1,0 +1,24 @@
+{
+  "id": "con_7c3b8267c0",
+  "type": "architecture",
+  "statement": "The closing homepage CTA headed 'Teach every coding agent how your repository works' must also carry the living Project DNA element. Reuse the same mapped particle sculpture and decision pulses, cropped into the open side of the section with a readability wash; do not substitute a static image or a separate generic DNA illustration.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user wants the DNA motif to continue into the closing section so the page reads as one visual system.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:45:29.225Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:45:29.225Z"
+  }
+}
