@@ -20,6 +20,7 @@
 <link rel="icon" href="/hunch-mark.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -101,9 +102,18 @@
   @media (max-width:520px){.nav-links a.hide-xs{display:none}}
 
   /* ──────────────────────────── hero ──────────────────────────── */
-  .hero.wrap{
-    min-height:calc(100vh - 60px);min-height:calc(100svh - 60px);
-    padding:40px 24px;display:flex;flex-direction:column;justify-content:center;text-align:start;
+  .hero.wrap{max-width:none;min-height:270vh;min-height:270svh;padding:0;display:block;text-align:start}
+  .hero-copy{
+    position:sticky;top:60px;z-index:1;min-height:calc(100vh - 60px);min-height:calc(100svh - 60px);
+    width:100%;max-width:var(--maxw);min-width:0;margin:0 auto;padding:0 24px;display:flex;flex-direction:column;justify-content:center;isolation:isolate;
+  }
+  .hero-copy::before{
+    content:"";position:absolute;z-index:-1;pointer-events:none;
+    inset-block:8%;inset-inline-start:-8%;width:min(68rem,86vw);
+    background:radial-gradient(ellipse 72% 61% at 38% 51%,color-mix(in srgb,var(--bg) 72%,transparent) 0 36%,color-mix(in srgb,var(--bg) 42%,transparent) 58%,transparent 82%);
+    -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+    -webkit-mask-image:radial-gradient(ellipse 76% 64% at 40% 51%,#000 0 42%,rgba(0,0,0,.72) 61%,transparent 88%);
+    mask-image:radial-gradient(ellipse 76% 64% at 40% 51%,#000 0 42%,rgba(0,0,0,.72) 61%,transparent 88%);
   }
   .eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;color:var(--mut);text-transform:lowercase}
   h1{
@@ -113,7 +123,7 @@
   h1 b{font-weight:500;color:var(--moss-ink)}
   .hero h1{margin:0}
   .hero p.lede{max-width:var(--measure);color:var(--ink-2);font-size:18px;margin:28px 0 0}
-  .hero p.hero-note{max-width:var(--measure);color:var(--mut);font-size:14px;margin:17px 0 0}
+  .hero p.lede{width:min(100%,var(--measure));overflow-wrap:anywhere}
   .hero-cta{display:flex;gap:12px;margin-top:36px;flex-wrap:wrap;align-items:center}
   .release-section{padding:0 0 72px}
   .release-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:28px;box-shadow:0 22px 54px -44px rgba(20,31,25,.42)}
@@ -134,29 +144,36 @@
     .release-metric{padding:16px 0}
     .release-metric+.release-metric{border-inline-start:0;border-top:1px solid var(--line);padding-inline-start:0}
   }
-  /* ───────────── hero art: the graph that holds the line ─────────────
-     full-bleed behind the hero text; a soft wash keeps the measure readable.
-     the cursor is an agent: edges near it illuminate. */
-  header.hero{position:relative;overflow:visible}
+  /* ───────── hero art: the reference's dense particle DNA element ─────────
+     The canvas stays with the viewport while the sculpture drifts on scroll. */
+  header.hero{position:relative;overflow:clip;isolation:isolate}
   .hero-art{ /* true full-bleed: break out of the centered wrap */
-    position:absolute;top:-60px;bottom:-40px;left:50%;width:100vw;
+    position:absolute;top:-60px;bottom:0;left:50%;width:100vw;
     transform:translateX(-50%);z-index:-1;
     pointer-events:none;user-select:none;
   }
-  .hero-art canvas{width:100%;height:100%;display:block}
+  .hero-art canvas{position:sticky;top:0;width:100%;height:100vh;height:100svh;display:block}
   .hero-art::after{ /* readability wash over the text column */
     content:"";position:absolute;inset:0;
     background:
-      radial-gradient(680px 520px at 24% 50%, var(--bg) 38%, color-mix(in srgb,var(--bg) 55%,transparent) 68%, transparent 88%),
-      linear-gradient(to bottom, color-mix(in srgb,var(--bg) 65%,transparent), transparent 22%, transparent 78%, var(--bg));
+      radial-gradient(680px 520px at 24% 50%,var(--bg) 38%,color-mix(in srgb,var(--bg) 55%,transparent) 68%,transparent 88%),
+      linear-gradient(to bottom,color-mix(in srgb,var(--bg) 65%,transparent),transparent 22%,transparent 78%,var(--bg));
   }
-  @media (max-width:760px){.hero-art{opacity:.82}}
+  @media (max-width:760px){
+    .hero.wrap{min-height:230vh;min-height:230svh}
+    .hero-art{opacity:.94}
+    .hero-copy::before{inset-inline-start:-18%;width:122%;-webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px)}
+  }
 
   /* load-in: one quiet moment */
   .rise{opacity:0;transform:translateY(10px);animation:rise .7s var(--ease) forwards}
   .rise.d1{animation-delay:.08s}.rise.d2{animation-delay:.16s}.rise.d3{animation-delay:.26s}.rise.d4{animation-delay:.4s}
   @keyframes rise{to{opacity:1;transform:none}}
-  @media (prefers-reduced-motion:reduce){.rise{animation:none;opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){
+    .rise{animation:none;opacity:1;transform:none}
+    .hero.wrap{min-height:calc(100vh - 60px);min-height:calc(100svh - 60px)}
+    .hero-copy{position:relative;top:auto}
+  }
 
   /* ──────────────────────── terminal (the calm demo) ─────────────────── */
   .term{
@@ -256,10 +273,23 @@
   }
 
   /* CTA */
-  .cta{padding:120px 0 128px;text-align:start}
+  .cta{position:relative;padding:120px 0 128px;text-align:start;overflow:clip;isolation:isolate}
+  .cta .wrap{position:relative;z-index:2}
+  .cta-art{position:absolute;inset:0;z-index:0;pointer-events:none;user-select:none}
+  .cta-art canvas{width:100%;height:100%;display:block}
+  .cta::after{
+    content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(ellipse 58% 82% at 25% 52%,var(--bg) 0 38%,color-mix(in srgb,var(--bg) 76%,transparent) 58%,transparent 84%);
+  }
+  html[dir="rtl"] .cta::after{background:radial-gradient(ellipse 58% 82% at 75% 52%,var(--bg) 0 38%,color-mix(in srgb,var(--bg) 76%,transparent) 58%,transparent 84%)}
   .cta h2{font-size:clamp(30px,4.4vw,46px);max-width:18ch}
   .cta p{color:var(--mut);max-width:52ch;margin:20px 0 0}
   .cta .hero-cta{margin-top:34px}
+  @media (max-width:760px){
+    .cta-art{inset-inline-start:14%;opacity:.86}
+    .cta::after{background:radial-gradient(ellipse 92% 72% at 35% 52%,var(--bg) 0 42%,color-mix(in srgb,var(--bg) 72%,transparent) 67%,transparent 94%)}
+    html[dir="rtl"] .cta::after{background:radial-gradient(ellipse 92% 72% at 65% 52%,var(--bg) 0 42%,color-mix(in srgb,var(--bg) 72%,transparent) 67%,transparent 94%)}
+  }
 
   /* footer */
   footer{border-top:1px solid var(--line-2);padding:56px 0 72px;background:var(--bg-2)}
@@ -319,20 +349,18 @@
 
 <!-- ─────────────────────────── hero ─────────────────────────── -->
 <header class="hero wrap">
-  <!-- the graph that holds the line, full-bleed: decisions ● guard code ▢;
-       agent edits streak in and the guarded edges HOLD (moss pulse + receipt) —
-       rarely, the strict flavor blocks (ember). The cursor is an agent too:
-       edges near it illuminate. Decorative: aria-hidden, pointer-events none. -->
+  <!-- Repository evidence forms a continuous particle sculpture. Scroll carries
+       one memory through the DNA until the decision inside it becomes visible.
+       Decorative: aria-hidden, pointer-events none, reduced-motion aware. -->
   <div class="hero-art" aria-hidden="true"><canvas id="holdline"></canvas></div>
-  <span class="eyebrow rise">Project DNA for AI coding assistants</span>
-  <h1 class="rise d1">Your repository has DNA.<br /><b>Hunch teaches it to every coding agent.</b></h1>
-  <p class="lede rise d2">Every coding agent arrives fluent in syntax and new to your team. Hunch gives it the language, decisions, hard-won fixes, and boundaries behind the code before it makes a change.</p>
-  <p class="hero-note rise d2">Not a persona. Not another prompt. A traceable understanding of how your repository actually works—with confidence, freshness, and evidence attached.</p>
-  <div class="hero-cta rise d3">
-    <a class="btn" href="#start">Get started</a>
-    <a class="btn ghost" href="#story">See how it works</a>
+  <div class="hero-copy">
+    <h1 class="rise d1">Your repository has DNA.<br /><b>Hunch teaches it to every coding agent.</b></h1>
+    <p class="lede rise d2">Every coding agent arrives fluent in syntax and new to your team. Hunch gives it the language, decisions, hard-won fixes, and boundaries behind the code before it makes a change.</p>
+    <div class="hero-cta rise d3">
+      <a class="btn" href="#start">Get started</a>
+      <a class="btn ghost" href="#story">See how it works</a>
+    </div>
   </div>
-
 </header>
 
 <!-- ─────────────────────────── story ─────────────────────────── -->
@@ -489,6 +517,7 @@
 
 <!-- ─────────────────────────── cta ─────────────────────────── -->
 <section class="cta">
+  <div class="cta-art" aria-hidden="true"><canvas id="cta-dna"></canvas></div>
   <div class="wrap">
     <h2>Teach every coding agent how your repository works.</h2>
     <p>Give it the language, decisions, hard-won lessons, and boundaries behind the code before it makes a change—and keep every claim traceable.</p>
@@ -530,7 +559,12 @@
   </div>
 </footer>
 
+<script type="module" src="/dna-hero.js"></script>
 <script>
+  // Canvas fallback for browsers that cannot load the Three.js module or
+  // create a WebGL context. It preserves the evidence-graph story without
+  // competing with the primary repository-DNA experience.
+  const startCanvasFallback = () => {
   // Hero art — "the graph that holds the line", full-bleed. The memory
   // nucleus gives the constellation one legible focal point: decisions, bugs,
   // and rules converge on the reason an agent needs before it edits.
@@ -539,7 +573,6 @@
   // typewriter receipt). The cursor is an agent too: edges near it illuminate,
   // and the layers parallax against it. Moss = held, ember = blocked (rare,
   // the labeled exception — receipts over threats). Reduced motion: one still.
-  (() => {
     const cv = document.getElementById("holdline");
     if (!cv || !cv.getContext) return;
     const ctx = cv.getContext("2d");
@@ -870,7 +903,11 @@
       });
       requestAnimationFrame(frame);
     }
-  })();
+  };
+  setTimeout(() => {
+    const canvas = document.getElementById("holdline");
+    if (canvas && !canvas.dataset.dnaReady) startCanvasFallback();
+  }, 4200);
 </script>
 
 <script>
