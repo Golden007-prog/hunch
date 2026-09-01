@@ -1,0 +1,24 @@
+{
+  "id": "con_5bf9211096",
+  "type": "architecture",
+  "statement": "Keep the approved homepage DNA composition as the canonical visual language: an oversized broad woven particle fold, deeply cropped at the viewport edges, with sparse dark and bright green gene-mapping bands and controlled overlap behind the copy. Both scroll endpoints should read as this same sculptural family.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user explicitly approved the wide re-formed composition shown in the browser and asked to make it the direction.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:54:51.018Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:54:51.018Z"
+  }
+}
