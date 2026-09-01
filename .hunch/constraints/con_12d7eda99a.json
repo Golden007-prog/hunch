@@ -1,0 +1,24 @@
+{
+  "id": "con_12d7eda99a",
+  "type": "architecture",
+  "statement": "Decision-pulse travel through the homepage DNA must feel smooth and ASMR-like: interpolate through neighboring DNA points instead of snapping, use a slower steady current, soften tail falloff, and keep scroll influence on pulse speed restrained.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user approved the particle-based rule-check concept and asked specifically for smoother, calmer travel.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T13:33:00.832Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T13:33:00.832Z"
+  }
+}
