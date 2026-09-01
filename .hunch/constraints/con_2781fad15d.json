@@ -1,0 +1,24 @@
+{
+  "id": "con_2781fad15d",
+  "type": "architecture",
+  "statement": "The homepage hero must use a continuous sculptural 3D DNA form with cinematic mass and surface treatment, in the spirit of the DNA Capital reference; do not depict the DNA as beaded nodes, wire strands, or a graph lattice.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user wants an art-directed 3D DNA object, not a diagrammatic strand visualization.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:22:29.171Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:22:29.171Z"
+  }
+}
