@@ -1,0 +1,24 @@
+{
+  "id": "con_fc5b5cb899",
+  "type": "architecture",
+  "statement": "Keep the homepage's existing light background and reproduce the DNA Capital reference element itself as a dense continuous particle helicoid, large and cropped at the right edge; do not change the hero background, add a dark space section, or reinterpret the element as a graph/core reveal.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user wants the referenced 3D particle element faithfully represented within the existing site, not a broader mood or color-system redesign.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:31:14.384Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:31:14.384Z"
+  }
+}
