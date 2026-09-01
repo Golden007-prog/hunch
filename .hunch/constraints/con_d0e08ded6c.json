@@ -1,0 +1,24 @@
+{
+  "id": "con_d0e08ded6c",
+  "type": "architecture",
+  "statement": "Color the homepage particle helicoid with structured DNA-like bands of cobalt, ultraviolet, cyan, and restrained magenta highlights, following the surface grid and depth; keep the existing light background, geometry, copy, and layout unchanged.",
+  "scope": [
+    "site/dna-hero.js"
+  ],
+  "severity": "warning",
+  "enforcement": "advisory_v1",
+  "match": null,
+  "forbids": null,
+  "rationale": "The user approved the particle geometry and asked for the reference's multicolor DNA pattern rather than the current monochrome green treatment.",
+  "source_decision": null,
+  "violations": [],
+  "status": "active",
+  "valid_from": "2026-09-01T12:36:58.012Z",
+  "valid_to": null,
+  "provenance": {
+    "source": "agent_recorded",
+    "confidence": 0.75,
+    "evidence": [],
+    "last_verified": "2026-09-01T12:36:58.012Z"
+  }
+}
