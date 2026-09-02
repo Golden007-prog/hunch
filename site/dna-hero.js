@@ -571,7 +571,7 @@ gl_Position.xy += scatterDirection * scatterInfluence * scatterWave * uScatterAm
   }
 
   function render(time = 0) {
-    scrollProgress += (scrollTarget - scrollProgress) * (reduceMotion ? 1 : 0.052);
+    scrollProgress += (scrollTarget - scrollProgress) * (reduceMotion ? 1 : 0.1);
     pointer.lerp(pointerTarget, reduceMotion ? 1 : 0.035);
     scatterPointer.lerp(pointerTarget, reduceMotion ? 1 : 0.24);
     scatterEnergy += (scatterImpulse - scatterEnergy) * 0.18;
@@ -582,7 +582,7 @@ gl_Position.xy += scatterDirection * scatterInfluence * scatterWave * uScatterAm
     const quietTime = reduceMotion ? 2200 : time;
     updateSculpture(quietTime, scrollProgress);
 
-    const journey = range(0.02, 0.98, scrollProgress);
+    const journey = range(0, 0.88, scrollProgress);
     const direction = rtl ? -1 : 1;
 
     points.material.opacity = 0.96;

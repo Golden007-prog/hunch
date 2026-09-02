@@ -4,10 +4,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Hunch — ДНК проекта для ИИ-агентов по коду</title>
-<meta name="description" content="У вашего репозитория есть ДНК. Hunch даёт ИИ-агентам доказательное понимание того, как проект общается и работает, до того, как они изменят код." />
-<meta property="og:title" content="Hunch — ДНК проекта для ИИ-агентов по коду" />
-<meta property="og:description" content="Каждый агент по коду приходит блестящим незнакомцем. Hunch знакомит его с языком, решениями, выстраданными исправлениями и границами вашего кода." />
+  <title>Hunch — ДНК проекта для ИИ-агентов по коду</title>
+  <meta name="description" content="У вашего репозитория есть ДНК. Hunch даёт ИИ-агентам доказательное понимание того, как проект общается и работает, до того, как они изменят код." />
+  <meta property="og:title" content="Hunch — ДНК проекта для ИИ-агентов по коду" />
+  <meta property="og:description" content="Каждый агент по коду приходит блестящим незнакомцем. Hunch знакомит его с языком, решениями, выстраданными исправлениями и границами вашего кода." />
 <meta property="og:image" content="https://hunch-pi.vercel.app/hunch-og.png" />
 <meta property="og:url" content="https://hunch-pi.vercel.app/ru" />
 <meta property="og:locale" content="ru_RU" />
@@ -26,7 +26,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/brand.css" />
-<link rel="stylesheet" href="/upgrade.css" />
+<link rel="stylesheet" href="/upgrade.css?v=native-cursor-1" />
 <style>
   /* ──────────────────────────── tokens ──────────────────────────── */
   :root{
@@ -103,7 +103,7 @@
   @media (max-width:520px){.nav-links a.hide-xs{display:none}}
 
   /* ──────────────────────────── hero ──────────────────────────── */
-  .hero.wrap{max-width:none;min-height:270vh;min-height:270svh;padding:0;display:block;text-align:start}
+  .hero.wrap{max-width:none;min-height:140vh;min-height:140svh;padding:0;display:block;text-align:start}
   .hero-copy{
     position:sticky;top:60px;z-index:1;min-height:calc(100vh - 60px);min-height:calc(100svh - 60px);
     width:100%;max-width:var(--maxw);min-width:0;margin:0 auto;padding:0 24px;display:flex;flex-direction:column;justify-content:center;isolation:isolate;
@@ -161,7 +161,7 @@
       linear-gradient(to bottom,color-mix(in srgb,var(--bg) 65%,transparent),transparent 22%,transparent 78%,var(--bg));
   }
   @media (max-width:760px){
-    .hero.wrap{min-height:230vh;min-height:230svh}
+    .hero.wrap{min-height:150vh;min-height:150svh}
     .hero-art{opacity:.94}
     .hero-copy::before{inset-inline-start:-18%;width:122%;-webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px)}
   }
@@ -560,7 +560,7 @@
   </div>
 </footer>
 
-<script type="module" src="/dna-hero.js"></script>
+<script type="module" src="/dna-hero.js?v=scroll-fast-1"></script>
 <script>
   // Canvas fallback for browsers that cannot load the Three.js module or
   // create a WebGL context. It preserves the evidence-graph story without
@@ -925,6 +925,6 @@
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script defer src="/_vercel/speed-insights/script.js"></script>
-<script src="/upgrade.js"></script>
+<script src="/upgrade.js?v=native-cursor-1"></script>
 </body>
 </html>
