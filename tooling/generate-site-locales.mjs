@@ -6,14 +6,14 @@ import { changelogLocales, countChangelogRows } from "./changelog-locales.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(repoRoot, "site", "index.html");
-const siteOrigin = "https://hunch-pi.vercel.app";
+const siteOrigin = "https://www.hunchmemory.com";
 const normalizeLf = (value) => value.replace(/\r\n?/g, "\n");
 
 const locales = {
   he: {
     dir: "rtl",
     ogLocale: "he_IL",
-    title: "Hunch — Project DNA לעוזרי קוד מבוססי AI",
+    title: "Hunch Memory — Project DNA לעוזרי קוד מבוססי AI",
     description: "למאגר שלכם יש DNA. Hunch נותן לעוזרי קוד מבוססי AI הבנה מבוססת ראיות של הדרך שבה הפרויקט מתקשר ועובד, לפני שהם משנים את הקוד.",
     ogDescription: "כל סוכן קוד מגיע כזר מבריק. Hunch מלמד אותו את השפה, ההחלטות, התיקונים שנלמדו בדרך והגבולות שמאחורי הקוד.",
     mainNav: "ניווט ראשי", language: "שפה",
@@ -62,7 +62,7 @@ const locales = {
   },
   ru: {
     dir: "ltr", ogLocale: "ru_RU",
-    title: "Hunch — ДНК проекта для ИИ-агентов по коду",
+    title: "Hunch Memory — ДНК проекта для ИИ-агентов по коду",
     description: "У вашего репозитория есть ДНК. Hunch даёт ИИ-агентам доказательное понимание того, как проект общается и работает, до того, как они изменят код.",
     ogDescription: "Каждый агент по коду приходит блестящим незнакомцем. Hunch знакомит его с языком, решениями, выстраданными исправлениями и границами вашего кода.",
     mainNav: "Основная навигация", language: "Язык",
@@ -111,7 +111,7 @@ const locales = {
   },
   ar: {
     dir: "rtl", ogLocale: "ar",
-    title: "Hunch — الحمض النووي للمشروع لوكلاء البرمجة بالذكاء الاصطناعي",
+    title: "Hunch Memory — الحمض النووي للمشروع لوكلاء البرمجة بالذكاء الاصطناعي",
     description: "لمستودعك حمض نووي. يمنح Hunch وكلاء البرمجة فهمًا قائمًا على الأدلة لكيفية تواصل المشروع وعمله قبل أن يغيّروا الشيفرة.",
     ogDescription: "يصل كل وكيل برمجي غريبًا لامعًا. يعرّفه Hunch على لغة شيفرتك وقراراتها وإصلاحاتها الصعبة وحدودها.",
     mainNav: "التنقّل الرئيسي", language: "اللغة",
@@ -160,7 +160,7 @@ const locales = {
   },
   es: {
     dir: "ltr", ogLocale: "es_ES",
-    title: "Hunch — ADN del proyecto para agentes de programación con IA",
+    title: "Hunch Memory — ADN del proyecto para agentes de programación con IA",
     description: "Tu repositorio tiene ADN. Hunch ofrece a los agentes de programación una comprensión basada en evidencia de cómo se comunica y trabaja el proyecto antes de que cambien el código.",
     ogDescription: "Cada agente de programación llega como un extraño brillante. Hunch le enseña el lenguaje, las decisiones, las correcciones difíciles y los límites que hay detrás de tu código.",
     mainNav: "Navegación principal", language: "Idioma",
@@ -215,9 +215,9 @@ function escAttr(value) {
 
 function fragments(c) {
   return [
-    ["<title>Hunch — Help AI understand your code</title>", `<title>${c.title}</title>`],
+    ["<title>Hunch Memory — Help AI understand your code</title>", `<title>${c.title}</title>`],
     ['content="Your code has DNA. Hunch activates the right Strand for each task—lean context, live guidance, and trusted boundaries before AI changes your code."', `content="${escAttr(c.description)}"`],
-    ['<meta property="og:title" content="Hunch — Help AI understand your code" />', `<meta property="og:title" content="${escAttr(c.title)}" />`],
+    ['<meta property="og:title" content="Hunch Memory — Help AI understand your code" />', `<meta property="og:title" content="${escAttr(c.title)}" />`],
     ['content="Hunch activates the right DNA Strand for every task, giving AI the context, tools, and boundaries it needs."', `content="${escAttr(c.ogDescription)}"`],
     ['<nav class="nav" aria-label="Main">', `<nav class="nav" aria-label="${escAttr(c.mainNav)}">`],
     ['<span class="sr-only">Language</span>', `<span class="sr-only">${c.language}</span>`],
@@ -309,9 +309,9 @@ const source = normalizeLf(await readFile(sourcePath, "utf8"));
 for (const [locale, copy] of Object.entries(locales)) {
   let html = source;
   html = replaceRequired(html, '<html lang="en">', `<html lang="${locale}"${copy.dir === "rtl" ? ' dir="rtl"' : ""}>`, locale);
-  html = replaceRequired(html, '<meta property="og:url" content="https://hunch-pi.vercel.app/" />', `<meta property="og:url" content="${siteOrigin}/${locale}" />`, locale);
+  html = replaceRequired(html, '<meta property="og:url" content="https://www.hunchmemory.com/" />', `<meta property="og:url" content="${siteOrigin}/${locale}" />`, locale);
   html = replaceRequired(html, '<meta property="og:locale" content="en_US" />', `<meta property="og:locale" content="${copy.ogLocale}" />`, locale);
-  html = replaceRequired(html, '<link rel="canonical" href="https://hunch-pi.vercel.app/" />', `<link rel="canonical" href="${siteOrigin}/${locale}" />`, locale);
+  html = replaceRequired(html, '<link rel="canonical" href="https://www.hunchmemory.com/" />', `<link rel="canonical" href="${siteOrigin}/${locale}" />`, locale);
   html = replaceRequired(html, '<a class="brand" href="/">', `<a class="brand" href="/${locale}">`, locale);
   html = replaceRequired(html, '<option value="/" selected>EN</option>', '<option value="/">EN</option>', locale);
   html = replaceRequired(html, `<option value="/${locale}">${locale.toUpperCase()}</option>`, `<option value="/${locale}" selected>${locale.toUpperCase()}</option>`, locale);
@@ -405,12 +405,12 @@ function localizeBlogTemplate(source, locale, copy, page) {
   const canonical = `${siteOrigin}${blogBase}${isPost ? "/post" : ""}`;
   let html = source;
   html = replaceRequired(html, '<html lang="en">', `<html lang="${locale}"${copy.dir === "rtl" ? ' dir="rtl"' : ""}>`, `${locale}/${page}`);
-  html = replaceRequired(html, isPost ? "<title>The Hunch Blog</title>" : "<title>The Hunch Blog — Architectural Conformance for AI code</title>", `<title>${ui.pageTitle}</title>`, `${locale}/${page}`);
+  html = replaceRequired(html, isPost ? "<title>The Hunch Memory Blog</title>" : "<title>The Hunch Memory Blog — Architectural Conformance for AI code</title>", `<title>${ui.pageTitle}</title>`, `${locale}/${page}`);
   html = replaceRequired(html,
     isPost ? '<meta name="description" content="Architectural Conformance for AI code — notes, benchmarks and arguments." />' : '<meta name="description" content="Notes, benchmarks and arguments on keeping AI-generated code inside your architecture — the semantic invariants pattern-SAST can\'t express." />',
     `<meta name="description" content="${escAttr(ui.pageDescription)}" />`, `${locale}/${page}`);
   html = replaceRequired(html,
-    isPost ? '<link rel="canonical" id="canonical-url" href="https://hunch-pi.vercel.app/blog/post" />' : '<link rel="canonical" href="https://hunch-pi.vercel.app/blog" />',
+    isPost ? '<link rel="canonical" id="canonical-url" href="https://www.hunchmemory.com/blog/post" />' : '<link rel="canonical" href="https://www.hunchmemory.com/blog" />',
     isPost ? `<link rel="canonical" id="canonical-url" href="${canonical}" />` : `<link rel="canonical" href="${canonical}" />`, `${locale}/${page}`);
   html = replaceRequired(html, '<nav class="nav" aria-label="Main">', `<nav class="nav" aria-label="${escAttr(ui.mainNav)}">`, `${locale}/${page}`);
   html = replaceRequired(html, '<a class="brand" href="/">', `<a class="brand" href="/${locale}">`, `${locale}/${page}`);
@@ -484,9 +484,9 @@ function localizeChangelogTemplate(source, locale, copy) {
   const route = `/${locale}/changelog`;
   let html = source;
   html = replaceRequired(html, '<html lang="en">', `<html lang="${locale}"${copy.dir === "rtl" ? ' dir="rtl"' : ""}>`, `${locale}/changelog`);
-  html = replaceRequired(html, "<title>Changelog — Hunch</title>", `<title>${ui.pageTitle}</title>`, `${locale}/changelog`);
+  html = replaceRequired(html, "<title>Changelog — Hunch Memory</title>", `<title>${ui.pageTitle}</title>`, `${locale}/changelog`);
   html = replaceRequired(html, '<meta name="description" content="Every Hunch release — git-native engineering memory and Architectural Conformance for AI code." />', `<meta name="description" content="${escAttr(ui.pageDescription)}" />`, `${locale}/changelog`);
-  html = replaceRequired(html, '<link rel="canonical" href="https://hunch-pi.vercel.app/changelog" />', `<link rel="canonical" href="${siteOrigin}${route}" />`, `${locale}/changelog`);
+  html = replaceRequired(html, '<link rel="canonical" href="https://www.hunchmemory.com/changelog" />', `<link rel="canonical" href="${siteOrigin}${route}" />`, `${locale}/changelog`);
   html = replaceRequired(html, '<nav class="nav" aria-label="Main">', `<nav class="nav" aria-label="${escAttr(ui.mainNav)}">`, `${locale}/changelog`);
   html = replaceRequired(html, '<a class="brand" href="/">', `<a class="brand" href="/${locale}">`, `${locale}/changelog`);
   html = replaceRequired(html, '<a href="/#how" class="hide-s">How it works</a>', `<a href="/${locale}/#how" class="hide-s">${ui.navHow}</a>`, `${locale}/changelog`);

@@ -7,11 +7,11 @@ export const blogLocales = {
   he: {
     dir: "rtl", dateLocale: "he-IL", ogLocale: "he_IL",
     ui: {
-      pageTitle: "הבלוג של Hunch — התאמה ארכיטקטונית לקוד AI",
+      pageTitle: "הבלוג של Hunch Memory — התאמה ארכיטקטונית לקוד AI",
       pageDescription: "הערות, מדדים וטיעונים על שמירת קוד שנוצר ב-AI בתוך הארכיטקטורה שלכם.",
       mainNav: "ניווט ראשי", language: "שפה", navHow: "כך זה עובד", navInside: "מאחורי הקלעים", docs: "תיעוד", blog: "בלוג", changelog: "יומן שינויים", getStarted: "מתחילים",
       eyebrow: "הבלוג של Hunch", mastheadTitle: "שומרים את ה-AI בתוך הארכיטקטורה שלכם.", mastheadIntro: "מדדים, טיעונים והערות מהשטח על הטעויות שה-linter לא רואה — ועל שער דטרמיניסטי שכן תופס אותן.",
-      pinned: "מומלץ", allPosts: "כל המאמרים", pinnedLabel: "★ מומלץ", readRelease: "לקריאת המאמר", read: "לקריאה", blogName: "הבלוג של Hunch",
+      pinned: "מומלץ", allPosts: "כל המאמרים", pinnedLabel: "★ מומלץ", readRelease: "לקריאת המאמר", read: "לקריאה", blogName: "הבלוג של Hunch Memory",
       notFound: "המאמר לא נמצא", notFoundBody: "המאמר הזה אינו קיים.", backToBlog: "חזרה לבלוג", older: "מאמר קודם ←", newer: "→ מאמר חדש יותר",
       ctaTitle: "שמרו על הארכיטקטורה בכל שינוי של AI.", ctaBody: "אילוץ אחד, שער אחד, בלי מודל שמחליט.", keyIdeas: "הרעיונות המרכזיים", takeawayHeading: "מה לוקחים מכאן",
       footerTag: "© Hunch — התאמה ארכיטקטונית לקוד AI.", allPostsFooter: "כל המאמרים"
@@ -44,10 +44,10 @@ export const blogLocales = {
   ru: {
     dir: "ltr", dateLocale: "ru-RU", ogLocale: "ru_RU",
     ui: {
-      pageTitle: "Блог Hunch — архитектурное соответствие для ИИ-кода", pageDescription: "Заметки, тесты и аргументы о том, как удерживать созданный ИИ код внутри вашей архитектуры.",
+      pageTitle: "Блог Hunch Memory — архитектурное соответствие для ИИ-кода", pageDescription: "Заметки, тесты и аргументы о том, как удерживать созданный ИИ код внутри вашей архитектуры.",
       mainNav: "Основная навигация", language: "Язык", navHow: "Как это работает", navInside: "Что внутри", docs: "Документация", blog: "Блог", changelog: "История изменений", getStarted: "Начать",
       eyebrow: "Блог Hunch", mastheadTitle: "Удерживаем ИИ внутри вашей архитектуры.", mastheadIntro: "Тесты, аргументы и полевые заметки об ошибках, которых не видит линтер, — и о детерминированном барьере, который их ловит.",
-      pinned: "Главное", allPosts: "Все статьи", pinnedLabel: "★ Главное", readRelease: "Читать статью", read: "Читать", blogName: "Блог Hunch",
+      pinned: "Главное", allPosts: "Все статьи", pinnedLabel: "★ Главное", readRelease: "Читать статью", read: "Читать", blogName: "Блог Hunch Memory",
       notFound: "Статья не найдена", notFoundBody: "Такой статьи не существует.", backToBlog: "Вернуться в блог", older: "← Раньше", newer: "Новее →",
       ctaTitle: "Защищайте архитектуру при каждом изменении ИИ.", ctaBody: "Одно ограничение, один барьер, без модели в роли судьи.", keyIdeas: "Главные идеи", takeawayHeading: "Практический вывод",
       footerTag: "© Hunch — архитектурное соответствие для ИИ-кода.", allPostsFooter: "Все статьи"
@@ -80,10 +80,10 @@ export const blogLocales = {
   ar: {
     dir: "rtl", dateLocale: "ar", ogLocale: "ar_AR",
     ui: {
-      pageTitle: "مدونة Hunch — التوافق المعماري لكود الذكاء الاصطناعي", pageDescription: "ملاحظات وقياسات وحجج حول إبقاء الكود الذي ينشئه الذكاء الاصطناعي داخل معماريتك.",
+      pageTitle: "مدونة Hunch Memory — التوافق المعماري لكود الذكاء الاصطناعي", pageDescription: "ملاحظات وقياسات وحجج حول إبقاء الكود الذي ينشئه الذكاء الاصطناعي داخل معماريتك.",
       mainNav: "التنقل الرئيسي", language: "اللغة", navHow: "كيف يعمل", navInside: "ما وراء الكواليس", docs: "الوثائق", blog: "المدونة", changelog: "سجل التغييرات", getStarted: "ابدأ الآن",
       eyebrow: "مدونة Hunch", mastheadTitle: "نُبقي الذكاء الاصطناعي داخل معماريتك.", mastheadIntro: "قياسات وحجج وملاحظات ميدانية عن الأخطاء التي لا يراها المدقق — وعن البوابة الحتمية التي تلتقطها.",
-      pinned: "مميّز", allPosts: "كل المقالات", pinnedLabel: "★ مميّز", readRelease: "اقرأ المقال", read: "قراءة", blogName: "مدونة Hunch",
+      pinned: "مميّز", allPosts: "كل المقالات", pinnedLabel: "★ مميّز", readRelease: "اقرأ المقال", read: "قراءة", blogName: "مدونة Hunch Memory",
       notFound: "المقال غير موجود", notFoundBody: "هذا المقال غير موجود.", backToBlog: "العودة إلى المدونة", older: "→ أقدم", newer: "أحدث ←",
       ctaTitle: "احمِ معماريتك مع كل تغيير ينشئه الذكاء الاصطناعي.", ctaBody: "قيد واحد، بوابة واحدة، من دون نموذج يصدر الحكم.", keyIdeas: "الأفكار الرئيسية", takeawayHeading: "الخلاصة العملية",
       footerTag: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", allPostsFooter: "كل المقالات"
@@ -116,10 +116,10 @@ export const blogLocales = {
   es: {
     dir: "ltr", dateLocale: "es-ES", ogLocale: "es_ES",
     ui: {
-      pageTitle: "Blog de Hunch — conformidad arquitectónica para código de IA", pageDescription: "Notas, benchmarks y argumentos para mantener el código generado por IA dentro de tu arquitectura.",
+      pageTitle: "Blog de Hunch Memory — conformidad arquitectónica para código de IA", pageDescription: "Notas, benchmarks y argumentos para mantener el código generado por IA dentro de tu arquitectura.",
       mainNav: "Navegación principal", language: "Idioma", navHow: "Cómo funciona", navInside: "Cómo está hecho", docs: "Documentación", blog: "Blog", changelog: "Cambios", getStarted: "Empezar",
       eyebrow: "El blog de Hunch", mastheadTitle: "Mantén la IA dentro de tu arquitectura.", mastheadIntro: "Benchmarks, argumentos y notas de campo sobre los errores que tu linter no ve y la barrera determinista que sí los detecta.",
-      pinned: "Destacado", allPosts: "Todos los artículos", pinnedLabel: "★ Destacado", readRelease: "Leer el artículo", read: "Leer", blogName: "Blog de Hunch",
+      pinned: "Destacado", allPosts: "Todos los artículos", pinnedLabel: "★ Destacado", readRelease: "Leer el artículo", read: "Leer", blogName: "Blog de Hunch Memory",
       notFound: "Artículo no encontrado", notFoundBody: "Ese artículo no existe.", backToBlog: "Volver al blog", older: "← Anterior", newer: "Más reciente →",
       ctaTitle: "Protege tu arquitectura en cada cambio de IA.", ctaBody: "Una restricción, una barrera, sin un modelo como juez.", keyIdeas: "Ideas principales", takeawayHeading: "Conclusión práctica",
       footerTag: "© Hunch — conformidad arquitectónica para código de IA.", allPostsFooter: "Todos los artículos"

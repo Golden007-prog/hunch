@@ -4,14 +4,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>הבלוג של Hunch — התאמה ארכיטקטונית לקוד AI</title>
+<title>הבלוג של Hunch Memory — התאמה ארכיטקטונית לקוד AI</title>
 <meta name="description" content="הערות, מדדים וטיעונים על שמירת קוד שנוצר ב-AI בתוך הארכיטקטורה שלכם." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="icon" href="/hunch-mark.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="/brand.css" />
-<link rel="canonical" id="canonical-url" href="https://hunch-pi.vercel.app/he/blog/post" />
+<link rel="canonical" id="canonical-url" href="https://www.hunchmemory.com/he/blog/post" />
 <style>
   :root{
     --paper:#f7f8f7; --paper-2:#eff1ef; --surface:#fcfdfc;
@@ -154,7 +154,7 @@
   <script>
     const locale = document.documentElement.lang || "en";
     const localeData = window.BLOG_I18N?.[locale];
-    const UI = localeData?.ui || { blogName: "The Hunch Blog", notFound: "Not found", notFoundBody: "That post does not exist.", backToBlog: "Back to the blog", ctaTitle: "Hold your architecture, on every AI change.", ctaBody: "One invariant, one gate, no model in it.", getStarted: "Get started", older: "← Older", newer: "Newer →" };
+    const UI = localeData?.ui || { blogName: "The Hunch Memory Blog", notFound: "Not found", notFoundBody: "That post does not exist.", backToBlog: "Back to the blog", ctaTitle: "Hold your architecture, on every AI change.", ctaBody: "One invariant, one gate, no model in it.", getStarted: "Get started", older: "← Older", newer: "Newer →" };
     const blogBase = locale === "en" ? "/blog" : `/${locale}/blog`;
     const homeBase = locale === "en" ? "" : `/${locale}`;
     const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString(localeData?.dateLocale || "en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -168,7 +168,7 @@
       main.innerHTML = `<div class="notfound"><h1 class="title">${UI.notFound}</h1><p style="color:var(--muted-2)">${UI.notFoundBody} <a href="${blogBase}" style="color:var(--accent)">${UI.backToBlog}</a></p></div>`;
     } else {
       document.title = p.title + " — " + UI.blogName;
-      document.getElementById("canonical-url").href = `https://hunch-pi.vercel.app${blogBase}/post?slug=${encodeURIComponent(p.slug)}`;
+      document.getElementById("canonical-url").href = `https://www.hunchmemory.com${blogBase}/post?slug=${encodeURIComponent(p.slug)}`;
       const prev = posts[i + 1]; // older
       const next = posts[i - 1]; // newer
       main.innerHTML = `

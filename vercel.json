@@ -5,5 +5,25 @@
   "buildCommand": "",
   "outputDirectory": "site",
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "hunchmemory.dev" }],
+      "destination": "https://www.hunchmemory.com/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.hunchmemory.dev" }],
+      "destination": "https://www.hunchmemory.com/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "hunch-pi.vercel.app" }],
+      "destination": "https://www.hunchmemory.com/:path*",
+      "permanent": true
+    }
+  ]
 }
