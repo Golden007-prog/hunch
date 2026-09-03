@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "האתר הציבורי עובר ל-hunchmemory.com",
       "חוזי הוכחת השינוי באמת נשלחים",
       "שינויים מדויקים נושאים הוכחה סמנטית מקורית",
       "Project DNA מקבלת משוב עם קבלות",
@@ -48,6 +49,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Публичный сайт переезжает на hunchmemory.com",
       "Контракты доказательства изменений действительно поставляются",
       "Точные изменения несут собственное семантическое доказательство",
       "Project DNA получает обратную связь с квитанциями",
@@ -88,6 +90,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "الموقع العام ينتقل إلى hunchmemory.com",
       "عقود إثبات التغيير تُشحن فعلًا",
       "التغييرات الدقيقة تحمل إثباتًا دلاليًا أصليًا",
       "يتلقى Project DNA ملاحظات موثقة بالإيصالات",
@@ -128,6 +131,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "El sitio público se muda a hunchmemory.com",
       "Los contratos de prueba de cambio realmente se publican",
       "Los cambios exactos llevan prueba semántica nativa",
       "Project DNA recibe feedback con recibos",
