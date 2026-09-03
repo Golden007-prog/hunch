@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import type { G2ReadinessReport } from "../src/constitution/g2.js";
+import { hunchCliArgs } from "./cli-invocation.js";
 import {
   G3EvidenceRepository,
   compileAdapterConformanceReceipt,
@@ -223,22 +224,20 @@ test("G3 repository isolates private records and rejects tampering", () => {
 
 test("CLI and read-only client-neutral MCP expose the identical fail-closed G3 receipt", async () => {
   const { root, cleanup } = fixture();
-  const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-  const cli = join(process.cwd(), "src/cli/index.ts");
   const env = { ...process.env, HUNCH_SYNTH_PROVIDER: "deterministic", NO_COLOR: "1" };
   let client: Client | null = null;
   try {
-    const cliRun = spawnSync(process.execPath, [tsx, cli, "constitution", "g3"], { cwd: root, env, encoding: "utf8" });
+    const cliRun = spawnSync(process.execPath, hunchCliArgs("constitution", "g3"), { cwd: root, env, encoding: "utf8" });
     assert.equal(cliRun.status, 0, cliRun.stderr);
     const cliReceipt = JSON.parse(cliRun.stdout) as { content_hash: string; recommendation: string; authority: string; g3_passed: boolean };
     assert.equal(cliReceipt.recommendation, "not_ready");
     assert.equal(cliReceipt.authority, "none");
     assert.equal(cliReceipt.g3_passed, false);
 
-    const strictRun = spawnSync(process.execPath, [tsx, cli, "constitution", "g3", "--strict"], { cwd: root, env, encoding: "utf8" });
+    const strictRun = spawnSync(process.execPath, hunchCliArgs("constitution", "g3", "--strict"), { cwd: root, env, encoding: "utf8" });
     assert.equal(strictRun.status, 1, "strict readiness fails closed without human-selected evidence");
 
-    const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: root, env });
+    const transport = new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: root, env });
     client = new Client({ name: "g3-readiness-contract-test", version: "1.0.0" });
     await client.connect(transport);
     const call = await client.callTool({ name: "hunch_constitution_g3_readiness", arguments: {} });

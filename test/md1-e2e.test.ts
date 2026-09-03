@@ -14,10 +14,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { hunchCliArgs } from "./cli-invocation.js";
 
-const PROJECT_ROOT = process.cwd();
-const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
-const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
 const FIXED_SOURCE = "export function listOrders(user: string) { return [`order:${user}`]; }\n";
 const VIOLATING_SOURCE = [
   'import axios from "axios";',
@@ -140,7 +138,7 @@ function codeFixture(label: string, source = VIOLATING_SOURCE, dependencies = ["
 }
 
 function runCli(fixture: Fixture, ...args: string[]) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: fixture.root,
     env: fixture.env,
     encoding: "utf8",
@@ -201,7 +199,7 @@ test("MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity
   try {
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [TSX, CLI, "mcp"],
+      args: hunchCliArgs("mcp"),
       cwd: fixture.root,
       env: fixture.env,
     });
@@ -468,7 +466,7 @@ test("MD-1a private cross-adapter journey keeps every sensitive token and artifa
     assert.equal(correctionId, capturedCorrectionId);
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [TSX, CLI, "mcp"],
+      args: hunchCliArgs("mcp"),
       cwd: fixture.root,
       env: fixture.env,
     });

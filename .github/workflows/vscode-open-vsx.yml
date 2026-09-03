@@ -59,7 +59,12 @@ jobs:
       - name: Install root (locked; no registry credentials)
         run: npm ci
 
+      - name: Build compiled root CLI for black-box tests
+        run: npm run build
+
       - name: Run the full root release gate (includes Matrix)
+        env:
+          HUNCH_TEST_COMPILED_CLI: "1"
         run: npm run gate:release -- --output vscode-release-gate.json
 
       - name: Install extension (locked; no registry credentials)

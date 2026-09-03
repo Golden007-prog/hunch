@@ -17,11 +17,9 @@ import { test } from "node:test";
 import { SCHEMA_VERSION } from "../src/core/migrate.js";
 import { repositoryUsesRemote, sameRemoteUrl } from "../src/extractors/git.js";
 import { shPath } from "./helpers.js";
+import { hunchCliArgs } from "./cli-invocation.js";
 
-const PROJECT_ROOT = process.cwd();
-const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
-const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
-// These fixtures execute the real TypeScript CLI plus several local Git
+// These fixtures execute the real product CLI plus several local Git
 // round-trips. Keep the ordinary child budget below the enclosing 60–90s test
 // budgets, but high enough that one neighboring integration worker cannot turn
 // normal process-start variance into a false ETIMEDOUT. Adversarial transport
@@ -82,7 +80,7 @@ function runCli(
   input?: string,
   timeout = DEFAULT_CLI_TIMEOUT_MS,
 ) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: fixture.root,
     env: fixture.env,
     input,
@@ -293,7 +291,7 @@ test("a CLI command refuses all handlers when its route changes during the start
     }, null, 2)}\n`);
     const memoryBBefore = bareRefs(memoryB);
 
-    child = spawn(process.execPath, [TSX, CLI, "query", "must not be served"], {
+    child = spawn(process.execPath, hunchCliArgs("query", "must not be served"), {
       cwd: fixture.root,
       env: fixture.env,
       stdio: ["ignore", "pipe", "pipe"],

@@ -60,6 +60,9 @@ function contractErrors(source: string): string[] {
   if (!new RegExp(`actions/checkout@${pins.checkout}`).test(validate)) errors.push("checkout action is not immutably pinned");
   if (!new RegExp(`actions/setup-node@${pins.setupNode}`).test(validate)) errors.push("setup-node action is not immutably pinned");
   if (!/name: Install root \(locked; no registry credentials\)[\s\S]*?run: npm ci/.test(validate)) errors.push("root npm ci is missing");
+  if (!/npm run build[\s\S]*HUNCH_TEST_COMPILED_CLI: "1"[\s\S]*npm run gate:release -- --output vscode-release-gate\.json/.test(validate)) {
+    errors.push("root black-box tests do not use the prebuilt shipped CLI");
+  }
   if (!/npm run gate:release -- --output vscode-release-gate\.json/.test(validate)) errors.push("full root release gate receipt is missing");
   if (!/releaseGate\.result !== "passed"[\s\S]*releaseGate\.candidate_ready !== true[\s\S]*releaseGate\.publish_ready !== false/.test(validate)
     || !/matrix\.result !== "passed" \|\| matrix\.release_ready !== true/.test(validate)

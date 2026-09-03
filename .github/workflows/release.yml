@@ -46,7 +46,12 @@ jobs:
       - name: Install (locked; no publication authority)
         run: npm ci
 
+      - name: Build compiled CLI for black-box tests
+        run: npm run build
+
       - name: Run the full tagged release gate
+        env:
+          HUNCH_TEST_COMPILED_CLI: "1"
         run: npm run gate:release -- --tag "${GITHUB_REF_NAME}" --output release-gate.json
 
       # The gate already built and tested dist/. Pack without running the
@@ -241,6 +246,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -258,8 +264,13 @@ jobs:
       - name: Install (locked; no publication authority)
         run: npm ci
 
+      - name: Build compiled CLI for black-box tests
+        run: npm run build
+
       - name: Native bindings, atomic writes, and the team Matrix stay safe
         id: matrix-safety
+        env:
+          HUNCH_TEST_COMPILED_CLI: "1"
         run: npx --no-install tsx --test --test-concurrency=1 test/parse.test.ts test/io.test.ts test/migrate.test.ts test/matrix-release-verification.test.ts test/team-matrix-e2e.test.ts
 
       - name: Write tagged platform Matrix safety receipt

@@ -32,6 +32,7 @@ import { directConflict } from "../src/constitution/structural.js";
 import { ensureGitignore } from "../src/integrations/gitignore.js";
 import { runSourceMutation } from "../src/constitution/sourceMutation.js";
 import { SYMLINK_SKIP } from "./helpers.js";
+import { hunchCliArgs } from "./cli-invocation.js";
 
 const NOW = "2026-07-10T10:00:00.000Z";
 
@@ -322,8 +323,7 @@ test("Gate G1: decision -> must-pass-through policy -> P3 proof -> human block -
 test("policy plan --public-only pumps the actual public home when a duplicate private policy exists", () => {
   const fixture = duplicatePolicyHomesFixture();
   try {
-    const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-    const cli = join(process.cwd(), "src/cli/index.ts");
+    const [tsx, cli] = hunchCliArgs();
     const publicBefore = execFileSync("git", ["-C", fixture.root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const privateBefore = execFileSync("git", ["-C", fixture.overlayRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const run = spawnSync(process.execPath, [tsx, cli, "policy", "plan", fixture.policy.id, "--public-only"], {
@@ -349,8 +349,7 @@ test("hunch_policy_plan public_only pumps the actual public home when a duplicat
   const fixture = duplicatePolicyHomesFixture();
   let client: Client | null = null;
   try {
-    const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-    const cli = join(process.cwd(), "src/cli/index.ts");
+    const [tsx, cli] = hunchCliArgs();
     const publicBefore = execFileSync("git", ["-C", fixture.root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const privateBefore = execFileSync("git", ["-C", fixture.overlayRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const transport = new StdioClientTransport({
@@ -1525,7 +1524,7 @@ test("Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, 
     writeFileSync(join(root, "src/api/orders.ts"), 'import { dbQuery } from "../db/client.js";\nexport function listOrders(u){ return dbQuery(u); }\n');
     commitFiles(root, ["src/api/orders.ts"], "fixture: real G2 shadow change");
     const projectRoot = process.cwd();
-    const syncRun = spawnSync(process.execPath, [join(projectRoot, "node_modules/tsx/dist/cli.mjs"), join(projectRoot, "src/cli/index.ts"), "sync", "HEAD", "--quiet", "--no-commit"], {
+    const syncRun = spawnSync(process.execPath, hunchCliArgs("sync", "HEAD", "--quiet", "--no-commit"), {
       cwd: root,
       env: { ...process.env, HUNCH_SYNTH_PROVIDER: "deterministic" },
       encoding: "utf8",
@@ -1551,7 +1550,7 @@ test("Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, 
     writeFileSync(planFile, JSON.stringify(tampered));
     writeFileSync(join(root, "src/api/orders.ts"), `${readFileSync(join(root, "src/api/orders.ts"), "utf8")}\n// another real commit\n`);
     commitFiles(root, ["src/api/orders.ts"], "fixture: corrupt G2 plan must not block sync");
-    const corruptPlanSync = spawnSync(process.execPath, [join(projectRoot, "node_modules/tsx/dist/cli.mjs"), join(projectRoot, "src/cli/index.ts"), "sync", "HEAD", "--quiet", "--no-commit"], {
+    const corruptPlanSync = spawnSync(process.execPath, hunchCliArgs("sync", "HEAD", "--quiet", "--no-commit"), {
       cwd: root,
       env: { ...process.env, HUNCH_SYNTH_PROVIDER: "deterministic" },
       encoding: "utf8",
@@ -1751,8 +1750,7 @@ test("Phase 2S G2 candidate attestations are exact, append-only, private, and no
     const secondCandidate = afterRejected.items.find((item) => item.id !== candidate.id && item.reason.includes("guardedOrders"))!;
     assert.ok(secondCandidate, "a second exact sibling candidate is available for the CLI adapter check");
     const cliRun = spawnSync(process.execPath, [
-      join(process.cwd(), "node_modules/tsx/dist/cli.mjs"),
-      join(process.cwd(), "src/cli/index.ts"),
+      ...hunchCliArgs(),
       "constitution", "g2",
       "--attest", secondCandidate.id,
       "--review-hash", afterRejected.content_hash,
@@ -1770,8 +1768,7 @@ test("Phase 2S G2 candidate attestations are exact, append-only, private, and no
     assert.equal(cliOutput.appended.authority, "none");
     assert.notEqual(cliOutput.review.content_hash, afterRejected.content_hash, "the read receipt now binds the appended review status");
 
-    const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-    const cli = join(process.cwd(), "src/cli/index.ts");
+    const [tsx, cli] = hunchCliArgs();
     const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: root });
     client = new Client({ name: "g2-candidate-attestation-test", version: "1.0.0" });
     await client.connect(transport);
@@ -2129,10 +2126,8 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
       "snapshot builds and replay leave no mutable temp or identity directories",
     );
 
-    const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-    const cli = join(process.cwd(), "src/cli/index.ts");
     const cliDepsRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-deps", candidate.id,
       "--behavior-review-hash", review.content_hash,
       "--candidate-since", bounds.since,
@@ -2144,7 +2139,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     assert.equal(cliDeps.content_hash, snapshots.content_hash, "CLI provisions the exact same cache-only receipt as the core service");
 
     const cliReviewRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-candidates", "20",
       "--candidate-since", bounds.since,
       "--candidate-commits", String(bounds.maxCommits),
@@ -2153,7 +2148,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     const cliReview = JSON.parse(cliReviewRun.stdout) as { content_hash: string };
     assert.equal(cliReview.content_hash, review.content_hash, "CLI exposes the exact core behavior review receipt");
     const cliDirectReviewRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-candidates", "20",
       "--behavior-decision", "dec_g2_direct",
       "--candidate-since", bounds.since,
@@ -2165,7 +2160,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     assert.equal(cliDirectReview.content_hash, currentDirectReview.content_hash, "CLI exposes the exact current direct-decision review receipt");
 
     const cliReplayRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-replay", candidate.id,
       "--behavior-review-hash", review.content_hash,
       "--candidate-since", bounds.since,
@@ -2177,7 +2172,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     assert.equal(cliReplay.content_hash, replayWithSnapshot.content_hash);
     assert.equal(cliReplay.verdict, "behavior_confirmed");
 
-    const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: root });
+    const transport = new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: root });
     client = new Client({ name: "g2-behavior-candidate-test", version: "1.0.0" });
     await client.connect(transport);
     const mcpReviewCall = await client.callTool({
@@ -2316,7 +2311,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
 
     writeFileSync(join(root, "src/guard.mjs"), "export function guarded(){ return false; }\n");
     const workingShadowRun = spawnSync(process.execPath, [
-      tsx, cli, "policy", "shadow", behaviorPolicy.id, "--record",
+      ...hunchCliArgs(), "policy", "shadow", behaviorPolicy.id, "--record",
     ], { cwd: root, encoding: "utf8" });
     assert.equal(workingShadowRun.status, 0, workingShadowRun.stderr);
     assert.match(
@@ -2343,7 +2338,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     assert.equal(directPolicyMaterialization.items[0]?.proof_class, "P3");
     assert.notEqual(directPolicyMaterialization.items[0]?.policy_id, behaviorPolicy.id);
     const cliPolicyMaterializeRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-policy-materialize",
       "--candidate-since", bounds.since,
       "--candidate-commits", String(bounds.maxCommits),
@@ -2353,7 +2348,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     const cliPolicyMaterialization = JSON.parse(cliPolicyMaterializeRun.stdout) as { content_hash: string };
     assert.equal(cliPolicyMaterialization.content_hash, policyMaterialization.content_hash, "CLI exposes the exact core policy materialization receipt");
     const cliDirectPolicyMaterializeRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-policy-materialize",
       "--behavior-decision", "dec_g2_direct",
       "--candidate-since", bounds.since,
@@ -2364,7 +2359,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     const cliDirectPolicyMaterialization = JSON.parse(cliDirectPolicyMaterializeRun.stdout) as { content_hash: string };
     assert.equal(cliDirectPolicyMaterialization.content_hash, directPolicyMaterialization.content_hash, "CLI materializes only the exact direct-decision batch");
     const cliMaterializeRun = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-materialize",
       "--candidate-since", bounds.since,
       "--candidate-commits", String(bounds.maxCommits),
@@ -2375,7 +2370,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     assert.equal(cliMaterialization.content_hash, materialization.content_hash, "CLI exposes the exact core materialization assessment");
     assert.equal(cliMaterialization.materialized_policies, 0);
 
-    const materializationTransport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: root });
+    const materializationTransport = new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: root });
     client = new Client({ name: "g2-behavior-materialization-test", version: "1.0.0" });
     await client.connect(materializationTransport);
     const mcpMaterializationCall = await client.callTool({
@@ -2422,7 +2417,7 @@ test("Phase 2U/2V/2W/2X/2Y replays, attests, and proves exact executable behavio
     );
 
     const cliBehaviorAttest = spawnSync(process.execPath, [
-      tsx, cli, "constitution", "g2",
+      ...hunchCliArgs(), "constitution", "g2",
       "--behavior-attest", candidate.id,
       "--behavior-review-hash", review.content_hash,
       "--disposition", "selected",
@@ -2569,8 +2564,7 @@ test("authoritative proof replay rejects a committed partial graph instead of mi
     });
     const service = new ConstitutionService(store, root);
     service.repository.putPolicy(policy);
-    const tsx = join(process.cwd(), "node_modules/tsx/dist/cli.mjs");
-    const cli = join(process.cwd(), "src/cli/index.ts");
+    const [tsx, cli] = hunchCliArgs();
     const graphBefore = canonicalHash({
       symbols: store.json.loadAll("symbols"),
       edges: store.json.loadAll("edges"),
@@ -4209,8 +4203,7 @@ test("MD-1a rejects public references to private-only decisions before evidence 
   store.close();
 
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   const env = { ...process.env, HUNCH_PRIVATE_DIR: "", HUNCH_SYNTH_PROVIDER: "deterministic" };
   let client: Client | null = null;
   try {
@@ -4240,8 +4233,7 @@ test("MD-1a rejects public references to private-only decisions before evidence 
 test("MD-1a CLI stays plain and MCP requires an explicit flag for full proof artifacts", async () => {
   const fixture = layeredRepo();
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   let client: Client | null = null;
   try {
     const correction = buildCorrectionConstraint({
@@ -4325,8 +4317,7 @@ test("MD-1a CLI stays plain and MCP requires an explicit flag for full proof art
 test("MD-1a capture survives a dirty baseline and ordinary index retries it after the fix", async () => {
   const fixture = layeredRepo('import axios from "axios";\nexport function listOrders(u){ return axios.get(u); }\n');
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   let client: Client | null = null;
   try {
     writeFileSync(join(fixture.root, "package.json"), JSON.stringify({ dependencies: { axios: "1.0.0" } }));
@@ -4406,8 +4397,7 @@ test("MD-1a capture survives a dirty baseline and ordinary index retries it afte
 test("MD-1a post-commit sync retries the durable correction queue without an explicit upgrade", () => {
   const fixture = layeredRepo('import axios from "axios";\nexport function listOrders(u){ return axios.get(u); }\n');
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   try {
     const correction = buildCorrectionConstraint({
       rule: "never import axios",
@@ -4442,8 +4432,7 @@ test("MD-1a post-commit sync retries the durable correction queue without an exp
 test("MD-1a normal public sync folds capture, correction review, graph, and grounding into one clean memory commit", () => {
   const fixture = layeredRepo('import axios from "axios";\nexport function listOrders(u){ return axios.get(u); }\n');
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   try {
     writeFileSync(join(fixture.root, "AGENTS.md"), "# Team agent notes\n");
     ensureGitignore(fixture.root);
@@ -4504,8 +4493,7 @@ test("MD-1a private split sync commits its proposal only to a standalone overlay
   const overlayRoot = mkdtempSync(join(tmpdir(), "hunch-private-sync-"));
   const privateRoot = join(overlayRoot, ".hunch");
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   try {
     execFileSync("git", ["init", "-q"], { cwd: overlayRoot });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: overlayRoot });
@@ -4807,8 +4795,7 @@ test("Phase 2D review/conversation exports validate as one batch and preserve ex
       }],
     }));
     const cliRun = spawnSync(process.execPath, [
-      join(process.cwd(), "node_modules/tsx/dist/cli.mjs"),
-      join(process.cwd(), "src/cli/index.ts"),
+      ...hunchCliArgs(),
       "constitution", "ingest", "--public-only", "--since", "90d", "--from", "cli-review-export.json",
     ], { cwd: root, encoding: "utf8" });
     assert.equal(cliRun.status, 0, cliRun.stderr);
@@ -4824,8 +4811,7 @@ test("Phase 2D review/conversation exports validate as one batch and preserve ex
 test("Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt", async () => {
   const fixture = layeredRepo();
   const projectRoot = process.cwd();
-  const tsx = join(projectRoot, "node_modules/tsx/dist/cli.mjs");
-  const cli = join(projectRoot, "src/cli/index.ts");
+  const [tsx, cli] = hunchCliArgs();
   let client: Client | null = null;
   try {
     fixture.store.json.put("decisions", decision("dec_adapter"));

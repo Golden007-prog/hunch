@@ -16,10 +16,8 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { repoSourceInventory } from "../src/extractors/repoSource.js";
+import { hunchCliArgs } from "./cli-invocation.js";
 
-const PROJECT_ROOT = process.cwd();
-const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
-const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
 const TEAM_RULE = "MATRIX_TEAM_RULE: never import axios in src/orders.ts; use the shared fetch transport";
 const FIRST_COMMAND_WRITE_RULE = "MATRIX_FIRST_COMMAND_WRITE: keep retry state outside the public code repository";
 const INITIAL_SOURCE = [
@@ -114,7 +112,7 @@ function cloneActor(sandbox: string, codeRemote: string, name: string): Actor {
 }
 
 function runCli(actor: Actor, ...args: string[]) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: actor.root,
     env: actor.env,
     encoding: "utf8",
@@ -138,7 +136,7 @@ function expectCli(actor: Actor, args: string[], status = 0): string {
 async function connectMcp(actor: Actor): Promise<Client> {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [TSX, CLI, "mcp"],
+    args: hunchCliArgs("mcp"),
     cwd: actor.root,
     env: actor.env,
   });

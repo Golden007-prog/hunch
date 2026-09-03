@@ -55,8 +55,12 @@ function assertPublishDependencies(workflow: string): void {
 
 test("PR CI proves the full gate, Node 24 package candidate, and Windows team Matrix", () => {
   assert.match(ci, /pull_request:/);
+  assert.match(ci, /concurrency:\n  group: ci-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true/,
+    "a newer commit cancels only its superseded same-ref CI run");
   assert.match(ci, /node-version: \[22, 24\]/,
     "Ubuntu runs the complete content-addressed release gate on Node 22 and Node 24");
+  assert.match(jobBlock(ci, "ci"), /npm run build[\s\S]*HUNCH_TEST_COMPILED_CLI: "1"[\s\S]*npm run gate:release/,
+    "the full gate keeps every check while black-box journeys execute the compiled product CLI");
   assert.match(ci, /npm run gate:release -- --output release-gate\.json/);
   assert.match(ci, /if: matrix\.node-version == 24[\s\S]*npm run prepublishOnly[\s\S]*npm pack --dry-run --json/,
     "Node 24 exercises the publish lifecycle and exact package manifest before tagging");
@@ -93,6 +97,8 @@ test("npm publication isolates OIDC from repository code and publishes only vali
   assert.doesNotMatch(validate, /id-token:/,
     "checkout, install, tests, build, and pack have no OIDC authority");
   assert.match(validate, /npm ci/);
+  assert.match(validate, /npm run build[\s\S]*HUNCH_TEST_COMPILED_CLI: "1"[\s\S]*npm run gate:release/,
+    "the tagged gate prebuilds once and runs black-box journeys against the shipped CLI");
   assert.match(validate, /npm run gate:release -- --tag "\$\{GITHUB_REF_NAME\}" --output release-gate\.json/);
   assert.match(validate, /npm pack --ignore-scripts --json --pack-destination release-candidate/,
     "the package candidate is packed with lifecycle scripts disabled");
@@ -135,6 +141,10 @@ test("npm publication isolates OIDC from repository code and publishes only vali
     "the tagged release reruns native, atomic-write, and real team-Matrix safety on both non-Linux platforms");
   assert.ok(jobBlock(ci, "platform-matrix-safety").includes(`run: ${platformTestCommand}`),
     "release platform safety must stay byte-for-byte aligned with the proven CI test command");
+  assert.match(platformSafety, /npm run build[\s\S]*HUNCH_TEST_COMPILED_CLI: "1"[\s\S]*test\/team-matrix-e2e\.test\.ts/,
+    "tagged platform Matrix tests execute the compiled release candidate");
+  assert.match(jobBlock(ci, "platform-matrix-safety"), /npm run build[\s\S]*HUNCH_TEST_COMPILED_CLI: "1"[\s\S]*test\/team-matrix-e2e\.test\.ts/,
+    "CI platform Matrix tests build once instead of retranspiling every CLI command");
   assert.match(platformSafety, /tagged-platform-matrix-safety\.v1[\s\S]*tagged-platform-matrix-safety-\$\{\{ matrix\.os \}\}-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}/,
     "each platform uploads a content-addressed receipt bound to the tag commit");
   assert.match(platformSafety, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/);

@@ -10,9 +10,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -34,11 +39,19 @@ jobs:
       - name: Install (locked)
         run: npm ci
 
+      # Build once before the gate so black-box Matrix tests can execute the
+      # exact compiled CLI that ships. The gate still repeats and receipts its
+      # own build; this warm build only removes per-command TS transpilation.
+      - name: Build compiled CLI for black-box tests
+        run: npm run build
+
       # One cross-platform gate is shared by normal CI and the publish workflow:
       # typecheck, full tests, core + VS Code builds, fresh index + conformance, clean tarball
       # rehearsal/privacy sentinel, and production dependency audit. It emits a
       # content-addressed receipt even when a prerequisite fails.
       - name: Constitution release gate
+        env:
+          HUNCH_TEST_COMPILED_CLI: "1"
         run: npm run gate:release -- --output release-gate.json
 
       - name: Upload release-gate receipt
@@ -83,6 +96,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -96,11 +110,16 @@ jobs:
       - name: Install (locked)
         run: npm ci
 
+      - name: Build compiled CLI for black-box tests
+        run: npm run build
+
       # Exercise the platform-specific native lock regression plus the real
       # multi-clone Matrix and atomic persistence paths on Windows. The complete
       # release gate runs on both supported Node lines above.
       - name: Native bindings, atomic writes, and the team Matrix stay safe
         id: matrix-safety
+        env:
+          HUNCH_TEST_COMPILED_CLI: "1"
         run: npx --no-install tsx --test --test-concurrency=1 test/parse.test.ts test/io.test.ts test/migrate.test.ts test/matrix-release-verification.test.ts test/team-matrix-e2e.test.ts
 
       - name: Write platform Matrix safety receipt

@@ -19,10 +19,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SCHEMA_VERSION } from "../src/core/migrate.js";
 import { cleanupDir } from "./helpers.js";
-
-const PROJECT_ROOT = process.cwd();
-const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
-const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
+import { hunchCliArgs } from "./cli-invocation.js";
 
 type Fixture = {
   root: string;
@@ -73,7 +70,7 @@ function actorEnv(home: string): NodeJS.ProcessEnv {
 }
 
 function runCli(fixture: Pick<Fixture, "root" | "env">, args: string[], timeout = 45_000) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: fixture.root,
     env: fixture.env,
     encoding: "utf8",
@@ -276,7 +273,7 @@ function makeExplicitOverlay(base: string, name: string, title: string): { root:
 async function connectMcp(fixture: Fixture): Promise<Client> {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [TSX, CLI, "mcp"],
+    args: hunchCliArgs("mcp"),
     cwd: fixture.root,
     env: fixture.env,
   });

@@ -6,10 +6,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { test } from "node:test";
 import type { Bug, Decision } from "../src/core/types.js";
 import { decisionId } from "../src/core/ids.js";
-
-const PROJECT_ROOT = process.cwd();
-const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
-const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
+import { hunchCliArgs } from "./cli-invocation.js";
 
 type Actor = { root: string; home: string; env: NodeJS.ProcessEnv };
 
@@ -61,7 +58,7 @@ function cloneActor(sandbox: string, codeRemote: string, name: string): Actor {
 }
 
 function runCli(actor: Actor, ...args: string[]) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: actor.root,
     env: actor.env,
     encoding: "utf8",
