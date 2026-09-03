@@ -778,7 +778,7 @@ export async function probeOllamaNumCtx(baseUrl: string, model: string): Promise
     const body = (await res.json()) as { parameters?: unknown };
     if (typeof body.parameters !== "string") return null;
     if (/^num_ctx\s+\d+/m.test(body.parameters)) return null; // already configured — nothing to warn about
-    return "⚠ This Ollama model does not pin num_ctx; its effective context depends on server/VRAM defaults. For stable large-diff synthesis, see https://hunch-pi.vercel.app/cookbook and pin num_ctx via a custom Modelfile.";
+    return "⚠ This Ollama model does not pin num_ctx; its effective context depends on server/VRAM defaults. For stable large-diff synthesis, see https://www.hunchmemory.com/cookbook and pin num_ctx via a custom Modelfile.";
   } catch {
     return null; // not Ollama, unreachable, or an unexpected response shape — advisory only, never throw
   }

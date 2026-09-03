@@ -223,8 +223,8 @@ Use `hunch firmness off` to pause hook enforcement without deleting history. Use
 
 ## Learn more
 
-- [Full documentation](https://hunch-pi.vercel.app/docs)
-- [Copy-paste cookbook](https://hunch-pi.vercel.app/cookbook)
+- [Full documentation](https://www.hunchmemory.com/docs)
+- [Copy-paste cookbook](https://www.hunchmemory.com/cookbook)
 - [Project DNA](docs/project-dna.md)
 - [Native change proof](docs/change-proof.md)
 - [Engineering Landscape Graph](docs/engineering-landscape.md)
