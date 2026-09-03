@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.23.2 — 2026-09-03
+
+### The public site moves to hunchmemory.com
+
+Hunch's public site now lives at https://www.hunchmemory.com; the package, plugin and MCP registry
+manifests point there instead of the old Vercel preview host. Page titles use the two-word
+"Hunch Memory" form, and the site ships a generated sitemap and robots.txt. No runtime code changed
+since 1.23.1.
+
 ## 1.23.1 — 2026-09-03
 
 ### The change-proof contracts actually ship
