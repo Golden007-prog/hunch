@@ -43,6 +43,8 @@ import {
   CHANGE_IDENTITY_SCHEMA_VERSION,
   deriveChangeIdentity,
 } from "../core/changeIdentity.js";
+import { deriveChangeProof } from "../core/changeProof.js";
+import { ChangeProofSchema } from "../core/changeProofContract.js";
 import {
   PROJECT_DNA_CATEGORIES,
   PROJECT_DNA_MATCH_SCHEMA_VERSION,
@@ -1033,6 +1035,43 @@ export function buildServerWithRootControl(initialRoot: string): RootControlledS
             text: `${identity.change_id} — ${identity.file_count} exact file delta(s), ${identity.delta_hash}; sealed ${identity.content_hash}`,
           }],
           structuredContent: identity,
+        };
+      } catch (error) {
+        return err((error as Error).message);
+      }
+    },
+  );
+
+  // -- hunch_change_proof (exact-revision semantic evidence) ----------------
+  server.registerTool(
+    "hunch_change_proof",
+    {
+      title: "Derive a sealed semantic proof for an exact change",
+      description:
+        "Bind an exact committed Git transition to its change identity, Project DNA, base/result semantic graphs, current decisions and constraints, blast radius, conformance, guard verdict, and explicit gaps. Read-only and deterministic; grants no execution, CI, deployment, merge, ranking, promotion, or policy authority.",
+      inputSchema: {
+        base_ref: z.string().min(1).max(1_024).describe("Base commit or ref for the exact tree transition."),
+        result_ref: z.string().min(1).max(1_024).optional().describe("Result commit or ref (default HEAD)."),
+        public_only: z.boolean().optional().describe("Exclude the configured private-memory overlay. Required before publishing a proof."),
+        cwd: cwdHintField,
+      },
+      outputSchema: ChangeProofSchema,
+    },
+    async ({ base_ref, result_ref, public_only }): Promise<ToolResult> => {
+      try {
+        const proof = ChangeProofSchema.parse(deriveChangeProof(
+          root,
+          store,
+          base_ref,
+          result_ref ?? "HEAD",
+          { publicOnly: public_only },
+        ));
+        return {
+          content: [{
+            type: "text",
+            text: `${proof.proof_id} — ${proof.verdict.toUpperCase()}; ${proof.changed_file_count} exact file delta(s), ${proof.blast_radius_count} dependent path(s), ${proof.omissions.length + proof.unknowns.length} explicit gap(s); sealed ${proof.content_hash}. Evidence only; no execution or merge authority.`,
+          }],
+          structuredContent: proof,
         };
       } catch (error) {
         return err((error as Error).message);

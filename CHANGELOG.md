@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Exact changes now carry native semantic proof
+
+`hunch prove` and `hunch_change_proof` now emit the same canonical
+`hunch.change-proof/1` artifact. The proof binds exact Git change identity, repository and Project
+DNA revisions, base/result semantic graphs, relevant decisions and constraints, blast radius,
+conformance, the strict Change Gate result, and explicit omissions/unknowns. Publication-safe
+derivation excludes private-overlay records at the read boundary.
+
+The package exports the seal validator and ships a versioned JSON Schema plus sealed fixture for
+independent consumers. The proof is evidence only and explicitly grants no execution, CI,
+deployment, merge, ranking, promotion, or policy authority.
+
 ## 1.22.3 — 2026-09-01
 
 ### Project DNA feedback keeps receipts

@@ -1,0 +1,96 @@
+{
+  "schema": "hunch.change-proof/1",
+  "algorithm": "hunch-change-proof-sha256/1",
+  "engine": {
+    "package": "@davesheffer/hunch",
+    "version": "1.22.3"
+  },
+  "repository": {
+    "repository_id": "pdnar_aaaaaaaaaaaaaaaaaaaaaaaa",
+    "base_revision": "1111111111111111111111111111111111111111",
+    "result_revision": "2222222222222222222222222222222222222222"
+  },
+  "change": {
+    "schema": "hunch.change-identity/1",
+    "algorithm": "git-raw-tree-delta-sha256/1",
+    "change_id": "hchg_889f51592bcb2e773394f42c",
+    "base_revision": "1111111111111111111111111111111111111111",
+    "head_revision": "2222222222222222222222222222222222222222",
+    "base_tree": "4444444444444444444444444444444444444444",
+    "head_tree": "5555555555555555555555555555555555555555",
+    "delta_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "patch_id": "6666666666666666666666666666666666666666",
+    "file_count": 1,
+    "paths_hash": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "content_hash": "sha256:4149654f541cca52d2f69c208772f9d3063ec4daf230d88cf5f27855a94293a6"
+  },
+  "project_dna": {
+    "schema": "hunch.project-dna/1",
+    "profile_id": "pdna_bbbbbbbbbbbbbbbbbbbbbbbb",
+    "repository_id": "pdnar_aaaaaaaaaaaaaaaaaaaaaaaa",
+    "repository_revision": "2222222222222222222222222222222222222222",
+    "content_hash": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "trait_ids": []
+  },
+  "graph": {
+    "base": {
+      "source": "commit",
+      "revision": "1111111111111111111111111111111111111111",
+      "source_hash": "sha1:9999999999999999999999999999999999999999",
+      "topology_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "files": 1,
+      "symbols": 1,
+      "edges": 0,
+      "components": 1,
+      "issue_count": 0
+    },
+    "result": {
+      "source": "commit",
+      "revision": "2222222222222222222222222222222222222222",
+      "source_hash": "sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "topology_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "files": 1,
+      "symbols": 1,
+      "edges": 0,
+      "components": 1,
+      "issue_count": 0
+    }
+  },
+  "changed_files": [
+    "src/example.ts"
+  ],
+  "changed_file_count": 1,
+  "blast_radius": [],
+  "blast_radius_count": 0,
+  "decisions": [],
+  "decision_count": 0,
+  "constraints": [],
+  "constraint_count": 0,
+  "conformance": [],
+  "conformance_count": 0,
+  "guard": {
+    "verdict": "pass",
+    "strict_blocker_ids": [],
+    "regression_decision_ids": [],
+    "veto_decision_ids": [],
+    "report_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "memory": {
+    "scope": "public",
+    "records_hash": "sha256:d181842823fd171f29a2de31820136d5b5ea58341c07626fa0b1c574e74f0b16"
+  },
+  "omissions": [],
+  "unknowns": [],
+  "verdict": "pass",
+  "authority": {
+    "execution": false,
+    "ci": false,
+    "deployment": false,
+    "merge": false,
+    "ranking": false,
+    "promotion": false,
+    "policy": false
+  },
+  "proof_id": "hproof_813af1d712c7e16334c573e3",
+  "content_hash": "sha256:481d03e0dd598a1b1811541e978b92d40e607c104c3c9b5403d2b4fea604068d"
+}

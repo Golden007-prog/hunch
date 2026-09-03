@@ -18,6 +18,10 @@
     "hunch": "dist/cli/index.js"
   },
   "exports": {
+    "./change-proof": {
+      "types": "./dist/changeProof.d.ts",
+      "default": "./dist/changeProof.js"
+    },
     "./project-dna": {
       "types": "./dist/projectDna.d.ts",
       "default": "./dist/projectDna.js"
@@ -27,8 +31,11 @@
   },
   "files": [
     "dist/**/*.js",
+    "dist/changeProof.d.ts",
+    "dist/core/changeProofContract.d.ts",
     "dist/projectDna.d.ts",
     "dist/core/projectDna*.d.ts",
+    "contracts/change-proof/*.json",
     "server.json",
     "bench/constitution-exp03-v1.json",
     "tooling/competitive-watch.mjs",

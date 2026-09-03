@@ -210,7 +210,7 @@ test("hunch_context exposes the delivery envelope and records exactly what MCP s
   });
 });
 
-test("hunch_change_identity exposes the exact squash-stable contract without mutating memory", async (t) => {
+test("MCP exposes exact change identity and semantic proof contracts without mutating memory", async (t) => {
   const root = mcpDeliveryFixture();
   const git = (...args: string[]) => execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8",
@@ -249,6 +249,15 @@ test("hunch_change_identity exposes the exact squash-stable contract without mut
   assert.match(String(identity.change_id), /^hchg_[a-f0-9]{24}$/);
   assert.match(String(identity.content_hash), /^sha256:[a-f0-9]{64}$/);
   assert.equal(identity.file_count, 1);
+  const proofTool = (await client.listTools()).tools.find((candidate) => candidate.name === "hunch_change_proof");
+  assert.ok(proofTool?.outputSchema, "tools/list advertises the sealed native change proof");
+  const proofResult = await client.callTool({ name: "hunch_change_proof", arguments: { base_ref: base } });
+  const proof = proofResult.structuredContent as Record<string, unknown>;
+  assert.equal(proof.schema, "hunch.change-proof/1");
+  assert.match(String(proof.proof_id), /^hproof_[a-f0-9]{24}$/);
+  assert.match(String(proof.content_hash), /^sha256:[a-f0-9]{64}$/);
+  assert.equal((proof.repository as { base_revision: string }).base_revision, base);
+  assert.equal((proof.change as { change_id: string }).change_id, identity.change_id);
   assert.equal(servedSummary(root).total, 0, "read-only identity derivation never manufactures a delivery receipt");
 });
 

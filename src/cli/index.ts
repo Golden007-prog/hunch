@@ -66,6 +66,7 @@ import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/e
 import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
 import { buildDeliveryEnvelope, DELIVERY_PROFILES, type DeliveryProfile } from "../core/delivery.js";
 import { deriveChangeIdentity } from "../core/changeIdentity.js";
+import { deriveChangeProof } from "../core/changeProof.js";
 import { discoverProjectDna, evaluateProjectDnaMatch, type ProjectDnaArtifact } from "../core/projectDna.js";
 import { diffProjectDna } from "../core/projectDnaDelta.js";
 import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
@@ -3817,6 +3818,40 @@ program
       }
     } catch (error) {
       fail((error as Error).message);
+    }
+  });
+
+// ---- prove (standalone semantic proof for an exact committed change) ------
+program
+  .command("prove")
+  .description("Derive Hunch's sealed semantic proof for one exact committed tree transition.")
+  .argument("<base>", "base commit or ref")
+  .argument("[result]", "result commit or ref", "HEAD")
+  .option("--public-only", "exclude the configured private-memory overlay from the proof")
+  .option("--json", "emit the complete hunch.change-proof/1 artifact as JSON")
+  .action((base: string, result: string, opts: { publicOnly?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      const proof = deriveChangeProof(root, store, base, result, { publicOnly: opts.publicOnly });
+      if (opts.json) {
+        console.log(JSON.stringify(proof, null, 2));
+      } else {
+        const gaps = proof.omissions.length + proof.unknowns.length;
+        console.log([
+          `${proof.proof_id} — ${proof.verdict.toUpperCase()} (${proof.schema})`,
+          `  exact revisions: ${proof.repository.base_revision}..${proof.repository.result_revision}`,
+          `  exact change: ${proof.change.change_id} (${proof.changed_file_count} file${proof.changed_file_count === 1 ? "" : "s"})`,
+          `  semantic graph: ${proof.graph.result.symbols} symbols, ${proof.graph.result.edges} edges; ${proof.blast_radius_count} dependent path${proof.blast_radius_count === 1 ? "" : "s"}`,
+          `  memory: ${proof.decision_count} decision${proof.decision_count === 1 ? "" : "s"}, ${proof.constraint_count} constraint${proof.constraint_count === 1 ? "" : "s"}, ${proof.conformance_count} conformance receipt${proof.conformance_count === 1 ? "" : "s"} (${proof.memory.scope})`,
+          `  guard: ${proof.guard.verdict.toUpperCase()}; explicit gaps: ${gaps}`,
+          `  sealed artifact: ${proof.content_hash}`,
+          "  authority: evidence only — no execution, CI, deployment, merge, ranking, promotion, or policy authority",
+        ].join("\n"));
+      }
+    } catch (error) {
+      fail((error as Error).message);
+    } finally {
+      store.close();
     }
   });
 

@@ -80,6 +80,7 @@ validation layer behind the tools that write the code.
 | **Project DNA** | Revision-specific, evidence-backed observations about how a repository communicates and works: vocabulary, contribution habits, review expectations, engineering conventions, and culture. |
 | **Engineering Landscape** | Human-reviewed links from product and capability to system, repository, service, interface, data, delivery resources, runbooks, ownership, dashboards, and SLOs. |
 | **Validated Delivery** | The smallest relevant evidence for the current builder, reviewer, or architect, with provenance, currentness, omissions, authority, and a content-addressed receipt. |
+| **Native Change Proof** | A sealed exact-change artifact binding revisions, DNA, base/result graphs, memory, blast radius, conformance, guard verdict, and explicit gaps without granting workflow authority. |
 | **Change Gate + Constitution** | Deterministic checks for trusted constraints and architectural intent. Policies are compiled, proved, inspected, and explicitly activated by a human—never promoted by an agent in the background. |
 
 Readable JSON in `.hunch/` is the source of truth. SQLite is a fast, rebuildable projection. Git
@@ -126,6 +127,7 @@ manual paths:
 | `hunch conform` | Prove the code still satisfies recorded architectural intent |
 | `hunch impact origin/main` | See the dependency and memory surface of a branch |
 | `hunch compare branch-a branch-b` | Rank candidate changes by the fewest invariant and decision conflicts |
+| `hunch prove origin/main --public-only` | Produce a publication-safe `hunch.change-proof/1` artifact for an exact committed change |
 | `hunch landscape review` | Inspect a hash-bound repository landscape without writing authority |
 | `hunch now` | See recent memory and the live decision-backed roadmap |
 | `hunch escalations` | See the rare questions that genuinely require a human answer |
@@ -224,6 +226,7 @@ Use `hunch firmness off` to pause hook enforcement without deleting history. Use
 - [Full documentation](https://hunch-pi.vercel.app/docs)
 - [Copy-paste cookbook](https://hunch-pi.vercel.app/cookbook)
 - [Project DNA](docs/project-dna.md)
+- [Native change proof](docs/change-proof.md)
 - [Engineering Landscape Graph](docs/engineering-landscape.md)
 - [Hunch roadmap](ROADMAP.md)
 - [VS Code extension](vscode-extension/README.md)
