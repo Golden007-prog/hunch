@@ -33,6 +33,7 @@ export function registerServeCommands(program: Command): void {
       // reverse proxy that terminates TLS and auth of its own. Folded-in decision from Hunch Memory.
       app.listen(port, "127.0.0.1", () => {
         console.log(`hunch ${HUNCH_VERSION} serving nuryel.state/1 on http://127.0.0.1:${port} — ${config.partitions.map((p) => scopePath(p.scope)).join(", ")} (${config.principals.length} principal(s))`);
+        console.log(`Shared state view: http://127.0.0.1:${port}/operator`);
       });
       const stop = (): void => { app.close(() => { app.closeStores(); process.exit(0); }); };
       process.on("SIGINT", stop);

@@ -26,6 +26,7 @@ import { WriteLockTimeout, withWriteLock } from "./writelock.js";
 import { HUNCH_VERSION } from "../core/version.js";
 import { captureState, captureBatchState } from "../store/stateCapture.js";
 import { STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION } from "../core/stateContract.js";
+import { operatorHtml, operatorCss, operatorJs } from "./operator.js";
 
 export const BODY_LIMIT_BYTES = 1024 * 1024;
 export const PROBLEM_TYPE = "https://www.hunchmemory.com/problems/nuryel.state/1/";
@@ -125,6 +126,12 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      // Public shell only: all workspace data still uses the authenticated state routes below.
+      const asset = new Map<string, [string, string]>([["/operator", [operatorHtml, "text/html"]], ["/operator/", [operatorHtml, "text/html"]], ["/operator.css", [operatorCss, "text/css"]], ["/operator.js", [operatorJs, "text/javascript"]]]).get(url.pathname);
+      if (asset && req.method === "GET") {
+        res.writeHead(200, { "content-type": `${asset[1]}; charset=utf-8`, "content-length": Buffer.byteLength(asset[0]), "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
+        return res.end(asset[0]);
+      }
       if (url.pathname === "/nuryel/v1/health" && req.method === "GET") {
         return send(res, 200, { ok: true, version, protocol: "nuryel.state/1", partitions: config.partitions.map((p) => scopePath(p.scope)) });
       }
