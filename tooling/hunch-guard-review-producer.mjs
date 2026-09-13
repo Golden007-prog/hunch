@@ -126,6 +126,7 @@ export function validateProducerReport(report, expected) {
   }
   if (report.verdict !== "pass" && report.verdict !== "failure") fail("producer report verdict is invalid");
   if (typeof report.reviewable !== "boolean" || typeof report.evaluation_complete !== "boolean" || !Array.isArray(report.failure_classes) || !Array.isArray(report.findings) || report.findings.length > 64) fail("producer report result is invalid or unbounded");
+  if (report.verdict === "pass" && report.evaluation_complete !== true) fail("producer pass does not prove a complete evaluation");
   const classes = new Set(report.failure_classes);
   if (classes.size !== report.failure_classes.length || [...classes].some((failure) => typeof failure !== "string" || !REPORT_FAILURES.has(failure))) fail("producer report failure class is invalid");
   if ((report.verdict === "pass" && classes.size !== 0) || (report.verdict === "failure" && classes.size === 0)) fail("producer report verdict does not match its failure classes");

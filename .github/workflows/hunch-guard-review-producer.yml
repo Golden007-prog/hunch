@@ -153,6 +153,19 @@ jobs:
         with:
           node-version: 22.13.0
 
+      - name: Bind evaluator identity to the trusted package manifest
+        id: evaluator
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const policy = JSON.parse(readFileSync(".github/hunch-guard-review.json", "utf8"));
+          if (policy.evaluator?.version_source !== "trusted-package-json" || policy.evaluator.package !== packageJson.name) throw new Error("trusted evaluator policy is not bound to package metadata");
+          if (typeof packageJson.version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version)) throw new Error("invalid trusted-base package version");
+          writeFileSync(process.env.GITHUB_OUTPUT, `version=${packageJson.version}\n`, { flag: "a" });
+          NODE
+
       - name: Bind the finalizer to the live PR revision
         id: bind
         env:
@@ -227,6 +240,8 @@ jobs:
           PR_NUMBER: ${{ steps.bind.outputs.pr_number }}
           HEAD_SHA: ${{ steps.bind.outputs.head_sha }}
           TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-finalizer
+          BIND_OUTCOME: ${{ steps.bind.outcome }}
+          REPORT_OUTCOME: ${{ steps.report.outcome }}
           PRODUCE_RESULT: ${{ needs.produce.result }}
           REPORT_STATE: ${{ steps.report.outputs.state }}
         run: |
@@ -241,7 +256,7 @@ jobs:
           NODE
           state=failure
           description="trusted Hunch Guard review unavailable or failed"
-          if test "$PRODUCE_RESULT" = success && test "$REPORT_STATE" = success; then
+          if test "$PRODUCE_RESULT" = success && test "$BIND_OUTCOME" = success && test "$REPORT_OUTCOME" = success && test "$REPORT_STATE" = success; then
             state=success
             description="trusted Hunch Guard review passed"
           elif test "$PRODUCE_RESULT" = success && test "$REPORT_STATE" = failure; then

@@ -225,6 +225,18 @@ test("producer finalizer is a separate least-privilege status publisher", () => 
   assert.match(workflow, /validateProducerReport/);
   assert.match(workflow, /pr-latest\.json/);
   assert.match(workflow, /context="hunch-guard-review"/);
+  const finalizer = workflow.slice(workflow.indexOf("  finalize:"));
+  assert.match(finalizer, /id: evaluator/);
+  assert.match(finalizer, /steps\.evaluator\.outputs\.version/);
+  assert.match(finalizer, /BIND_OUTCOME: \$\{\{ steps\.bind\.outcome \}\}/);
+  assert.match(finalizer, /REPORT_OUTCOME: \$\{\{ steps\.report\.outcome \}\}/);
+});
+
+test("producer finalization rejects an incomplete pass", () => {
+  const expected = { pr_number: 42, head_sha: head, base_sha: base, trigger_head_sha: head, workflow_sha: trusted, run_id: runId, evaluator_version: evaluatorVersion };
+  const source = { run_id: runId, workflow_path: ".github/workflows/hunch-guard-review-producer.yml", workflow_sha: trusted, event: "workflow_run", trigger_head_sha: head };
+  const evaluator = { package: "@davesheffer/hunch", version: evaluatorVersion };
+  assert.throws(() => validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "pass", reviewable: false, evaluation_complete: false, failure_classes: [], findings: [], evaluator, source }, expected), /complete evaluation/);
 });
 
 test("producer treats a missing policy directory as no policies, while malformed policy data fails closed", () => {
