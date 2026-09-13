@@ -4274,7 +4274,7 @@ program
       const root = findRoot();
       // The host delivered this event: runtime evidence for `hunch integrations check`,
       // recorded before any policy decision so firmness never hides delivery itself.
-      recordHookObservation(root, provider, evt.hook_event_name);
+      recordHookObservation(root, provider, evt.hook_event_name, evt.tool_outcome?.status);
       const paths = hunchPaths(root);
       const firmness = readConfig(paths).firmness;
       if (firmness === "off") return;

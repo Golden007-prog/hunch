@@ -350,7 +350,9 @@ export function writeCodexHooks(root: string, inv: Invocation): string {
     SessionStart: [entry()],
     UserPromptSubmit: [entry()],
     PreToolUse: [entry("apply_patch")],
-    PostToolUse: [entry("apply_patch|shell|local_shell")],
+    // Codex's native command tool arrives as `Bash` (or `PowerShell` on
+    // Windows), while older hosts may expose shell/local_shell names.
+    PostToolUse: [entry("apply_patch|Bash|PowerShell|shell|local_shell")],
     Stop: [entry()],
     PreCompact: [entry()],
     SubagentStart: [entry()],
