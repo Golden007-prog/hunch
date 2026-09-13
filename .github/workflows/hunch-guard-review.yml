@@ -97,12 +97,15 @@ jobs:
           case "$GUARD_RUN_ID" in (''|*[!0-9]*) echo "invalid guard run id" >&2; exit 1 ;; esac
           mkdir -p "$TEMP_DIR"
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "$TEMP_DIR/base-ref.json"
           gh api "/users/${ACTOR_LOGIN}" > "$TEMP_DIR/actor.json"
           gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GUARD_RUN_ID}" > "$TEMP_DIR/run.json"
           node --input-type=module - <<'NODE'
           import { readFileSync, writeFileSync } from "node:fs";
+          import { normalizeLivePr } from "./tooling/hunch-guard-review-producer.mjs";
           const dir = process.env.TEMP_DIR;
           const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
+          const baseRef = JSON.parse(readFileSync(`${dir}/base-ref.json`, "utf8"));
           const actor = JSON.parse(readFileSync(`${dir}/actor.json`, "utf8"));
           if (actor.login !== process.env.ACTOR_LOGIN || String(actor.id) !== process.env.ACTOR_ID) throw new Error("dispatch actor changed");
           const request = {
@@ -114,13 +117,14 @@ jobs:
             authorize_exception: process.env.INPUT_AUTHORIZE_EXCEPTION === "true",
           };
           if (!Number.isSafeInteger(request.pr_number) || request.pr_number !== pr.number) throw new Error("PR number changed");
-          if (request.head_sha !== pr.head.sha || request.base_sha !== pr.base.sha) throw new Error("PR revision changed");
+          const normalized = normalizeLivePr(pr, baseRef, request.head_sha, process.env.GITHUB_REPOSITORY, process.env.GITHUB_SHA);
+          if (request.base_sha !== normalized.base_sha) throw new Error("protected base branch changed or request is stale");
           writeFileSync(`${dir}/request.json`, `${JSON.stringify(request)}\n`);
           writeFileSync(`${dir}/pr-normalized.json`, `${JSON.stringify({
             number: pr.number,
             state: pr.state,
             head: { sha: pr.head.sha, repo: { full_name: pr.head.repo?.full_name } },
-            base: { ref: pr.base.ref, sha: pr.base.sha, repo: { full_name: pr.base.repo?.full_name } },
+            base: { ref: pr.base.ref, sha: normalized.base_sha, repo: { full_name: pr.base.repo?.full_name } },
           })}\n`);
           NODE
 
@@ -132,12 +136,15 @@ jobs:
         run: |
           set -euo pipefail
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-latest.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "$TEMP_DIR/base-ref-latest.json"
           node --input-type=module - <<'NODE'
           import { readFileSync } from "node:fs";
+          import { assertLivePrRevision } from "./tooling/hunch-guard-review-producer.mjs";
           const dir = process.env.TEMP_DIR;
           const first = JSON.parse(readFileSync(`${dir}/pr-normalized.json`, "utf8"));
           const latest = JSON.parse(readFileSync(`${dir}/pr-latest.json`, "utf8"));
-          if (latest.number !== first.number || latest.state !== first.state || latest.base.ref !== first.base.ref || latest.base.sha !== first.base.sha || latest.head.sha !== first.head.sha) throw new Error("PR changed while review was being prepared");
+          const baseRef = JSON.parse(readFileSync(`${dir}/base-ref-latest.json`, "utf8"));
+          assertLivePrRevision({ number: first.number, head_sha: first.head.sha, base_sha: first.base.sha }, latest, baseRef, first.head.sha, process.env.GITHUB_REPOSITORY, process.env.GITHUB_SHA);
           NODE
 
       - name: Download the guard receipt as data
@@ -230,11 +237,14 @@ jobs:
           set -euo pipefail
           test -s "$TEMP_DIR/pr-normalized.json" || { echo "PR metadata was not verified; refusing to publish a status" >&2; exit 1; }
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-publication.json"
-          PR_FILE="$TEMP_DIR/pr-normalized.json" LATEST_FILE="$TEMP_DIR/pr-publication.json" node --input-type=module - <<'NODE'
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "$TEMP_DIR/base-ref-publication.json"
+          PR_FILE="$TEMP_DIR/pr-normalized.json" LATEST_FILE="$TEMP_DIR/pr-publication.json" BASE_REF_FILE="$TEMP_DIR/base-ref-publication.json" node --input-type=module - <<'NODE'
           import { readFileSync } from "node:fs";
+          import { assertLivePrRevision } from "./tooling/hunch-guard-review-producer.mjs";
           const first = JSON.parse(readFileSync(process.env.PR_FILE, "utf8"));
           const latest = JSON.parse(readFileSync(process.env.LATEST_FILE, "utf8"));
-          if (latest.number !== first.number || latest.state !== first.state || latest.base?.ref !== first.base.ref || latest.base?.sha !== first.base.sha || latest.head?.sha !== first.head.sha) throw new Error("PR changed before status publication");
+          const baseRef = JSON.parse(readFileSync(process.env.BASE_REF_FILE, "utf8"));
+          assertLivePrRevision({ number: first.number, head_sha: first.head.sha, base_sha: first.base.sha }, latest, baseRef, first.head.sha, process.env.GITHUB_REPOSITORY, process.env.GITHUB_SHA);
           NODE
           HEAD_SHA="$(PR_FILE="$TEMP_DIR/pr-normalized.json" node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.env.PR_FILE,"utf8")).head.sha)')"
           state=failure
