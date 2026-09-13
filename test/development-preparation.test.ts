@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { isLinkedWorktree } from '../src/extractors/git.js';
 // @ts-expect-error tooling is JavaScript
 import { prepareDevelopmentRun, runDevelopmentProcess } from '../tooling/development-run.mjs';
 // @ts-expect-error tooling is JavaScript
@@ -14,13 +15,15 @@ test('one-task launcher refuses primary/dirty worktrees, retains proposal identi
   const dir = mkdtempSync(join(tmpdir(), 'hunch-run-test-')), repo = join(dir, 'repo'), worktree = join(dir, 'worktree'), args = join(dir, 'agent.json');
   mkdirSync(repo); const git = (cwd: string, ...argv: string[]) => execFileSync('git', argv, { cwd, stdio: 'pipe' });
   try {
-    git(repo, 'init'); git(repo, 'config', 'user.name', 'Fixture'); git(repo, 'config', 'user.email', 'fixture@example.invalid');
+    git(repo, 'init', '-b', 'agent/primary'); git(repo, 'config', 'user.name', 'Fixture'); git(repo, 'config', 'user.email', 'fixture@example.invalid');
     git(repo, 'config', 'core.hooksPath', join(dir, 'no-hooks'));
     const proposal = JSON.parse(readFileSync(resolve('.hunch/decisions/dec_064fb9b70e.json'), 'utf8'));
     Object.assign(proposal, { status: 'proposed', valid_to: null, superseded_by: null });
     mkdirSync(join(repo, '.hunch/decisions'), { recursive: true });
     writeFileSync(join(repo, '.hunch/decisions', proposal.id + '.json'), JSON.stringify(proposal));
     git(repo, 'add', '.'); git(repo, 'commit', '-m', 'fixture'); git(repo, 'worktree', 'add', '-b', 'agent/test', worktree);
+    assert.equal(isLinkedWorktree(repo), false, 'the primary checkout remains primary even on an agent/ branch');
+    assert.equal(isLinkedWorktree(worktree), true);
     writeFileSync(args, JSON.stringify({ provider: 'subscription-cli', argv: [process.execPath, '-e', "let text='';process.stdin.on('data',b=>text+=b);process.stdin.on('end',()=>{if(!text.includes('One Hunch development task')||!text.includes('dec_064fb9b70e'))process.exit(2);process.stdout.write('fixture-ok')})"] }));
     const input = { worktree, proposal: join(worktree, '.hunch/decisions', proposal.id + '.json'), argvFile: args };
     assert.throws(() => prepareDevelopmentRun({ ...input, worktree: repo }), /linked Git worktree/);
