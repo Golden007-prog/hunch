@@ -177,3 +177,25 @@ test("MCP state writes lock the selected shared overlay home", async (t) => {
   assert.ok(existsSync(publicLock), "MCP did not steal the unrelated public lock");
   assert.equal(existsSync(overlayLock), false, "MCP acquired and released the shared overlay lock");
 });
+
+test("MCP preserves and renders exact field citations without implying verified support", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-mcp-citations-"));
+  const seed = new HunchStore(hunchPaths(root)); seed.json.ensureDirs(); seed.reindex(); seed.close();
+  const server = buildServer(root), client = new Client({ name: "citation-test", version: "1" });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  t.after(async () => { await client.close(); await server.close(); rmSync(root, { recursive: true, force: true }); });
+  const scope = { kind: "repository", id: basename(root) }, principal = { id: "writer", kind: "agent", grants: [scope] };
+  const dep = { kind: "external", ref: crmEvent }, content = '{"count":0,"confirmed":false}';
+  const field_provenance = [{ selector: { kind: "json_pointer", path: "/count" }, value_hash: stateHash(0), dependency_hashes: [stateHash(dep)] }];
+  const record = { schema: "nuryel.derived/1", scope, subject: "event:10042", content, content_hash: stateHash(content), dependencies: [dep], transform_version: "cited/v1", computed_at: "2026-09-13T10:00:00Z", valid_to: null, state: "current", provenance: prov, field_provenance };
+  const written = await client.callTool({ name: "nuryel_write", arguments: { principal, scope, facet: "derived", record, idempotency_key: "cited-mcp-write" } });
+  assert.ok(!written.isError, JSON.stringify(written.content));
+  const id = (written.structuredContent as { record_id: string }).record_id;
+  const read = await client.callTool({ name: "nuryel_read", arguments: { principal, scope, subject: "event:10042" } });
+  assert.ok(!read.isError, JSON.stringify(read.content));
+  assert.deepEqual((read.structuredContent as { records: Record<string, { field_provenance: unknown }> }).records[id]?.field_provenance, field_provenance);
+  const text = (read.content as Array<{ text: string }>)[0]!.text;
+  assert.match(text, /field \/count: 0 ← crm event:10042/);
+  assert.match(text, /not verified support or freshness/);
+});

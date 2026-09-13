@@ -35,6 +35,12 @@ write('commitments', { schema: 'nuryel.commitment/1', scope: org, subject: 'even
 const receipt = state => ({ schema: 'nuryel.receipt/1', scope: org, actor: 'sofia', action_kind: 'add_comment', target: ref, request_fingerprint: stateHash(state), state, occurred_at: '2026-09-13T10:01:00Z', invalidates: ['event:42'], provenance });
 write('receipts', receipt('verified'), 'verified');
 const failed = write('receipts', receipt('failed'), 'failed');
+const sources = [{ kind: 'external', ref }, { kind: 'record', id: failed.record_id, record_hash: failed.record_hash }, { kind: 'schema', name: 'visit-plan', fingerprint: stateHash('schema') }, ...Array.from({ length: 5 }, (_, i) => ({ kind: 'schema', name: 'extra-schema-' + i, fingerprint: stateHash(i) }))];
+const citedJson = JSON.stringify({ count: 0, confirmed: false, note: null, warning: '<img src=x onerror="window.injected=true">' });
+const annotations = Object.entries(JSON.parse(citedJson)).map(([key, value]) => ({ selector: { kind: 'json_pointer', path: '/' + key }, value_hash: stateHash(value), dependency_hashes: sources.map(stateHash) }));
+write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: citedJson, content_hash: stateHash(citedJson), dependencies: [...sources].reverse(), field_provenance: annotations, transform_version: 'json/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance }, 'cited-json');
+const citedText = '😀 Ready. Ready.';
+write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: citedText, content_hash: stateHash(citedText), dependencies: sources, field_provenance: [{ selector: { kind: 'text', start: 2, end: 8 }, value_hash: stateHash('Ready.'), dependency_hashes: sources.map(stateHash) }], transform_version: 'text/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance }, 'cited-text');
 const addObservations = (start, count) => captureBatchState(store, {
   schema: 'nuryel.state.capture-batch/1', principal, scope: org,
   sources: [{ ref, source_text: Array.from({ length: count }, (_, i) => 'Customer observation ' + (start + i) + '.').join(' ') }],
@@ -60,10 +66,25 @@ app = createServeApp(readServeConfig(file), { openStore: root => root === join(d
   assert.equal(await page.locator('#scope option').count(), 2);
   await page.screenshot({ path: join(tmpdir(), 'hunch-operator-activity.png') });
   await lookup('event:42');
-  await page.getByRole('heading', { name: 'Current records (1)', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Current records (3)', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Open commitments & rules (1)', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Completed work (1)', exact: true }).waitFor();
   assert.match(await page.locator('#state-content').innerText(), /Observations 1–64 of 65/);
+  await page.locator('.field-citations summary').filter({ hasText: 'Field /count' }).waitFor();
+  assert.equal(await page.locator('.field-citations pre').count(), 0, 'closed citations do not expand source bodies');
+  for (const [label, value] of [['Field /count', '0'], ['Field /confirmed', 'false'], ['Field /note', 'null'], ['Text 2–8', '"Ready."']]) {
+    const summary = page.locator('.field-citations summary').filter({ hasText: label }); await summary.click();
+    const detail = summary.locator('..');
+    assert.equal(await detail.locator('pre').first().innerText(), value);
+    assert.equal(await detail.locator('pre').count(), 5, 'only four sources render on open');
+    await detail.getByRole('button', { name: 'Show more sources' }).click();
+    assert.equal(await detail.locator('pre').count(), 9);
+    const text = await detail.innerText();
+    assert.match(text, /"object_key": "42"/); assert.match(text, /visit-plan/); assert.ok(text.includes(failed.record_id));
+    assert.ok(!text.includes('unavailable_dependency_hash'));
+  }
+  assert.match(await page.locator('.field-citations').first().innerText(), /do not verify truth/);
+
   assert.equal(await page.locator('#state-content img').count(), 0);
   assert.equal(await page.evaluate(() => window.injected), undefined);
   assert.equal(await page.locator('#state-content .record-title').filter({ hasText: 'Customer observation' }).count(), 64);

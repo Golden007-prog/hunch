@@ -1,3 +1,5 @@
+import { fieldCitationText } from "../core/fieldProvenance.js";
+import type { DerivedState } from "../core/stateRecords.js";
 /**
  * MCP server — the structured two-way API into the Hunch (DESIGN.md §7 / App. A).
  * Exposes read tools (query/why/bug_lineage/check_constraints/get_dependents) and
@@ -2067,7 +2069,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         const line = (label: string, ref: { facet: string; id: string }): string => {
           const r = (response.records ?? {})[ref.id] ?? {};
           const g = (k: string): string => { const v = r[k]; return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v); };
-          if (ref.facet === "derived") return `- ${label} derived ${ref.id} · computed ${g("computed_at")} · ${(r.dependencies as unknown[] | undefined)?.length ?? 0} dependencies\n    ${g("content").slice(0, 1200)}`;
+          if (ref.facet === "derived") return `- ${label} derived ${ref.id} · computed ${g("computed_at")} · ${(r.dependencies as unknown[] | undefined)?.length ?? 0} dependencies\n    ${g("content").slice(0, 1200)}${fieldCitationText(r as DerivedState)}`;
           if (ref.facet === "commitments") return `- ${label} commitment ${ref.id} · ${g("status")} · due ${g("due")} · owner ${g("owner")}: ${g("title")}${r.closed_by ? ` · closed by ${g("closed_by")}` : ""}`;
           if (ref.facet === "receipts") {
             const t = (r.target ?? {}) as Record<string, unknown>;
@@ -2105,7 +2107,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     {
       title: "nuryel.state/1 write — provenance + idempotency in, durability out",
       description:
-        "Write one record into a facet (receipts, commitments, derived, entities, relationships, or the legacy decisions/constraints/bugs/findings). The record must carry provenance; the request must carry an idempotency_key — a replay returns the original, a reused key with a different payload is refused. Ids are derived from the record's facts, never chosen. A second live decision on a topic is refused with the incumbent named; pass supersedes to replace it explicitly. organization/team/user partitions never ride a repository: they require an overlay. To show an existing captured observation under another subject without copying it, write a relationship type observation_about with from=observation id, to=subject, observation_hash, lifecycle=active, reason and hashed external evidence of the explicit association. Retire the relationship to unlink; reactivation requires expected_version.",
+        "Write one record into a facet (receipts, commitments, derived, entities, relationships, or the legacy decisions/constraints/bugs/findings). The record must carry provenance; the request must carry an idempotency_key — a replay returns the original, a reused key with a different payload is refused. Ids are derived from the record's facts, never chosen. A second live decision on a topic is refused with the incumbent named; pass supersedes to replace it explicitly. organization/team/user partitions never ride a repository: they require an overlay. To show an existing captured observation under another subject without copying it, write a relationship type observation_about with from=observation id, to=subject, observation_hash, lifecycle=active, reason and hashed external evidence of the explicit association. Retire the relationship to unlink; reactivation requires expected_version. With capability nuryel.field-provenance/1, a derived record may carry field_provenance: [{selector:{kind:json_pointer,path:/field} or {kind:text,start:0,end:10}, value_hash:stateHash(selected scalar or text), dependency_hashes:[stateHash(existing dependency)]}]. Text offsets count Unicode code points, end exclusive. Citations are writer-supplied traceability, not verified support; negotiate support in every shared reader before writing them.",
       inputSchema: { ...WriteRequestSchema.omit({ schema: true }).shape, cwd: cwdHintField },
       outputSchema: WriteResultSchema.shape,
     },

@@ -27,6 +27,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { compareCodeUnits } from "./canonicalOrder.js";
+import { canonicalize, stateHash } from "./stateCanonical.js";
+import { assertFieldProvenance } from "./fieldProvenance.js";
+export { canonicalize, stateHash } from "./stateCanonical.js";
+export { fieldCitationValue, assertFieldProvenance } from "./fieldProvenance.js";
 import { DELIVERY_PROFILES, type DeliveryEnvelope } from "./delivery.js";
 import { isHumanConfirmed as sourceIsHumanConfirmed } from "./strictgate.js";
 import {
@@ -47,11 +51,12 @@ export const STATE_CAPTURE_BATCH_VERSION = "nuryel.state.capture-batch/1" as con
 export const STATE_OBSERVATION_LINKS_VERSION = "nuryel.observation-links/1" as const;
 export const STATE_OBSERVATION_REVIEW_VERSION = "nuryel.observation-review/1" as const;
 export const STATE_OBSERVATION_PAGES_VERSION = "nuryel.observation-pages/1" as const;
+export const STATE_FIELD_PROVENANCE_VERSION = "nuryel.field-provenance/1" as const;
 
 /** Capabilities a server advertises; a client that needs one the server lacks gets a typed
  *  `unsupported`, never a compatible-looking degraded answer. */
 export const STATE_CAPABILITIES = [
-  STATE_READ_VERSION, STATE_WRITE_VERSION, STATE_SUBSCRIBE_VERSION, STATE_RECORDS_VERSION, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION, STATE_OBSERVATION_LINKS_VERSION, STATE_OBSERVATION_REVIEW_VERSION, STATE_OBSERVATION_PAGES_VERSION,
+  STATE_READ_VERSION, STATE_WRITE_VERSION, STATE_SUBSCRIBE_VERSION, STATE_RECORDS_VERSION, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION, STATE_OBSERVATION_LINKS_VERSION, STATE_OBSERVATION_REVIEW_VERSION, STATE_OBSERVATION_PAGES_VERSION, STATE_FIELD_PROVENANCE_VERSION,
   RECEIPT_SCHEMA_VERSION, COMMITMENT_SCHEMA_VERSION, DERIVED_SCHEMA_VERSION, ENTITY_SCHEMA_VERSION, RELATIONSHIP_SCHEMA_VERSION,
 ] as const;
 export type StateCapability = (typeof STATE_CAPABILITIES)[number];
@@ -298,30 +303,6 @@ export function negotiate(offered: readonly string[], required: readonly string[
 
 // ---- canonical form, hashes, ids -----------------------------------------------------------
 
-/** Canonical JSON: keys sorted by code unit at every level, `undefined` dropped, non-finite
- *  numbers rejected. Two records with the same facts hash the same regardless of who wrote them. */
-export function canonicalize(value: unknown): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("canonical form rejects non-finite numbers");
-    return value;
-  }
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort(compareCodeUnits)) {
-      const v = (value as Record<string, unknown>)[key];
-      if (v !== undefined) out[key] = canonicalize(v);
-    }
-    return out;
-  }
-  throw new Error(`canonical form rejects ${typeof value}`);
-}
-
-export function stateHash(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex")}`;
-}
-
 const idFrom = (prefix: string, seed: unknown): string => `${prefix}_${createHash("sha256").update(JSON.stringify(canonicalize(seed))).digest("hex").slice(0, 24)}`;
 
 /** Identity = what makes two receipts the same action: who did what to which object, with which
@@ -401,6 +382,7 @@ export function assertWriteWellFormed(request: WriteRequest): void {
 export function assertDerivedState(d: DerivedState): void {
   if (d.dependencies.length === 0) throw new Error("derived state without dependencies is not state");
   if (stateHash(d.content) !== d.content_hash) throw new Error("derived state content hash does not match its content");
+  assertFieldProvenance(d);
   if (d.transform_version.startsWith(CAPTURE_TRANSFORM)) {
     const content = z.object({
       schema: z.literal("nuryel.observation-content/1"),

@@ -323,3 +323,22 @@ test("a served partition that is a git repository commits every write: durabilit
     } finally { await new Promise<void>((r) => app.close(() => r())); app.closeStores(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("HTTP and typed client round-trip field citations and refuse stale value bindings", async () => {
+  const { app, sofiaToken, cleanup } = served();
+  try {
+    const client = createStateClient({ baseUrl: await listen(app), token: sofiaToken });
+    const caps = await client.capabilities();
+    assert.ok(caps.capabilities.includes("nuryel.field-provenance/1"));
+    const dependency = { kind: "external", ref: crmEvent }, content = "😀 Ready.";
+    const field_provenance = [{ selector: { kind: "text", start: 2, end: 8 }, value_hash: stateHash("Ready."), dependency_hashes: [stateHash(dependency)] }];
+    const record = { schema: "nuryel.derived/1", scope: david, subject: "customer:cited", content, content_hash: stateHash(content), dependencies: [dependency], transform_version: "cited/v1", computed_at: "2026-09-13T10:00:00Z", valid_to: null, state: "current", provenance: prov, field_provenance };
+    const written = await client.write({ scope: david, facet: "derived", record, idempotency_key: "cited-http-write" });
+    assert.deepEqual(written.record?.field_provenance, field_provenance);
+    const read = await client.read({ scope: david, subject: "customer:cited" });
+    assert.deepEqual(read.records?.[written.record_id]?.field_provenance, field_provenance);
+    const exact = await client.records({ scope: david, ids: [written.record_id] });
+    assert.deepEqual(exact.records[written.record_id]?.field_provenance, field_provenance);
+    await assert.rejects(client.write({ scope: david, facet: "derived", record: { ...record, field_provenance: [{ ...field_provenance[0], value_hash: stateHash("Changed") }] }, idempotency_key: "cited-http-invalid" }), (e: StateClientError) => e.status === 400 && e.code === "malformed" && /value_hash/.test(e.message));
+  } finally { await cleanup(); }
+});
