@@ -22,6 +22,21 @@ export function workflowRunMeta(event) {
   return { pr_number: pull.number, trigger_head_sha: pull.head.sha };
 }
 
+export function normalizeLivePr(pr, baseRef, triggerHeadSha, repository, trustedWorkflowSha = null) {
+  const fullSha = SHA;
+  if (!pr || pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== repository) fail("PR is not an open main-branch PR");
+  if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !fullSha.test(pr.head?.sha ?? "") || pr.head.sha !== triggerHeadSha) fail("PR head is not the exact triggering revision");
+  if (baseRef?.ref !== "refs/heads/main" || baseRef.object?.type !== "commit" || !fullSha.test(baseRef.object?.sha ?? "")) fail("protected main branch ref is not a full commit SHA");
+  if (trustedWorkflowSha !== null && (!fullSha.test(trustedWorkflowSha) || baseRef.object.sha !== trustedWorkflowSha)) fail("trusted workflow revision is not the current protected main branch tip");
+  return { number: pr.number, head_sha: pr.head.sha, base_sha: baseRef.object.sha };
+}
+
+export function assertLivePrRevision(expected, pr, baseRef, triggerHeadSha, repository, trustedWorkflowSha = null) {
+  const latest = normalizeLivePr(pr, baseRef, triggerHeadSha, repository, trustedWorkflowSha);
+  if (latest.number !== expected.number || latest.head_sha !== expected.head_sha || latest.base_sha !== expected.base_sha) fail("PR head or protected base branch moved during review");
+  return latest;
+}
+
 function git(repo, args, env) {
   return execFileSync("git", ["-C", repo, ...args], { env, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim();
 }

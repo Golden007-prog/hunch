@@ -54,17 +54,16 @@ jobs:
           export TRIGGER_HEAD_SHA
           case "$PR_NUMBER" in (''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;; esac
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "$TEMP_DIR/base-ref.json"
           node --input-type=module - <<'NODE'
           import { readFileSync, writeFileSync } from "node:fs";
+          import { normalizeLivePr } from "./tooling/hunch-guard-review-producer.mjs";
           const dir = process.env.TEMP_DIR;
           const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
-          const fullSha = /^[0-9a-f]{40}$/;
-          if (!fullSha.test(process.env.TRIGGER_HEAD_SHA ?? "")) throw new Error("triggering guard run did not provide a full PR head SHA");
-          if (pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== process.env.GITHUB_REPOSITORY) throw new Error("PR is not an open main-branch PR");
-          if (!fullSha.test(pr.head?.sha ?? "") || !fullSha.test(pr.base?.sha ?? "")) throw new Error("PR did not provide full immutable revisions");
-          if (pr.head.sha !== process.env.TRIGGER_HEAD_SHA) throw new Error("triggering guard run is stale for the current PR head");
-          writeFileSync(`${dir}/normalized.json`, `${JSON.stringify({ number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha })}\n`);
-          writeFileSync(process.env.GITHUB_OUTPUT, `pr_number=${pr.number}\ntrigger_head_sha=${process.env.TRIGGER_HEAD_SHA}\nhead_sha=${pr.head.sha}\nbase_sha=${pr.base.sha}\n` , { flag: "a" });
+          const baseRef = JSON.parse(readFileSync(`${dir}/base-ref.json`, "utf8"));
+          const normalized = normalizeLivePr(pr, baseRef, process.env.TRIGGER_HEAD_SHA, process.env.GITHUB_REPOSITORY, process.env.GITHUB_SHA);
+          writeFileSync(`${dir}/normalized.json`, `${JSON.stringify(normalized)}\n`);
+          writeFileSync(process.env.GITHUB_OUTPUT, `pr_number=${normalized.number}\ntrigger_head_sha=${normalized.head_sha}\nhead_sha=${normalized.head_sha}\nbase_sha=${normalized.base_sha}\n` , { flag: "a" });
           NODE
 
       - name: Fetch the PR head as Git data
@@ -186,14 +185,16 @@ jobs:
           TRIGGER_HEAD_SHA="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1], "utf8")).trigger_head_sha)' "$TEMP_DIR/event-meta.json")"
           case "$PR_NUMBER" in (''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;; esac
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "$TEMP_DIR/base-ref.json"
           PR_NUMBER="$PR_NUMBER" TRIGGER_HEAD_SHA="$TRIGGER_HEAD_SHA" node --input-type=module - <<'NODE'
           import { readFileSync, writeFileSync } from "node:fs";
+          import { normalizeLivePr } from "./tooling/hunch-guard-review-producer.mjs";
           const dir = process.env.TEMP_DIR;
           const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
-          const fullSha = /^[0-9a-f]{40}$/;
-          if (pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== process.env.GITHUB_REPOSITORY || !fullSha.test(pr.head?.sha ?? "") || !fullSha.test(pr.base?.sha ?? "") || pr.head.sha !== process.env.TRIGGER_HEAD_SHA) throw new Error("PR is not the exact open revision that triggered this producer");
-          writeFileSync(`${dir}/normalized.json`, `${JSON.stringify({ number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha })}\n`);
-          writeFileSync(process.env.GITHUB_OUTPUT, `pr_number=${pr.number}\nhead_sha=${pr.head.sha}\nbase_sha=${pr.base.sha}\ntrigger_head_sha=${process.env.TRIGGER_HEAD_SHA}\n`, { flag: "a" });
+          const baseRef = JSON.parse(readFileSync(`${dir}/base-ref.json`, "utf8"));
+          const normalized = normalizeLivePr(pr, baseRef, process.env.TRIGGER_HEAD_SHA, process.env.GITHUB_REPOSITORY, process.env.GITHUB_SHA);
+          writeFileSync(`${dir}/normalized.json`, `${JSON.stringify(normalized)}\n`);
+          writeFileSync(process.env.GITHUB_OUTPUT, `pr_number=${normalized.number}\nhead_sha=${normalized.head_sha}\nbase_sha=${normalized.base_sha}\ntrigger_head_sha=${normalized.head_sha}\n`, { flag: "a" });
           NODE
 
       - name: Validate the bounded producer artifact
@@ -248,11 +249,14 @@ jobs:
           set -euo pipefail
           test -s "$TEMP_DIR/normalized.json" || { echo "PR metadata was not verified; refusing to publish a status" >&2; exit 1; }
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-latest.json"
-          PR_FILE="$TEMP_DIR/normalized.json" LATEST_FILE="$TEMP_DIR/pr-latest.json" node --input-type=module - <<'NODE'
+          gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "$TEMP_DIR/base-ref-latest.json"
+          PR_FILE="$TEMP_DIR/normalized.json" LATEST_FILE="$TEMP_DIR/pr-latest.json" BASE_REF_FILE="$TEMP_DIR/base-ref-latest.json" TRIGGER_HEAD_SHA="$HEAD_SHA" node --input-type=module - <<'NODE'
           import { readFileSync } from "node:fs";
+          import { assertLivePrRevision } from "./tooling/hunch-guard-review-producer.mjs";
           const first = JSON.parse(readFileSync(process.env.PR_FILE, "utf8"));
           const latest = JSON.parse(readFileSync(process.env.LATEST_FILE, "utf8"));
-          if (latest.number !== first.number || latest.state !== "open" || latest.base?.ref !== "main" || latest.base?.sha !== first.base_sha || latest.head?.sha !== first.head_sha) throw new Error("PR changed before trusted status publication");
+          const baseRef = JSON.parse(readFileSync(process.env.BASE_REF_FILE, "utf8"));
+          assertLivePrRevision(first, latest, baseRef, process.env.TRIGGER_HEAD_SHA, process.env.GITHUB_REPOSITORY, process.env.GITHUB_SHA);
           NODE
           state=failure
           description="trusted Hunch Guard review unavailable or failed"
