@@ -217,7 +217,7 @@ jobs:
               }
 
               const rootMetadata = path === "[Content_Types].xml" || path === "extension.vsixmanifest";
-              const extensionRootFile = /^extension\/(?:package\.json|license\.txt|readme\.md|changelog\.md|package\.nls(?:\.[a-z0-9-]+)?\.json)$/i.test(path);
+              const extensionRootFile = /^extension\/(?:package\.json|license\.txt|readme\.md|changelog\.md|third_party_notices\.md|package\.nls(?:\.[a-z0-9-]+)?\.json)$/i.test(path);
               const compiledFile = /^extension\/dist\/.+\.(?:js|json|wasm|node)$/i.test(path);
               const mediaFile = /^extension\/media\/.+\.(?:png|jpe?g|gif|webp|svg|md)$/i.test(path);
               const allowedDirectory = isDirectory && (path === "extension/"
@@ -236,7 +236,7 @@ jobs:
                 unix_mode: unixMode,
               };
             });
-            for (const required of ["[Content_Types].xml", "extension.vsixmanifest", "extension/package.json"]) {
+            for (const required of ["[Content_Types].xml", "extension.vsixmanifest", "extension/package.json", "extension/THIRD_PARTY_NOTICES.md"]) {
               if (!exactPaths.has(required)) throw new Error(`VSIX is missing required entry ${required}`);
             }
             return inventory.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
@@ -532,7 +532,7 @@ jobs:
               }
 
               const rootMetadata = path === "[Content_Types].xml" || path === "extension.vsixmanifest";
-              const extensionRootFile = /^extension\/(?:package\.json|license\.txt|readme\.md|changelog\.md|package\.nls(?:\.[a-z0-9-]+)?\.json)$/i.test(path);
+              const extensionRootFile = /^extension\/(?:package\.json|license\.txt|readme\.md|changelog\.md|third_party_notices\.md|package\.nls(?:\.[a-z0-9-]+)?\.json)$/i.test(path);
               const compiledFile = /^extension\/dist\/.+\.(?:js|json|wasm|node)$/i.test(path);
               const mediaFile = /^extension\/media\/.+\.(?:png|jpe?g|gif|webp|svg|md)$/i.test(path);
               const allowedDirectory = isDirectory && (path === "extension/"
@@ -551,7 +551,7 @@ jobs:
                 unix_mode: unixMode,
               };
             });
-            for (const required of ["[Content_Types].xml", "extension.vsixmanifest", "extension/package.json"]) {
+            for (const required of ["[Content_Types].xml", "extension.vsixmanifest", "extension/package.json", "extension/THIRD_PARTY_NOTICES.md"]) {
               if (!exactPaths.has(required)) throw new Error(`VSIX is missing required entry ${required}`);
             }
             return inventory.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
