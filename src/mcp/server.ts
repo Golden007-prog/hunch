@@ -1988,7 +1988,11 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
           spawned_decision: finding.spawned_decision ?? existing?.spawned_decision ?? null,
           observed_at: existing?.observed_at ?? now, // first observation wins — updates re-verify, not re-date
           resolved_commit: finding.resolved_commit ?? existing?.resolved_commit ?? null,
-          provenance: { source: "human_confirmed", confidence: 0.95, evidence: finding.evidence ?? existing?.provenance.evidence ?? [], last_verified: now },
+          // Findings have no authenticated capture front door. Calling this MCP tool is
+          // agent testimony, even when the observation is updating a record that a human
+          // confirmed previously; only an explicit human-authored path may mint the
+          // human_confirmed tier.
+          provenance: { source: "agent_recorded", confidence: 0.75, evidence: finding.evidence ?? existing?.provenance.evidence ?? [], last_verified: now },
         };
         const stored = store.putCapture("findings", rec, !!finding.private);
         const observed = observeReportCapture(root, task_id, "findings", stored, home, !!existing, home === "private" ? store.privateDir ?? undefined : hunchPaths(root).hunch);
