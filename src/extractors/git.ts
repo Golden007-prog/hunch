@@ -1760,11 +1760,9 @@ export function isLinkedWorktree(cwd: string): boolean {
   const common = gitCommonDir(cwd);
   const own = gitSafe(["rev-parse", "--absolute-git-dir"], cwd);
   if (!common || !own) return false;
-  // realpath BOTH before comparing: `--absolute-git-dir` is symlink-resolved while
-  // gitCommonDir is not, so on macOS the main checkout would otherwise mismatch on
-  // /var vs /private/var and falsely read as "linked".
-  const norm = (p: string): string => { try { return realpathSync(p); } catch { return resolve(p); } };
-  return norm(own) !== norm(common);
+  // Git can spell the same directory differently: /var vs /private/var on
+  // macOS, or long vs 8.3/case variants on Windows. Compare physical identity.
+  return !sameFilesystemEntry(own, common);
 }
 
 /** Current branch name (e.g. "main", "feat/x"), or "" in detached HEAD / non-repo.

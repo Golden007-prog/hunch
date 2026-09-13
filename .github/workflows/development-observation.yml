@@ -1,0 +1,30 @@
+name: Development observation
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+jobs:
+  initial-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # No checkout, dependency install, or execution of code from the PR.
+      - name: Retain the first PR head for later CI measurement
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          if (event.action !== 'opened') throw new Error('expected a PR-open event');
+          const receipt = {schema:'hunch.initial-pr-head/1', repository:process.env.GITHUB_REPOSITORY,
+            number:event.pull_request.number, head_sha:event.pull_request.head.sha,
+            opened_at:event.pull_request.created_at, observed_at:new Date().toISOString(),
+            run_id:process.env.GITHUB_RUN_ID};
+          fs.writeFileSync('initial-pr-head.json', JSON.stringify(receipt, null, 2)+'\n');
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: initial-pr-head-${{ github.event.pull_request.number }}
+          path: initial-pr-head.json
+          retention-days: 90
+          if-no-files-found: error
