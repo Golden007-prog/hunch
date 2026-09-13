@@ -60,6 +60,41 @@ export const operatorJs = String.raw`
     const data = await response.json(); if (!response.ok) { const e = new Error(data.detail || 'The server could not complete this read.'); e.status = response.status; throw e; } return data;
   }
   function field(list, title, value) { if (value === undefined || value === null || value === '') return; list.append(node('dt', title), node('dd', typeof value === 'string' ? value : JSON.stringify(value))); }
+  // Dependencies have a fixed JSON schema. Match the contract's sorted-key hash,
+  // independent of their position in the dependency array; never fetch a source.
+  const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value;
+  async function dependencyHash(value) {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(canonical(value))));
+    return 'sha256:' + Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function citationDetails(record, area) {
+    try {
+      const dependencies = new Map(await Promise.all(record.dependencies.map(async d => [await dependencyHash(d), d])));
+      for (const citation of record.field_provenance) {
+        const selector = citation.selector;
+        const detail = node('details'); detail.append(node('summary', selector.kind === 'text' ? 'Text ' + selector.start + '–' + selector.end : 'Field ' + (selector.path || '(root)')));
+        // A valid record can reuse hundreds of large sources across many fields.
+        // Expand only the field the person opens, with four source bodies per step.
+        let rendered = false;
+        detail.addEventListener('toggle', () => {
+          if (!detail.open || rendered) return; rendered = true;
+          let value = selector.kind === 'text' ? Array.from(record.content).slice(selector.start, selector.end).join('') : JSON.parse(record.content);
+          if (selector.kind === 'json_pointer') for (const key of selector.path === '' ? [] : selector.path.slice(1).split('/').map(k => k.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+            if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) { detail.append(node('p', 'Citation target unavailable.')); return; }
+            value = value[key];
+          }
+          detail.append(node('pre', JSON.stringify(value)), node('h3', 'Sources for this field'));
+          const bodies = node('div'), more = node('button', 'Show more sources', 'secondary'); let offset = 0;
+          const showSources = () => {
+            citation.dependency_hashes.slice(offset, offset + 4).forEach(hash => bodies.append(node('pre', JSON.stringify(dependencies.get(hash) || { unavailable_dependency_hash: hash }, null, 2))));
+            offset += 4; more.hidden = offset >= citation.dependency_hashes.length;
+          };
+          more.type = 'button'; more.onclick = showSources; detail.append(bodies, more); showSources();
+        });
+        area.append(detail);
+      }
+    } catch { area.append(node('p', 'Citation display unavailable. Exact citations remain in Sources & record details.', 'small muted')); }
+  }
   function card(ref, records) {
     const r = records[ref.id], article = node('article');
     if (!r) { article.append(empty('Record body unavailable: ' + ref.id)); return article; }
@@ -73,6 +108,11 @@ export const operatorJs = String.raw`
     if (r.owner || r.actor) article.append(node('p', (r.owner ? 'Owner: ' + r.owner : 'Actor: ' + r.actor), 'metadata'));
     if (r.due) article.append(node('p', 'Due ' + r.due, 'metadata'));
     if (r.occurred_at || r.computed_at || r.created_at) article.append(node('p', r.occurred_at || r.computed_at || r.created_at, 'metadata'));
+    if (r.field_provenance?.length) {
+      const citations = node('section', undefined, 'field-citations');
+      citations.append(node('h3', 'Field citations'), node('p', 'Writer-supplied source links. They do not verify truth, freshness, or uncited fields.', 'small muted'));
+      article.append(citations); void citationDetails(r, citations);
+    }
     const detail = node('details'); detail.append(node('summary', 'Sources & record details'));
     const list = node('dl'); field(list, 'Record ID', ref.id); field(list, 'Recorded by / source', r.provenance?.source);
     field(list, 'Source reference', r.source); field(list, 'Action target', r.target); field(list, 'Closed by receipt', r.closed_by); field(list, 'Captured by', observation?.captured_by);

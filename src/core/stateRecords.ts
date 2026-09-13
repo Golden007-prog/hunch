@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { edgeId, resourceId } from "./ids.js";
 import { ProvenanceSchema, isCredentialFreeValue } from "./provenance.js";
+import { assertFieldProvenance } from "./fieldProvenance.js";
 
 export const RECEIPT_SCHEMA_VERSION = "nuryel.receipt/1" as const;
 export const COMMITMENT_SCHEMA_VERSION = "nuryel.commitment/1" as const;
@@ -133,6 +134,20 @@ export const CommitmentSchema = z.object({
 }).strict();
 export type Commitment = z.infer<typeof CommitmentSchema>;
 
+export const FieldSelectorSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("json_pointer"), path: z.string().max(2048).regex(/^(?:\/(?:[^~/]|~[01])*)*$/) }).strict(),
+  z.object({ kind: z.literal("text"), start: z.number().int().min(0).max(20_000), end: z.number().int().min(1).max(20_000) }).strict(),
+]);
+export type FieldSelector = z.infer<typeof FieldSelectorSchema>;
+
+/** Hash references stay attached to the same sources if dependencies are reordered. */
+export const FieldProvenanceSchema = z.object({
+  selector: FieldSelectorSchema,
+  value_hash: z.string().regex(SHA256),
+  dependency_hashes: z.array(z.string().regex(SHA256)).min(1).max(256),
+}).strict();
+export type FieldProvenance = z.infer<typeof FieldProvenanceSchema>;
+
 /** current — a statement that is true now, and on what it rests. Dependencies are mandatory:
  *  a derived statement without them cannot be invalidated and therefore cannot be trusted. */
 export const DerivedStateSchema = z.object({
@@ -143,6 +158,8 @@ export const DerivedStateSchema = z.object({
   content: z.string().min(1).max(20_000),
   content_hash: z.string().regex(SHA256),
   dependencies: z.array(DependencyRefSchema).min(1).max(256),
+  /** Optional exact field/text citations; absence means no field-level mapping is recorded. */
+  field_provenance: z.array(FieldProvenanceSchema).min(1).max(128).optional(),
   transform_version: z.string().max(128),
   computed_at: z.string().regex(ISO),
   valid_to: z.string().regex(ISO).nullable().default(null),
@@ -155,6 +172,7 @@ export const DerivedStateSchema = z.object({
   provenance: ProvenanceSchema,
 }).strict().superRefine((record, ctx) => {
   if (record.review && record.state !== 'stale') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['review'], message: 'withdrawal review belongs only to a stale observation' });
+  try { assertFieldProvenance(record); } catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['field_provenance'], message: (error as Error).message }); }
 });
 export type DerivedState = z.infer<typeof DerivedStateSchema>;
 
