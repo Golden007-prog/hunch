@@ -15,10 +15,10 @@
  * Pure functions over records; no store or SQLite dependency, so the CLI, the MCP server and
  * the store's own reindex/rank paths cannot drift from each other.
  */
-import type { ActionReceipt, Commitment, DerivedState, ExternalEntity, StateRelationship } from "./stateRecords.js";
+import type { Convention, ActionReceipt, Commitment, DerivedState, ExternalEntity, StateRelationship } from "./stateRecords.js";
 import type { DeliverySupplement } from "./delivery.js";
 
-export const STATE_KINDS = ["receipts", "commitments", "derived", "entities", "relationships"] as const;
+export const STATE_KINDS = ["receipts", "commitments", "derived", "entities", "relationships", "conventions"] as const;
 export type StateKind = (typeof STATE_KINDS)[number];
 const STATE_KIND_SET: ReadonlySet<string> = new Set(STATE_KINDS);
 
@@ -28,6 +28,7 @@ export function isStateKind(kind: string): kind is StateKind {
 
 /** Singular facet label used in renders: `[commitment/in_force]`, `[derived/current]`. */
 const FACET_LABEL: Record<StateKind, string> = {
+  conventions: "convention",
   receipts: "receipt",
   commitments: "commitment",
   derived: "derived",
@@ -35,7 +36,7 @@ const FACET_LABEL: Record<StateKind, string> = {
   relationships: "relationship",
 };
 
-export type StateRecord = ActionReceipt | Commitment | DerivedState | ExternalEntity | StateRelationship;
+export type StateRecord = Convention | ActionReceipt | Commitment | DerivedState | ExternalEntity | StateRelationship;
 
 export interface StateLiveness {
   /** The contract's own word for the record's standing: current, in_force, verified, done, superseded … */
@@ -49,6 +50,10 @@ export interface StateLiveness {
  *  receipt succeeded/verified; entity active; a relationship is always current). */
 export function stateLiveness(kind: StateKind, record: StateRecord): StateLiveness {
   switch (kind) {
+    case "conventions": {
+      const c = record as Convention;
+      return { label: c.valid_to != null ? 'superseded' : c.status, live: c.status === 'accepted' && c.valid_to === null && Date.parse(c.review_by) > Date.now() };
+    }
     case "derived": {
       const d = record as DerivedState;
       if (d.valid_to != null) return { label: "superseded", live: false };
@@ -78,6 +83,7 @@ export function stateLiveness(kind: StateKind, record: StateRecord): StateLivene
  *  object (`event:10042`), the entity id, or the relationship's `from` endpoint. */
 export function stateSubject(kind: StateKind, record: StateRecord): string {
   switch (kind) {
+    case "conventions": return (record as Convention).key;
     case "derived": return (record as DerivedState).subject;
     case "commitments": return (record as Commitment).subject;
     case "receipts": { const r = record as ActionReceipt; return `${r.target.object_type}:${r.target.object_key}`; }
@@ -90,6 +96,7 @@ export function stateSubject(kind: StateKind, record: StateRecord): string {
  *  updated_at. Relationships carry no clock and sort last among equals. */
 export function stateObservedAt(kind: StateKind, record: StateRecord): string {
   switch (kind) {
+    case "conventions": return (record as Convention).valid_from;
     case "derived": return (record as DerivedState).computed_at;
     case "commitments": return (record as Commitment).valid_from;
     case "receipts": { const r = record as ActionReceipt; return r.verified_at ?? r.occurred_at; }
@@ -106,6 +113,7 @@ export function stateSearchDoc(kind: StateKind, record: StateRecord): { title: s
   const { label } = stateLiveness(kind, record);
   const subject = stateSubject(kind, record);
   switch (kind) {
+    case "conventions": return { title: subject, body: `${(record as Convention).value} ${label} advisory convention` };
     case "derived": {
       const d = record as DerivedState;
       return { title: subject, body: `${d.content} ${label} ${d.transform_version} ${d.computed_at.slice(0, 10)}` };
@@ -148,6 +156,7 @@ export function renderStateLine(kind: StateKind, record: StateRecord): string {
   const { label } = stateLiveness(kind, record);
   const head = `[${FACET_LABEL[kind]}/${label}] ${stateSubject(kind, record)} — `;
   switch (kind) {
+    case "conventions": return `${head}${oneLine((record as Convention).value, 120)} (advisory)`;
     case "derived":
       return `${head}${oneLine((record as DerivedState).content, DERIVED_HEADLINE_CHARS)}`;
     case "commitments": {

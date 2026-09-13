@@ -101,9 +101,9 @@ export const operatorJs = String.raw`
     article.append(node('span', (r.state || r.status || r.lifecycle || ref.facet) + ' · ' + ref.facet, 'badge'));
     let observation;
     if (typeof r.content === 'string') { try { const parsed = JSON.parse(r.content); if (parsed?.schema === 'nuryel.observation-content/1' && typeof parsed.statement === 'string') observation = parsed; } catch { /* Ordinary derived text is not JSON. */ } }
-    const title = r.title || r.statement || observation?.statement || (r.action_kind ? r.action_kind.replaceAll('_', ' ') + ' · ' + (r.target?.object_key || '') : r.name || r.subject || ref.id);
+    const title = r.title || r.statement || observation?.statement || (r.action_kind ? r.action_kind.replaceAll('_', ' ') + ' · ' + (r.target?.object_key || '') : r.name || r.key || r.subject || ref.id);
     article.append(node('h3', title, 'record-title'));
-    const description = observation ? observation.relevance?.reason : r.content || r.decision || r.rationale;
+    const description = observation ? observation.relevance?.reason : r.value || r.content || r.decision || r.rationale;
     if (description) article.append(node('p', description, 'record-content'));
     if (r.visibility) article.append(node('p', 'Restricted record · access owner: ' + r.visibility.owner, 'metadata'));
     if (r.owner || r.actor) article.append(node('p', (r.owner ? 'Owner: ' + r.owner : 'Actor: ' + r.actor), 'metadata'));
@@ -138,6 +138,14 @@ export const operatorJs = String.raw`
     const grid = node('div', undefined, 'state-grid');
     grid.append(group('Current records', state.current, records), group('Open commitments & rules', state.in_force, records), group('Completed work', state.done, records)); area.append(grid);
     if (state.observed?.length) area.append(group('Observations', state.observed, records, 'Source-backed statements whose currentness is unverified.'));
+    if (result.conventions) {
+      const section = node('section'); section.append(node('h3', 'Explicit conventions'), node('p', 'Advisory. Resolve conflicts before applying a preference; no scope silently overrides another.', 'small muted'));
+      for (const item of result.conventions.items) {
+        const entry = card(item.ref, records); entry.prepend(node('p', item.ref.scope.kind + '/' + item.ref.scope.id + ' · ' + item.currentness + (item.conflict ? ' · CONFLICT' : ''), 'metadata')); section.append(entry);
+      }
+      if (result.conventions.truncated) section.append(node('p', 'More conventions exist; this view is incomplete.', 'small muted'));
+      area.append(section);
+    }
     const page = state.observed_page;
     if (page && page.total) area.append(node('p', 'Observations ' + ((next?.offset || 0) + 1) + '–' + ((next?.offset || 0) + (state.observed?.length || 0)) + ' of ' + page.total, 'small muted'));
     if (cursor) { const more = node('button', 'Next observations', 'secondary'); more.onclick = () => run('Loading observations…', (s, c) => readSubject(subject, cursor, s, c)); area.append(more); }

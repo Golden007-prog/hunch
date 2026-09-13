@@ -1,3 +1,4 @@
+import { conventionDelivery, conventionSupplements } from '../core/conventionDelivery.js';
 import { StateRefusal } from "./stateError.js";
 import { partitionOf, recordScope } from "./statePartition.js";
 import { createStateAccess, type StateAccessOptions } from "./stateAccess.js";
@@ -35,7 +36,7 @@ import {
   STATE_CAPABILITIES, STATE_CONTRACT_VERSION, STATE_RECORD_VISIBILITY_VERSION, STATE_FACETS, STATE_READ_VERSION, STATE_SUBSCRIBE_VERSION, STATE_WRITE_VERSION,
   ReadRequestSchema, ReadResponseSchema, WriteRequestSchema, WriteResultSchema, SubscribeRequestSchema, ChangeEventSchema,
   RecordsRequestSchema, RecordsResponseSchema, STATE_RECORDS_VERSION,
-  ScopeSchema, scopePath, stateHash, actionReceiptId, commitmentId, derivedId, relationshipId, externalKey, subjectOfRef,
+  ScopeSchema, scopePath, stateHash, conventionId, actionReceiptId, commitmentId, derivedId, relationshipId, externalKey, subjectOfRef,
   assertReadWithinGrants, assertWriteWellFormed, assertDerivedState, isHumanConfirmed,
   type Principal, type Scope, type StateFacet, type ReadRequest, type ReadResponse, type WriteRequest, type WriteResult,
   type SubscribeRequest, type ChangeEvent, type StateRef, type DependencyRef, type RecordsRequest, type RecordsResponse,
@@ -166,6 +167,15 @@ export function readState(store: HunchStore, input: unknown, options: StateAcces
   const facets = new Set<StateFacet>(request.facets ?? STATE_FACETS);
   const target = request.task ?? request.subject ?? scopePath(request.scope);
   const access = createStateAccess(store, request.principal, options);
+  const conventions = facets.has('conventions') ? store.recs('conventions').filter(r => access.canRead(r) && scopePath(r.scope) === scopePath(request.scope)) : [];
+  const resolveConventionSource = (id: string, scope: Scope) => {
+    for (const source of [store, ...(options.additionalStores ?? [])]) {
+      const record = findRecord(source, id)?.record;
+      if (record && scopePath(recordScope(record, partitionOf(source))) === scopePath(scope) && access.canRead(record)) return record;
+    }
+    return undefined;
+  };
+  const conventionView = conventionDelivery(conventions, resolveConventionSource);
   const ctx = store.assembleContext(target, request.budget_tokens ?? 1500, { canRead: access.canRead });
   const envelope = buildDeliveryEnvelope(ctx, {
     root: store.publicRoot,
@@ -173,10 +183,12 @@ export function readState(store: HunchStore, input: unknown, options: StateAcces
     components: store.recs("components").filter(access.canRead),
     decisionCorpus: store.recs("decisions").filter(access.canRead),
     profile: request.profile ?? "builder",
+    supplements: conventionSupplements(conventions, resolveConventionSource),
   });
 
   let stateOfRecord: ReadResponse["state_of_record"] = null;
   const records: Record<string, Record<string, unknown>> = {};
+  for (const item of conventionView?.items ?? []) records[item.ref.id] = conventions.find(r => r.id === item.ref.id)! as unknown as Record<string, unknown>;
   const denied = new Map<string, Scope>();
   // Union read against ONE store: every requested scope the principal lacks is named up front;
   // the partitions actually read are declared so a caller never mistakes this for the union
@@ -287,7 +299,8 @@ export function readState(store: HunchStore, input: unknown, options: StateAcces
     scope: request.scope,
     state_of_record: stateOfRecord,
     denied_scopes: [...denied.values()],
-    ...(stateOfRecord ? { records } : {}),
+    ...(conventionView ? { conventions: conventionView } : {}),
+    ...(stateOfRecord || conventionView ? { records } : {}),
     ...(request.scopes ? { scopes: [request.scope], receipts: [{ scope: request.scope, receipt_id: envelope.receipt_id }] } : {}),
   });
   assertReadWithinGrants(request.principal, response);
@@ -341,13 +354,29 @@ export function mergeReadResponses(primary: ReadResponse, others: readonly ReadR
     };
     for (const r of all) for (const [id, record] of Object.entries(r.records ?? {})) if (!(id in records)) records[id] = record;
   }
+  // Recompute cross-scope conflicts without inventing an organization/team/user winner.
+  const conventionRecords = all.flatMap(r => (r.conventions?.items ?? []).map(item => r.records?.[item.ref.id])).filter((r): r is Record<string, unknown> => !!r);
+  const deliveredConventions = all.flatMap(r => r.conventions?.items ?? []);
+  const conventionView = conventionDelivery(conventionRecords as unknown as EntityFor['conventions'][], undefined, new Map(deliveredConventions.map(item => [item.ref.id, item.currentness])));
+  if (conventionView) {
+    conventionView.truncated ||= all.some(r => r.conventions?.truncated);
+    for (const item of conventionView.items) {
+      const prior = deliveredConventions.find(x => x.ref.id === item.ref.id)!;
+      item.currentness = prior.currentness;
+      item.conflict ||= prior.conflict;
+      records[item.ref.id] = conventionRecords.find(r => r.id === item.ref.id)!;
+    }
+    const selected = new Set(conventionView.items.map(item => item.ref.id));
+    for (const record of conventionRecords) if (!selected.has(String(record.id))) delete records[String(record.id)];
+  }
   return ReadResponseSchema.parse({
     schema: STATE_READ_VERSION,
     receipt_id: primary.receipt_id,
     scope: primary.scope,
     state_of_record: stateOfRecord,
     denied_scopes: [...denied.values()],
-    ...(stateOfRecord ? { records } : {}),
+    ...(conventionView ? { conventions: conventionView } : {}),
+    ...(stateOfRecord || conventionView ? { records } : {}),
     scopes: [...scopes.values()],
     receipts: [...receipts.values()],
   });
@@ -369,6 +398,7 @@ export interface WriteOptions extends StateAccessOptions {
 function subjectOf(facet: StateFacet, record: unknown): string | undefined {
   const r = record as Record<string, unknown>;
   switch (facet) {
+    case "conventions": return typeof r.key === "string" ? r.key : undefined;
     case "commitments": case "derived": return typeof r.subject === "string" ? r.subject : undefined;
     case "entities": return typeof r.id === "string" ? r.id : undefined;
     case "relationships": return r.type === "observation_about" && typeof r.to === "string" ? r.to : typeof r.from === "string" ? r.from : undefined;
@@ -387,6 +417,7 @@ function facetOfId(id: string): StateFacet | null {
     case "con": return "constraints";
     case "bug": return "bugs";
     case "fnd": return "findings";
+    case "ncv": return "conventions";
     case "nrc": return "receipts";
     case "ncm": return "commitments";
     case "nds": return "derived";
@@ -526,7 +557,8 @@ function normalizeRecord(facet: StateFacet, scope: Scope, raw: Record<string, un
   }
   let expectedId: string | null = null;
   try {
-    if (facet === "receipts") expectedId = actionReceiptId(record as never);
+    if (facet === "conventions") expectedId = conventionId(record as never);
+    else if (facet === "receipts") expectedId = actionReceiptId(record as never);
     else if (facet === "commitments") expectedId = commitmentId(record as never);
     else if (facet === "derived") expectedId = derivedId(record as never);
     else if (facet === "relationships") expectedId = relationshipId(String(record.from), String(record.to), String(record.type));
@@ -700,6 +732,21 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
     }
     if (verdict === "keep-provenance") (record as { provenance: unknown }).provenance = existing!.provenance;
     if (supersedes && supersedes !== id) guard(store.getRec(facet as EntityKind, supersedes) as Record<string, unknown> | undefined, "supersede");
+  }
+
+  if (facet === 'conventions') {
+    const convention = record as EntityFor['conventions'];
+    if (existing && request.expected_version === null) throw new StateRefusal('conflict', 'changing a convention requires expected_version');
+    if (supersedes) {
+      const prior = store.getRec('conventions', supersedes);
+      if (!prior || prior.key !== convention.key || scopePath(prior.scope) !== scopePath(convention.scope)) throw new StateRefusal('conflict', 'convention supersession must preserve scope and key');
+      if (request.expected_version !== stateHash(prior)) throw new StateRefusal('conflict', 'convention supersession requires the predecessor expected_version hash');
+    }
+    if (convention.status === 'accepted' && convention.valid_to === null) {
+      const incumbent = store.recsInHome('conventions', home).find(r => r.key === convention.key && scopePath(r.scope) === scopePath(convention.scope) && r.status === 'accepted' && r.valid_to === null && r.id !== id && r.id !== supersedes);
+      if (incumbent) throw new StateRefusal('conflict', `${convention.key} already has an accepted convention; pass supersedes`, { incumbent_id: incumbent.id, reason: 'one accepted convention per scope and key' });
+    }
+    assertRestsOn(store, request.principal, request.scope, convention.sources);
   }
 
   // one-live-decision-per-topic — refuse with the incumbent named; supersession is explicit.

@@ -11,8 +11,8 @@ import { createHash } from "node:crypto";
 import { findingId, resourceId, resourceRelationshipId } from "./ids.js";
 import { ProvenanceSchema, SENSITIVE_METADATA_KEY, isCredentialFreeText, type Provenance } from "./provenance.js";
 import {
-  ActionReceiptSchema, CommitmentSchema, DerivedStateSchema, ExternalEntitySchema, StateRelationshipSchema,
-  type ActionReceipt, type Commitment, type DerivedState, type ExternalEntity, type StateRelationship,
+  ConventionSchema, ActionReceiptSchema, CommitmentSchema, DerivedStateSchema, ExternalEntitySchema, StateRelationshipSchema,
+  type Convention, type ActionReceipt, type Commitment, type DerivedState, type ExternalEntity, type StateRelationship,
 } from "./stateRecords.js";
 
 // Provenance and the credential-free text check live in the leaf module ./provenance.js so
@@ -657,7 +657,7 @@ export function landscapeDriftCandidateFinding(value: unknown): Finding {
 // loads exactly as before, and an older build ignores directories it does not know.
 export const ENTITY_KINDS = [
   "components", "resources", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings",
-  "receipts", "commitments", "derived", "entities", "relationships",
+  "receipts", "commitments", "derived", "entities", "relationships", "conventions",
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -671,6 +671,7 @@ export const SCHEMAS = {
   constraints: ConstraintSchema,
   runbooks: RunbookSchema,
   findings: FindingSchema,
+  conventions: ConventionSchema,
   receipts: ActionReceiptSchema,
   commitments: CommitmentSchema,
   derived: DerivedStateSchema,
@@ -688,6 +689,7 @@ export type EntityFor = {
   constraints: Constraint;
   runbooks: Runbook;
   findings: Finding;
+  conventions: Convention;
   receipts: ActionReceipt;
   commitments: Commitment;
   derived: DerivedState;

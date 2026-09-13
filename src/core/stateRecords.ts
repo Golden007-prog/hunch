@@ -250,3 +250,29 @@ export const DnaFacetRefSchema = z.object({
 
 export const entityId = resourceId;
 export const relationshipId = edgeId;
+
+
+export const CONVENTION_SCHEMA_VERSION = "nuryel.convention/1" as const;
+/** Explicit conventions are advisory records. Acceptance records human review, never policy authority. */
+export const ConventionSchema = z.object({
+  schema: z.literal(CONVENTION_SCHEMA_VERSION),
+  id: z.string().regex(/^ncv_[a-f0-9]{24}$/),
+  scope: ScopeSchema,
+  key: z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/),
+  value: z.string().trim().min(1).max(1200),
+  status: z.enum(["proposed", "accepted", "stale", "withdrawn"]),
+  sources: z.array(DependencyRefSchema).min(1).max(8),
+  valid_from: z.string().regex(ISO),
+  valid_to: z.string().regex(ISO).nullable().default(null),
+  review_by: z.string().regex(ISO),
+  provenance: ProvenanceSchema,
+  visibility: RecordVisibilitySchema.optional(),
+}).strict().superRefine((record, ctx) => {
+  if (!Number.isFinite(Date.parse(record.valid_from)) || !Number.isFinite(Date.parse(record.review_by)) || Date.parse(record.review_by) <= Date.parse(record.valid_from))
+    ctx.addIssue({ code: 'custom', message: 'review_by must be a valid instant after valid_from' });
+  if (record.sources.some(source => source.kind === 'schema' || (source.kind === 'external' && !source.ref.version && !source.ref.content_hash)))
+    ctx.addIssue({ code: 'custom', path: ['sources'], message: 'conventions require exact record hashes or versioned/hashed external sources' });
+  if (record.status === 'accepted' && !record.provenance.source.split('+').includes('human_confirmed'))
+    ctx.addIssue({ code: 'custom', path: ['status'], message: 'accepted conventions require human-confirmed provenance' });
+});
+export type Convention = z.infer<typeof ConventionSchema>;

@@ -11,8 +11,8 @@ const org = { kind: "organization" as const, id: "acme" };
 const prov = { source: "imported:sofia", confidence: 0.9, evidence: ["sofia approvals row a1"] };
 const crmEvent = { system: "crm", object_type: "event", object_key: "10042", version: "2", observed_at: "2026-09-07T12:00:00Z" };
 
-test("the five nuryel.state/1 facets are registered store kinds, additively after the legacy kinds", () => {
-  assert.deepEqual(ENTITY_KINDS.slice(-5), ["receipts", "commitments", "derived", "entities", "relationships"]);
+test("the nuryel.state/1 facets are registered store kinds, additively after the legacy kinds", () => {
+  assert.deepEqual(ENTITY_KINDS.slice(9), ["receipts", "commitments", "derived", "entities", "relationships", "conventions"]);
   assert.deepEqual(ENTITY_KINDS.slice(0, 9), ["components", "resources", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings"], "legacy order unchanged");
 });
 

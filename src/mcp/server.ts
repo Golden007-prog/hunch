@@ -1,3 +1,4 @@
+import { conventionSupplements } from '../core/conventionDelivery.js';
 import { fieldCitationText } from "../core/fieldProvenance.js";
 import type { DerivedState } from "../core/stateRecords.js";
 /**
@@ -1279,7 +1280,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         decisionCorpus: store.recs("decisions"),
         historical: !!asOf,
         profile: profile ?? "builder",
-        supplements: [...(dnaSupplement ? [dnaSupplement] : []), ...stateGrounding],
+        supplements: [...(dnaSupplement ? [dnaSupplement] : []), ...stateGrounding, ...(asOf ? [] : conventionSupplements(store.recs("conventions")))],
       };
       // Task-phrase input ("improve retrieval ranking") resolves no file/symbol and
       // used to return an empty brief while the graph held the answer — fall back to
@@ -2095,7 +2096,11 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
                : sor.observed_truncated ? ['- More observations exist; read this subject with observed_page:{} in one partition, then follow next_cursor.'] : []),
              ...(sor.invalidated_by.length ? [`- invalidated by: ${sor.invalidated_by.join(", ")}`] : [])].join("\n") || "(nothing on record for this subject)"
           : "";
-        return stateResult(`${response.receipt_id} · ${summary}${deniedNote}${stateText ? `\n\nState of record:\n${stateText}` : ""}\n\n${envelope.text}`, response);
+        const conventionText = response.conventions ? '\n\nExplicit conventions (advisory; no scope takes precedence):\n' + response.conventions.items.map(item => {
+          const record = response.records?.[item.ref.id];
+          return `- ${item.ref.scope.kind}/${item.ref.scope.id} · ${item.key} · ${record?.status}/${item.currentness}${item.conflict ? ' · CONFLICT' : ''}: ${String(record?.value ?? '').slice(0, 300)} (${item.ref.id})`;
+        }).join('\n') + (response.conventions.truncated ? '\nMore conventions exist; this view is incomplete.' : '') : '';
+        return stateResult(`${response.receipt_id} · ${summary}${deniedNote}${stateText ? `\n\nState of record:\n${stateText}` : ""}\n\n${envelope.text}${conventionText}`, response);
       } catch (e) {
         return stateRefusal(e);
       }
