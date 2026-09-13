@@ -127,3 +127,128 @@ jobs:
           path: .hunch-guard-review/guard-report.json
           if-no-files-found: error
           retention-days: 7
+
+  # This job is the only producer job that can publish a commit status. It
+  # consumes a bounded report from the read-only evaluator and never receives
+  # contents:write; statuses:write is the least privilege needed for the API.
+  finalize:
+    if: always() && github.event.repository.default_branch == 'main' && github.event.workflow_run.event == 'pull_request'
+    needs: produce
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      statuses: write
+    steps:
+      - name: Checkout the trusted workflow revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up the trusted Node.js runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22.13.0
+
+      - name: Bind the finalizer to the live PR revision
+        id: bind
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_PATH: ${{ github.event_path }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-finalizer
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$TEMP_DIR"
+          node --input-type=module - "$EVENT_PATH" "$TEMP_DIR/event-meta.json" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { workflowRunMeta } from "./tooling/hunch-guard-review-producer.mjs";
+          const [eventPath, output] = process.argv.slice(2);
+          writeFileSync(output, `${JSON.stringify(workflowRunMeta(JSON.parse(readFileSync(eventPath, "utf8"))))}\n`);
+          NODE
+          PR_NUMBER="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(String(JSON.parse(readFileSync(process.argv[1], "utf8")).pr_number))' "$TEMP_DIR/event-meta.json")"
+          TRIGGER_HEAD_SHA="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1], "utf8")).trigger_head_sha)' "$TEMP_DIR/event-meta.json")"
+          case "$PR_NUMBER" in (''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;; esac
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
+          PR_NUMBER="$PR_NUMBER" TRIGGER_HEAD_SHA="$TRIGGER_HEAD_SHA" node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const dir = process.env.TEMP_DIR;
+          const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
+          const fullSha = /^[0-9a-f]{40}$/;
+          if (pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== process.env.GITHUB_REPOSITORY || !fullSha.test(pr.head?.sha ?? "") || !fullSha.test(pr.base?.sha ?? "") || pr.head.sha !== process.env.TRIGGER_HEAD_SHA) throw new Error("PR is not the exact open revision that triggered this producer");
+          writeFileSync(`${dir}/normalized.json`, `${JSON.stringify({ number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha })}\n`);
+          writeFileSync(process.env.GITHUB_OUTPUT, `pr_number=${pr.number}\nhead_sha=${pr.head.sha}\nbase_sha=${pr.base.sha}\ntrigger_head_sha=${process.env.TRIGGER_HEAD_SHA}\n`, { flag: "a" });
+          NODE
+
+      - name: Validate the bounded producer artifact
+        id: report
+        if: needs.produce.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.bind.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.bind.outputs.head_sha }}
+          BASE_SHA: ${{ steps.bind.outputs.base_sha }}
+          TRIGGER_HEAD_SHA: ${{ steps.bind.outputs.trigger_head_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          EVALUATOR_VERSION: ${{ steps.evaluator.outputs.version }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-finalizer
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > "$TEMP_DIR/artifacts.json"
+          node --input-type=module - "$TEMP_DIR/artifacts.json" "$RUN_ID" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { validateArtifactMetadata } from "./tooling/hunch-guard-review.mjs";
+          validateArtifactMetadata(JSON.parse(readFileSync(process.argv[2], "utf8")), Number(process.argv[3]));
+          NODE
+          mkdir -p "$TEMP_DIR/report"
+          gh run download "$RUN_ID" --name hunch-guard-report --dir "$TEMP_DIR/report"
+          report="$TEMP_DIR/report/guard-report.json"
+          test -f "$report" && test ! -L "$report"
+          resolved="$(realpath "$report")"
+          case "$resolved" in "$TEMP_DIR/report"/*) ;; *) echo "guard report escaped its artifact directory" >&2; exit 1 ;; esac
+          test "$(stat -c '%s' "$report")" -le 1048576
+          PR_NUMBER="$PR_NUMBER" HEAD_SHA="$HEAD_SHA" BASE_SHA="$BASE_SHA" TRIGGER_HEAD_SHA="$TRIGGER_HEAD_SHA" WORKFLOW_SHA="$WORKFLOW_SHA" RUN_ID="$RUN_ID" EVALUATOR_VERSION="$EVALUATOR_VERSION" REPORT="$report" node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { validateProducerReport } from "./tooling/hunch-guard-review-producer.mjs";
+          const report = JSON.parse(readFileSync(process.env.REPORT, "utf8"));
+          const result = validateProducerReport(report, { pr_number: Number(process.env.PR_NUMBER), head_sha: process.env.HEAD_SHA, base_sha: process.env.BASE_SHA, trigger_head_sha: process.env.TRIGGER_HEAD_SHA, workflow_sha: process.env.WORKFLOW_SHA, run_id: Number(process.env.RUN_ID), evaluator_version: process.env.EVALUATOR_VERSION });
+          process.stdout.write(`state=${result.state}\nreviewable=${result.reviewable}\n`);
+          writeFileSync(process.env.GITHUB_OUTPUT, `state=${result.state}\nreviewable=${result.reviewable}\n`, { flag: "a" });
+          NODE
+
+      - name: Publish the trusted final status on the exact PR head
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.bind.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.bind.outputs.head_sha }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-finalizer
+          PRODUCE_RESULT: ${{ needs.produce.result }}
+          REPORT_STATE: ${{ steps.report.outputs.state }}
+        run: |
+          set -euo pipefail
+          test -s "$TEMP_DIR/normalized.json" || { echo "PR metadata was not verified; refusing to publish a status" >&2; exit 1; }
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-latest.json"
+          PR_FILE="$TEMP_DIR/normalized.json" LATEST_FILE="$TEMP_DIR/pr-latest.json" node --input-type=module - <<'NODE'
+          import { readFileSync } from "node:fs";
+          const first = JSON.parse(readFileSync(process.env.PR_FILE, "utf8"));
+          const latest = JSON.parse(readFileSync(process.env.LATEST_FILE, "utf8"));
+          if (latest.number !== first.number || latest.state !== "open" || latest.base?.ref !== "main" || latest.base?.sha !== first.base_sha || latest.head?.sha !== first.head_sha) throw new Error("PR changed before trusted status publication");
+          NODE
+          state=failure
+          description="trusted Hunch Guard review unavailable or failed"
+          if test "$PRODUCE_RESULT" = success && test "$REPORT_STATE" = success; then
+            state=success
+            description="trusted Hunch Guard review passed"
+          elif test "$PRODUCE_RESULT" = success && test "$REPORT_STATE" = failure; then
+            description="trusted Hunch Guard review failed; direct scope may be reviewed"
+          fi
+          gh api --method POST "/repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state="$state" \
+            -f context="hunch-guard-review" \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

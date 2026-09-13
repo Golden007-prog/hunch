@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { evaluateReview, reportHash, validateArtifactMetadata } from "../tooling/hunch-guard-review.mjs";
-import { activeExecutablePolicy, classifySarif, workflowRunMeta } from "../tooling/hunch-guard-review-producer.mjs";
+import { activeExecutablePolicy, classifySarif, validateProducerReport, workflowRunMeta } from "../tooling/hunch-guard-review-producer.mjs";
 
 const head = "0123456789abcdef0123456789abcdef01234567";
 const base = "fedcba9876543210fedcba9876543210fedcba98";
@@ -206,6 +206,25 @@ test("producer classifies only a lone direct constraint error as reviewable", ()
     assert.equal(result.verdict, "failure");
   }
   assert.equal(classifySarif(null, null).evaluation_complete, false);
+});
+
+test("producer finalization accepts trusted pass and keeps direct failures reviewable", () => {
+  const expected = { pr_number: 42, head_sha: head, base_sha: base, trigger_head_sha: head, workflow_sha: trusted, run_id: runId, evaluator_version: evaluatorVersion };
+  const source = { run_id: runId, workflow_path: ".github/workflows/hunch-guard-review-producer.yml", workflow_sha: trusted, event: "workflow_run", trigger_head_sha: head };
+  const evaluator = { package: "@davesheffer/hunch", version: evaluatorVersion };
+  assert.equal(validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "pass", reviewable: false, evaluation_complete: true, failure_classes: [], findings: [], evaluator, source }, expected).state, "success");
+  assert.equal(validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"], findings: [{ rule_id: "con_scope", level: "error", message: "direct" }], evaluator, source }, expected).state, "failure");
+  assert.throws(() => validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"], findings: [{ rule_id: "other", level: "error", message: "uncited" }], evaluator, source }, expected), /cited blocking invariant/);
+});
+
+test("producer finalizer is a separate least-privilege status publisher", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/hunch-guard-review-producer.yml", import.meta.url), "utf8");
+  assert.match(workflow, /finalize:/);
+  assert.match(workflow, /needs: produce/);
+  assert.match(workflow, /statuses: write/);
+  assert.match(workflow, /validateProducerReport/);
+  assert.match(workflow, /pr-latest\.json/);
+  assert.match(workflow, /context="hunch-guard-review"/);
 });
 
 test("producer treats a missing policy directory as no policies, while malformed policy data fails closed", () => {

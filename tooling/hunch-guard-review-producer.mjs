@@ -6,6 +6,8 @@ import { join } from "node:path";
 const SHA = /^[0-9a-f]{40}$/;
 const REVIEWABLE = "direct_scope_blocker";
 const MAX_SARIF_BYTES = 2 * 1024 * 1024;
+const REPORT_SCHEMA = "hunch.guard-report/1";
+const REPORT_FAILURES = new Set([REVIEWABLE, "policy_failure", "executable_policy_failure", "conformance_failure", "veto", "regression", "unknown", "incomplete_evaluation", "infrastructure_failure"]);
 
 function fail(message) { throw new Error(message); }
 function required(value, label) { if (typeof value !== "string" || !value) fail(`${label} is missing`); return value; }
@@ -115,6 +117,28 @@ function classifySarif(sarif, exitCode, stderr = "") {
     failure_classes: [...classes].sort(),
     findings,
   };
+}
+
+export function validateProducerReport(report, expected) {
+  if (!report || typeof report !== "object" || Array.isArray(report) || report.schema !== REPORT_SCHEMA) fail("producer report schema is invalid");
+  for (const [key, value] of Object.entries({ pr_number: expected.pr_number, head_sha: expected.head_sha, base_sha: expected.base_sha })) {
+    if (report[key] !== value) fail(`producer report ${key} is not bound to the live PR`);
+  }
+  if (report.verdict !== "pass" && report.verdict !== "failure") fail("producer report verdict is invalid");
+  if (typeof report.reviewable !== "boolean" || typeof report.evaluation_complete !== "boolean" || !Array.isArray(report.failure_classes) || !Array.isArray(report.findings) || report.findings.length > 64) fail("producer report result is invalid or unbounded");
+  const classes = new Set(report.failure_classes);
+  if (classes.size !== report.failure_classes.length || [...classes].some((failure) => typeof failure !== "string" || !REPORT_FAILURES.has(failure))) fail("producer report failure class is invalid");
+  if ((report.verdict === "pass" && classes.size !== 0) || (report.verdict === "failure" && classes.size === 0)) fail("producer report verdict does not match its failure classes");
+  const expectedReviewable = report.evaluation_complete && classes.size === 1 && classes.has(REVIEWABLE);
+  if (report.reviewable !== expectedReviewable) fail("producer report reviewability is inconsistent with its failure classes");
+  for (const finding of report.findings) {
+    if (!finding || typeof finding !== "object" || typeof finding.rule_id !== "string" || finding.rule_id.length < 1 || finding.rule_id.length > 200 || typeof finding.level !== "string" || finding.level.length > 32 || typeof finding.message !== "string" || finding.message.length > 4096) fail("producer report finding evidence is invalid");
+  }
+  if (classes.has(REVIEWABLE) && !report.findings.some((finding) => finding.rule_id.startsWith("con_") && finding.level === "error")) fail("direct scope report has no cited blocking invariant");
+  if (!report.evaluator || report.evaluator.package !== "@davesheffer/hunch" || report.evaluator.version !== expected.evaluator_version) fail("producer report evaluator is not bound to the trusted package");
+  const source = report.source;
+  if (!source || source.run_id !== expected.run_id || source.workflow_path !== ".github/workflows/hunch-guard-review-producer.yml" || source.workflow_sha !== expected.workflow_sha || source.event !== "workflow_run" || source.trigger_head_sha !== expected.trigger_head_sha) fail("producer report source is not bound to this trusted run");
+  return { state: report.verdict === "pass" ? "success" : "failure", reviewable: report.reviewable, failure_classes: report.failure_classes };
 }
 
 export { classifySarif, buildSyntheticRepo, activeExecutablePolicy };
