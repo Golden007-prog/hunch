@@ -41,6 +41,32 @@ async function listen(app: ReturnType<typeof createServeApp>): Promise<string> {
   return `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
 }
 
+test("operator view serves a public shell with no partition data and keeps reads authenticated", async () => {
+  const { app, sofiaToken, cleanup } = served();
+  try {
+    const base = await listen(app);
+    const page = await fetch(`${base}/operator`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-type")!, /text\/html/);
+    assert.match(page.headers.get("content-security-policy")!, /connect-src 'self'/);
+    assert.match(page.headers.get("content-security-policy")!, /frame-ancestors 'none'/);
+    assert.equal(page.headers.get("cache-control"), "no-store");
+    const html = await page.text();
+    assert.match(html, /Shared state/);
+    for (const secret of [sofiaToken, "sofia@david", "organization/acme"]) assert.ok(!html.includes(secret));
+    for (const [path, type] of [["operator.js", "text/javascript"], ["operator.css", "text/css"]]) {
+      const asset = await fetch(`${base}/${path}`);
+      assert.equal(asset.status, 200);
+      assert.ok(asset.headers.get("content-type")?.startsWith(type!));
+      assert.equal(asset.headers.get("x-content-type-options"), "nosniff");
+    }
+    const denied = await fetch(`${base}/nuryel/v1/read`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: david, subject: "customer:c1" }) });
+    assert.equal(denied.status, 401);
+    const foreign = await fetch(`${base}/nuryel/v1/read`, { method: "POST", headers: { authorization: `Bearer ${sofiaToken}`, "content-type": "application/json" }, body: JSON.stringify({ scope: acme, subject: "customer:c1" }) });
+    assert.equal(foreign.status, 403);
+  } finally { await cleanup(); }
+});
+
 test("serve init declares the partition, mints a token once, stores only its hash, and refuses grants the server does not serve", () => {
   const { dir, file, config, sofiaToken, cleanup } = served();
   try {
