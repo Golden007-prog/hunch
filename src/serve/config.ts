@@ -1,3 +1,4 @@
+import { ProofPublicKeySchema, PublicOriginSchema, type ProofPublicKey } from '../core/stateProof.js';
 /**
  * `hunch serve` configuration — the served partitions and the principals allowed in.
  *
@@ -26,6 +27,7 @@ export const PartitionConfigSchema = z.object({
 export type PartitionConfig = z.infer<typeof PartitionConfigSchema>;
 
 export const PrincipalConfigSchema = z.object({
+  proof_key: ProofPublicKeySchema.optional(),
   id: z.string().regex(TOKEN),
   kind: z.enum(["human", "agent", "service"]),
   display: z.string().max(256).optional(),
@@ -36,11 +38,15 @@ export const PrincipalConfigSchema = z.object({
 export type PrincipalConfig = z.infer<typeof PrincipalConfigSchema>;
 
 export const ServeConfigSchema = z.object({
+  public_origin: PublicOriginSchema.optional(),
   schema: z.literal(SERVE_CONFIG_VERSION),
   port: z.number().int().min(1).max(65535).default(7474),
   partitions: z.array(PartitionConfigSchema).min(1).max(256),
   principals: z.array(PrincipalConfigSchema).max(1024).default([]),
-}).strict();
+ }).strict().superRefine((config, ctx) => {
+  if (config.principals.some(p => p.proof_key) && !config.public_origin) ctx.addIssue({ code: 'custom', message: 'key-bound principals require public_origin for the HTTPS reverse proxy' });
+});
+
 export type ServeConfig = z.infer<typeof ServeConfigSchema>;
 
 export const PARTITION_GITIGNORE = [
@@ -83,16 +89,22 @@ export function writeServeConfig(file: string, config: ServeConfig): void {
 }
 
 /** Constant-time token → principal. Undefined for a missing or unknown token. */
-export function resolvePrincipal(config: ServeConfig, token: string | undefined): Principal | undefined {
+export function resolveCredential(config: ServeConfig, token: string | undefined): PrincipalConfig | undefined {
   if (!token) return undefined;
   const hash = Buffer.from(hashToken(token), "hex");
   for (const p of config.principals) {
     const candidate = Buffer.from(p.token_sha256, "hex");
     if (candidate.length === hash.length && timingSafeEqual(candidate, hash)) {
-      return { id: p.id, kind: p.kind, ...(p.display ? { display: p.display } : {}), grants: p.grants };
+      return p;
     }
   }
   return undefined;
+}
+
+/** Legacy bearer callers cannot resolve a key-bound credential without proof. */
+export function resolvePrincipal(config: ServeConfig, token: string | undefined): Principal | undefined {
+  const p = resolveCredential(config, token);
+  return p && !p.proof_key ? { id: p.id, kind: p.kind, ...(p.display ? { display: p.display } : {}), grants: p.grants } : undefined;
 }
 
 export function partitionFor(config: ServeConfig, scope: Scope): PartitionConfig | undefined {
@@ -102,9 +114,13 @@ export function partitionFor(config: ServeConfig, scope: Scope): PartitionConfig
 /** `serve init`: ensure a partition directory declares its scope, and add a principal
  *  with a freshly minted token. Idempotent for the partition; a principal id that
  *  already exists gets a NEW token (rotation), the old one stops working. */
-export function initServeConfig(opts: { file: string; scope: Scope; root: string; principal?: { id: string; kind: "human" | "agent" | "service"; grants?: Scope[] }; port?: number }): { config: ServeConfig; token: string | null; partition: PartitionConfig } {
+export function initServeConfig(opts: { file: string; scope: Scope; root: string; principal?: { id: string; kind: "human" | "agent" | "service"; grants?: Scope[]; proofKey?: ProofPublicKey }; publicOrigin?: string; port?: number }): { config: ServeConfig; token: string | null; partition: PartitionConfig } {
   const file = resolve(opts.file);
   const existing = existsSync(file) ? readServeConfig(file) : null;
+  const publicOrigin = opts.publicOrigin ?? existing?.public_origin;
+  if (publicOrigin) PublicOriginSchema.parse(publicOrigin);
+  const proofKey = opts.principal?.proofKey ?? existing?.principals.find(p => p.id === opts.principal?.id)?.proof_key;
+  if (proofKey) { ProofPublicKeySchema.parse(proofKey); if (!publicOrigin) throw new Error("key-bound principals require an HTTPS public origin"); }
   const root = resolve(opts.root);
   const hunchDir = resolve(root, ".hunch");
   mkdirSync(hunchDir, { recursive: true });
@@ -129,9 +145,9 @@ export function initServeConfig(opts: { file: string; scope: Scope; root: string
   if (opts.principal) {
     token = mintToken();
     const grants = opts.principal.grants?.length ? opts.principal.grants : [opts.scope];
-    principals = [...principals.filter((p) => p.id !== opts.principal!.id), { id: opts.principal.id, kind: opts.principal.kind, token_sha256: hashToken(token), grants }];
+    principals = [...principals.filter((p) => p.id !== opts.principal!.id), { id: opts.principal.id, kind: opts.principal.kind, ...(proofKey ? { proof_key: proofKey } : {}), token_sha256: hashToken(token), grants }];
   }
-  const config: ServeConfig = { schema: SERVE_CONFIG_VERSION, port: opts.port ?? existing?.port ?? 7474, partitions, principals };
+  const config: ServeConfig = { ...(publicOrigin ? { public_origin: publicOrigin } : {}), schema: SERVE_CONFIG_VERSION, port: opts.port ?? existing?.port ?? 7474, partitions, principals };
   writeServeConfig(file, config);
   return { config, token, partition };
 }

@@ -1,3 +1,4 @@
+import { createStateProofSigner } from '../client/stateProof.js';
 /** JSON CLI over the existing HTTP client. The server owns authorization and state rules. */
 import type { Command } from 'commander';
 import { readFileSync, statSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { createStateClient, StateClientError, type StateClient } from '../client
 import { ReadRequestSchema, WriteRequestSchema, SubscribeRequestSchema, RecordsRequestSchema, ScopeSchema, STATE_FIELD_PROVENANCE_VERSION, STATE_RECORD_VISIBILITY_VERSION } from '../core/stateContract.js';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
-type CommonOptions = { url: string; tokenFile?: string; timeout: string; pretty?: boolean };
+type CommonOptions = { url: string; tokenFile?: string; proofKeyFile?: string; timeout: string; pretty?: boolean };
 type InputOptions = { input?: string; scope?: string; subject?: string; task?: string; ids?: string[]; after?: string };
 
 function scopeFrom(value: string | undefined) {
@@ -50,13 +51,20 @@ function connection(options: CommonOptions): StateClient {
     token = readFileSync(options.tokenFile, 'utf8').trim();
   }
   if (!token) throw new Error('set HUNCH_STATE_TOKEN or pass --token-file; tokens are not accepted as command arguments');
-  return createStateClient({ baseUrl: options.url, token, timeoutMs });
+  let proof;
+  if (options.proofKeyFile) {
+    const stat = statSync(options.proofKeyFile);
+    if (!stat.isFile() || stat.size > 8192) throw new Error('proof key must be a regular private-key file of at most 8 KiB');
+    proof = createStateProofSigner(readFileSync(options.proofKeyFile, 'utf8'));
+  }
+  return createStateClient({ baseUrl: options.url, token, timeoutMs, proof });
 }
 
 export function registerStateCommands(program: Command): void {
   const state = program.command('state').description('Read and write a served workspace using the state contract; JSON output')
     .option('--url <url>', 'server base URL (or HUNCH_STATE_URL)', process.env.HUNCH_STATE_URL || 'http://127.0.0.1:7474')
     .option('--token-file <file>', 'read a bearer token from a file; otherwise use HUNCH_STATE_TOKEN')
+    .option('--proof-key-file <file>', 'Ed25519 private PEM or JWK file for a key-bound token')
     .option('--timeout <ms>', 'timeout for each HTTP request', '15000')
     .option('--pretty', 'indent JSON output');
   const run = (work: (client: StateClient) => Promise<unknown>) => async () => {

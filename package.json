@@ -27,6 +27,7 @@
       "default": "./dist/projectDna.js"
     },
     "./state": "./dist/client/state.js",
+    "./state-proof": { "types": "./dist/client/stateProof.d.ts", "default": "./dist/client/stateProof.js" },
     "./reports": {
       "types": "./dist/taskReports.d.ts",
       "default": "./dist/taskReports.js"
