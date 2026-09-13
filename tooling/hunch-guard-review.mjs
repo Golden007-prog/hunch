@@ -124,6 +124,10 @@ function validateReport(report, policy, request, run) {
   if (report.verdict !== "failure" || report.reviewable !== true || report.evaluation_complete !== true || !Array.isArray(report.failure_classes)) {
     fail("guard report is not an explicit reviewable failure");
   }
+  if (!Array.isArray(report.findings) || report.findings.length === 0 || report.findings.length > 64) fail("guard report finding evidence is missing or too large");
+  for (const finding of report.findings) {
+    if (!isObject(finding) || typeof finding.rule_id !== "string" || finding.rule_id.length < 1 || finding.rule_id.length > 200 || typeof finding.level !== "string" || typeof finding.message !== "string" || finding.message.length > 4096) fail("guard report finding evidence is invalid");
+  }
   const classes = new Set(report.failure_classes);
   if (classes.size !== report.failure_classes.length || classes.size === 0) fail("guard report failure classes are invalid");
   for (const failure of classes) {
@@ -139,13 +143,15 @@ function validateReport(report, policy, request, run) {
   requiredInteger(source.run_id, "guard report source.run_id");
   requiredString(source.workflow_path, "guard report source.workflow_path");
   requiredString(source.workflow_sha, "guard report source.workflow_sha", SHA);
-  if (source.run_id !== run.id || source.workflow_path !== run.path || source.workflow_path !== TRUSTED_GUARD_PATH || source.workflow_sha !== run.head_sha) {
+  requiredString(source.trigger_head_sha, "guard report source.trigger_head_sha", SHA);
+  if (source.run_id !== run.id || source.workflow_path !== run.path || source.workflow_path !== TRUSTED_GUARD_PATH || source.workflow_sha !== run.head_sha || source.trigger_head_sha !== request.head_sha) {
     fail("guard report source is not bound to the trusted base workflow run");
   }
   if (run.event !== "workflow_run" || run.status !== "completed" || run.conclusion !== "success" || run.head_branch !== policy.default_branch || run.head_sha !== source.workflow_sha) {
     fail("guard report run was not produced in trusted base context");
   }
   if (source.event !== run.event) fail("guard report event receipt does not match the run");
+  if (classes.has("direct_scope_blocker") && !report.findings.some((finding) => finding.rule_id.startsWith("con_") && finding.level === "error")) fail("direct scope report has no cited blocking invariant");
 }
 
 export function evaluateReview({ policy, request, pr, actor, report, run }) {
@@ -171,6 +177,7 @@ export function evaluateReview({ policy, request, pr, actor, report, run }) {
     reason: request.reason.trim(),
     source_run_id: runId,
     failure_classes: [...report.failure_classes],
+    findings: report.findings,
   };
 }
 

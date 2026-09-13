@@ -12,7 +12,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: hunch-guard-review-producer-${{ github.event.pull_request.number }}
+  group: hunch-guard-review-producer-${{ github.event.workflow_run.id }}
   cancel-in-progress: true
 
 jobs:
@@ -31,28 +31,41 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVENT_PATH: ${{ github.event_path }}
           TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-producer
         run: |
           set -euo pipefail
           umask 077
           mkdir -p "$TEMP_DIR"
+          node --input-type=module - "$EVENT_PATH" "$TEMP_DIR/event-meta.json" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { workflowRunMeta } from "./tooling/hunch-guard-review-producer.mjs";
+          const [eventPath, output] = process.argv.slice(2);
+          writeFileSync(output, `${JSON.stringify(workflowRunMeta(JSON.parse(readFileSync(eventPath, "utf8"))))}\n`);
+          NODE
+          PR_NUMBER="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(String(JSON.parse(readFileSync(process.argv[1], "utf8")).pr_number))' "$TEMP_DIR/event-meta.json")"
+          TRIGGER_HEAD_SHA="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1], "utf8")).trigger_head_sha)' "$TEMP_DIR/event-meta.json")"
+          export TRIGGER_HEAD_SHA
+          case "$PR_NUMBER" in (''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;; esac
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
           node --input-type=module - <<'NODE'
           import { readFileSync, writeFileSync } from "node:fs";
           const dir = process.env.TEMP_DIR;
           const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
           const fullSha = /^[0-9a-f]{40}$/;
+          if (!fullSha.test(process.env.TRIGGER_HEAD_SHA ?? "")) throw new Error("triggering guard run did not provide a full PR head SHA");
           if (pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== process.env.GITHUB_REPOSITORY) throw new Error("PR is not an open main-branch PR");
           if (!fullSha.test(pr.head?.sha ?? "") || !fullSha.test(pr.base?.sha ?? "")) throw new Error("PR did not provide full immutable revisions");
+          if (pr.head.sha !== process.env.TRIGGER_HEAD_SHA) throw new Error("triggering guard run is stale for the current PR head");
           writeFileSync(`${dir}/normalized.json`, `${JSON.stringify({ number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha })}\n`);
-          writeFileSync(process.env.GITHUB_OUTPUT, `head_sha=${pr.head.sha}\nbase_sha=${pr.base.sha}\n` , { flag: "a" });
+          writeFileSync(process.env.GITHUB_OUTPUT, `pr_number=${pr.number}\ntrigger_head_sha=${process.env.TRIGGER_HEAD_SHA}\nhead_sha=${pr.head.sha}\nbase_sha=${pr.base.sha}\n` , { flag: "a" });
           NODE
 
       - name: Fetch the PR head as Git data
         env:
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          TRIGGER_HEAD_SHA: ${{ steps.pr.outputs.trigger_head_sha }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
         run: |
           set -euo pipefail
@@ -68,13 +81,14 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
-          version="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const p=JSON.parse(readFileSync("package.json","utf8")); if(typeof p.version!=="string" || !/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(p.version)) throw new Error("invalid trusted-base package version"); process.stdout.write(p.version)')"
+          version="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const p=JSON.parse(readFileSync("package.json","utf8")); if(typeof p.version!=="string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(p.version)) throw new Error("invalid trusted-base package version"); process.stdout.write(p.version)')"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Produce a machine-readable receipt from trusted code
         env:
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          TRIGGER_HEAD_SHA: ${{ steps.pr.outputs.trigger_head_sha }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           WORKFLOW_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
@@ -90,6 +104,7 @@ jobs:
             --repo "$GITHUB_WORKSPACE" \
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
+            --trigger-head-sha "$TRIGGER_HEAD_SHA" \
             --base-sha "$BASE_SHA" \
             --workflow-sha "$WORKFLOW_SHA" \
             --run-id "$RUN_ID" \

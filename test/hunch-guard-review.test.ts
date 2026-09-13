@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { evaluateReview, reportHash, validateArtifactMetadata } from "../tooling/hunch-guard-review.mjs";
-import { classifySarif } from "../tooling/hunch-guard-review-producer.mjs";
+import { activeExecutablePolicy, classifySarif, workflowRunMeta } from "../tooling/hunch-guard-review-producer.mjs";
 
 const head = "0123456789abcdef0123456789abcdef01234567";
 const base = "fedcba9876543210fedcba9876543210fedcba98";
@@ -36,12 +39,14 @@ function fixture(overrides: Record<string, unknown> = {}) {
     reviewable: true,
     evaluation_complete: true,
     failure_classes: ["direct_scope_blocker"],
+    findings: [{ rule_id: "con_scope", level: "error", message: "direct invariant", file: "src/example.ts" }],
     evaluator: { package: "@davesheffer/hunch", version: "1.32.4" },
     source: {
       run_id: runId,
       workflow_path: ".github/workflows/hunch-guard-review-producer.yml",
       workflow_sha: trusted,
       event: "workflow_run",
+      trigger_head_sha: head,
     },
     ...overrides,
   };
@@ -148,6 +153,23 @@ test("producer is default-branch workflow_run code and never installs or runs PR
   assert.doesNotMatch(workflow, /pull_request_target:/);
   assert.doesNotMatch(workflow, /npm install/);
   assert.doesNotMatch(workflow, /actions\/checkout[^\n]*head_sha/);
+  assert.doesNotMatch(workflow, /github\.event\.pull_request\.number/);
+});
+
+test("producer binds the workflow_run event shape to one exact PR head", () => {
+  const event = { workflow_run: { event: "pull_request", pull_requests: [{ number: 42, head: { sha: head } }] } };
+  assert.deepEqual(workflowRunMeta(event), { pr_number: 42, trigger_head_sha: head });
+  assert.throws(() => workflowRunMeta({ workflow_run: { event: "pull_request", pull_requests: [] } }), /exactly one/);
+  assert.throws(() => workflowRunMeta({ workflow_run: { event: "pull_request", pull_requests: [{ number: 42, head: { sha: base } }, { number: 43, head: { sha: head } }] } }), /exactly one/);
+});
+
+test("producer's extracted version command accepts a normal release version", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/hunch-guard-review-producer.yml", import.meta.url), "utf8");
+  const command = workflow.match(/version=\"\$\(node --input-type=module -e '([^']+)'\)\"/)?.[1];
+  assert.ok(command, "trusted version command must remain present");
+  const dir = mkdtempSync(join(tmpdir(), "hunch-guard-version-"));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "1.32.5" }));
+  assert.equal(execFileSync(process.execPath, ["--input-type=module", "-e", command!], { cwd: dir, encoding: "utf8" }), "1.32.5");
 });
 
 test("artifact metadata is exact, bounded, unexpired, and tied to the requested run", () => {
@@ -163,9 +185,8 @@ test("artifact metadata is exact, bounded, unexpired, and tied to the requested 
 
 test("producer classifies only a lone direct constraint error as reviewable", () => {
   const sarif = (results: object[]) => ({ version: "2.1.0", runs: [{ results }] });
-  assert.deepEqual(classifySarif(sarif([{ level: "error", ruleId: "con_scope", message: { text: "direct" } }]), 1), {
-    verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"],
-  });
+  const direct = classifySarif(sarif([{ level: "error", ruleId: "con_scope", message: { text: "direct" } }]), 1);
+  assert.deepEqual(direct, { verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"], findings: [{ rule_id: "con_scope", level: "error", message: "direct" }] });
   assert.equal(classifySarif(sarif([{ level: "error", ruleId: "con_scope", message: { text: "direct" } }]), 1, "strict freshness error").reviewable, false);
   for (const [ruleId, text] of [["pol_policy", "policy error"], ["dec_conf", "architectural conformance violated: x"], ["dec_veto", "reverses rejected approach"], ["dec_reg", "re-adds function"]]) {
     const result = classifySarif(sarif([{ level: "error", ruleId, message: { text } }]), 1);
@@ -173,4 +194,13 @@ test("producer classifies only a lone direct constraint error as reviewable", ()
     assert.equal(result.verdict, "failure");
   }
   assert.equal(classifySarif(null, null).evaluation_complete, false);
+});
+
+test("producer treats a missing policy directory as no policies, while malformed policy data fails closed", () => {
+  const empty = mkdtempSync(join(tmpdir(), "hunch-guard-empty-policy-"));
+  assert.equal(activeExecutablePolicy(empty), false);
+  const malformed = mkdtempSync(join(tmpdir(), "hunch-guard-malformed-policy-"));
+  mkdirSync(join(malformed, ".hunch", "policies"), { recursive: true });
+  writeFileSync(join(malformed, ".hunch", "policies", "bad.json"), "not json");
+  assert.equal(activeExecutablePolicy(malformed), true);
 });
