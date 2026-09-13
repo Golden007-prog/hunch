@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.32.8 — 2026-09-13
+
+- Updates repair legacy npm launchers and malformed `hunch mcp hook` commands while preserving unrelated settings, comments, and intentionally disabled hooks. Repeated repairs leave aligned configuration unchanged.
+- Codex update instructions now explain renewed command trust through `/hooks` and starting a new session. Integration health distinguishes configuration checks from verified runtime delivery.
+- npm, repository, documentation, and website copy now explain the shared-record product in plain language, distinguish the shipped engineering memory and self-hosted state server from the pilot vision, and keep the five homepage languages aligned.
+
 ## 1.32.7 — 2026-09-13
 
 - Codex native command hooks cover Bash and PowerShell, while integration health accepts failure capture only from explicit failed-tool evidence. Commit handoff waits through the owner marker's transient release window. MCP finding captures remain advisory `agent_recorded` testimony unless an authenticated human capture path exists.

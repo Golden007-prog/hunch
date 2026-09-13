@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "עדכונים מתקנים hooks ושומרים על הגדרות המשתמש",
       "הוקים של Codex וממצאי MCP שומרים על מקור אמין",
       "הוקים של Codex מדווחות על כשלים בכנות",
       "כתיבת הזיכרון ופעולות סביבת העבודה נשארות בטוחות",
@@ -67,6 +68,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Обновления исправляют хуки и сохраняют настройки пользователя",
       "Хуки Codex и находки MCP сохраняют честное происхождение",
       "Хуки Codex честно сообщают о сбоях",
       "Безопасная запись памяти и действия в нужном рабочем пространстве",
@@ -126,6 +128,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "التحديثات تصلح الخطافات وتحافظ على إعدادات المستخدم",
       "خطافات Codex ونتائج MCP تحافظ على مصدر صادق",
       "خطافات Codex تُبلغ عن الإخفاقات بصدق",
       "كتابة آمنة للذاكرة وإجراءات في مساحة العمل الصحيحة",
@@ -185,6 +188,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Las actualizaciones reparan hooks y conservan los ajustes del usuario",
       "Los hooks de Codex y los hallazgos MCP conservan una procedencia honesta",
       "Los hooks de Codex informan de los fallos con honestidad",
       "Escrituras de memoria seguras y acciones en el espacio de trabajo correcto",

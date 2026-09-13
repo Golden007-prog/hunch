@@ -4,10 +4,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hunch — حالة حتمية للمؤسسات التي تشغّل وكلاء</title>
-  <meta name="description" content="الوكلاء احتماليون. المؤسسات تحتاج حالة حتمية. يحفظ Hunch في git ما تقرّر وما أُنجز وما لا يزال مستحقًا، ويرفض التناقضات، ويسلّمها لكل وكيل قبل أن يجيب أو يعدّل الكود." />
-  <meta property="og:title" content="Hunch — حالة حتمية للمؤسسات التي تشغّل وكلاء" />
-  <meta property="og:description" content="طبقة الحالة الحتمية بين الوكلاء الاحتماليين والمؤسسة: قرارات وإيصالات والتزامات وقيود كود، محفوظة في git ومع رفض التناقضات." />
+  <title>Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي</title>
+  <meta name="description" content="تبقى القرارات والعمل المنجز والالتزامات متاحة لوكلاء الذكاء الاصطناعي مع مصادرها. ذاكرة هندسية مبنية على Git وخادم حالة تستضيفه بنفسك." />
+  <meta property="og:title" content="Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي" />
+  <meta property="og:description" content="أساس مشترك لعمل الوكلاء: قرارات المشروع وسجلات الإجراءات والالتزامات، مع المصادر وقواعد واضحة للتحديث." />
 <meta property="og:image" content="https://www.hunchmemory.com/hunch-og.png" />
 <meta property="og:url" content="https://www.hunchmemory.com/ar" />
 <meta property="og:locale" content="ar" />
@@ -364,8 +364,8 @@
        Decorative: aria-hidden, pointer-events none, reduced-motion aware. -->
   <div class="hero-art" aria-hidden="true"><canvas id="holdline"></canvas></div>
   <div class="hero-copy">
-    <h1 class="rise d1">الوكلاء احتماليون.<br /><b>المؤسسات تحتاج حالة حتمية.</b></h1>
-    <p class="lede rise d2">Hunch هو طبقة الحالة بينهما. ما تقرّر، وما أُنجز، وما لا يزال مستحقًا، وما لا يجوز لتغيير أن يكسره — محفوظ في git، مرفوض عند التناقض، ومسلَّم لكل وكيل قبل أن يجيب أو يعدّل كودكم.</p>
+    <h1 class="rise d1">امنح كل وكيل<br /><b>سجلًا مشتركًا يستند إليه.</b></h1>
+    <p class="lede rise d2">يحفظ Hunch القرارات والعمل المنجز والالتزامات مع مصادرها. ابدأ بذاكرة هندسية لوكلاء البرمجة، أو اربط الوكلاء بخادم حالة تستضيفه بنفسك.</p>
     <div class="hero-cta rise d3">
       <a class="btn" href="#start">ابدأ الآن</a>
       <a class="btn ghost" href="#story">شاهد كيف يعمل</a>
@@ -373,65 +373,65 @@
   </div>
 </header>
 
-<!-- ─────────────────────────── moat ─────────────────────────── -->
-<section id="moat" class="panel">
-  <div class="wrap">
-    <div class="tech-intro">
-      <div class="sec-head">
-        <span class="eyebrow">الخندق</span>
-        <h2>لماذا Hunch وليس طبقة ذاكرة أخرى.</h2>
-      </div>
-      <p>الذاكرة تحسّن الاسترجاع. الحالة تحسّن الرفض. كل خاصية أدناه يمكن التحقق منها في المستودع.</p>
-    </div>
-    <div class="tech-grid">
-      <article class="tech-item"><code>git</code><h3>Git هو مصدر الحقيقة</h3><p>كل حقيقة ملف JSON، وكل تغيير commit: قابل للمراجعة والتراجع والدمج، ولا يُحبس أبدًا في قاعدة بيانات مورّد.</p></article>
-      <article class="tech-item"><code>رفض</code><h3>رفض، لا تقارب</h3><p>قرار حي واحد لكل موضوع. السجل الثاني المتناقض يُرفض عند الكتابة، لا يُدمج لاحقًا.</p></article>
-      <article class="tech-item"><code>أدراج</code><h3>درج لكل مؤسسة وفريق وشخص</h3><p>مفتاح لكل وكيل يحدد ما يجوز له رؤيته قبل أي بحث.</p></article>
-      <article class="tech-item"><code>إيصالات</code><h3>المُنجز والمستحق حقائق</h3><p>إيصال متحقَّق منه لكل إجراء خارجي والتزام بموعد استحقاق، يقرؤهما أي وكيل يملك المفتاح.</p></article>
-      <article class="tech-item"><code>لا مرتين</code><h3>التصحيحات تصبح قواعد</h3><p>تصحيح الإنسان يُفرض من تلك اللحظة، ولا يُتذكر لجلسة واحدة فقط.</p></article>
-      <article class="tech-item"><code>مطابقة</code><h3>جانب الكود</h3><p>تُفحص القرارات والقيود وسلالة الأخطاء مقابل الكود حتميًا، بلا نموذج في مسار الحظر.</p></article>
-    </div>
-  </div>
-</section>
-
 <!-- ─────────────────────────── story ─────────────────────────── -->
 <section id="story">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">مشكلة الغريب اللامع</span>
-      <h2>يفهم بناء الجملة. لكنه لا يفهم لماذا يقول فريقك لا.</h2>
-      <p>تبقى الشيفرة. وتتلاشى الحكمة التي اكتسبها الفريق بشق الأنفس.</p>
+      <span class="eyebrow">السياق المفقود</span>
+      <h2>يستطيع الذكاء الاصطناعي قراءة الشيفرة. لكنه لا يرى القصة كاملة.</h2>
+      <p>يرى الملفات، لكنه لا يرى أسباب القرارات أو ما أخفق سابقًا أو ما قد يعطّله تغيير صغير.</p>
     </div>
     <div class="story-grid">
       <div class="story-beats">
         <article class="story-beat">
           <span class="story-when">يوم الاثنين</span>
-          <div><h3>يعالج الفريق خطأً مؤلمًا في تسجيل الخروج.</h3><p>ينقل الفريق الجلسات إلى الخادم كي يتمكّن من إبطال الرمز المسرّب فورًا. يضيف القرار بعض التعقيد، لكنه يغلق الثغرة.</p></div>
+          <div><h3>يصلح الفريق خطأً في تسجيل الخروج.</h3><p>يحتفظ الفريق بحالة تسجيل الدخول على الخادم، ليتوقف المفتاح المسروق عن العمل فور تسجيل الخروج.</p></div>
         </article>
         <article class="story-beat">
           <span class="story-when">بعد أشهر</span>
-          <div><h3>تبقى الشيفرة. ويتلاشى السياق.</h3><p>تُدفن الحادثة في pull request قديم، وينتقل شخصان إلى فريقين آخرين. ويبدو مسار الجلسة غير المعتاد الآن كأنه تعقيد بلا داعٍ.</p></div>
+          <div><h3>تبقى الشيفرة. ويضيع السبب.</h3><p>يصعب العثور على النقاش القديم. وتبدو الشيفرة الأكثر أمانًا الآن أعقد من اللازم.</p></div>
         </article>
         <article class="story-beat">
           <span class="story-when">الجلسة التالية</span>
-          <div><h3>يقترح غريب لامع «تبسيطها».</h3><p>التغيير مرتب وصحيح محليًا، لكنه يعيد فتح العطل نفسه الذي دفع الفريق ثمن فهمه.</p></div>
+          <div><h3>يرى الذكاء الاصطناعي شيفرة معقدة فيُبسّطها.</h3><p>يبدو التغيير مرتبًا، لكنه يعيد الخطأ نفسه في تسجيل الخروج.</p></div>
         </article>
         <article class="story-beat">
           <span class="story-when">مع Hunch</span>
-          <div><h3>يعلّم المستودع الوكيل قبل التعديل.</h3><p>يعيد Hunch إلى الواجهة ما اختير وما رُفض والخطأ الذي يمنعه القرار. يعمل الوكيل بحكمة الفريق من دون أن يتظاهر بأنه الفريق.</p></div>
+          <div><h3>يصل السبب الأصلي إلى الوكيل التالي.</h3><p>عندما يكون الدرس مسجّلًا والتكامل نشطًا، يستطيع Hunch عرض القرار والخطأ الذي يمنعه قبل التعديل.</p></div>
         </article>
       </div>
-      <aside class="receipt" aria-label="مثال على بطاقة ذاكرة المشروع">
-        <div class="receipt-head"><span>قبل تعديل · <bdi>src/auth/session.ts</bdi></span><b>وُجدت ذاكرة</b></div>
+      <aside class="receipt" aria-label="مثال على ذاكرة المشروع">
+        <div class="receipt-head"><span>قبل تعديل · <bdi>src/auth/session.ts</bdi></span><b>عُثر على ذاكرة</b></div>
         <div class="receipt-body">
           <span class="receipt-kicker">لماذا توجد هذه الشيفرة</span>
-          <h3>يجب أن يلغي تسجيل الخروج الوصول فورًا.</h3>
-          <div class="receipt-row"><span>المختار</span><p>الاحتفاظ بالجلسات على الخادم، وجعل الرموز تحمل معرّفًا مبهمًا فقط.</p></div>
-          <div class="receipt-row"><span>المرفوض</span><p>جلسات تعتمد على JWT فقط؛ تبقى صالحة بعد تسجيل الخروج حتى انتهاء الرمز.</p></div>
-          <div class="receipt-row"><span>يحمي من</span><p>استخدام رمز مسرّب بعد أن يعيد المستخدم ضبط جلسته.</p></div>
-          <p class="receipt-foot">إرشادي · حديث عند هذه المراجعة · الأدلة مرفقة</p>
+          <h3>يجب أن ينهي تسجيل الخروج الوصول فورًا.</h3>
+          <div class="receipt-row"><span>المختار</span><p>الاحتفاظ بحالة تسجيل الدخول على الخادم، حيث يمكن إنهاؤها فورًا.</p></div>
+          <div class="receipt-row"><span>المرفوض</span><p>الثقة برمز تسجيل الدخول حتى تنتهي صلاحيته.</p></div>
+          <div class="receipt-row"><span>يحمي من</span><p>استخدام رمز مسروق بعد تسجيل الخروج.</p></div>
+          <p class="receipt-foot">ذاكرة توضيحية · المصدر مرفق · إرشادية افتراضيًا</p>
         </div>
       </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────── moat ─────────────────────────── -->
+<section id="moat" class="panel">
+  <div class="wrap">
+    <div class="tech-intro">
+      <div class="sec-head">
+        <span class="eyebrow">متاح اليوم</span>
+        <h2>حافظ على استمرارية العمل بين الجلسات.</h2>
+      </div>
+      <p>يحفظ Hunch سجلات منظّمة في Git. يستطيع الوكلاء قراءة التاريخ ذي الصلة وإضافة أدلة جديدة والتحقق مما لا يزال ساريًا.</p>
+    </div>
+    <div class="tech-grid">
+      <article class="tech-item"><code>الذاكرة</code><h3>احتفظ بالأسباب</h3><p>احفظ القرارات والأساليب المرفوضة والأخطاء والأسئلة المفتوحة إلى جانب الشيفرة التي تفسّرها.</p></article>
+      <article class="tech-item"><code>القرارات</code><h3>اجعل التغييرات واضحة</h3><p>تُرفض القرارات الحالية المتعارضة. وعند استبدال قرار، يبقى سجل بما تغيّر.</p></article>
+      <article class="tech-item"><code>الوصول</code><h3>شارك مع الوكلاء المناسبين</h3><p>يتيح خادم الحالة للوكلاء المُعدّين الوصول إلى سجلات المؤسسة والفريق والمستخدم والمستودع المسموح بها.</p></article>
+      <article class="tech-item"><code>الإجراءات</code><h3>تابع ما أُنجز وما تبقّى</h3><p>سجّل نتائج الإجراءات والالتزامات. ويحتفظ العمل المجهول أو غير المتحقق منه بهذه الحالة.</p></article>
+      <article class="tech-item"><code>التحكم</code><h3>اختر ما يصبح قاعدة</h3><p>احتفظ بتصحيحات البشر للعمل القادم. يتطلب الحظر قاعدة موثوقة صراحة وتفعيل الوضع الصارم.</p></article>
+      <article class="tech-item"><code>git</code><h3>احتفظ بملكية السجل</h3><p>السجلات ملفات قابلة للقراءة. يتيح Git مراجعة التغييرات المحفوظة في commits والتراجع عنها؛ ويمكن إعادة بناء الفهارس.</p></article>
     </div>
   </div>
 </section>
@@ -440,14 +440,14 @@
 <section id="how" class="panel">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">كيف يعمل الحمض النووي للمشروع</span>
-      <h2>يتعلم Hunch كيف يعمل هذا المستودع، ثم يمنح كل وكيل ما يهمه فقط.</h2>
-      <p>يحوّل الأدلة الموجودة أصلًا في المستودع إلى سياق محدود وملائم. تبقى العادات المرصودة إرشادًا؛ ولا تكتسب سلطة الإنفاذ إلا القواعد التي يثق بها البشر صراحة.</p>
+      <span class="eyebrow">كيف يعمل Hunch</span>
+      <h2>تذكّر. استرجع. تحقّق.</h2>
+      <p>يقدّم Hunch للمساعد ملخصًا مركّزًا وأدوات للتحقق من عمله. ويظل المساعد مسؤولًا عن تخطيط المهمة وتنفيذها.</p>
     </div>
     <div class="outcome-grid">
-      <article class="outcome"><span class="step-n">01 / راقب</span><h3>اقرأ إشارات المستودع نفسه.</h3><p>يدرس Hunch مراجعة Git دقيقة وتاريخًا محدودًا وأعرافًا ملتزمًا بها وأدلة مراجعة يُسمح لأدواتك بتقديمها.</p></article>
-      <article class="outcome"><span class="step-n">02 / افهم</span><h3>ابنِ صورة قابلة للتتبّع.</h3><p>تحتفظ اللغة وعادات المساهمة وتوقعات المراجعة والأعراف الهندسية بدرجة ثقتها وحداثتها وأدلتها.</p></article>
-      <article class="outcome"><span class="step-n">03 / علّم</span><h3>قدّم الحمض النووي المناسب للعمل.</h3><p>يحصل الوكيل على السياق الملائم قبل التعديل. لا يتحول السلوك الشائع إلى قاعدة بصمت، وتبقى السلطة بشرية.</p></article>
+      <article class="outcome"><span class="step-n">01 / تذكّر</span><h3>احفظ التاريخ المفيد.</h3><p>سجّل القرارات والتصحيحات والملاحظات. واربطها بالشيفرة والمصادر ليسهل العثور على السبب لاحقًا.</p></article>
+      <article class="outcome"><span class="step-n">02 / استرجع</span><h3>استعد ما يهم.</h3><p>اختر الذاكرة الملائمة للمهمة عبر MCP وخطافات المساعد المدعومة. يعتمد نطاق التغطية على التكامل.</p></article>
+      <article class="outcome"><span class="step-n">03 / تحقّق</span><h3>تحقّق واعرض النتيجة.</h3><p>قيّم القواعد المدعومة واحتفظ بتقرير للمهمة يميّز بين الذاكرة المقدّمة والاستخدام المُبلّغ عنه والفحوص المرصودة.</p></article>
     </div>
   </div>
 </section>
@@ -457,18 +457,18 @@
     <div class="release-card">
       <div class="release-head">
         <div>
-          <span class="eyebrow">الحمض النووي للمشروع في v1.22</span>
-          <h2 id="release-proof-title">فهم قائم على الأدلة، لا على الانطباعات.</h2>
-          <p class="release-copy">يبني Hunch ملفًا مرتبطًا بمراجعة محددة من تاريخ Git وملفات الأعراف وأدلة المراجعة المحدودة. لا يدخل نص التعاون الخام إلى الملف، ولا تتحول العادات المرصودة إلى سياسة.</p>
+          <span class="eyebrow">اطّلع على الأدلة</span>
+          <h2 id="release-proof-title">اعرف ما وصل إلى الوكيل وما جرى التحقق منه.</h2>
+          <p class="release-copy">تعرض تقارير المهام الذاكرة المقدّمة وما يقول الوكيل إنه استخدمه، ونتائج القواعد والأوامر التي نُفّذت فعلًا.</p>
         </div>
         <code class="release-install">npm i -g @davesheffer/hunch</code>
       </div>
-      <div class="release-metrics" aria-label="ما يبقى قابلًا للتتبّع في الحمض النووي للمشروع">
-        <div class="release-metric"><strong>مراجعة دقيقة</strong><span>يبقى الملف مرتبطًا بالشيفرة التي يصفها</span></div>
-        <div class="release-metric"><strong>الثقة + الحداثة</strong><span>تبيّن كل سمة مدى قوة وحداثة دليلها</span></div>
-        <div class="release-metric"><strong>أدلة مختومة</strong><span>يستطيع الوكيل إظهار أساس كل ملاحظة</span></div>
+      <div class="release-metrics" aria-label="ما تميّز بينه تقارير المهام">
+        <div class="release-metric"><strong>مقدّم</strong><span>الذاكرة التي قدّمها Hunch لهذه المهمة</span></div>
+        <div class="release-metric"><strong>مُبلّغ عنه</strong><span>ما يقول الوكيل إنه طبّقه</span></div>
+        <div class="release-metric"><strong>مفحوص</strong><span>نتائج القواعد والأوامر محفوظة كأدلة منفصلة</span></div>
       </div>
-      <p class="release-caveat">يمكن للحمض النووي للمشروع توجيه الاستكشاف والمصطلحات والمراجعة. ولا يمكنه إنشاء قرار أو قيد أو سياسة أو إذن أو تجاوز أي منها. <a href="/docs">اقرأ كيف يعمل حد الأدلة ←</a></p>
+      <p class="release-caveat">نجاح اختبار وحده لا يثبت أن Hunch سبّب النتيجة. عند غياب الأدلة، يبقى الأمر غير متحقق منه. <a href="/docs#task-reports">اقرأ تقرير مهمة →</a></p>
     </div>
   </div>
 </section>
@@ -478,18 +478,18 @@
   <div class="wrap">
     <div class="tech-intro">
       <div class="sec-head">
-        <span class="eyebrow">ما يجعله جديرًا بالثقة</span>
-        <h2>ليس شخصية. وليس سياسة خفية. بل أدلة يمكنك فحصها.</h2>
+        <span class="eyebrow">داخل أدوات البرمجة</span>
+        <h2>افهم التغيير قبل تنفيذه.</h2>
       </div>
-      <p>يفصل Hunch بين الحمض النووي المرصود للمشروع والذاكرة الهندسية الدائمة والقواعد التي اعتمدها البشر. وتوضح كل إجابة مصدرها وحداثتها والسلطة التي تملكها فعلًا.</p>
+      <p>تربط الذاكرة الهندسية أسباب بناء الشيفرة باعتمادياتها والقواعد التي اختار الفريق حمايتها.</p>
     </div>
     <div class="tech-grid">
-      <article class="tech-item"><code class="literal">الحمض النووي للمشروع</code><h3>يتعلم كيف يتحدث المستودع</h3><p>تأتي المفردات وعادات المساهمة وتوقعات المراجعة والأعراف الهندسية من أدلة المستودع، لا من شخصية مولّدة.</p></article>
-      <article class="tech-item"><code>ذاكرة هندسية</code><h3>يتذكر لماذا توجد الشيفرة</h3><p>تبقى القرارات والبدائل المرفوضة والتصحيحات والأخطاء التي أُصلحت متاحة بعد زوال المحادثة أو pull request أو زميل الفريق.</p></article>
-      <article class="tech-item"><code>رسم الشيفرة</code><h3>يعرف ما قد يتأثر بالتغيير</h3><p>يتتبع Hunch الروابط بين الملفات والدوال ليظهر السبب المناسب في المكان المناسب.</p></article>
-      <article class="tech-item"><code>سلطة بشرية</code><h3>لا يحوّل الشيوع إلى سياسة</h3><p>تبقى الأنماط المرصودة إرشادية. ولا تكتسب سلطة الإنفاذ إلا قاعدة دقيقة يختار البشر الوثوق بها.</p></article>
-      <article class="tech-item"><code>الأدلة مرفقة</code><h3>يعرض مصدر كل ادعاء</h3><p>تنتقل درجة الثقة والحداثة والمصدر والمراجعة الداعمة مع السياق الذي يتلقاه الوكيل.</p></article>
-      <article class="tech-item"><code>محلي أولًا</code><h3>تبقى ذاكرتكم ملككم</h3><p>لا يتطلب Hunch حسابًا مستضافًا. احتفظوا بالذاكرة في المشروع أو في مستودع Git خاص يتحكم به الفريق.</p></article>
+      <article class="tech-item"><code class="literal">why</code><h3>اعثر على السبب</h3><p>اقرأ القرارات والأفكار المرفوضة والإخفاقات السابقة المرتبطة بملف أو رمز برمجي.</p></article>
+      <article class="tech-item"><code>نطاق التأثير</code><h3>اعرف ما يعتمد عليه</h3><p>تتبّع العلاقات المفهرسة في الشيفرة لفهم ما قد يتأثر بالتغيير.</p></article>
+      <article class="tech-item"><code>Project DNA</code><h3>تعرّف على الأعراف</h3><p>افحص المصطلحات وعادات العمل المرصودة. تبقى هذه الملاحظات إرشادية.</p></article>
+      <article class="tech-item"><code>compare</code><h3>قارن التغييرات</h3><p>قارن الفروع المرشحة بالقرارات والقيود المسجّلة.</p></article>
+      <article class="tech-item"><code>conform</code><h3>تحقّق من القصد المسجّل</h3><p>افحص علاقات الشيفرة المدعومة، مثل ما إذا كان مسار الدفع لا يزال يستدعي التحقق من الصلاحيات.</p></article>
+      <article class="tech-item"><code>بوابة التغييرات</code><h3>احمِ القواعد الموثوقة</h3><p>حدّد التعارضات مع القواعد المدعومة. يحظر الوضع الصارم التغييرات فقط حيث تسمح القاعدة والتكامل بذلك.</p></article>
     </div>
     <p class="tech-link">هل تريد التفاصيل التقنية؟ <a href="/docs">اقرأ كيف يعمل Hunch ←</a></p>
   </div>
@@ -500,14 +500,14 @@
   <div class="wrap">
     <div class="sec-head">
       <span class="eyebrow">ابدأ</span>
-      <h2>دع مستودعك يعرّف بنفسه.</h2>
+      <h2>ابدأ من مستودع.</h2>
     </div>
     <div class="qs">
       <div class="qs-steps">
         <div class="steps" style="margin-top:0">
-          <div class="step"><div><h3>ثبّت Hunch</h3><p>يقرأ أمر واحد مشروعك ويربط مساعدي البرمجة الذين تستخدمهم بالفعل.</p></div></div>
-          <div class="step"><div><h3>أضف التاريخ الذي يشرح السبب</h3><p>يجد <code>hunch backfill --since 90d</code> قرارات ودروسًا مفيدة في commits آخر 90 يومًا.</p></div></div>
-          <div class="step"><div><h3>شاهد ما تعلّمه Hunch</h3><p>افحص الحمض النووي لمشروعك، ثم اسأل: <em>«لماذا بُنيت وحدة الجلسات بهذه الطريقة؟»</em> تأتي كل إجابة مع دليل.</p></div></div>
+          <div class="step"><div><h3>ثبّت Hunch</h3><p>ثبّت أداة CLI وشغّل hunch init داخل المشروع الذي تريد الاحتفاظ بذاكرته.</p></div></div>
+          <div class="step"><div><h3>أضف الأسباب وراء الشيفرة</h3><p>يمكنك إثراء الذاكرة بتاريخ Git الحديث، ثم مراجعة القرارات والمصادر المسجّلة.</p></div></div>
+          <div class="step"><div><h3>اربط المساعد واسأل</h3><p>أعد تحميل المساعد واسأله لماذا بُني ملف بهذه الطريقة. في Codex، أكّد الثقة بالخطافات أولًا عبر /hooks.</p></div></div>
         </div>
         <div class="prov" aria-label="المساعدون المدعومون">
           <span>Claude Code</span><span>Cursor</span><span>VS Code</span><span>Windsurf</span><span>Codex</span><span>Antigravity</span><span>AGENTS.md</span>
@@ -536,7 +536,7 @@
           <button class="copybtn" data-copy="#install-cmd">نسخ</button>
         </div>
         <p class="install-note" style="font-family:var(--mono);font-size:12.5px;color:var(--mut);margin:14px 2px 0;line-height:1.7">
-          الحمض النووي للمشروع والذاكرة إرشاديان افتراضيًا. لا يُحظر شيء حتى تختار ذلك صراحة.<br /><br />
+          يقدّم Hunch إرشادات افتراضيًا. يتطلب الحظر اختيارك الصريح. للتحديث، شغّل <code>hunch update</code>، وأعد ربط المساعد، وراجع أوامر Codex التي تغيّرت في <code>/hooks</code>.<br /><br />
           تستخدم Claude Code؟ ثبّته كإضافة بدلًا من ذلك:<br />
           <code>/plugin marketplace add davesheffer/hunch</code> → <code>/plugin install hunch@hunch</code>
           <br /><a href="https://open-vsx.org/extension/davesheffer/hunch-vscode">Open VSX</a>
@@ -550,8 +550,8 @@
 <section class="cta">
   <div class="cta-art" aria-hidden="true"><canvas id="cta-dna"></canvas></div>
   <div class="wrap">
-    <h2>مؤسسة واحدة. حالة واحدة. كل وكيل يتحقق بدل أن يخمّن.</h2>
-    <p>تناقضات أقل، قرارات أفضل، تغييرات أكثر أمانًا.</p>
+    <h2>مصمّم لاستمرارية العمل بين الوكلاء.</h2>
+    <p>الهدف: تتحول مشكلة عميل إلى إصلاح في الشيفرة ومتابعة جرى التحقق منها. الحالة المشتركة متاحة اليوم؛ ويختبر مشروع Sofia التجريبي انتقال العمل كاملًا بين الوكلاء.</p>
     <div class="hero-cta">
       <a class="btn" href="#start">ابدأ الآن</a>
       <a class="btn ghost" href="/docs">اقرأ الوثائق</a>
@@ -564,7 +564,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="/ar"><span class="brand-mark" aria-hidden="true"></span>hunch</a>
-      <p class="about">Git يحفظ كودكم. Hunch يحفظ الحالة التي يعمل عليها وكلاؤكم.</p>
+      <p class="about">يحفظ Hunch القرارات وسجلات العمل والالتزامات التي يحتاج الوكلاء إلى مشاركتها.</p>
     </div>
     <div>
       <h4>المنتج</h4>

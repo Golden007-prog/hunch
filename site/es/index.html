@@ -4,10 +4,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hunch — Estado determinista para organizaciones que operan agentes</title>
-  <meta name="description" content="Los agentes son probabilísticos. Las organizaciones necesitan estado determinista. Hunch guarda en git qué se decidió, qué se hizo y qué se debe, rechaza las contradicciones y lo entrega a cada agente antes de que responda o edite código." />
-  <meta property="og:title" content="Hunch — Estado determinista para organizaciones que operan agentes" />
-  <meta property="og:description" content="La capa de estado determinista entre agentes probabilísticos y la organización: decisiones, recibos, compromisos y restricciones de código, nativa de git y con rechazo de contradicciones." />
+  <title>Hunch — Un registro compartido para agentes de IA</title>
+  <meta name="description" content="Mantén las decisiones, el trabajo realizado y los compromisos al alcance de los agentes de IA, con sus fuentes. Memoria de ingeniería basada en Git y un servidor de estado que puedes alojar tú mismo." />
+  <meta property="og:title" content="Hunch — Un registro compartido para agentes de IA" />
+  <meta property="og:description" content="Una base común para el trabajo de los agentes: decisiones del proyecto, registros de acciones y compromisos, con fuentes y reglas claras para las actualizaciones." />
 <meta property="og:image" content="https://www.hunchmemory.com/hunch-og.png" />
 <meta property="og:url" content="https://www.hunchmemory.com/es" />
 <meta property="og:locale" content="es_ES" />
@@ -364,8 +364,8 @@
        Decorative: aria-hidden, pointer-events none, reduced-motion aware. -->
   <div class="hero-art" aria-hidden="true"><canvas id="holdline"></canvas></div>
   <div class="hero-copy">
-    <h1 class="rise d1">Los agentes son probabilísticos.<br /><b>Las organizaciones necesitan estado determinista.</b></h1>
-    <p class="lede rise d2">Hunch es la capa de estado entre ambos. Qué se decidió, qué se hizo, qué se debe todavía y qué no puede romper un cambio: guardado en git, rechazado cuando contradice y entregado a cada agente antes de que responda o edite tu código.</p>
+    <h1 class="rise d1">Dale a cada agente<br /><b>un registro compartido para trabajar.</b></h1>
+    <p class="lede rise d2">Hunch guarda decisiones, trabajo realizado y compromisos junto con sus fuentes. Empieza con memoria de ingeniería para agentes de código o conecta agentes a un servidor de estado alojado por ti.</p>
     <div class="hero-cta rise d3">
       <a class="btn" href="#start">Empezar</a>
       <a class="btn ghost" href="#story">Ver cómo funciona</a>
@@ -373,65 +373,65 @@
   </div>
 </header>
 
-<!-- ─────────────────────────── moat ─────────────────────────── -->
-<section id="moat" class="panel">
-  <div class="wrap">
-    <div class="tech-intro">
-      <div class="sec-head">
-        <span class="eyebrow">el foso</span>
-        <h2>Por qué Hunch y no otra capa de memoria.</h2>
-      </div>
-      <p>La memoria optimiza el recuerdo. El estado optimiza el rechazo. Cada propiedad de abajo se puede verificar en el repositorio.</p>
-    </div>
-    <div class="tech-grid">
-      <article class="tech-item"><code>git</code><h3>Git es la fuente de verdad</h3><p>Cada hecho es un archivo JSON y cada cambio un commit: revisable, reversible, fusionable y nunca encerrado en la base de datos de un proveedor.</p></article>
-      <article class="tech-item"><code>rechazo</code><h3>Rechazo, no convergencia</h3><p>Una decisión viva por tema. Un segundo registro contradictorio se rechaza al escribir, no se fusiona después.</p></article>
-      <article class="tech-item"><code>cajones</code><h3>Un cajón por organización, equipo y persona</h3><p>Una llave por agente decide qué puede ver antes de cualquier búsqueda.</p></article>
-      <article class="tech-item"><code>recibos</code><h3>Lo hecho y lo debido son hechos</h3><p>Un recibo verificado por cada acción externa y un compromiso con fecha, legibles por cualquier agente con la llave.</p></article>
-      <article class="tech-item"><code>nunca dos veces</code><h3>Las correcciones se vuelven reglas</h3><p>Una corrección humana se aplica desde ese momento, no se recuerda solo una sesión.</p></article>
-      <article class="tech-item"><code>conformidad</code><h3>El lado del código</h3><p>Decisiones, restricciones y linaje de bugs se comprueban contra el código de forma determinista, sin modelo en la ruta de bloqueo.</p></article>
-    </div>
-  </div>
-</section>
-
 <!-- ─────────────────────────── story ─────────────────────────── -->
 <section id="story">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">el problema del extraño brillante</span>
-      <h2>Entiende la sintaxis. No entiende por qué tu equipo dice que no.</h2>
-      <p>El código permanece. El criterio ganado con esfuerzo se desvanece.</p>
+      <span class="eyebrow">el contexto que falta</span>
+      <h2>La IA puede leer tu código. No puede ver toda la historia.</h2>
+      <p>Ve archivos, pero no por qué se tomaron las decisiones, qué falló antes o qué podría romper un pequeño cambio.</p>
     </div>
     <div class="story-grid">
       <div class="story-beats">
         <article class="story-beat">
           <span class="story-when">Lunes</span>
-          <div><h3>Un equipo resuelve un doloroso error de cierre de sesión.</h3><p>Mueven las sesiones al servidor para poder revocar de inmediato un token filtrado. La decisión añade complejidad, pero cierra la brecha.</p></div>
+          <div><h3>Tu equipo corrige un error al cerrar sesión.</h3><p>Guardan las sesiones en el servidor para que una clave robada deje de funcionar en cuanto se cierra la sesión.</p></div>
         </article>
         <article class="story-beat">
           <span class="story-when">Meses después</span>
-          <div><h3>El código permanece. El contexto se desvanece.</h3><p>El incidente queda enterrado en un pull request antiguo. Dos personas cambian de equipo. El flujo inusual de la sesión ahora parece maquinaria innecesaria.</p></div>
+          <div><h3>El código sigue ahí. El motivo se pierde.</h3><p>La conversación antigua es difícil de encontrar. El código más seguro ahora parece más complicado de lo necesario.</p></div>
         </article>
         <article class="story-beat">
           <span class="story-when">Siguiente sesión</span>
-          <div><h3>Un extraño brillante propone «simplificarlo».</h3><p>El cambio es limpio y correcto de forma local. También reabre el mismo fallo que el equipo ya pagó por comprender.</p></div>
+          <div><h3>La IA ve código complejo y lo «simplifica».</h3><p>El cambio parece limpio, pero trae de vuelta el mismo error al cerrar sesión.</p></div>
         </article>
         <article class="story-beat">
           <span class="story-when">Con Hunch</span>
-          <div><h3>El repositorio enseña al agente antes de editar.</h3><p>Hunch recupera qué se eligió, qué se descartó y qué error evita la decisión. El agente trabaja con el criterio del equipo sin fingir que es el equipo.</p></div>
+          <div><h3>El motivo original llega al siguiente agente.</h3><p>Con la lección registrada y la integración activa, Hunch puede mostrar la decisión y el error que evita antes de editar.</p></div>
         </article>
       </div>
-      <aside class="receipt" aria-label="Ejemplo de tarjeta de memoria del proyecto">
+      <aside class="receipt" aria-label="Ejemplo de memoria del proyecto">
         <div class="receipt-head"><span>antes de editar · <bdi>src/auth/session.ts</bdi></span><b>memoria encontrada</b></div>
         <div class="receipt-body">
           <span class="receipt-kicker">Por qué existe este código</span>
-          <h3>Cerrar sesión debe revocar el acceso de inmediato.</h3>
-          <div class="receipt-row"><span>elegido</span><p>Mantener las sesiones en el servidor y dejar que los tokens solo lleven un identificador opaco.</p></div>
-          <div class="receipt-row"><span>descartado</span><p>Sesiones basadas solo en JWT; siguen siendo válidas tras cerrar sesión hasta que caducan.</p></div>
-          <div class="receipt-row"><span>protege de</span><p>Usar un token filtrado después de que la persona restablezca su sesión.</p></div>
-          <p class="receipt-foot">orientativo · vigente en esta revisión · evidencia adjunta</p>
+          <h3>Cerrar sesión debe poner fin al acceso de inmediato.</h3>
+          <div class="receipt-row"><span>elegido</span><p>Guardar las sesiones en el servidor, donde pueden cerrarse al instante.</p></div>
+          <div class="receipt-row"><span>descartado</span><p>Confiar en un token de acceso hasta que caduque.</p></div>
+          <div class="receipt-row"><span>protege de</span><p>El uso de un token robado después de cerrar sesión.</p></div>
+          <p class="receipt-foot">memoria de ejemplo · fuente incluida · orientativa por defecto</p>
         </div>
       </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────── moat ─────────────────────────── -->
+<section id="moat" class="panel">
+  <div class="wrap">
+    <div class="tech-intro">
+      <div class="sec-head">
+        <span class="eyebrow">disponible hoy</span>
+        <h2>Mantén la continuidad entre sesiones.</h2>
+      </div>
+      <p>Hunch guarda registros estructurados en Git. Tus agentes pueden leer el historial relevante, añadir nuevas pruebas y comprobar qué sigue vigente.</p>
+    </div>
+    <div class="tech-grid">
+      <article class="tech-item"><code>memoria</code><h3>Conserva los motivos</h3><p>Guarda decisiones, enfoques descartados, errores y preguntas abiertas junto al código que explican.</p></article>
+      <article class="tech-item"><code>decisiones</code><h3>Haz explícitos los cambios</h3><p>Las decisiones vigentes que entran en conflicto se rechazan. Al reemplazar una decisión queda un historial de lo que cambió.</p></article>
+      <article class="tech-item"><code>acceso</code><h3>Comparte con los agentes adecuados</h3><p>El servidor de estado da a los agentes configurados acceso a los registros permitidos de la organización, el equipo, el usuario y el repositorio.</p></article>
+      <article class="tech-item"><code>acciones</code><h3>Sigue lo hecho y lo pendiente</h3><p>Registra los resultados de las acciones y los compromisos. El trabajo cuyo estado se desconoce o no se ha verificado conserva esa indicación.</p></article>
+      <article class="tech-item"><code>control</code><h3>Elige qué se convierte en regla</h3><p>Conserva las correcciones humanas para futuros trabajos. El bloqueo requiere una regla de confianza explícita y el modo estricto.</p></article>
+      <article class="tech-item"><code>git</code><h3>El registro sigue siendo tuyo</h3><p>Los registros son archivos legibles. Git permite revisar y revertir cambios guardados en commits; los índices se pueden reconstruir.</p></article>
     </div>
   </div>
 </section>
@@ -440,14 +440,14 @@
 <section id="how" class="panel">
   <div class="wrap">
     <div class="sec-head">
-      <span class="eyebrow">cómo funciona el ADN del proyecto</span>
-      <h2>Hunch aprende cómo funciona este repositorio y después da a cada agente solo lo que importa.</h2>
-      <p>Convierte la evidencia que ya existe en el repositorio en contexto acotado y relevante. Los hábitos observados siguen siendo consejos; solo las reglas en las que las personas confían de forma explícita pueden obtener autoridad de aplicación.</p>
+      <span class="eyebrow">Cómo funciona Hunch</span>
+      <h2>Recordar. Recuperar. Comprobar.</h2>
+      <p>Hunch ofrece al asistente un resumen centrado en la tarea y herramientas para comprobar su trabajo. El asistente sigue planificando y ejecutando la tarea.</p>
     </div>
     <div class="outcome-grid">
-      <article class="outcome"><span class="step-n">01 / observar</span><h3>Lee las señales del propio repositorio.</h3><p>Hunch estudia una revisión exacta de Git, historial acotado, convenciones comprometidas y evidencia de revisiones que tus herramientas están autorizadas a aportar.</p></article>
-      <article class="outcome"><span class="step-n">02 / comprender</span><h3>Construye una imagen trazable.</h3><p>El lenguaje, los hábitos de contribución, las expectativas de revisión y las convenciones de ingeniería conservan su confianza, vigencia y evidencia.</p></article>
-      <article class="outcome"><span class="step-n">03 / enseñar</span><h3>Lleva el ADN adecuado al trabajo.</h3><p>El agente recibe el contexto relevante antes de editar. El comportamiento común nunca se convierte en regla a escondidas y la autoridad sigue siendo humana.</p></article>
+      <article class="outcome"><span class="step-n">01 / recordar</span><h3>Guarda el historial útil.</h3><p>Registra decisiones, correcciones y hallazgos. Vincúlalos al código y a sus fuentes para poder encontrar el motivo más adelante.</p></article>
+      <article class="outcome"><span class="step-n">02 / recuperar</span><h3>Recupera lo que importa.</h3><p>Selecciona memoria relevante para una tarea mediante MCP y los hooks compatibles del asistente. La cobertura depende de la integración.</p></article>
+      <article class="outcome"><span class="step-n">03 / comprobar</span><h3>Comprueba y muestra el resultado.</h3><p>Evalúa las reglas compatibles y guarda un informe de tarea con la memoria entregada, el uso declarado y las comprobaciones observadas.</p></article>
     </div>
   </div>
 </section>
@@ -457,18 +457,18 @@
     <div class="release-card">
       <div class="release-head">
         <div>
-          <span class="eyebrow">ADN del proyecto en v1.22</span>
-          <h2 id="release-proof-title">Comprensión basada en evidencia, no en sensaciones.</h2>
-          <p class="release-copy">Hunch construye un perfil ligado a una revisión concreta a partir del historial de Git, archivos de convenciones y evidencia acotada de revisiones. El texto bruto de la colaboración no entra en el perfil y los hábitos observados nunca se convierten en política.</p>
+          <span class="eyebrow">consulta las pruebas</span>
+          <h2 id="release-proof-title">Mira qué recibió el agente y qué se comprobó.</h2>
+          <p class="release-copy">Los informes de tarea muestran la memoria entregada, lo que el agente dice haber usado y los resultados de las reglas y los comandos que realmente se ejecutaron.</p>
         </div>
         <code class="release-install">npm i -g @davesheffer/hunch</code>
       </div>
-      <div class="release-metrics" aria-label="Lo que el ADN del proyecto mantiene trazable">
-        <div class="release-metric"><strong>revisión exacta</strong><span>el perfil queda ligado al código que describe</span></div>
-        <div class="release-metric"><strong>confianza + vigencia</strong><span>cada rasgo indica con qué fuerza y actualidad está respaldado</span></div>
-        <div class="release-metric"><strong>evidencia sellada</strong><span>el agente puede mostrar la base de cada observación</span></div>
+      <div class="release-metrics" aria-label="Qué distinguen los informes de tarea">
+        <div class="release-metric"><strong>entregado</strong><span>la memoria que Hunch proporcionó a esta tarea</span></div>
+        <div class="release-metric"><strong>declarado</strong><span>lo que el agente dice haber aplicado</span></div>
+        <div class="release-metric"><strong>comprobado</strong><span>resultados de reglas y comandos guardados como pruebas separadas</span></div>
       </div>
-      <p class="release-caveat">El ADN del proyecto puede orientar la exploración, la terminología y la revisión. No puede crear ni anular una decisión, restricción, política o permiso. <a href="/docs">Lee cómo funciona el límite de evidencia →</a></p>
+      <p class="release-caveat">Una prueba superada por sí sola no demuestra que Hunch haya causado el resultado. Lo que carece de pruebas sigue sin verificar. <a href="/docs#task-reports">Lee un informe de tarea →</a></p>
     </div>
   </div>
 </section>
@@ -478,18 +478,18 @@
   <div class="wrap">
     <div class="tech-intro">
       <div class="sec-head">
-        <span class="eyebrow">qué lo hace confiable</span>
-        <h2>No es una personalidad. No es una política invisible. Es evidencia que puedes inspeccionar.</h2>
+        <span class="eyebrow">dentro de las herramientas de código</span>
+        <h2>Entiende un cambio antes de hacerlo.</h2>
       </div>
-      <p>Hunch mantiene separados el ADN observado del proyecto, la memoria duradera de ingeniería y las reglas aprobadas por personas. Cada respuesta indica de dónde viene, su vigencia y la autoridad que realmente tiene.</p>
+      <p>La memoria de ingeniería conecta los motivos del código con sus dependencias y las reglas que el equipo decidió proteger.</p>
     </div>
     <div class="tech-grid">
-      <article class="tech-item"><code class="literal">ADN del proyecto</code><h3>Aprende cómo habla el repositorio</h3><p>El vocabulario, los hábitos de contribución, las expectativas de revisión y las convenciones de ingeniería provienen de evidencia del repositorio, no de una personalidad generada.</p></article>
-      <article class="tech-item"><code>memoria de ingeniería</code><h3>Recuerda por qué existe el código</h3><p>Las decisiones, los enfoques descartados, las correcciones y los errores resueltos siguen disponibles cuando el chat, el pull request o el compañero ya no están.</p></article>
-      <article class="tech-item"><code>grafo de código</code><h3>Sabe qué puede afectar un cambio</h3><p>Hunch sigue las conexiones entre archivos y funciones para mostrar la razón adecuada en el lugar adecuado.</p></article>
-      <article class="tech-item"><code>autoridad humana</code><h3>Nunca convierte popularidad en política</h3><p>Los patrones observados siguen siendo orientativos. Solo una regla precisa en la que las personas decidan confiar puede obtener autoridad de aplicación.</p></article>
-      <article class="tech-item"><code>evidencia adjunta</code><h3>Muestra de dónde sale cada afirmación</h3><p>La confianza, la vigencia, la procedencia y la revisión de respaldo viajan con el contexto que recibe el agente.</p></article>
-      <article class="tech-item"><code>local primero</code><h3>Tu memoria sigue siendo tuya</h3><p>Hunch no requiere una cuenta alojada. Guarda la memoria en tu proyecto o en un repositorio Git privado que controle el equipo.</p></article>
+      <article class="tech-item"><code class="literal">why</code><h3>Encuentra el motivo</h3><p>Lee las decisiones, las ideas descartadas y los fallos anteriores que explican un archivo o un símbolo del código.</p></article>
+      <article class="tech-item"><code>alcance del cambio</code><h3>Mira qué depende de él</h3><p>Sigue las relaciones indexadas del código para entender qué podría verse afectado por un cambio.</p></article>
+      <article class="tech-item"><code>Project DNA</code><h3>Conoce las convenciones</h3><p>Consulta la terminología y los hábitos de trabajo observados. Estas observaciones siguen siendo orientativas.</p></article>
+      <article class="tech-item"><code>compare</code><h3>Compara cambios</h3><p>Compara ramas candidatas con las decisiones y restricciones registradas.</p></article>
+      <article class="tech-item"><code>conform</code><h3>Comprueba la intención registrada</h3><p>Comprueba relaciones de código compatibles, como si un flujo de pago sigue llamando a la comprobación de autorización.</p></article>
+      <article class="tech-item"><code>control de cambios</code><h3>Protege las reglas de confianza</h3><p>Detecta conflictos con las reglas compatibles. El modo estricto solo bloquea donde la regla y la integración lo permiten.</p></article>
     </div>
     <p class="tech-link">¿Quieres los detalles técnicos? <a href="/docs">Lee cómo funciona Hunch →</a></p>
   </div>
@@ -500,14 +500,14 @@
   <div class="wrap">
     <div class="sec-head">
       <span class="eyebrow">primeros pasos</span>
-      <h2>Deja que tu repositorio se presente.</h2>
+      <h2>Empieza en un repositorio.</h2>
     </div>
     <div class="qs">
       <div class="qs-steps">
         <div class="steps" style="margin-top:0">
-          <div class="step"><div><h3>Instala Hunch</h3><p>Un solo comando lee tu proyecto y conecta los asistentes de programación que ya usas.</p></div></div>
-          <div class="step"><div><h3>Añade el historial que explica por qué</h3><p><code>hunch backfill --since 90d</code> encuentra decisiones y lecciones útiles en los commits de los últimos 90 días.</p></div></div>
-          <div class="step"><div><h3>Mira lo que aprendió Hunch</h3><p>Inspecciona el ADN de tu proyecto y después pregunta: <em>«¿Por qué está construido así el módulo de sesiones?»</em> Cada respuesta viene con evidencia.</p></div></div>
+          <div class="step"><div><h3>Instala Hunch</h3><p>Instala la CLI y ejecuta hunch init dentro del proyecto que quieras que recuerde.</p></div></div>
+          <div class="step"><div><h3>Añade los motivos del código</h3><p>Si quieres, incorpora el historial reciente de Git y después revisa las decisiones y fuentes registradas.</p></div></div>
+          <div class="step"><div><h3>Conecta y pregunta</h3><p>Recarga el asistente y pregunta por qué un archivo está construido así. En Codex, primero confirma la confianza en los hooks mediante /hooks.</p></div></div>
         </div>
         <div class="prov" aria-label="Asistentes compatibles">
           <span>Claude Code</span><span>Cursor</span><span>VS Code</span><span>Windsurf</span><span>Codex</span><span>Antigravity</span><span>AGENTS.md</span>
@@ -536,7 +536,7 @@
           <button class="copybtn" data-copy="#install-cmd">copiar</button>
         </div>
         <p class="install-note" style="font-family:var(--mono);font-size:12.5px;color:var(--mut);margin:14px 2px 0;line-height:1.7">
-          El ADN del proyecto y la memoria son orientativos por defecto. Nada se bloquea hasta que lo actives de forma explícita.<br /><br />
+          Hunch ofrece orientación por defecto. El bloqueo requiere tu elección explícita. Para actualizar, ejecuta <code>hunch update</code>, vuelve a conectar el asistente y revisa los comandos de Codex que hayan cambiado en <code>/hooks</code>.<br /><br />
           ¿Usas Claude Code? Instálalo como plugin:<br />
           <code>/plugin marketplace add davesheffer/hunch</code> → <code>/plugin install hunch@hunch</code>
           <br /><a href="https://open-vsx.org/extension/davesheffer/hunch-vscode">Open VSX</a>
@@ -550,8 +550,8 @@
 <section class="cta">
   <div class="cta-art" aria-hidden="true"><canvas id="cta-dna"></canvas></div>
   <div class="wrap">
-    <h2>Una organización. Un estado. Cada agente comprueba en lugar de adivinar.</h2>
-    <p>Menos contradicciones, mejores decisiones, cambios más seguros.</p>
+    <h2>Creado para dar continuidad al trabajo entre agentes.</h2>
+    <p>El objetivo: una incidencia de un cliente se convierte en una corrección de código y un seguimiento verificado. El estado compartido ya está disponible; el piloto Sofia está probando el proceso completo de traspaso del trabajo.</p>
     <div class="hero-cta">
       <a class="btn" href="#start">Empezar</a>
       <a class="btn ghost" href="/docs">Leer la documentación</a>
@@ -564,7 +564,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="/es"><span class="brand-mark" aria-hidden="true"></span>hunch</a>
-      <p class="about">Git guarda tu código. Hunch guarda el estado sobre el que corren tus agentes.</p>
+      <p class="about">Hunch conserva las decisiones, los registros de trabajo y los compromisos que los agentes necesitan compartir.</p>
     </div>
     <div>
       <h4>producto</h4>

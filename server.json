@@ -1,19 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.davesheffer/hunch",
-  "description": "Engineering memory for AI-assisted codebases: decisions, bug lineage and invariants, over MCP.",
+  "description": "Shared records for AI agents: engineering decisions, bug history, rules, and work state through MCP.",
   "repository": {
     "url": "https://github.com/davesheffer/hunch",
     "source": "github"
   },
   "websiteUrl": "https://www.hunchmemory.com",
-  "version": "1.32.7",
+  "version": "1.32.8",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@davesheffer/hunch",
-      "version": "1.32.7",
+      "version": "1.32.8",
       "runtimeHint": "npx",
       "packageArguments": [
         {
