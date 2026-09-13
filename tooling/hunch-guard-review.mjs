@@ -7,6 +7,7 @@ const SCHEMA = "hunch.guard-review-policy/1";
 const REPORT_SCHEMA = "hunch.guard-report/1";
 const TRUSTED_GUARD_PATH = ".github/workflows/hunch-guard-review-producer.yml";
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
+const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const REVIEWABLE_FAILURES = new Set(["direct_scope_blocker"]);
 const NEVER_WAIVE = new Set([
   "policy_failure",
@@ -82,7 +83,7 @@ function validatePolicy(policy) {
   }
   if (!isObject(policy.evaluator)) fail("policy evaluator is missing");
   requiredString(policy.evaluator.package, "policy evaluator.package");
-  requiredString(policy.evaluator.version, "policy evaluator.version");
+  if (policy.evaluator.version_source !== "trusted-package-json") fail("policy evaluator version must come from the trusted package manifest");
 }
 
 function validateRequest(request) {
@@ -116,7 +117,7 @@ function validateActor(actor, policy) {
   if (!allowed) fail("review actor is not an authorized maintainer");
 }
 
-function validateReport(report, policy, request, run) {
+function validateReport(report, policy, request, run, evaluatorVersion) {
   if (!isObject(report) || report.schema !== REPORT_SCHEMA) fail("unsupported guard report schema");
   if (report.pr_number !== request.pr_number || report.head_sha !== request.head_sha || report.base_sha !== request.base_sha) {
     fail("guard report is for a different PR revision");
@@ -135,7 +136,7 @@ function validateReport(report, policy, request, run) {
     if (!REVIEWABLE_FAILURES.has(failure)) fail(`guard report contains an unrecognized failure class: ${failure}`);
   }
   if (!isObject(report.evaluator)) fail("guard report evaluator receipt is missing");
-  if (report.evaluator.package !== policy.evaluator.package || report.evaluator.version !== policy.evaluator.version) {
+  if (report.evaluator.package !== policy.evaluator.package || report.evaluator.version !== evaluatorVersion) {
     fail("guard report used an unapproved evaluator");
   }
   if (!isObject(report.source)) fail("guard report source receipt is missing");
@@ -154,9 +155,10 @@ function validateReport(report, policy, request, run) {
   if (classes.has("direct_scope_blocker") && !report.findings.some((finding) => finding.rule_id.startsWith("con_") && finding.level === "error")) fail("direct scope report has no cited blocking invariant");
 }
 
-export function evaluateReview({ policy, request, pr, actor, report, run }) {
+export function evaluateReview({ policy, request, pr, actor, report, run, evaluatorVersion }) {
   validatePolicy(policy);
   validateRequest(request);
+  requiredString(evaluatorVersion, "trusted evaluator version", VERSION);
   validateActor(actor, policy);
   validatePr(pr, policy, request);
   if (!isObject(run)) fail("guard run metadata is missing");
@@ -165,7 +167,7 @@ export function evaluateReview({ policy, request, pr, actor, report, run }) {
   requiredString(run.head_sha, "guard run.head_sha", SHA);
   requiredString(run.event, "guard run.event");
   if (reportHash(report) !== request.report_hash) fail("guard report hash does not match the request");
-  validateReport(report, policy, request, { ...run, id: runId });
+  validateReport(report, policy, request, { ...run, id: runId }, evaluatorVersion);
   return {
     schema: "hunch.guard-review-receipt/1",
     decision: "authorized_exception",
@@ -201,7 +203,7 @@ function argument(args, name) {
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).pathname === new URL(import.meta.url).pathname) {
   try {
     const args = process.argv.slice(2);
-    if (args[0] !== "--verify") fail("usage: hunch-guard-review.mjs --verify --policy FILE --request FILE --pr FILE --actor FILE --report FILE --run FILE [--output FILE]");
+    if (args[0] !== "--verify") fail("usage: hunch-guard-review.mjs --verify --policy FILE --request FILE --pr FILE --actor FILE --report FILE --run FILE --evaluator-version VERSION [--output FILE]");
     const receipt = evaluateReview({
       policy: readJson(argument(args, "--policy"), "policy"),
       request: readJson(argument(args, "--request"), "request"),
@@ -209,6 +211,7 @@ if (process.argv[1] && new URL(`file://${process.argv[1]}`).pathname === new URL
       actor: readJson(argument(args, "--actor"), "actor"),
       report: readJson(argument(args, "--report"), "report"),
       run: readJson(argument(args, "--run"), "guard run"),
+      evaluatorVersion: argument(args, "--evaluator-version"),
     });
     const output = args.includes("--output") ? argument(args, "--output") : null;
     if (output) writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });

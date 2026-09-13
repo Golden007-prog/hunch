@@ -59,6 +59,24 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Set up the trusted Node.js runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22.13.0
+
+      - name: Bind evaluator identity to the trusted package manifest
+        id: evaluator
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const policy = JSON.parse(readFileSync(".github/hunch-guard-review.json", "utf8"));
+          if (policy.evaluator?.version_source !== "trusted-package-json" || policy.evaluator.package !== packageJson.name) throw new Error("trusted evaluator policy is not bound to package metadata");
+          if (typeof packageJson.version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version)) throw new Error("invalid trusted-base package version");
+          writeFileSync(process.env.GITHUB_OUTPUT, `version=${packageJson.version}\n`, { flag: "a" });
+          NODE
+
       - name: Collect exact PR and guard-run metadata
         env:
           GH_TOKEN: ${{ github.token }}
@@ -158,6 +176,7 @@ jobs:
         id: verify
         env:
           TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          EVALUATOR_VERSION: ${{ steps.evaluator.outputs.version }}
         run: |
           set -euo pipefail
           node tooling/hunch-guard-review.mjs --verify \
@@ -167,6 +186,7 @@ jobs:
             --actor "$TEMP_DIR/actor.json" \
             --report "$TEMP_DIR/report/guard-report.json" \
             --run "$TEMP_DIR/run.json" \
+            --evaluator-version "$EVALUATOR_VERSION" \
             --output "$TEMP_DIR/receipt.json"
 
       - name: Seal and upload the exception receipt

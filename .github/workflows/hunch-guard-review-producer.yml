@@ -27,6 +27,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up the trusted Node.js runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+
       - name: Read and bind the live PR revision
         id: pr
         env:

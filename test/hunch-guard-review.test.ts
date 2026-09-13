@@ -11,12 +11,13 @@ const head = "0123456789abcdef0123456789abcdef01234567";
 const base = "fedcba9876543210fedcba9876543210fedcba98";
 const trusted = "89abcdef0123456789abcdef0123456789abcdef";
 const runId = 741852;
+const evaluatorVersion = "1.32.4";
 
 const policy = {
   schema: "hunch.guard-review-policy/1",
   default_branch: "main",
   maintainers: [{ id: 26892525, login: "davesheffer" }],
-  evaluator: { package: "@davesheffer/hunch", version: "1.32.4" },
+  evaluator: { package: "@davesheffer/hunch", version_source: "trusted-package-json" },
 };
 
 const pr = {
@@ -40,7 +41,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
     evaluation_complete: true,
     failure_classes: ["direct_scope_blocker"],
     findings: [{ rule_id: "con_scope", level: "error", message: "direct invariant", file: "src/example.ts" }],
-    evaluator: { package: "@davesheffer/hunch", version: "1.32.4" },
+    evaluator: { package: "@davesheffer/hunch", version: evaluatorVersion },
     source: {
       run_id: runId,
       workflow_path: ".github/workflows/hunch-guard-review-producer.yml",
@@ -64,7 +65,7 @@ function request(report: object, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function review(overrides: { request?: Record<string, unknown>; pr?: object; actor?: object; report?: object; run?: object } = {}) {
+function review(overrides: { request?: Record<string, unknown>; pr?: object; actor?: object; report?: object; run?: object; evaluatorVersion?: string } = {}) {
   const report = overrides.report ?? fixture();
   return evaluateReview({
     policy,
@@ -73,6 +74,7 @@ function review(overrides: { request?: Record<string, unknown>; pr?: object; act
     actor: overrides.actor ?? actor,
     report,
     run: overrides.run ?? run,
+    evaluatorVersion: overrides.evaluatorVersion ?? evaluatorVersion,
   });
 }
 
@@ -82,6 +84,10 @@ test("accepts a direct-scope exception only with exact maintainer and revision r
   assert.equal(receipt.head_sha, head);
   assert.equal(receipt.base_sha, base);
   assert.equal(receipt.source_run_id, runId);
+});
+
+test("rejects a report whose evaluator version is not the trusted package version", () => {
+  assert.throws(() => review({ evaluatorVersion: "1.32.5" }), /unapproved evaluator/);
 });
 
 for (const [label, actorOverride] of [
@@ -142,6 +148,10 @@ test("review workflow remains data-only and separate from the required guard", (
   assert.doesNotMatch(workflow, /npm (?:install|run)/);
   assert.doesNotMatch(workflow, /\bhunch check\b/);
   assert.doesNotMatch(workflow, /checkout[^\n]*head\.sha/);
+  assert.match(workflow, /actions\/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38/);
+  assert.match(workflow, /node-version: 22\.13\.0/);
+  assert.match(workflow, /version_source.*trusted-package-json/);
+  assert.match(workflow, /writeFileSync\(process\.env\.GITHUB_OUTPUT/);
 });
 
 test("producer is default-branch workflow_run code and never installs or runs PR code", () => {
@@ -154,6 +164,8 @@ test("producer is default-branch workflow_run code and never installs or runs PR
   assert.doesNotMatch(workflow, /npm install/);
   assert.doesNotMatch(workflow, /actions\/checkout[^\n]*head_sha/);
   assert.doesNotMatch(workflow, /github\.event\.pull_request\.number/);
+  assert.match(workflow, /actions\/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38/);
+  assert.match(workflow, /node-version: 22\.13\.0/);
 });
 
 test("producer binds the workflow_run event shape to one exact PR head", () => {

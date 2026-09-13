@@ -6,6 +6,6 @@
   ],
   "evaluator": {
     "package": "@davesheffer/hunch",
-    "version": "1.32.4"
+    "version_source": "trusted-package-json"
   }
 }
