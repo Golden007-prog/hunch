@@ -5,6 +5,7 @@ import { closeSync, existsSync, lstatSync, openSync, readFileSync, realpathSync,
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DecisionSchema } from '../src/core/types.ts';
+import { isGitRepoRoot } from '../src/extractors/git.ts';
 
 const hash = value => 'sha256:' + createHash('sha256').update(value).digest('hex');
 const readJson = file => {
@@ -17,7 +18,7 @@ const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', ti
 export function prepareDevelopmentRun({ worktree, proposal, argvFile, minutes = 40 }) {
   if (!Number.isFinite(minutes) || minutes < 1 || minutes > 120) throw new Error('minutes must be 1..120');
   const cwd = realpathSync(worktree);
-  if (realpathSync(git(cwd, ['rev-parse', '--show-toplevel'])) !== cwd) throw new Error('worktree must name its repository root');
+  if (!isGitRepoRoot(cwd)) throw new Error('worktree must name its repository root');
   const gitDir = realpathSync(git(cwd, ['rev-parse', '--absolute-git-dir']));
   const common = realpathSync(resolve(cwd, git(cwd, ['rev-parse', '--git-common-dir'])));
   if (gitDir === common) throw new Error('use a linked Git worktree, not the primary checkout');
