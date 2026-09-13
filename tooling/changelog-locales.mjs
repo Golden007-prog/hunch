@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "כתיבת הזיכרון ופעולות סביבת העבודה נשארות בטוחות",
       "קריאות הכלים מפסיקות להיכשל בשקט",
       "הצהרה עדכנית אחת לנושא, ו-flush שלא נתקע",
       "הלקח מכריז על עצמו פעם אחת",
@@ -64,6 +65,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Безопасная запись памяти и действия в нужном рабочем пространстве",
       "Вызовы инструментов больше не падают молча",
       "Одно актуальное утверждение на субъект и flush, который не зависает",
       "Урок объявляет о себе один раз",
@@ -120,6 +122,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "كتابة آمنة للذاكرة وإجراءات في مساحة العمل الصحيحة",
       "استدعاءات الأدوات لم تعد تفشل بصمت",
       "بيان حالي واحد لكل موضوع، وتدفق لا يتجمّد",
       "الدرس يعلن عن نفسه مرة واحدة",
@@ -176,6 +179,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Escrituras de memoria seguras y acciones en el espacio de trabajo correcto",
       "Las llamadas a herramientas dejan de fallar en silencio",
       "Una sola declaración vigente por sujeto, y un volcado que no se congela",
       "La lección se anuncia una sola vez",

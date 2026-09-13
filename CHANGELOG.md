@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.32.5 — 2026-09-13
+
+- Concurrent memory updates now lock the actual shared store, refuse a busy
+  index instead of writing without its lock, and preserve complete atomic writes
+  and existing file permissions. Store artifacts reject unsafe links, special
+  files, and oversized input before reading them.
+- Integration updates preserve malformed user configuration instead of replacing
+  it. JSONC parsing handles token boundaries and line endings correctly; TOML
+  validation covers the whole existing file. Hook patch detection and managed
+  launcher matching no longer mistake unrelated user commands for Hunch.
+- VS Code extension 0.18.1 keeps views and actions attached to their originating
+  workspace, discards stale responses after a workspace switch, and refreshes
+  watchers as folders change. Windows CLI, streaming, and MCP launchers preserve
+  literal arguments through command shims.
+- Guard messages distinguish a scope requiring review from a demonstrated
+  invariant violation. Missing behavior-policy dependencies now name the correct
+  recovery command; restoring their reviewed evidence remains a separate step.
+
 ## 1.32.4 — 2026-09-13
 
 - Tool calls no longer die silently around a release. `npm version` keeps
