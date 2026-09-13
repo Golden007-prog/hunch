@@ -149,13 +149,15 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
       // The body never names the principal: the token did.
       delete body.principal;
       delete body.schema;
+      // Only authenticated grants select stores for cross-partition source visibility.
+      const accessOptions = { additionalStores: principal.grants.map(grant => storeFor(grant).store) };
 
       if (url.pathname === "/nuryel/v1/read") {
         const scope = requireScope(principal, body);
         if (body.observed_page !== undefined && body.scopes !== undefined) throw problem(400, 'malformed', 'observation pages require a single partition without scopes');
         const { store } = storeFor(scope);
         if (body.scopes === undefined) {
-          const { response, envelope } = readState(store, { schema: STATE_READ_VERSION, principal, ...body });
+          const { response, envelope } = readState(store, { schema: STATE_READ_VERSION, principal, ...body }, accessOptions);
           return send(res, 200, { ...response, envelope });
         }
         // Union read. The primary `scope` was gated above as always; every extra scope is
@@ -168,8 +170,8 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
         const ungranted = requested.data.filter((s) => !isGranted(s));
         const others = new Map<string, Scope>();
         for (const s of requested.data) if (isGranted(s) && scopePath(s) !== scopePath(scope) && !others.has(scopePath(s))) others.set(scopePath(s), s);
-        const primary = readState(store, { schema: STATE_READ_VERSION, principal, ...rest, scope });
-        const merged = mergeReadResponses(primary.response, [...others.values()].map((other) => readState(storeFor(other).store, { schema: STATE_READ_VERSION, principal, ...rest, scope: other }).response), ungranted);
+        const primary = readState(store, { schema: STATE_READ_VERSION, principal, ...rest, scope }, accessOptions);
+        const merged = mergeReadResponses(primary.response, [...others.values()].map((other) => readState(storeFor(other).store, { schema: STATE_READ_VERSION, principal, ...rest, scope: other }, accessOptions).response), ungranted);
         return send(res, 200, { ...merged, envelope: primary.envelope });
       }
       if (url.pathname === "/nuryel/v1/write") {
@@ -177,6 +179,7 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
         const { store, root } = storeFor(scope);
         const { hunchDir } = stateHomeFor(store, scope);
         const result = await withWriteLock(hunchDir, () => writeState(store, { schema: STATE_WRITE_VERSION, principal, ...body }, {
+          ...accessOptions,
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
         }));
         return send(res, result.outcome === "created" ? 201 : 200, result);
@@ -186,6 +189,7 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
         const { store, root } = storeFor(scope);
         const { hunchDir } = stateHomeFor(store, scope);
         const result = await withWriteLock(hunchDir, () => captureState(store, { schema: STATE_CAPTURE_VERSION, principal, ...body }, {
+          ...accessOptions,
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
         }));
         return send(res, result.outcome === "created" ? 201 : 200, result);
@@ -195,6 +199,7 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
         const { store, root } = storeFor(scope);
         const { hunchDir } = stateHomeFor(store, scope);
         const result = await withWriteLock(hunchDir, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, principal, ...body }, {
+          ...accessOptions,
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
         }));
         return send(res, 200, result);
@@ -202,12 +207,12 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
       if (url.pathname === "/nuryel/v1/subscribe") {
         const scope = requireScope(principal, body);
         const { store } = storeFor(scope);
-        return send(res, 200, subscribeState(store, { schema: STATE_SUBSCRIBE_VERSION, principal, ...body }));
+        return send(res, 200, subscribeState(store, { schema: STATE_SUBSCRIBE_VERSION, principal, ...body }, accessOptions));
       }
       if (url.pathname === "/nuryel/v1/records") {
         const scope = requireScope(principal, body);
         const { store } = storeFor(scope);
-        return send(res, 200, recordsState(store, { schema: STATE_RECORDS_VERSION, principal, ...body }));
+        return send(res, 200, recordsState(store, { schema: STATE_RECORDS_VERSION, principal, ...body }, accessOptions));
       }
       throw problem(404, "not-found", `${url.pathname} is not a nuryel.state/1 route`);
     } catch (error) {

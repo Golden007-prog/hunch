@@ -1,3 +1,4 @@
+import { RecordVisibilitySchema } from "./recordVisibility.js";
 /**
  * nuryel.state/1 — the RECORD schemas (the facets that are new record kinds in the store).
  *
@@ -90,6 +91,7 @@ export type DependencyRef = z.infer<typeof DependencyRefSchema>;
 
 /** done — a side effect that happened. Never replayable as a read; idempotency is explicit. */
 export const ActionReceiptSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(RECEIPT_SCHEMA_VERSION),
   id: z.string().regex(/^nrc_[a-f0-9]{24}$/),
   scope: ScopeSchema,
@@ -115,6 +117,7 @@ export type ActionReceipt = z.infer<typeof ActionReceiptSchema>;
 
 /** committed — an obligation with a due date and an in-force window. */
 export const CommitmentSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(COMMITMENT_SCHEMA_VERSION),
   id: z.string().regex(/^ncm_[a-f0-9]{24}$/),
   scope: ScopeSchema,
@@ -151,6 +154,7 @@ export type FieldProvenance = z.infer<typeof FieldProvenanceSchema>;
 /** current — a statement that is true now, and on what it rests. Dependencies are mandatory:
  *  a derived statement without them cannot be invalidated and therefore cannot be trusted. */
 export const DerivedStateSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(DERIVED_SCHEMA_VERSION),
   id: z.string().regex(/^nds_[a-f0-9]{24}$/),
   scope: ScopeSchema,
@@ -182,6 +186,7 @@ const AttributeValue = z.union([z.string().max(2048), z.number().finite(), z.boo
  *  id, lifecycle, provenance), with provenance pointers instead of mirrored content. Stored in
  *  an index file, like resources, because kind-qualified ids are not safe file names. */
 export const ExternalEntitySchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(ENTITY_SCHEMA_VERSION),
   id: z.string().min(3).max(2048),
   kind: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
@@ -215,6 +220,7 @@ export type ExternalEntity = z.infer<typeof ExternalEntitySchema>;
 
 /** relationship — rides the same identity rule as the graph's edges. Index-file stored. */
 export const StateRelationshipSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(RELATIONSHIP_SCHEMA_VERSION),
   id: z.string().regex(/^edge_[a-f0-9]+$/),
   from: z.string().min(1).max(2048),

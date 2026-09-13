@@ -1,3 +1,4 @@
+import { RecordVisibilitySchema } from "./recordVisibility.js";
 /**
  * Core entity schema for the Project Hunch (DESIGN.md §3).
  *
@@ -356,6 +357,7 @@ export const PremiseSchema = z.object({
 export type Premise = z.infer<typeof PremiseSchema>;
 
 export const DecisionSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   id: z.string().describe("dec_*"),
   title: z.string(),
   // Decision-grounding anchor: the join key that relates a doc section, a decision,
@@ -409,6 +411,7 @@ export type BugLineage = z.infer<typeof BugLineageSchema>;
 
 /** A bug with root cause and lineage (introduced → fixed → recurred). */
 export const BugSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   id: z.string().describe("bug_*"),
   title: z.string(),
   symptom: z.string().default(""),
@@ -427,6 +430,7 @@ export type Bug = z.infer<typeof BugSchema>;
 
 /** An invariant the system must respect. */
 export const ConstraintSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   id: z.string().describe("con_*"),
   type: z.enum(["security", "performance", "correctness", "architecture", "compliance"]).default("correctness"),
   statement: z.string(),
@@ -491,6 +495,7 @@ export type Runbook = z.infer<typeof RunbookSchema>;
  *  never enters any block path. Lifecycle is `triage`, not valid-time: a finding is
  *  resolved/stale-marked, never superseded. */
 export const FindingSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   id: z.string().describe("fnd_*"),
   title: z.string(),
   observation: z.string().default("").describe("what was observed, in plain words"),

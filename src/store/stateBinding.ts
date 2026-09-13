@@ -1,3 +1,8 @@
+import { StateRefusal } from "./stateError.js";
+import { partitionOf, recordScope } from "./statePartition.js";
+import { createStateAccess, type StateAccessOptions } from "./stateAccess.js";
+import { visibilityAllows, type RecordVisibility } from "../core/recordVisibility.js";
+import { writeFileAtomic } from "../core/io.js";
 /**
  * nuryel.state/1 bound to the store — the ONE implementation of read / write / subscribe
  * that every transport (MCP today; HTTP, CLI, typed client next) calls. Transport-free:
@@ -17,8 +22,7 @@
  * dependencies, external-truth-stays-external (schema refinements), never-in-request-path
  * (there is no proxy verb — this module never fetches anything).
  */
-import { basename, join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import type { HunchStore } from "./hunchStore.js";
 import { appendChanges, latestSeqFor, readLedger, type PendingChange } from "./changeLedger.js";
@@ -28,7 +32,7 @@ import { ENTITY_KINDS, SCHEMAS, type EntityFor, type EntityKind } from "../core/
 import { captureConflicts, isLive } from "../core/topics.js";
 import { buildDeliveryEnvelope, type DeliveryEnvelope } from "../core/delivery.js";
 import {
-  STATE_CAPABILITIES, STATE_CONTRACT_VERSION, STATE_FACETS, STATE_READ_VERSION, STATE_SUBSCRIBE_VERSION, STATE_WRITE_VERSION,
+  STATE_CAPABILITIES, STATE_CONTRACT_VERSION, STATE_RECORD_VISIBILITY_VERSION, STATE_FACETS, STATE_READ_VERSION, STATE_SUBSCRIBE_VERSION, STATE_WRITE_VERSION,
   ReadRequestSchema, ReadResponseSchema, WriteRequestSchema, WriteResultSchema, SubscribeRequestSchema, ChangeEventSchema,
   RecordsRequestSchema, RecordsResponseSchema, STATE_RECORDS_VERSION,
   ScopeSchema, scopePath, stateHash, actionReceiptId, commitmentId, derivedId, relationshipId, externalKey, subjectOfRef,
@@ -38,16 +42,7 @@ import {
 } from "../core/stateContract.js";
 
 /** A typed refusal. `code` is stable for bindings; `conflict` names the incumbent when one exists. */
-export class StateRefusal extends Error {
-  constructor(
-    readonly code: "outside-grants" | "unsupported" | "malformed" | "identity" | "conflict" | "no-partition-home" | "idempotency",
-    message: string,
-    readonly conflict: { incumbent_id: string; reason: string } | null = null,
-  ) {
-    super(message);
-    this.name = "StateRefusal";
-  }
-}
+export { StateRefusal } from "./stateError.js";
 
 const LEGACY_FACETS = new Set<StateFacet>(["decisions", "constraints", "bugs", "findings"]);
 // Explicit classes, no `i` flag: the pattern must survive zod → JSON schema for MCP output validation.
@@ -57,19 +52,7 @@ const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$/;
  *  (`{ kind, id }`, committed with the store); a plain checkout is the repository partition
  *  named after its directory, sanitized to the contract's token grammar — stable per clone,
  *  discoverable through `capabilities`, and the scope every legacy record defaults to. */
-export function partitionOf(store: HunchStore): Scope {
-  const declared = join(hunchPaths(store.publicRoot).hunch, "partition.json");
-  if (existsSync(declared)) {
-    const parsed = ScopeSchema.safeParse(JSON.parse(readFileSync(declared, "utf8")));
-    if (!parsed.success) throw new StateRefusal("unsupported", `${declared} does not declare a valid partition scope`);
-    return parsed.data;
-  }
-  const raw = basename(store.publicRoot).replace(/[^A-Za-z0-9._:@+-]/g, "-").replace(/^[^A-Za-z0-9]+/, "");
-  const id = TOKEN.test(raw) ? raw : "repository";
-  return { kind: "repository", id };
-}
-/** @deprecated name kept for callers written before served partitions; same value as partitionOf. */
-export const repositoryScope = partitionOf;
+export { partitionOf, repositoryScope } from "./statePartition.js";
 
 export const SubscribeResponseSchema = z.object({
   schema: z.literal(STATE_SUBSCRIBE_VERSION),
@@ -114,12 +97,6 @@ export function stateHomeFor(store: HunchStore, scope: Scope): { home: "public" 
   return { home: "private", hunchDir: store.privateDir, isPrivate: true };
 }
 
-const recordScope = (record: unknown, repo: Scope): Scope => {
-  const s = (record as { scope?: unknown }).scope;
-  const parsed = ScopeSchema.safeParse(s);
-  return parsed.success ? parsed.data : repo;
-};
-
 // ---- read ----------------------------------------------------------------------------------
 
 function refOf(facet: StateFacet, record: { id: string }, scope: Scope): StateRef {
@@ -142,9 +119,9 @@ function survivorOf(byId: Map<string, EntityFor["entities"]>, entity: EntityFor[
 
 /** The entities in the principal's grants that stand for an external key or an entity id — active
  *  ones directly, retired-and-merged ones through the survivor they name. */
-function entityIndex(store: HunchStore, principal: Principal, repo: Scope): { byKey: Map<string, EntityFor["entities"]>; bySubject: Map<string, EntityFor["entities"]>; byId: Map<string, EntityFor["entities"]>; survivor: (e: EntityFor["entities"]) => EntityFor["entities"] } {
+function entityIndex(store: HunchStore, principal: Principal, repo: Scope, canRead: (record: unknown) => boolean = () => true): { byKey: Map<string, EntityFor["entities"]>; bySubject: Map<string, EntityFor["entities"]>; byId: Map<string, EntityFor["entities"]>; survivor: (e: EntityFor["entities"]) => EntityFor["entities"] } {
   const byId = new Map<string, EntityFor["entities"]>();
-  for (const e of store.recs("entities")) if (granted(principal, recordScope(e, repo))) byId.set(e.id, e);
+  for (const e of store.recs("entities")) if (granted(principal, recordScope(e, repo)) && canRead(e)) byId.set(e.id, e);
   const survivor = (e: EntityFor["entities"]): EntityFor["entities"] => survivorOf(byId, e);
   const byKey = new Map<string, EntityFor["entities"]>();
   const bySubject = new Map<string, EntityFor["entities"]>();
@@ -161,9 +138,9 @@ function entityIndex(store: HunchStore, principal: Principal, repo: Scope): { by
 
 /** The names one subject is filed under: itself, the entity that stands for it (through merges),
  *  every entity merged into that one, and every key any of them carries. Explicit refs only. */
-function subjectAliases(store: HunchStore, principal: Principal, repo: Scope, subject: string): Set<string> {
+function subjectAliases(store: HunchStore, principal: Principal, repo: Scope, subject: string, canRead: (record: unknown) => boolean): Set<string> {
   const aliases = new Set([subject]);
-  const { bySubject, byId, survivor } = entityIndex(store, principal, repo);
+  const { bySubject, byId, survivor } = entityIndex(store, principal, repo, canRead);
   const named = bySubject.get(subject) ?? byId.get(subject);
   if (!named) return aliases;
   const stands = survivor(named);
@@ -179,7 +156,7 @@ function subjectAliases(store: HunchStore, principal: Principal, repo: Scope, su
 /** read — the system-of-record answer for a subject, under the delivery envelope's receipt.
  *  Grants are the first predicate on every candidate; a matching record in a scope the
  *  principal lacks is NAMED in denied_scopes and never described. */
-export function readState(store: HunchStore, input: unknown): { response: ReadResponse; envelope: DeliveryEnvelope } {
+export function readState(store: HunchStore, input: unknown, options: StateAccessOptions = {}): { response: ReadResponse; envelope: DeliveryEnvelope } {
   const request: ReadRequest = ReadRequestSchema.parse(input);
   if (!granted(request.principal, request.scope)) throw new StateRefusal("outside-grants", `scope ${scopePath(request.scope)} is outside the principal's grants`);
   if (request.observed_page && (request.subject === undefined || request.scopes !== undefined || (request.facets && !request.facets.includes('derived')))) {
@@ -188,12 +165,13 @@ export function readState(store: HunchStore, input: unknown): { response: ReadRe
   const repo = partitionOf(store);
   const facets = new Set<StateFacet>(request.facets ?? STATE_FACETS);
   const target = request.task ?? request.subject ?? scopePath(request.scope);
-  const ctx = store.assembleContext(target, request.budget_tokens ?? 1500);
+  const access = createStateAccess(store, request.principal, options);
+  const ctx = store.assembleContext(target, request.budget_tokens ?? 1500, { canRead: access.canRead });
   const envelope = buildDeliveryEnvelope(ctx, {
     root: store.publicRoot,
-    symbols: store.recs("symbols"),
-    components: store.recs("components"),
-    decisionCorpus: store.recs("decisions"),
+    symbols: store.recs("symbols").filter(access.canRead),
+    components: store.recs("components").filter(access.canRead),
+    decisionCorpus: store.recs("decisions").filter(access.canRead),
     profile: request.profile ?? "builder",
   });
 
@@ -209,13 +187,13 @@ export function readState(store: HunchStore, input: unknown): { response: ReadRe
     // Subject identity by external reference: a read for an external record's key (`event:26904`,
     // `customer:Site:7`) also finds what is filed under the entity that carries that ref, and a
     // read for the entity id finds what was filed under its keys — one explicit hop, grants first.
-    const aliases = subjectAliases(store, request.principal, repo, subject);
+    const aliases = subjectAliases(store, request.principal, repo, subject, access.canRead);
     const isSubject = (s: string | undefined): boolean => s !== undefined && aliases.has(s);
     // One hop only. Do not broaden aliases: a linked observation does not merge subjects,
     // bring unrelated facts, receipts or commitments, or traverse another relationship.
     const linkedObservations = new Map<string, Set<string>>();
     for (const r of store.recs("relationships")) {
-      if (!granted(request.principal, r.scope) || scopePath(r.scope) !== scopePath(request.scope)) continue;
+      if (!access.canRead(r) || !granted(request.principal, r.scope) || scopePath(r.scope) !== scopePath(request.scope)) continue;
       if (r.type !== "observation_about" || r.lifecycle === "retired" || !isSubject(r.to) || !r.observation_hash) continue;
       const hashes = linkedObservations.get(r.from) ?? new Set<string>();
       hashes.add(r.observation_hash); linkedObservations.set(r.from, hashes);
@@ -231,7 +209,7 @@ export function readState(store: HunchStore, input: unknown): { response: ReadRe
     const admit = (facet: StateFacet, record: { id: string }): Scope | null => {
       const scope = recordScope(record, repo);
       if (!granted(request.principal, scope)) { denied.set(scopePath(scope), scope); return null; }
-      return scope;
+      return access.canRead(record) ? scope : null;
     };
     const keep = (facet: StateFacet, record: { id: string }, scope: Scope): StateRef => {
       records[record.id] = record as unknown as Record<string, unknown>;
@@ -377,7 +355,7 @@ export function mergeReadResponses(primary: ReadResponse, others: readonly ReadR
 
 // ---- write ---------------------------------------------------------------------------------
 
-export interface WriteOptions {
+export interface WriteOptions extends StateAccessOptions {
   /** Internal batch owner rebuilds once in finally while holding the write lock. */
   deferReindex?: boolean;
   /** Internal cache scoped to one uninterrupted partition write lock. Never retained. */
@@ -571,6 +549,22 @@ function normalizeRecord(facet: StateFacet, scope: Scope, raw: Record<string, un
 /** write — provenance + idempotency in, durability out. A replay returns the original;
  *  a conflict names the incumbent; nothing is ever silently overwritten or duplicated. */
 export function writeState(store: HunchStore, input: unknown, opts: WriteOptions = {}): WriteResult {
+  const request = WriteRequestSchema.parse(input);
+  if (!granted(request.principal, request.scope)) throw new StateRefusal("outside-grants", "scope is outside the principal grants");
+  const access = createStateAccess(store, request.principal, { ...opts, requireVisibility: request.record.visibility !== undefined });
+  try { return writeStateAuthorized(store, request, opts, access); }
+  catch (error) {
+    // Collision detection remains global, but inaccessible incumbents never become
+    // refusal details. Do not filter the collision corpus and permit duplicates.
+    if (error instanceof StateRefusal && error.conflict) {
+      const incumbent = findRecord(store, error.conflict.incumbent_id)?.record;
+      if (incumbent && !access.canRead(incumbent)) throw new StateRefusal('outside-grants', 'record unavailable or operation not permitted');
+    }
+    throw error;
+  }
+}
+
+function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOptions, access: ReturnType<typeof createStateAccess>): WriteResult {
   const request: WriteRequest = WriteRequestSchema.parse(input);
   try { assertWriteWellFormed(request); } catch (e) {
     throw new StateRefusal(/grants/.test((e as Error).message) ? "outside-grants" : "malformed", (e as Error).message);
@@ -583,10 +577,36 @@ export function writeState(store: HunchStore, input: unknown, opts: WriteOptions
     : home === "private" ? store.getPrivateRec(facet as EntityKind, id) : store.json.get(facet as EntityKind, id);
   if (!(ENTITY_KINDS as readonly string[]).includes(facet)) throw new StateRefusal("unsupported", `facet ${facet} is not a store kind`);
   const record = normalizeRecord(facet, request.scope, request.record, request.principal);
+  const deny = () => { throw new StateRefusal('outside-grants', 'record unavailable or operation not permitted'); };
+  const incumbent = getHere(String(record.id)) as Record<string, unknown> | undefined;
+  if (incumbent && !access.canWrite(incumbent)) deny();
+  const previousVisibility = incumbent?.visibility as RecordVisibility | undefined;
+  const nextVisibility = (record as { visibility?: RecordVisibility }).visibility;
+  if (nextVisibility && home === 'private') throw new StateRefusal('unsupported', 'record visibility requires a dedicated partition home; shared/private overlays cannot safely gate every older reader');
+  const supersededRecord = request.supersedes ? findRecord(store, request.supersedes)?.record : undefined;
+  const supersededVisibility = supersededRecord?.visibility as RecordVisibility | undefined;
+  if (supersededRecord) {
+    if (!access.canWrite(supersededRecord)) deny();
+    if (stateHash(supersededVisibility ?? null) !== stateHash(nextVisibility ?? null)) {
+      if (supersededVisibility ? supersededVisibility.owner !== request.principal.id : request.principal.kind !== 'human') deny();
+      const matches = typeof request.expected_version === 'number'
+        ? latestSeqFor(readLedger(hunchDir, request.scope), String(supersededRecord.id)) === request.expected_version
+        : request.expected_version === stateHash(supersededRecord);
+      if (!matches) throw new StateRefusal('malformed', 'changing visibility during supersession requires the predecessor expected_version');
+    }
+  }
+  if (!incumbent && !supersededRecord && nextVisibility?.owner !== undefined && nextVisibility.owner !== request.principal.id) deny();
+  if (incumbent && stateHash(previousVisibility ?? null) !== stateHash(nextVisibility ?? null)) {
+    if (previousVisibility ? previousVisibility.owner !== request.principal.id : request.principal.kind !== 'human' || nextVisibility?.owner !== request.principal.id) deny();
+    if (request.expected_version === null) throw new StateRefusal('malformed', 'changing visibility requires an explicit expected_version');
+  }
+  if (!visibilityAllows(record, request.principal.id) || !access.referencesVisible(record) || (request.cause && !access.referencesVisible(request.cause))) deny();
+  if (request.supersedes) { const prior = findRecord(store, request.supersedes)?.record; if (prior && !access.canWrite(prior)) deny(); }
   let replayLink: EntityFor["relationships"] | undefined;
   if (facet === "relationships" && (record as EntityFor["relationships"]).type === "observation_about") {
     const link = record as EntityFor["relationships"];
     const observation = store.getStateDirect("derived", link.from, home);
+    if (observation && !access.canRead(observation)) deny();
     if (!observation || scopePath(observation.scope) !== scopePath(request.scope) || !granted(request.principal, observation.scope)) throw new StateRefusal("conflict", "observation is absent from the granted partition");
     if (!observation.transform_version.startsWith("agent-capture/1:")) throw new StateRefusal("malformed", "only captured observations can be linked");
     if (link.lifecycle !== "retired" && (observation.state !== "unknown" || observation.valid_to != null || stateHash(observation) !== link.observation_hash)) throw new StateRefusal("conflict", "observation changed or is no longer eligible; re-read before linking");
@@ -619,6 +639,7 @@ export function writeState(store: HunchStore, input: unknown, opts: WriteOptions
   // is a refusal, never a second record.
   const seen = ledger.idempotency[request.idempotency_key];
   if (seen) {
+    const prior = findRecord(store, seen.record_id)?.record; if (prior && !access.canRead(prior)) deny();
     if (seen.record_id === id && (seen.record_hash === hash || seen.payload_hash === hash)) return result("replayed");
     // Say WHAT differs and what to do: a stable key with a varying payload (a timestamp, new
     // wording) is the trap every writer falls into once; the refusal must teach the way out.
@@ -737,6 +758,12 @@ export function writeState(store: HunchStore, input: unknown, opts: WriteOptions
   if (facet === "receipts") assertRestsOn(store, request.principal, request.scope, (record as EntityFor["receipts"]).rests_on ?? []);
   const closedBy = facet === "commitments" ? assertClosedBy(store, request.principal, record as EntityFor["commitments"]) : null;
 
+  if (nextVisibility) {
+    // Publish the fail-closed old-reader gate BEFORE protected bytes. An interrupted
+    // write can leave a gate without a record, never a record without the gate.
+    const declaration = join(hunchPaths(store.publicRoot).hunch, 'partition.json');
+    writeFileAtomic(declaration, JSON.stringify({ ...partitionOf(store), required_capabilities: [STATE_RECORD_VISIBILITY_VERSION] }, null, 2) + '\n');
+  }
   store.putCapture(facet as EntityKind, record, isPrivate);
   /** What is on file now — the hash every event, ref and result carries. */
   const onFileHash = stateHash(getHere(id) ?? record);
@@ -753,10 +780,10 @@ export function writeState(store: HunchStore, input: unknown, opts: WriteOptions
     const closed = closeWindow(store, facet, supersedes, id, now, isPrivate);
     if (closed) {
       const old = store.getRec(facet as EntityKind, supersedes)!;
-      changes.push({ facet, record_id: supersedes, record_hash: stateHash(old), change: "superseded", subject: subjectOf(facet, old), invalidates: [], cause });
+      changes.push({ ...("visibility" in old && old.visibility ? { visibility: old.visibility } : {}), facet, record_id: supersedes, record_hash: stateHash(old), change: "superseded", subject: subjectOf(facet, old), invalidates: [], cause });
     }
   }
-  changes.push({ facet, record_id: id, record_hash: onFileHash, change: invalidated ? "invalidated" : retired ? "retired" : existing ? "updated" : "created", subject, invalidates: invalidated && subject ? [subject] : invalidates, cause });
+  changes.push({ ...(nextVisibility ? { visibility: nextVisibility } : {}), facet, record_id: id, record_hash: onFileHash, change: invalidated ? "invalidated" : retired ? "retired" : existing ? "updated" : "created", subject, invalidates: invalidated && subject ? [subject] : invalidates, cause });
   appendChanges(hunchDir, request.scope, changes, { key: request.idempotency_key, entry: { record_id: id, record_hash: onFileHash, payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
   if (!opts.deferReindex) store.reindex();
   return result(supersedes ? "superseded" : existing ? "updated" : "created");
@@ -766,18 +793,21 @@ export function writeState(store: HunchStore, input: unknown, opts: WriteOptions
 
 /** subscribe — the scope's ordered change stream after a cursor. Unfiltered, the events are
  *  contiguous and assertChangeSequence holds; filtered, `head_seq` is still the cursor. */
-export function subscribeState(store: HunchStore, input: unknown): SubscribeResponse {
+export function subscribeState(store: HunchStore, input: unknown, options: StateAccessOptions = {}): SubscribeResponse {
   const request: SubscribeRequest = SubscribeRequestSchema.parse(input);
   if (!granted(request.principal, request.scope)) throw new StateRefusal("outside-grants", `scope ${scopePath(request.scope)} is outside the principal's grants`);
   const { hunchDir } = stateHomeFor(store, request.scope);
   const ledger = readLedger(hunchDir, request.scope);
   const facets = request.facets ? new Set<string>(request.facets) : null;
   const subjects = request.subjects ? new Set(request.subjects) : null;
-  const filtered = !!(facets || subjects);
+  const access = createStateAccess(store, request.principal, options);
+  const visibilityFiltered = ledger.events.some(e => e.visibility !== undefined) || access.restricted;
+  const filtered = !!(facets || subjects || visibilityFiltered);
   const resync = request.after_seq < ledger.floor_seq;
   const after = resync ? ledger.floor_seq : request.after_seq;
   const events: ChangeEvent[] = ledger.events.filter((e) =>
     e.seq > after
+    && (!visibilityFiltered || (visibilityAllows(e, request.principal.id) && access.canRead(findRecord(store, e.record_id)?.record) && access.referencesVisible(e)))
     && (!facets || facets.has(e.facet))
     && (!subjects || subjects.has(e.record_id) || (e.subject !== undefined && subjects.has(e.subject)) || e.invalidates.some((s) => subjects.has(s))));
   return SubscribeResponseSchema.parse({ schema: STATE_SUBSCRIBE_VERSION, scope: request.scope, head_seq: ledger.head_seq, events, filtered, floor_seq: ledger.floor_seq, resync });
@@ -787,10 +817,11 @@ export function subscribeState(store: HunchStore, input: unknown): SubscribeResp
 
 /** records — fetch by id, grants first. Every id is accounted for: found, denied (its scope is
  *  outside the grants — named, never described) or missing. */
-export function recordsState(store: HunchStore, input: unknown): RecordsResponse {
+export function recordsState(store: HunchStore, input: unknown, options: StateAccessOptions = {}): RecordsResponse {
   const request: RecordsRequest = RecordsRequestSchema.parse(input);
   if (!granted(request.principal, request.scope)) throw new StateRefusal("outside-grants", `scope ${scopePath(request.scope)} is outside the principal's grants`);
   const repo = partitionOf(store);
+  const access = createStateAccess(store, request.principal, options);
   const records: Record<string, Record<string, unknown>> = {};
   const facets: Record<string, StateFacet> = {};
   const denied: string[] = [];
@@ -804,6 +835,7 @@ export function recordsState(store: HunchStore, input: unknown): RecordsResponse
     if (!found) { missing.push(id); continue; }
     const scope = recordScope(found.record, repo);
     if (!granted(request.principal, scope)) { denied.push(id); continue; }
+    if (!access.canRead(found.record)) { missing.push(id); continue; }
     records[id] = found.record;
     facets[id] = found.facet;
   }

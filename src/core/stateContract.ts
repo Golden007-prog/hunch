@@ -1,3 +1,4 @@
+import { RecordVisibilitySchema } from "./recordVisibility.js";
 /**
  * nuryel.state/1 — the ONE contract every orchestrator and agent speaks to the state layer.
  *
@@ -51,12 +52,14 @@ export const STATE_CAPTURE_BATCH_VERSION = "nuryel.state.capture-batch/1" as con
 export const STATE_OBSERVATION_LINKS_VERSION = "nuryel.observation-links/1" as const;
 export const STATE_OBSERVATION_REVIEW_VERSION = "nuryel.observation-review/1" as const;
 export const STATE_OBSERVATION_PAGES_VERSION = "nuryel.observation-pages/1" as const;
+export const STATE_RECORD_VISIBILITY_VERSION = "nuryel.record-visibility/1" as const;
+export const PartitionDeclarationSchema = ScopeSchema.extend({ required_capabilities: z.array(z.literal(STATE_RECORD_VISIBILITY_VERSION)).min(1).max(1).optional() }).strict();
 export const STATE_FIELD_PROVENANCE_VERSION = "nuryel.field-provenance/1" as const;
 
 /** Capabilities a server advertises; a client that needs one the server lacks gets a typed
  *  `unsupported`, never a compatible-looking degraded answer. */
 export const STATE_CAPABILITIES = [
-  STATE_READ_VERSION, STATE_WRITE_VERSION, STATE_SUBSCRIBE_VERSION, STATE_RECORDS_VERSION, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION, STATE_OBSERVATION_LINKS_VERSION, STATE_OBSERVATION_REVIEW_VERSION, STATE_OBSERVATION_PAGES_VERSION, STATE_FIELD_PROVENANCE_VERSION,
+  STATE_READ_VERSION, STATE_WRITE_VERSION, STATE_SUBSCRIBE_VERSION, STATE_RECORDS_VERSION, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION, STATE_OBSERVATION_LINKS_VERSION, STATE_OBSERVATION_REVIEW_VERSION, STATE_OBSERVATION_PAGES_VERSION, STATE_FIELD_PROVENANCE_VERSION, STATE_RECORD_VISIBILITY_VERSION,
   RECEIPT_SCHEMA_VERSION, COMMITMENT_SCHEMA_VERSION, DERIVED_SCHEMA_VERSION, ENTITY_SCHEMA_VERSION, RELATIONSHIP_SCHEMA_VERSION,
 ] as const;
 export type StateCapability = (typeof STATE_CAPABILITIES)[number];
@@ -81,6 +84,7 @@ export type Principal = z.infer<typeof PrincipalSchema>;
 /** One relevant assertion, never a whole conversation. Source text is transient input:
  * only its exact supporting excerpt and a hashed external pointer may reach the store. */
 export const CaptureRequestSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(STATE_CAPTURE_VERSION),
   principal: PrincipalSchema,
   scope: ScopeSchema,
@@ -102,7 +106,7 @@ export type CaptureRequest = z.infer<typeof CaptureRequestSchema>;
 export const CaptureBatchRequestSchema = z.object({
   schema: z.literal(STATE_CAPTURE_BATCH_VERSION), principal: PrincipalSchema, scope: ScopeSchema,
   sources: z.array(CaptureRequestSchema.shape.evidence.element.omit({ excerpt: true })).min(1).max(8),
-  observations: z.array(CaptureRequestSchema.pick({ subject: true, statement: true, relevance: true }).extend({
+  observations: z.array(CaptureRequestSchema.pick({ subject: true, statement: true, relevance: true, visibility: true }).extend({
     evidence: z.array(z.object({ source: z.number().int().min(0).max(7), excerpt: z.string().trim().min(1).max(1200) }).strict()).min(1).max(8),
   })).min(0).max(32),
   reviews: z.array(z.object({
@@ -247,6 +251,7 @@ export const SubscribeRequestSchema = z.object({
 export type SubscribeRequest = z.infer<typeof SubscribeRequestSchema>;
 
 export const ChangeEventSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
   schema: z.literal(STATE_SUBSCRIBE_VERSION),
   seq: z.number().int().positive(),
   at: z.string().regex(ISO),
