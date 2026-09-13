@@ -6,11 +6,12 @@
 import type { ReadRequest, ReadResponse, SubscribeRequest, WriteRequest, WriteResult, ChangeEvent, Scope, RecordsResponse } from "../core/stateContract.js";
 import type { DeliveryEnvelope } from "../core/delivery.js";
 import type { CaptureRequest, CaptureBatchRequest, CaptureBatchResult } from "../core/stateContract.js";
+import type { SubscribeResponse } from '../store/stateBinding.js';
 
 export type ClientReadRequest = Omit<ReadRequest, "schema" | "principal">;
 export type ClientWriteRequest = Omit<WriteRequest, "schema" | "principal" | "expected_version"> & { expected_version?: string | number | null };
 export type ClientSubscribeRequest = Omit<SubscribeRequest, "schema" | "principal">;
-export interface ClientSubscribeResponse { schema: string; scope: Scope; head_seq: number; events: ChangeEvent[]; filtered: boolean; floor_seq: number; resync: boolean }
+export type ClientSubscribeResponse = SubscribeResponse;
 
 export interface StateProblem { type: string; title: string; status: number; detail: string; conflict?: { incumbent_id: string; reason: string }; issues?: string[] }
 

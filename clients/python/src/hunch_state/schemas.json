@@ -1,0 +1,4215 @@
+{
+  "contract": "nuryel.state/1",
+  "note": "Generated structural schemas. Custom Zod refinements, authority, identity and dependency checks run on the server.",
+  "schemas": {
+    "Scope": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "organization",
+            "team",
+            "user",
+            "repository"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "ExternalRef": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "system": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "object_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "object_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "system",
+        "object_type",
+        "object_key",
+        "observed_at"
+      ],
+      "additionalProperties": false
+    },
+    "DependencyRef": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "record"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "record_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "scope": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "organization",
+                    "team",
+                    "user",
+                    "repository"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "record_hash"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "external"
+            },
+            "ref": {
+              "type": "object",
+              "properties": {
+                "system": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                },
+                "object_type": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                },
+                "object_key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "content_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "observed_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "system",
+                "object_type",
+                "object_key",
+                "observed_at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "schema"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "fingerprint"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ActionReceipt": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "readers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "writers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            }
+          },
+          "required": [
+            "owner",
+            "readers",
+            "writers"
+          ],
+          "additionalProperties": false
+        },
+        "schema": {
+          "type": "string",
+          "const": "nuryel.receipt/1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^nrc_[a-f0-9]{24}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "actor": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$",
+          "description": "principal id"
+        },
+        "action_kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "system": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "object_type": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "object_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "content_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "observed_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "locator": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "system",
+            "object_type",
+            "object_key",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        },
+        "request_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "requested",
+            "succeeded",
+            "failed",
+            "unknown",
+            "verified"
+          ]
+        },
+        "occurred_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "verified_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "result_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "invalidates": {
+          "default": [],
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "rests_on": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "record"
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  },
+                  "record_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "organization",
+                          "team",
+                          "user",
+                          "repository"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "record_hash"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "external"
+                  },
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_type": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "version": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "observed_at": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                      },
+                      "locator": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      }
+                    },
+                    "required": [
+                      "system",
+                      "object_type",
+                      "object_key",
+                      "observed_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "schema"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "fingerprint": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "name",
+                  "fingerprint"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "e.g. extracted | inferred | llm_draft | human_confirmed | test_failure+llm | derived"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "evidence": {
+              "default": [],
+              "description": "file paths, commit ids, test ids backing the claim",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "last_verified": {
+              "description": "ISO timestamp of last re-validation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "confidence",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "actor",
+        "action_kind",
+        "target",
+        "request_fingerprint",
+        "state",
+        "occurred_at",
+        "invalidates",
+        "provenance"
+      ],
+      "additionalProperties": false
+    },
+    "Commitment": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "readers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "writers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            }
+          },
+          "required": [
+            "owner",
+            "readers",
+            "writers"
+          ],
+          "additionalProperties": false
+        },
+        "schema": {
+          "type": "string",
+          "const": "nuryel.commitment/1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^ncm_[a-f0-9]{24}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "entity id or stable subject key"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$",
+          "description": "principal id"
+        },
+        "due": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "waiting",
+            "done",
+            "cancelled"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "system": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "object_type": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "object_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "content_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "observed_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "locator": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "required": [
+            "system",
+            "object_type",
+            "object_key",
+            "observed_at"
+          ],
+          "additionalProperties": false
+        },
+        "evidence_excerpt": {
+          "type": "string",
+          "maxLength": 900
+        },
+        "closed_by": {
+          "type": "string",
+          "pattern": "^nrc_[a-f0-9]{24}$"
+        },
+        "valid_from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "valid_to": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "e.g. extracted | inferred | llm_draft | human_confirmed | test_failure+llm | derived"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "evidence": {
+              "default": [],
+              "description": "file paths, commit ids, test ids backing the claim",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "last_verified": {
+              "description": "ISO timestamp of last re-validation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "confidence",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "subject",
+        "title",
+        "owner",
+        "due",
+        "status",
+        "valid_from",
+        "valid_to",
+        "provenance"
+      ],
+      "additionalProperties": false
+    },
+    "DerivedState": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "readers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "writers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            }
+          },
+          "required": [
+            "owner",
+            "readers",
+            "writers"
+          ],
+          "additionalProperties": false
+        },
+        "schema": {
+          "type": "string",
+          "const": "nuryel.derived/1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^nds_[a-f0-9]{24}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "dependencies": {
+          "minItems": 1,
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "record"
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  },
+                  "record_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "organization",
+                          "team",
+                          "user",
+                          "repository"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "record_hash"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "external"
+                  },
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_type": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "version": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "observed_at": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                      },
+                      "locator": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      }
+                    },
+                    "required": [
+                      "system",
+                      "object_type",
+                      "object_key",
+                      "observed_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "schema"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "fingerprint": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "name",
+                  "fingerprint"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "field_provenance": {
+          "minItems": 1,
+          "maxItems": 128,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "selector": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "json_pointer"
+                      },
+                      "path": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "pattern": "^(?:\\/(?:[^~/]|~[01])*)*$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "text"
+                      },
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 20000
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20000
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "start",
+                      "end"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "value_hash": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "dependency_hashes": {
+                "minItems": 1,
+                "maxItems": 256,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              }
+            },
+            "required": [
+              "selector",
+              "value_hash",
+              "dependency_hashes"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "transform_version": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "computed_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "valid_to": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "review": {
+          "type": "object",
+          "properties": {
+            "by": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "previous_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 600
+            },
+            "evidence": {
+              "minItems": 1,
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_type": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "version": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "observed_at": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                      },
+                      "locator": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      }
+                    },
+                    "required": [
+                      "system",
+                      "object_type",
+                      "object_key",
+                      "observed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "excerpt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1200
+                  }
+                },
+                "required": [
+                  "ref",
+                  "excerpt"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "by",
+            "at",
+            "previous_hash",
+            "reason",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "e.g. extracted | inferred | llm_draft | human_confirmed | test_failure+llm | derived"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "evidence": {
+              "default": [],
+              "description": "file paths, commit ids, test ids backing the claim",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "last_verified": {
+              "description": "ISO timestamp of last re-validation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "confidence",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "subject",
+        "content",
+        "content_hash",
+        "dependencies",
+        "transform_version",
+        "computed_at",
+        "valid_to",
+        "state",
+        "provenance"
+      ],
+      "additionalProperties": false
+    },
+    "Convention": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "nuryel.convention/1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^ncv_[a-f0-9]{24}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "accepted",
+            "stale",
+            "withdrawn"
+          ]
+        },
+        "sources": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "record"
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  },
+                  "record_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "organization",
+                          "team",
+                          "user",
+                          "repository"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "record_hash"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "external"
+                  },
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_type": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                      },
+                      "object_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "version": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "observed_at": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                      },
+                      "locator": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      }
+                    },
+                    "required": [
+                      "system",
+                      "object_type",
+                      "object_key",
+                      "observed_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "schema"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "fingerprint": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "name",
+                  "fingerprint"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "valid_from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "valid_to": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "review_by": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "e.g. extracted | inferred | llm_draft | human_confirmed | test_failure+llm | derived"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "evidence": {
+              "default": [],
+              "description": "file paths, commit ids, test ids backing the claim",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "last_verified": {
+              "description": "ISO timestamp of last re-validation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "confidence",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "readers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "writers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            }
+          },
+          "required": [
+            "owner",
+            "readers",
+            "writers"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "key",
+        "value",
+        "status",
+        "sources",
+        "valid_from",
+        "valid_to",
+        "review_by",
+        "provenance"
+      ],
+      "additionalProperties": false
+    },
+    "WriteResult": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "nuryel.state.write/1"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "record_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "durability": {
+          "type": "string",
+          "enum": [
+            "pushed",
+            "committed",
+            "local"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "created",
+            "updated",
+            "replayed",
+            "superseded"
+          ]
+        },
+        "conflict": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "incumbent_id": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "reason": {
+                  "type": "string",
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "incumbent_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "record": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "schema",
+        "record_id",
+        "record_hash",
+        "durability",
+        "outcome",
+        "conflict"
+      ],
+      "additionalProperties": false
+    },
+    "CaptureBatchResult": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "nuryel.state.capture-batch/1"
+        },
+        "results": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "saved"
+                  },
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "schema": {
+                        "type": "string",
+                        "const": "nuryel.state.write/1"
+                      },
+                      "record_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "durability": {
+                        "type": "string",
+                        "enum": [
+                          "pushed",
+                          "committed",
+                          "local"
+                        ]
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "created",
+                          "updated",
+                          "replayed",
+                          "superseded"
+                        ]
+                      },
+                      "conflict": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "incumbent_id": {
+                                "type": "string",
+                                "maxLength": 2048
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 512
+                              }
+                            },
+                            "required": [
+                              "incumbent_id",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "record": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      }
+                    },
+                    "required": [
+                      "schema",
+                      "record_id",
+                      "record_hash",
+                      "durability",
+                      "outcome",
+                      "conflict"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "index",
+                  "status",
+                  "result"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "refused"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "index",
+                  "status",
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "reviews": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "saved"
+                  },
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "schema": {
+                        "type": "string",
+                        "const": "nuryel.state.write/1"
+                      },
+                      "record_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "durability": {
+                        "type": "string",
+                        "enum": [
+                          "pushed",
+                          "committed",
+                          "local"
+                        ]
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "created",
+                          "updated",
+                          "replayed",
+                          "superseded"
+                        ]
+                      },
+                      "conflict": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "incumbent_id": {
+                                "type": "string",
+                                "maxLength": 2048
+                              },
+                              "reason": {
+                                "type": "string",
+                                "maxLength": 512
+                              }
+                            },
+                            "required": [
+                              "incumbent_id",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "record": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      }
+                    },
+                    "required": [
+                      "schema",
+                      "record_id",
+                      "record_hash",
+                      "durability",
+                      "outcome",
+                      "conflict"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "index",
+                  "status",
+                  "result"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "status": {
+                    "type": "string",
+                    "const": "refused"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "index",
+                  "status",
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "results"
+      ],
+      "additionalProperties": false
+    },
+    "RecordsResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "nuryel.state.records/1"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "records": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "facets": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "decisions",
+              "constraints",
+              "bugs",
+              "findings",
+              "receipts",
+              "commitments",
+              "derived",
+              "entities",
+              "relationships",
+              "conventions"
+            ]
+          }
+        },
+        "missing": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "denied": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "records",
+        "facets",
+        "missing",
+        "denied"
+      ],
+      "additionalProperties": false
+    },
+    "ChangeEvent": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "readers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "writers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            }
+          },
+          "required": [
+            "owner",
+            "readers",
+            "writers"
+          ],
+          "additionalProperties": false
+        },
+        "schema": {
+          "type": "string",
+          "const": "nuryel.state.subscribe/1"
+        },
+        "seq": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "facet": {
+          "type": "string",
+          "enum": [
+            "decisions",
+            "constraints",
+            "bugs",
+            "findings",
+            "receipts",
+            "commitments",
+            "derived",
+            "entities",
+            "relationships",
+            "conventions"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "record_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "created",
+            "updated",
+            "superseded",
+            "retired",
+            "invalidated"
+          ]
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "invalidates": {
+          "default": [],
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "receipt"
+                },
+                "receipt_id": {
+                  "type": "string",
+                  "pattern": "^nrc_[a-f0-9]{24}$"
+                }
+              },
+              "required": [
+                "kind",
+                "receipt_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "external"
+                },
+                "ref": {
+                  "type": "object",
+                  "properties": {
+                    "system": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                    },
+                    "object_type": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                    },
+                    "object_key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "content_hash": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "system",
+                    "object_type",
+                    "object_key",
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "write"
+                },
+                "principal": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                }
+              },
+              "required": [
+                "kind",
+                "principal"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "seq",
+        "at",
+        "scope",
+        "facet",
+        "record_id",
+        "record_hash",
+        "change",
+        "invalidates"
+      ],
+      "additionalProperties": false
+    },
+    "ReadRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "scopes": {
+          "minItems": 1,
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "organization",
+                  "team",
+                  "user",
+                  "repository"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "task": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "builder",
+            "reviewer",
+            "architect"
+          ]
+        },
+        "budget_tokens": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 200000
+        },
+        "facets": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "decisions",
+              "constraints",
+              "bugs",
+              "findings",
+              "receipts",
+              "commitments",
+              "derived",
+              "entities",
+              "relationships",
+              "conventions"
+            ]
+          }
+        },
+        "observed_page": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "object",
+              "properties": {
+                "snapshot_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "snapshot_hash",
+                "offset"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "WriteRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "facet": {
+          "type": "string",
+          "enum": [
+            "decisions",
+            "constraints",
+            "bugs",
+            "findings",
+            "receipts",
+            "commitments",
+            "derived",
+            "entities",
+            "relationships",
+            "conventions"
+          ]
+        },
+        "record": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 256
+        },
+        "expected_version": {
+          "default": null,
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "supersedes": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "cause": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "external"
+            },
+            "ref": {
+              "type": "object",
+              "properties": {
+                "system": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                },
+                "object_type": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                },
+                "object_key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "content_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "observed_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "system",
+                "object_type",
+                "object_key",
+                "observed_at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "scope",
+        "facet",
+        "record",
+        "idempotency_key"
+      ],
+      "additionalProperties": false
+    },
+    "SubscribeRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "after_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "subjects": {
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "facets": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "decisions",
+              "constraints",
+              "bugs",
+              "findings",
+              "receipts",
+              "commitments",
+              "derived",
+              "entities",
+              "relationships",
+              "conventions"
+            ]
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "after_seq"
+      ],
+      "additionalProperties": false
+    },
+    "RecordsRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "ids": {
+          "minItems": 1,
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "ids"
+      ],
+      "additionalProperties": false
+    },
+    "CaptureRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "readers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "writers": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            }
+          },
+          "required": [
+            "owner",
+            "readers",
+            "writers"
+          ],
+          "additionalProperties": false
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "relevance": {
+          "type": "object",
+          "properties": {
+            "use": {
+              "type": "string",
+              "enum": [
+                "decision",
+                "constraint",
+                "preference",
+                "operational_fact",
+                "ongoing_issue"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 600
+            }
+          },
+          "required": [
+            "use",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "evidence": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref": {
+                "type": "object",
+                "properties": {
+                  "system": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                  },
+                  "object_type": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                  },
+                  "object_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "content_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                  },
+                  "locator": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "system",
+                  "object_type",
+                  "object_key",
+                  "observed_at"
+                ],
+                "additionalProperties": false
+              },
+              "source_text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64000
+              },
+              "excerpt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1200
+              }
+            },
+            "required": [
+              "ref",
+              "source_text",
+              "excerpt"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "subject",
+        "statement",
+        "relevance",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "CaptureBatchRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "sources": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref": {
+                "type": "object",
+                "properties": {
+                  "system": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                  },
+                  "object_type": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                  },
+                  "object_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "content_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                  },
+                  "locator": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "system",
+                  "object_type",
+                  "object_key",
+                  "observed_at"
+                ],
+                "additionalProperties": false
+              },
+              "source_text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64000
+              }
+            },
+            "required": [
+              "ref",
+              "source_text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "observations": {
+          "minItems": 0,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1200
+              },
+              "relevance": {
+                "type": "object",
+                "properties": {
+                  "use": {
+                    "type": "string",
+                    "enum": [
+                      "decision",
+                      "constraint",
+                      "preference",
+                      "operational_fact",
+                      "ongoing_issue"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  }
+                },
+                "required": [
+                  "use",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              "visibility": {
+                "type": "object",
+                "properties": {
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  },
+                  "readers": {
+                    "maxItems": 256,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                    }
+                  },
+                  "writers": {
+                    "maxItems": 256,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                    }
+                  }
+                },
+                "required": [
+                  "owner",
+                  "readers",
+                  "writers"
+                ],
+                "additionalProperties": false
+              },
+              "evidence": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 7
+                    },
+                    "excerpt": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "excerpt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "subject",
+              "statement",
+              "relevance",
+              "evidence"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "reviews": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "record_id": {
+                "type": "string",
+                "pattern": "^nds_[a-f0-9]{24}$"
+              },
+              "expected_hash": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 600
+              },
+              "evidence": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 7
+                    },
+                    "excerpt": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "excerpt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "record_id",
+              "expected_hash",
+              "reason",
+              "evidence"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "sources",
+        "observations"
+      ],
+      "additionalProperties": false
+    },
+    "ReadResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "conventions": {
+          "type": "object",
+          "properties": {
+            "advisory": {
+              "type": "boolean",
+              "const": true
+            },
+            "items": {
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "facet": {
+                        "type": "string",
+                        "enum": [
+                          "decisions",
+                          "constraints",
+                          "bugs",
+                          "findings",
+                          "receipts",
+                          "commitments",
+                          "derived",
+                          "entities",
+                          "relationships",
+                          "conventions"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "organization",
+                              "team",
+                              "user",
+                              "repository"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "facet",
+                      "id",
+                      "record_hash",
+                      "scope"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "conflict": {
+                    "type": "boolean"
+                  },
+                  "currentness": {
+                    "type": "string",
+                    "enum": [
+                      "recorded",
+                      "stale"
+                    ]
+                  }
+                },
+                "required": [
+                  "ref",
+                  "key",
+                  "conflict",
+                  "currentness"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "advisory",
+            "items",
+            "truncated"
+          ],
+          "additionalProperties": false
+        },
+        "schema": {
+          "type": "string",
+          "const": "nuryel.state.read/1"
+        },
+        "receipt_id": {
+          "type": "string",
+          "pattern": "^hdr_[a-f0-9]{24}$",
+          "description": "the delivery envelope's receipt"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "state_of_record": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "subject": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "current": {
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "facet": {
+                        "type": "string",
+                        "enum": [
+                          "decisions",
+                          "constraints",
+                          "bugs",
+                          "findings",
+                          "receipts",
+                          "commitments",
+                          "derived",
+                          "entities",
+                          "relationships",
+                          "conventions"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "organization",
+                              "team",
+                              "user",
+                              "repository"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "facet",
+                      "id",
+                      "record_hash",
+                      "scope"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "in_force": {
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "facet": {
+                        "type": "string",
+                        "enum": [
+                          "decisions",
+                          "constraints",
+                          "bugs",
+                          "findings",
+                          "receipts",
+                          "commitments",
+                          "derived",
+                          "entities",
+                          "relationships",
+                          "conventions"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "organization",
+                              "team",
+                              "user",
+                              "repository"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "facet",
+                      "id",
+                      "record_hash",
+                      "scope"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "done": {
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "facet": {
+                        "type": "string",
+                        "enum": [
+                          "decisions",
+                          "constraints",
+                          "bugs",
+                          "findings",
+                          "receipts",
+                          "commitments",
+                          "derived",
+                          "entities",
+                          "relationships",
+                          "conventions"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "organization",
+                              "team",
+                              "user",
+                              "repository"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "facet",
+                      "id",
+                      "record_hash",
+                      "scope"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "observed": {
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "facet": {
+                        "type": "string",
+                        "enum": [
+                          "decisions",
+                          "constraints",
+                          "bugs",
+                          "findings",
+                          "receipts",
+                          "commitments",
+                          "derived",
+                          "entities",
+                          "relationships",
+                          "conventions"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "record_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      },
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "organization",
+                              "team",
+                              "user",
+                              "repository"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "facet",
+                      "id",
+                      "record_hash",
+                      "scope"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "observed_truncated": {
+                  "type": "boolean"
+                },
+                "observed_page": {
+                  "type": "object",
+                  "properties": {
+                    "snapshot_hash": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "next_cursor": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "snapshot_hash": {
+                              "type": "string",
+                              "pattern": "^sha256:[a-f0-9]{64}$"
+                            },
+                            "offset": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "snapshot_hash",
+                            "offset"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "snapshot_hash",
+                    "total",
+                    "next_cursor"
+                  ],
+                  "additionalProperties": false
+                },
+                "relationships_truncated": {
+                  "type": "boolean"
+                },
+                "depends_on": {
+                  "maxItems": 1024,
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "record"
+                          },
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                          },
+                          "record_hash": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          },
+                          "scope": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "organization",
+                                  "team",
+                                  "user",
+                                  "repository"
+                                ]
+                              },
+                              "id": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "id"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id",
+                          "record_hash"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "external"
+                          },
+                          "ref": {
+                            "type": "object",
+                            "properties": {
+                              "system": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                              },
+                              "object_type": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                              },
+                              "object_key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512
+                              },
+                              "version": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256
+                              },
+                              "content_hash": {
+                                "type": "string",
+                                "pattern": "^sha256:[a-f0-9]{64}$"
+                              },
+                              "observed_at": {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                              },
+                              "locator": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              }
+                            },
+                            "required": [
+                              "system",
+                              "object_type",
+                              "object_key",
+                              "observed_at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "ref"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "schema"
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "fingerprint": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "name",
+                          "fingerprint"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "invalidated_by": {
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "required": [
+                "subject",
+                "current",
+                "in_force",
+                "done",
+                "depends_on",
+                "invalidated_by"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "denied_scopes": {
+          "default": [],
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "organization",
+                  "team",
+                  "user",
+                  "repository"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "records": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "scopes": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "organization",
+                  "team",
+                  "user",
+                  "repository"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "receipts": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "organization",
+                      "team",
+                      "user",
+                      "repository"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "receipt_id": {
+                "type": "string",
+                "pattern": "^hdr_[a-f0-9]{24}$"
+              }
+            },
+            "required": [
+              "scope",
+              "receipt_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "envelope": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "schema",
+        "receipt_id",
+        "scope",
+        "state_of_record",
+        "denied_scopes",
+        "envelope"
+      ],
+      "additionalProperties": false
+    },
+    "SubscribeResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "nuryel.state.subscribe/1"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "head_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "visibility": {
+                "type": "object",
+                "properties": {
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  },
+                  "readers": {
+                    "maxItems": 256,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                    }
+                  },
+                  "writers": {
+                    "maxItems": 256,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                    }
+                  }
+                },
+                "required": [
+                  "owner",
+                  "readers",
+                  "writers"
+                ],
+                "additionalProperties": false
+              },
+              "schema": {
+                "type": "string",
+                "const": "nuryel.state.subscribe/1"
+              },
+              "seq": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "at": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "scope": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "organization",
+                      "team",
+                      "user",
+                      "repository"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "facet": {
+                "type": "string",
+                "enum": [
+                  "decisions",
+                  "constraints",
+                  "bugs",
+                  "findings",
+                  "receipts",
+                  "commitments",
+                  "derived",
+                  "entities",
+                  "relationships",
+                  "conventions"
+                ]
+              },
+              "record_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "record_hash": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "created",
+                  "updated",
+                  "superseded",
+                  "retired",
+                  "invalidated"
+                ]
+              },
+              "subject": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "invalidates": {
+                "default": [],
+                "maxItems": 256,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 512
+                }
+              },
+              "cause": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "receipt"
+                      },
+                      "receipt_id": {
+                        "type": "string",
+                        "pattern": "^nrc_[a-f0-9]{24}$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "receipt_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "external"
+                      },
+                      "ref": {
+                        "type": "object",
+                        "properties": {
+                          "system": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                          },
+                          "object_type": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                          },
+                          "object_key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                          },
+                          "version": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          },
+                          "content_hash": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          },
+                          "observed_at": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$"
+                          },
+                          "locator": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          }
+                        },
+                        "required": [
+                          "system",
+                          "object_type",
+                          "object_key",
+                          "observed_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "ref"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "write"
+                      },
+                      "principal": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "principal"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "schema",
+              "seq",
+              "at",
+              "scope",
+              "facet",
+              "record_id",
+              "record_hash",
+              "change",
+              "invalidates"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "filtered": {
+          "type": "boolean"
+        },
+        "floor_seq": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resync": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "head_seq",
+        "events",
+        "filtered",
+        "floor_seq",
+        "resync"
+      ],
+      "additionalProperties": false
+    },
+    "CapabilitiesResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "const": "nuryel.state/1"
+        },
+        "capabilities": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "repository": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "organization",
+                "team",
+                "user",
+                "repository"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "partitions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "team",
+              "user",
+              "repository"
+            ]
+          }
+        },
+        "principal": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "human",
+                "agent",
+                "service"
+              ]
+            },
+            "grants": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "organization",
+                      "team",
+                      "user",
+                      "repository"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,199}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "grants"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocol",
+        "capabilities",
+        "repository",
+        "partitions",
+        "principal"
+      ],
+      "additionalProperties": false
+    },
+    "HealthResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "string",
+          "const": "nuryel.state/1"
+        },
+        "partitions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "ok",
+        "version",
+        "protocol",
+        "partitions"
+      ],
+      "additionalProperties": false
+    },
+    "StateProblem": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "detail": {
+          "type": "string"
+        },
+        "conflict": {
+          "type": "object",
+          "properties": {
+            "incumbent_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "incumbent_id",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "status",
+        "detail"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
