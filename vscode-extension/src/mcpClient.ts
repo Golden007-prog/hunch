@@ -8,7 +8,8 @@
  * tools/call. No SDK dependency.
  */
 import * as cp from "node:child_process";
-import { cliCommand, winQuote } from "./cli.js";
+import { cliCommand } from "./cli.js";
+import { spawnHunchWith } from "./spawnCore.js";
 
 interface Pending { resolve: (v: unknown) => void; reject: (e: Error) => void; }
 
@@ -23,9 +24,7 @@ export class HunchMcp {
 
   private start(): Promise<void> {
     if (this.ready) return this.ready;
-    this.child = process.platform === "win32"
-      ? cp.spawn(`${winQuote(cliCommand())} mcp`, { cwd: this.root, shell: true })
-      : cp.spawn(cliCommand(), ["mcp"], { cwd: this.root });
+    this.child = spawnHunchWith(cliCommand(), this.root, ["mcp"]);
     this.child.stdout?.setEncoding("utf8");
     this.child.stdout?.on("data", (chunk: string) => {
       this.buf += chunk;

@@ -9,11 +9,12 @@
  * sequence to reconcile. Merging two clones' ledgers for the same scope is not decided
  * here (see docs/nuryel-state-contract.md, "Not decided here").
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { writeFileAtomic } from "../core/io.js";
+import { readStoreArtifact, storeArtifactPath } from "../core/storeArtifact.js";
 import { ChangeEventSchema, ScopeSchema, scopePath, type ChangeEvent, type Scope } from "../core/stateContract.js";
 
 export const LEDGER_SCHEMA_VERSION = "nuryel.ledger/1" as const;
@@ -69,8 +70,8 @@ export function emptyLedger(scope: Scope): Ledger {
  *  error (never silently treated as empty — that would restart the sequence). */
 export function readLedger(hunchDir: string, scope: Scope): Ledger {
   const file = resolve(ledgerFile(hunchDir, scope));
-  if (!existsSync(file)) { validatedSnapshots.delete(file); return emptyLedger(scope); }
-  const text = readFileSync(file, "utf8");
+  const text = readStoreArtifact(hunchDir, [CHANGES_DIR, basename(file)]);
+  if (text === null) { validatedSnapshots.delete(file); return emptyLedger(scope); }
   const cached = validatedSnapshots.get(file);
   if (cached?.text === text && cached.scope === scopePath(scope)) {
     validatedSnapshots.delete(file);
@@ -100,8 +101,8 @@ export function writeLedger(hunchDir: string, ledger: Ledger): void {
 }
 
 function writeValidatedLedger(hunchDir: string, ledger: Ledger): void {
-  const file = ledgerFile(hunchDir, ledger.scope);
-  mkdirSync(join(hunchDir, CHANGES_DIR), { recursive: true });
+  const file = storeArtifactPath(hunchDir, CHANGES_DIR, basename(ledgerFile(hunchDir, ledger.scope)));
+  mkdirSync(storeArtifactPath(hunchDir, CHANGES_DIR), { recursive: true });
   writeFileAtomic(file, JSON.stringify(ledger, null, 2) + "\n");
 }
 

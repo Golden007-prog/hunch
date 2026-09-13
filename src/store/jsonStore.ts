@@ -16,11 +16,13 @@ import {
   rmSync,
   type Stats,
 } from "node:fs";
+import { hostname } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HunchPaths } from "../core/paths.js";
 import { ENTITY_KINDS, SCHEMAS, type EntityKind, type EntityFor } from "../core/types.js";
 import { BASELINE_VERSION, migrateRaw, SCHEMA_VERSION } from "../core/migrate.js";
 import { writeFileAtomic } from "../core/io.js";
+import { readStoreArtifact } from "../core/storeArtifact.js";
 
 /** High-cardinality collections (symbols, edges) are stored as a single
  *  index.json array — there can be thousands, and one file per edge would create
@@ -55,6 +57,23 @@ export const MAX_JSON_DIRECTORY_ENTRIES_PER_KIND = 100_000;
 
 type FileStat = Stats;
 type SafeDirectory = { lexical: string; canonical: string; stat: FileStat };
+type RmwOwner = { pid: number; host: string };
+
+function readRmwOwner(lock: string): RmwOwner | undefined {
+  const text = readStoreArtifact(lock, ["owner.tmp.json"], 4096);
+  if (text === null) return undefined;
+  try {
+    const parsed = JSON.parse(text) as Partial<RmwOwner>;
+    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid < 1 || typeof parsed.host !== "string") return undefined;
+    return { pid: parsed.pid, host: parsed.host };
+  } catch { return undefined; }
+}
+
+function rmwPidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
@@ -460,26 +479,42 @@ export class JsonStore {
    *  two unsynchronized RMWs over index.json each read the same base array and the
    *  second rename silently erases the first's record. `mkdirSync` is the atomic
    *  acquire (EEXIST = held). A stale lock (killed process) is taken over by age;
-   *  against a live contender we wait briefly and then proceed WITH a warning —
-   *  never worse than the historical lockless behavior, and capture paths must not
-   *  start throwing on lock contention. */
+   *  against a live contender we wait briefly and then refuse the write. Proceeding
+   *  without the lock would reintroduce the record-loss race this mutex exists to
+   *  prevent. */
   private withSingleFileLock<T>(kind: EntityKind, directory: SafeDirectory, fn: () => T): T {
     const lock = join(directory.lexical, ".rmw-lock");
     const deadline = Date.now() + 2_000;
     for (;;) {
+      if (Date.now() >= deadline) throw new Error(`[hunch] timed out acquiring the ${kind} index lock (still held: ${lock})`);
       try {
         mkdirSync(lock);
-        break;
-      } catch {
+        // Record ownership inside the already-exclusive directory. A live local
+        // writer may exceed the stale-age heuristic while serializing a large
+        // index; its PID must prevent a second writer from taking over.
         try {
-          if (Date.now() - lstatSync(lock).mtimeMs > 10_000) {
-            rmSync(lock, { recursive: true, force: true }); // no live spawn holds a lock this old
-            continue;
-          }
-        } catch { continue; /* vanished between attempts — retry the acquire */ }
-        if (Date.now() >= deadline) {
-          console.warn(`[hunch] proceeding without the ${kind} index lock (still held: ${lock})`);
-          return fn();
+          writeFileAtomic(join(lock, "owner.tmp.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
+        } catch (error) {
+          try { rmSync(lock, { recursive: true, force: true }); } catch { /* report the ownership failure below */ }
+          throw new Error(`[hunch] could not record ownership for the ${kind} index lock: ${(error as Error).message}`, { cause: error });
+        }
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        let stat: FileStat;
+        try {
+          stat = lstatSync(lock);
+        } catch (statError) {
+          if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue; // vanished between mkdir and inspect
+          throw statError;
+        }
+        const owner = readRmwOwner(lock);
+        const stale = owner && owner.host === hostname()
+          ? !rmwPidAlive(owner.pid)
+          : Date.now() - stat.mtimeMs > 10_000;
+        if (stale) {
+          rmSync(lock, { recursive: true, force: true });
+          continue;
         }
         Atomics.wait(RMW_LOCK_WAITER, 0, 0, 25);
       }
@@ -532,7 +567,12 @@ export class JsonStore {
       // Sorted by id so the index has ONE canonical order — re-indexing after a
       // git merge (which the driver also id-sorts) doesn't churn the whole file.
       validated.sort((a, b) => String((a as { id: string }).id).localeCompare(String((b as { id: string }).id)));
-      this.writeContainedFile(directory, this.fileFor(kind, "index"), encode(validated), this.maxBytes(kind));
+      // A rebuild is also a read-modify-write boundary from the perspective of
+      // concurrent put/delete callers: without the same mutex it can publish
+      // over an update that acquired the lock moments earlier (or vice versa).
+      this.withSingleFileLock(kind, directory, () => {
+        this.writeContainedFile(directory, this.fileFor(kind, "index"), encode(validated), this.maxBytes(kind));
+      });
       return;
     }
     // One file per record: preflight EVERY existing JSON file before touching

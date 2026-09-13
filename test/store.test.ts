@@ -1,9 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { tempStore, prov } from "./helpers.js";
 import { openMemoryDb, type DB } from "../src/store/db.js";
+
+const require = createRequire(import.meta.url);
+const fs = require("node:fs") as typeof import("node:fs");
 
 function seed() {
   const ctx = tempStore();
@@ -114,6 +119,70 @@ test("single-file RMW lock: a stale .rmw-lock is taken over and the write lands;
   assert.ok(store.json.loadAll("edges").some((e) => e.id === "e_lock"), "the write proceeded through the stale lock");
   assert.equal(existsSync(lock), false, "the lock is released after the write");
   cleanup();
+});
+
+test("single-file RMW lock: a live lock is a refusal after timeout, never an unlocked write", () => {
+  const { store, root, cleanup } = seed();
+  const lock = join(root, ".hunch", "edges", ".rmw-lock");
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, "owner.tmp.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(lock, old, old);
+  try {
+    assert.throws(() => store.json.put("edges", { id: "e_live_lock", from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() } as never), /timed out acquiring the edges index lock/);
+    assert.equal(existsSync(lock), true, "the contending lock remains owned by its holder");
+    assert.equal(store.json.loadAll("edges").some((e) => e.id === "e_live_lock"), false, "the refused write does not publish an unlocked index update");
+  } finally { cleanup(); }
+});
+
+test("single-file rebuild: replaceAll honors the RMW lock instead of publishing over a live update", () => {
+  const { store, root, cleanup } = seed();
+  const lock = join(root, ".hunch", "edges", ".rmw-lock");
+  mkdirSync(lock, { recursive: true });
+  try {
+    assert.throws(() => store.json.replaceAll("edges", [
+      { id: "e_rebuild", from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() },
+    ] as never), /timed out acquiring the edges index lock/);
+    assert.deepEqual(store.json.loadAll("edges").map((e) => e.id).sort(), ["e1", "e2"], "a refused rebuild leaves the index unchanged");
+    assert.equal(existsSync(lock), true, "the contending lock remains owned by its holder");
+  } finally { cleanup(); }
+});
+
+for (const kind of ["hardlink", "oversized"] as const) test(`single-file RMW lock refuses ${kind} ownership metadata`, () => {
+  const { store, root, cleanup } = seed();
+  const lock = join(root, ".hunch", "edges", ".rmw-lock");
+  mkdirSync(lock);
+  const owner = join(lock, "owner.tmp.json");
+  if (kind === "hardlink") {
+    const outside = join(root, "foreign-owner.json");
+    writeFileSync(outside, "{}");
+    fs.linkSync(outside, owner);
+  } else writeFileSync(owner, " ".repeat(8192));
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(lock, old, old);
+  try {
+    assert.throws(() => store.json.replaceAll("edges", []), /unsafe|unreadable/);
+    assert.deepEqual(store.json.loadAll("edges").map((e) => e.id).sort(), ["e1", "e2"]);
+    assert.equal(existsSync(owner), true, "unsafe ownership never licenses removal of another lock");
+  } finally { cleanup(); }
+});
+
+test("single-file RMW lock: owner metadata failure refuses and cleans up its owned lock", () => {
+  const { store, root, cleanup } = seed();
+  const originalRenameSync = fs.renameSync;
+  fs.renameSync = ((from, to) => {
+    if (String(to).replace(/\\/g, "/").endsWith(".rmw-lock/owner.tmp.json")) throw new Error("simulated metadata publication failure");
+    return originalRenameSync(from, to);
+  }) as typeof fs.renameSync;
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => store.json.put("edges", { id: "e_owner_failure", from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() } as never), /could not record ownership/);
+    assert.equal(existsSync(join(root, ".hunch", "edges", ".rmw-lock")), false, "a lock without ownership metadata is never left behind");
+  } finally {
+    fs.renameSync = originalRenameSync;
+    syncBuiltinESMExports();
+    cleanup();
+  }
 });
 
 test("getDependents walks the graph backward (blast radius)", () => {

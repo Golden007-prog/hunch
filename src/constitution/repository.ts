@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { writeFileAtomic, writeFileAtomicIfAbsent } from "../core/io.js";
+import { readStoreArtifact, storeArtifactPath } from "../core/storeArtifact.js";
 import { shortHash } from "../core/ids.js";
 import { canonicalHash, policySemanticHash, proofPlanContentHash } from "./canonical.js";
 import { proofCorpusContentHash } from "./corpus.js";
@@ -35,13 +36,42 @@ import {
 } from "./schema.js";
 
 const encode = (value: unknown): string => JSON.stringify(value, null, 2) + "\n";
+const MAX_POLICY_ARTIFACT_BYTES = 8 * 1024 * 1024;
+
+function assertPolicyArtifactSize(data: string): void {
+  if (Buffer.byteLength(data, "utf8") > MAX_POLICY_ARTIFACT_BYTES) {
+    throw new Error(`policy artifact exceeds the ${MAX_POLICY_ARTIFACT_BYTES}-byte limit`);
+  }
+}
+
+function artifactFile(dir: string, name: string): string {
+  return storeArtifactPath(dir, name);
+}
+
+function writeArtifact(dir: string, name: string, data: string): void {
+  assertPolicyArtifactSize(data);
+  const file = artifactFile(dir, name);
+  writeFileAtomic(file, data);
+  artifactFile(dir, name);
+}
+
+function writeArtifactIfAbsent(dir: string, name: string, data: string): boolean {
+  assertPolicyArtifactSize(data);
+  const file = artifactFile(dir, name);
+  const created = writeFileAtomicIfAbsent(file, data);
+  if (created) artifactFile(dir, name);
+  return created;
+}
 
 function loadRecords<T>(dir: string, parse: (raw: unknown) => T, label: string): T[] {
-  if (!existsSync(dir)) return [];
+  const safeDir = storeArtifactPath(dirname(dir), basename(dir));
+  if (!existsSync(safeDir)) return [];
   const out: T[] = [];
-  for (const name of readdirSync(dir).filter((n) => n.endsWith(".json")).sort()) {
+  for (const name of readdirSync(safeDir).filter((n) => n.endsWith(".json")).sort()) {
     try {
-      out.push(parse(JSON.parse(readFileSync(join(dir, name), "utf8"))));
+      const raw = readStoreArtifact(safeDir, [name], MAX_POLICY_ARTIFACT_BYTES);
+      if (raw === null) throw new Error("record disappeared while it was being read");
+      out.push(parse(JSON.parse(raw)));
     } catch (e) {
       // A policy store can control CI. Skipping a corrupt record would turn an
       // enforcement failure into a false pass, so fail visibly instead.
@@ -66,7 +96,13 @@ export class PolicyRepository {
   private dir(home: "public" | "private", kind: "policies" | "proofs" | "plans" | "evidence" | "corpora" | "dispositions" | "shadow"): string {
     const base = home === "private" ? this.privateHome : this.publicHome;
     if (!base) throw new Error("No private Hunch overlay is configured; refusing to write a private policy.");
-    return join(base, kind);
+    return storeArtifactPath(base, kind);
+  }
+
+  private ensureDir(home: "public" | "private", kind: "policies" | "proofs" | "plans" | "evidence" | "corpora" | "dispositions" | "shadow"): string {
+    const dir = this.dir(home, kind);
+    mkdirSync(dir, { recursive: true });
+    return storeArtifactPath(dirname(dir), basename(dir));
   }
 
   private policiesIn(home: "public" | "private"): PolicySpec[] {
@@ -207,8 +243,8 @@ export class PolicyRepository {
   }
 
   homeOfPolicy(id: string): "public" | "private" | undefined {
-    if (this.privateHome && existsSync(join(this.dir("private", "policies"), `${id}.json`))) return "private";
-    if (existsSync(join(this.dir("public", "policies"), `${id}.json`))) return "public";
+    if (this.privateHome && existsSync(artifactFile(this.dir("private", "policies"), `${id}.json`))) return "private";
+    if (existsSync(artifactFile(this.dir("public", "policies"), `${id}.json`))) return "public";
     return undefined;
   }
 
@@ -219,9 +255,8 @@ export class PolicyRepository {
       throw new Error(`refusing to write ${parsed.data_class} policy ${parsed.id} into its existing public home; migrate it to the private overlay first`);
     }
     const home = opts.private ? "private" : existing ?? (parsed.data_class !== "public" || this.store.unified ? "private" : "public");
-    const dir = this.dir(home, "policies");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "policies");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 
@@ -241,9 +276,8 @@ export class PolicyRepository {
     if (existing && otherHome) throw new Error(`policy ${parsed.id} exists in both public and private homes`);
     if (existing) return { policy: existing, created: false };
     if (otherHome) throw new Error(`policy ${parsed.id} already exists in the ${home === "public" ? "private" : "public"} home`);
-    const dir = this.dir(home, "policies");
-    mkdirSync(dir, { recursive: true });
-    if (writeFileAtomicIfAbsent(join(dir, `${parsed.id}.json`), encode(parsed))) {
+    const dir = this.ensureDir(home, "policies");
+    if (writeArtifactIfAbsent(dir, `${parsed.id}.json`, encode(parsed))) {
       const racedOtherHome = this.getPolicy(parsed.id, home === "public" ? { privateOnly: true } : { publicOnly: true });
       if (racedOtherHome) throw new Error(`policy ${parsed.id} was published concurrently in both public and private homes`);
       return { policy: parsed, created: true };
@@ -276,9 +310,8 @@ export class PolicyRepository {
         assertCompositionBinding(policy, composition, plan.composition);
       }
     }
-    const dir = this.dir(home, "proofs");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "proofs");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 
@@ -311,9 +344,8 @@ export class PolicyRepository {
       if (immutableProofHash(existing) !== immutableProofHash(parsed)) throw new Error(`proof ${parsed.id} already exists with different immutable content`);
       return { proof: existing, created: false };
     }
-    const dir = this.dir(home, "proofs");
-    mkdirSync(dir, { recursive: true });
-    if (writeFileAtomicIfAbsent(join(dir, `${parsed.id}.json`), encode(parsed))) return { proof: parsed, created: true };
+    const dir = this.ensureDir(home, "proofs");
+    if (writeArtifactIfAbsent(dir, `${parsed.id}.json`, encode(parsed))) return { proof: parsed, created: true };
     const winner = this.getProof(parsed.id, homeOpts);
     if (!winner) throw new Error(`proof ${parsed.id} appeared concurrently but could not be read`);
     if (immutableProofHash(winner) !== immutableProofHash(parsed)) throw new Error(`proof ${parsed.id} appeared concurrently with different immutable content`);
@@ -338,9 +370,8 @@ export class PolicyRepository {
       assertCompositionBinding(policy, composition, parsed.composition);
       if (parsed.policy_candidate_hash !== policyProofHash(policy, composition)) throw new Error(`composite plan ${parsed.id} policy hash mismatch`);
     }
-    const dir = this.dir(home, "plans");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "plans");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 
@@ -368,9 +399,8 @@ export class PolicyRepository {
       if (existing.content_hash !== parsed.content_hash) throw new Error(`proof plan ${parsed.id} already exists with different immutable content`);
       return { plan: existing, created: false };
     }
-    const dir = this.dir(home, "plans");
-    mkdirSync(dir, { recursive: true });
-    if (writeFileAtomicIfAbsent(join(dir, `${parsed.id}.json`), encode(parsed))) return { plan: parsed, created: true };
+    const dir = this.ensureDir(home, "plans");
+    if (writeArtifactIfAbsent(dir, `${parsed.id}.json`, encode(parsed))) return { plan: parsed, created: true };
     const winner = this.getPlan(parsed.id, homeOpts);
     if (!winner) throw new Error(`proof plan ${parsed.id} appeared concurrently but could not be read`);
     if (winner.content_hash !== parsed.content_hash) throw new Error(`proof plan ${parsed.id} appeared concurrently with different immutable content`);
@@ -386,9 +416,8 @@ export class PolicyRepository {
     if (!policy || parsed.data_class !== policy.data_class || parsed.policy_hash !== policySemanticHash(policy)) {
       throw new Error(`corpus ${parsed.id} does not match policy ${policyId} semantics/data class`);
     }
-    const dir = this.dir(home, "corpora");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${policyId}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "corpora");
+    writeArtifact(dir, `${policyId}.json`, encode(parsed));
     return parsed;
   }
 
@@ -399,9 +428,8 @@ export class PolicyRepository {
     if (home === "public" && parsed.data_class !== "public") {
       throw new Error(`refusing to write ${parsed.data_class} evidence ${parsed.id} into the public home`);
     }
-    const dir = this.dir(home, "evidence");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "evidence");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 
@@ -433,9 +461,8 @@ export class PolicyRepository {
     }
     if (!current && parsed.supersedes) throw new Error(`history disposition ${parsed.id} supersedes no current disposition for this proof hit`);
     currentHistoryDispositions([...records, parsed]);
-    const dir = this.dir(home, "dispositions");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "dispositions");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 
@@ -463,9 +490,8 @@ export class PolicyRepository {
     }
     const existing = this.listShadowEvaluations(homeOpts).find((record) => shadowEvaluationIdentityHash(record) === shadowEvaluationIdentityHash(parsed));
     if (existing) return existing;
-    const dir = this.dir(home, "shadow");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "shadow");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 
@@ -497,9 +523,8 @@ export class PolicyRepository {
     }
     if (!current && parsed.supersedes) throw new Error(`shadow disposition ${parsed.id} supersedes no current disposition for this evaluation`);
     currentShadowDispositions([...records, parsed]);
-    const dir = this.dir(home, "shadow");
-    mkdirSync(dir, { recursive: true });
-    writeFileAtomic(join(dir, `${parsed.id}.json`), encode(parsed));
+    const dir = this.ensureDir(home, "shadow");
+    writeArtifact(dir, `${parsed.id}.json`, encode(parsed));
     return parsed;
   }
 }
@@ -626,12 +651,16 @@ export function movePolicyArtifactsToPrivate(publicHunchDir: string, privateHunc
     }
   }
   for (const { kind, from, to, pub, priv, keyFor } of staged) {
+    storeArtifactPath(dirname(from), basename(from));
     if (!pub.length && !existsSync(from)) continue;
+    storeArtifactPath(dirname(to), basename(to));
     mkdirSync(to, { recursive: true });
+    storeArtifactPath(dirname(to), basename(to));
     for (const rec of pub) {
       const key = keyFor(rec);
-      if (!priv.has(key)) writeFileAtomic(join(to, `${key}.json`), encode(rec));
+      if (!priv.has(key)) writeArtifact(to, `${key}.json`, encode(rec));
     }
+    storeArtifactPath(dirname(from), basename(from));
     rmSync(from, { recursive: true, force: true });
     counts[kind] = pub.length;
   }

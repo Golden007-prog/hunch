@@ -65,7 +65,7 @@ function hookCommands(value: unknown): string[] {
   const obj = value as Obj;
   if (obj.enabled === false || (obj.type !== undefined && obj.type !== "command")) return [];
   const command = typeof obj.command === "string" ? obj.command : "";
-  const own = /(?:@davesheffer\/hunch|[\\/]index\.(?:js|ts))/.test(command)
+  const own = /(?:@davesheffer\/hunch|(?:dist|src)[\\/]+cli[\\/]+index\.(?:js|ts))/.test(command)
     && /\s"?hook"?(?:\s+"?--provider"?\s+"?[a-z]+"?)?\s*$/.test(command);
   return [...(own ? [command] : []), ...(obj.hooks ? hookCommands(obj.hooks) : [])];
 }

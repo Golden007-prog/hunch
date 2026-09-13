@@ -288,7 +288,7 @@ test("behavior execution cannot mutate its shared dependency snapshot and ordina
     const evaluationWithoutCache = evaluateExecutableBehaviorPolicy(root, policy, { commit: head });
     assert.equal(evaluationWithoutCache.result, "error", "an absent cache is never coerced into a pass");
     assert.equal(evaluationWithoutCache.behavior?.error_code, "dependency-snapshot-cache-absent");
-    assert.match(evaluationWithoutCache.explanation, /behavior-deps/);
+    assert.match(evaluationWithoutCache.explanation, /hunch constitution g2 --behavior-deps <candidate> --behavior-review-hash <hash>/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -170,6 +170,22 @@ test("commitAndPushHunch keeps JSON deletion fail-closed in a public code reposi
   } finally { cleanup(); }
 });
 
+for (const push of [false, true]) test(`capture never publishes index-lock owner metadata (push=${push})`, () => {
+  const { root, git, cleanup } = repo("hunch-lock-owner-capture-");
+  try {
+    mkdirSync(join(root, ".hunch", "entities", ".rmw-lock"), { recursive: true });
+    writeFileSync(join(root, ".hunch", "entities", "index.json"), "[]\n");
+    const owner = join(root, ".hunch", "entities", ".rmw-lock", "owner.tmp.json");
+    writeFileSync(owner, JSON.stringify({ pid: process.pid, host: "local-test" }));
+    const result = commitAndPushHunch(join(root, ".hunch"), "hunch: capture", { push, ...(push ? { protectedRepoRoot: join(root, "..") } : {}) });
+    assert.equal(result, "committed");
+    assert.match(git("ls-tree", "-r", "--name-only", "HEAD"), /entities\/index\.json/);
+    assert.doesNotMatch(git("ls-tree", "-r", "--name-only", "HEAD"), /\.rmw-lock/);
+    assert.equal(git("diff", "--cached", "--name-only"), "");
+    assert.ok(readFileSync(owner, "utf8").includes("local-test"), "capture leaves the live owner's lock intact");
+  } finally { cleanup(); }
+});
+
 test("commitAndPushHunch never force-adds the local-only pending-commit-repairs queue into a shared overlay", () => {
   const { root, git, cleanup } = repo("hunch-overlay-queue-");
   try {

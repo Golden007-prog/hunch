@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SYMLINK_SKIP } from "./helpers.js";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
@@ -108,3 +109,88 @@ test("writeFileAtomic preserves the old target when rename contention persists",
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const writer of ["writeFileAtomic", "writeFileAtomicIfAbsent"] as const) {
+  for (const collision of ["file", "symlink", "hardlink"] as const) {
+    test(`${writer} refuses an occupied temporary path without changing or removing someone else's file (${collision})`, {
+      skip: collision === "symlink" ? SYMLINK_SKIP : false,
+    }, async () => {
+      const root = mkdtempSync(join(tmpdir(), "hunch-atomic-collision-"));
+      const target = join(root, "index.json");
+      const outside = join(root, "keep.json");
+      writeFileSync(outside, "unrelated bytes\n");
+      if (writer === "writeFileAtomic") writeFileSync(target, "old complete bytes\n");
+      const originalOpen = fs.openSync;
+      let occupied: string | undefined;
+      // Put a competing file at the actual publication temp path, immediately
+      // before open. This exercises the filesystem race without guessing a PID
+      // or relying on the implementation's temporary naming scheme.
+      fs.openSync = ((file, flags, mode) => {
+        if (!occupied && String(file).startsWith(`${target}.tmp`)) {
+          occupied = String(file);
+          if (collision === "symlink") symlinkSync(outside, occupied, "file");
+          else if (collision === "hardlink") linkSync(outside, occupied);
+          else writeFileSync(occupied, "another writer's bytes\n");
+        }
+        return originalOpen(file, flags, mode);
+      }) as typeof fs.openSync;
+      syncBuiltinESMExports();
+      try {
+        const io = await import(`../src/core/io.js?atomic-io-test=${importSequence++}`);
+        assert.throws(() => io[writer](target, "replacement bytes\n"), { code: "EEXIST" });
+        assert.ok(occupied);
+        assert.equal(readFileSync(outside, "utf8"), "unrelated bytes\n");
+        assert.equal(readFileSync(occupied, "utf8"), collision === "file" ? "another writer's bytes\n" : "unrelated bytes\n");
+        assert.equal(lstatSync(occupied).isSymbolicLink(), collision === "symlink");
+        if (writer === "writeFileAtomic") assert.equal(readFileSync(target, "utf8"), "old complete bytes\n");
+        else assert.ok(!fs.existsSync(target), "a refused create must not publish a target");
+      } finally {
+        fs.openSync = originalOpen;
+        syncBuiltinESMExports();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+}
+
+test("atomic replacement preserves a private config's access permissions", { skip: process.platform === "win32" ? "POSIX permission bits" : false }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-atomic-mode-"));
+  const target = join(root, "config.json");
+  try {
+    const { writeFileAtomic } = await import("../src/core/io.js");
+    writeFileSync(target, '{"token":"private"}\n');
+    chmodSync(target, 0o600);
+    writeFileAtomic(target, '{"token":"private","enabled":true}\n');
+    assert.equal(lstatSync(target).mode & 0o777, 0o600, "rewriting a user config must not make its credentials readable to other users");
+    assert.equal(readFileSync(target, "utf8"), '{"token":"private","enabled":true}\n');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const writer of ["writeFileAtomic", "writeFileAtomicIfAbsent"] as const) {
+  test(`${writer} publishes the complete UTF-8 payload after short filesystem writes`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "hunch-atomic-short-write-"));
+    const target = join(root, "index.json");
+    const data = JSON.stringify({ text: "שלום 🌍".repeat(20) });
+    const originalWrite = fs.writeSync;
+    fs.writeSync = ((fd: number, value: string | Buffer, ...args: unknown[]) => {
+      if (typeof value === "string") {
+        const bytes = Buffer.from(value);
+        return originalWrite(fd, bytes, 0, Math.min(7, bytes.length), typeof args[0] === "number" ? args[0] : null);
+      }
+      const offset = typeof args[0] === "number" ? args[0] : 0;
+      const length = typeof args[1] === "number" ? args[1] : value.length - offset;
+      return originalWrite(fd, value, offset, Math.min(7, length), typeof args[2] === "number" ? args[2] : null);
+    }) as typeof fs.writeSync;
+    syncBuiltinESMExports();
+    try {
+      const io = await import(`../src/core/io.js?atomic-io-test=${importSequence++}`);
+      io[writer](target, data);
+      assert.equal(readFileSync(target, "utf8"), data);
+      assert.deepEqual(readdirSync(root), ["index.json"]);
+    } finally {
+      fs.writeSync = originalWrite;
+      syncBuiltinESMExports();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}

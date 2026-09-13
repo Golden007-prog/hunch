@@ -16,9 +16,10 @@
  *  assert — those are conformance-only predicates checked by a different gate
  *  (`hunch conform`), not the edit hook. This schema records only what each gate
  *  actually knows; it never fabricates the conformance shape for a plain block. */
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, fstatSync, lstatSync, openSync } from "node:fs";
 import { join } from "node:path";
 import type { HunchPaths } from "./paths.js";
+import { readStoreArtifact, storeArtifactPath } from "./storeArtifact.js";
 
 /** One enforcement event. `kind` is open-ended so the conformance/drift gates can
  *  append their own shapes later; `subject`/`object`/`assert` stay OPTIONAL and
@@ -49,10 +50,20 @@ export function eventsLogPath(paths: HunchPaths): string {
  *  call site is the edit hook, which MUST NEVER break an agent on failure
  *  (con_03a0b94b2e). A dropped catch-log line is an acceptable loss. */
 export function appendEvent(paths: HunchPaths, event: HunchEvent): void {
+  let fd: number | undefined;
   try {
-    appendFileSync(eventsLogPath(paths), `${JSON.stringify(event)}\n`);
+    const file = storeArtifactPath(paths.hunch, "events.log");
+    fd = openSync(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW);
+    const opened = fstatSync(fd);
+    const current = lstatSync(storeArtifactPath(paths.hunch, "events.log"));
+    if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== current.dev || opened.ino !== current.ino) return;
+    appendFileSync(fd, `${JSON.stringify(event)}\n`);
   } catch {
     /* best effort — a lost audit line must never surface to the agent */
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* logging remains best effort on close failure too */ }
+    }
   }
 }
 
@@ -61,7 +72,7 @@ export function appendEvent(paths: HunchPaths, event: HunchEvent): void {
 export function readEvents(paths: HunchPaths): HunchEvent[] {
   let raw: string;
   try {
-    raw = readFileSync(eventsLogPath(paths), "utf8");
+    raw = readStoreArtifact(paths.hunch, ["events.log"]) ?? "";
   } catch {
     return []; // no catches recorded yet
   }

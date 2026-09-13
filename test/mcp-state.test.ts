@@ -5,8 +5,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { hostname, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -14,6 +15,7 @@ import { hunchPaths } from "../src/core/paths.js";
 import { buildServer } from "../src/mcp/server.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { entityId, stateHash } from "../src/core/stateContract.js";
+import { writeLockPath } from "../src/serve/writelock.js";
 // These suites exercise the specialist MCP tool groups; the everyday default hides them (src/mcp/toolset.ts).
 process.env.HUNCH_MCP_TOOLS = "all";
 
@@ -120,4 +122,58 @@ test("nuryel_* tools bind read / write / subscribe / capabilities over MCP with 
   const badClose = await client.callTool({ name: "nuryel_write", arguments: { principal, scope: repo, facet: "commitments", record: { schema: "nuryel.commitment/1", ...cBase, title: "other", status: "done", closed_by: "nrc_000000000000000000000000", valid_from: "2026-09-08T09:05:00Z", valid_to: "2026-09-09T11:10:00Z", provenance: prov }, idempotency_key: "mcp-closed-bad" } });
   assert.equal(badClose.isError, true);
   assert.match((badClose.content as Array<{ text: string }>)[0]!.text, /refused \[conflict\].*write the receipt first/s);
+});
+
+test("MCP state writes lock the selected shared overlay home", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "hunch-mcp-overlay-lock-"));
+  const root = join(dir, "repo");
+  const overlayRoot = join(dir, "memory");
+  const overlay = join(overlayRoot, ".hunch");
+  mkdirSync(join(root, ".hunch"), { recursive: true });
+  mkdirSync(overlay, { recursive: true });
+  execFileSync("git", ["init", "-q", root]);
+  execFileSync("git", ["init", "-q", overlayRoot]);
+  writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ privateDir: overlay, mode: "shared", autoCommit: false }) + "\n");
+  const seed = new HunchStore(hunchPaths(root));
+  seed.json.ensureDirs();
+  seed.reindex();
+  seed.close();
+  const server = buildServer(root);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "mcp-overlay-lock-test", version: "1.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  t.after(async () => {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const caps = await client.callTool({ name: "nuryel_capabilities", arguments: {} });
+  const repository = (caps.structuredContent as { repository: { kind: string; id: string } }).repository;
+  const principal = { id: "sofia@david", kind: "agent", grants: [repository] };
+  const stale = JSON.stringify({ pid: 999_999, host: hostname(), nonce: "stale", at: new Date(0).toISOString() });
+  const publicLock = writeLockPath(join(root, ".hunch"));
+  const overlayLock = writeLockPath(overlay);
+  writeFileSync(publicLock, stale);
+  writeFileSync(overlayLock, stale);
+  const old = new Date(Date.now() - 2 * 60_000);
+  utimesSync(publicLock, old, old);
+  utimesSync(overlayLock, old, old);
+
+  const record = {
+    schema: "nuryel.receipt/1",
+    scope: repository,
+    actor: "sofia@david",
+    action_kind: "add_comment",
+    target: { system: "crm", object_type: "event", object_key: "overlay-lock", observed_at: "2026-09-13T00:00:00Z" },
+    request_fingerprint: stateHash({ overlayLock: true }),
+    state: "verified",
+    occurred_at: "2026-09-13T00:00:00Z",
+    provenance: prov,
+    invalidates: [],
+  };
+  const result = await client.callTool({ name: "nuryel_write", arguments: { principal, scope: repository, facet: "receipts", record, idempotency_key: "mcp-overlay-lock-1" } });
+  assert.ok(!result.isError, JSON.stringify(result.content));
+  assert.ok(existsSync(publicLock), "MCP did not steal the unrelated public lock");
+  assert.equal(existsSync(overlayLock), false, "MCP acquired and released the shared overlay lock");
 });

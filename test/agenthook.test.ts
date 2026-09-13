@@ -138,3 +138,16 @@ test("normalizes Codex hooks: apply_patch targets the first patched file, turn_i
   assert.deepEqual(denyHookOutput("codex", "no").output, { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "no" } });
   assert.equal(normalizeHookEvent({ hook_event_name: "PreToolUse", session_id: "t", tool_name: "apply_patch", tool_input: { input: "not a patch" } }, "codex")?.tool_input, undefined, "a non-patch input is not a file edit");
 });
+
+test("does not retarget a normal write whose content contains patch markers", () => {
+  const write = normalizeHookEvent({
+    hook_event_name: "PreToolUse",
+    tool_name: "Write",
+    tool_input: {
+      file_path: "src/actual.md",
+      content: "Example patch syntax:\n*** Begin Patch\n*** Update File: src/other.ts\n*** End Patch\n",
+    },
+  }, "claude");
+  assert.equal(write?.tool_name, "Write");
+  assert.equal(write?.tool_input?.file_path, "src/actual.md");
+});

@@ -1,5 +1,5 @@
 /** Durable file writes for the Hunch. */
-import { closeSync, fsyncSync, linkSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, fchmodSync, fsyncSync, linkSync, lstatSync, openSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 let counter = 0;
@@ -26,18 +26,14 @@ const renameRetryWaiter = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_
  */
 export function writeFileAtomic(file: string, data: string): void {
   const tmp = `${file}.tmp${process.pid}.${counter++}`;
+  let mode: number | undefined;
   try {
-    const fd = openSync(tmp, "w");
-    try {
-      writeSync(fd, data);
-      fsyncSync(fd); // data blocks reach disk before the rename's metadata can
-    } finally {
-      closeSync(fd);
-    }
-  } catch (e) {
-    cleanupTmp(tmp);
-    throw e;
+    const existing = lstatSync(file);
+    if (existing.isFile()) mode = existing.mode & 0o777;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  writeFileAtomicTmp(tmp, data, mode);
   try {
     renameWithContentionRetry(tmp, file);
   } catch (e) {
@@ -80,8 +76,10 @@ function isRenameContention(error: unknown): boolean {
  * semantics, so concurrent lifecycle writers can never be overwritten. */
 export function writeFileAtomicIfAbsent(file: string, data: string): boolean {
   const tmp = `${file}.tmp${process.pid}.${counter++}`;
+  // An occupied temp path is an error, not evidence that the target exists.
+  // Only enter the publication/cleanup block once we own the temporary file.
+  writeFileAtomicTmp(tmp, data);
   try {
-    writeFileAtomicTmp(tmp, data);
     linkSync(tmp, file);
     return true;
   } catch (error) {
@@ -97,13 +95,23 @@ export function writeFileAtomicIfAbsent(file: string, data: string): boolean {
 }
 
 /** Write + fsync a fresh temp file (shared by both atomic writers). */
-function writeFileAtomicTmp(tmp: string, data: string): void {
-  const fd = openSync(tmp, "w");
+function writeFileAtomicTmp(tmp: string, data: string, mode?: number): void {
+  // Exclusive creation rejects stale files and links without truncating their
+  // contents. If open fails, the path belongs to somebody else: never unlink it.
+  const fd = openSync(tmp, "wx", mode ?? 0o666);
   try {
-    writeSync(fd, data);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
+    try {
+      writeFileSync(fd, data);
+      // The replacement inode must retain an existing file's permissions,
+      // including private config files that contain credentials.
+      if (mode !== undefined) fchmodSync(fd, mode);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (error) {
+    cleanupTmp(tmp);
+    throw error;
   }
 }
 

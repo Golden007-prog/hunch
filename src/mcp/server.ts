@@ -15,7 +15,7 @@ import { resolveMcpToolset } from "./toolset.js";
 import { readConfig } from "../core/config.js";
 import { canonicalRootPath, resolveActiveRoot } from "./roots.js";
 import { HunchStore } from "../store/hunchStore.js";
-import { StateRefusal, SubscribeResponseSchema, capabilities, partitionOf, readState, recordsState, subscribeState, writeState } from "../store/stateBinding.js";
+import { StateRefusal, SubscribeResponseSchema, capabilities, partitionOf, readState, recordsState, stateHomeFor, subscribeState, writeState } from "../store/stateBinding.js";
 import { captureState, captureBatchState } from "../store/stateCapture.js";
 import { CaptureRequestSchema, CaptureBatchRequestSchema, CaptureBatchResultSchema, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION } from "../core/stateContract.js";
 import { ReadRequestSchema, ReadResponseSchema, WriteRequestSchema, WriteResultSchema, SubscribeRequestSchema, RecordsRequestSchema, RecordsResponseSchema, STATE_READ_VERSION, STATE_WRITE_VERSION, STATE_SUBSCRIBE_VERSION, STATE_RECORDS_VERSION, stateHash } from "../core/stateContract.js";
@@ -2109,7 +2109,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       try {
         // Same cross-process lock `hunch serve` takes: a second agent writing over stdio must
         // not race the HTTP server between the ledger read and the record write.
-        const result = await withWriteLock(hunchPaths(root).hunch, () => writeState(store, { schema: STATE_WRITE_VERSION, ...input }, {
+        const { hunchDir } = stateHomeFor(store, input.scope);
+        const result = await withWriteLock(hunchDir, () => writeState(store, { schema: STATE_WRITE_VERSION, ...input }, {
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message, startupTeamRoute ?? undefined),
         }));
         return stateResult(`${result.outcome} ${result.record_id} (${result.durability}) ${result.record_hash}`, result);
@@ -2129,7 +2130,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ cwd: _cwd, ...input }): Promise<ToolResult> => {
       try {
-        const result = await withWriteLock(hunchPaths(root).hunch, () => captureState(store, { schema: STATE_CAPTURE_VERSION, ...input }, {
+        const { hunchDir } = stateHomeFor(store, input.scope);
+        const result = await withWriteLock(hunchDir, () => captureState(store, { schema: STATE_CAPTURE_VERSION, ...input }, {
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message, startupTeamRoute ?? undefined),
         }));
         return stateResult(`${result.outcome} observation ${result.record_id} (${result.durability}); this does not assert currentness. ${result.record_hash}`, result);
@@ -2147,7 +2149,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ cwd: _cwd, ...input }): Promise<ToolResult> => {
       try {
-        const result = await withWriteLock(hunchPaths(root).hunch, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, ...input }, {
+        const { hunchDir } = stateHomeFor(store, input.scope);
+        const result = await withWriteLock(hunchDir, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, ...input }, {
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message, startupTeamRoute ?? undefined),
         }));
         return stateResult(`Capture batch: ${result.results.filter(r => r.status === "saved").length} saved/replayed, ${result.results.filter(r => r.status === "refused").length} refused.${result.reviews ? ` Reviews: ${result.reviews.filter(r => r.status === "saved").length} withdrawn/replayed, ${result.reviews.filter(r => r.status === "refused").length} refused.` : ''} Inspect each indexed result.`, result);

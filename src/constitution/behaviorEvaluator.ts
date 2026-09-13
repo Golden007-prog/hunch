@@ -163,7 +163,7 @@ export function evaluateExecutableBehaviorPolicy(
     // both stay `error`, never a coerced pass.
     if (!existsSync(join(root, ".hunch-cache", "behavior-deps"))) {
       return evaluation(policy, commit, { ...baseExecution, commit, error_code: "dependency-snapshot-cache-absent" }, "error",
-        "no dependency snapshot cache exists on this machine (.hunch-cache/behavior-deps); executable behavior is unevaluated here, not failed — provision the policy's snapshots (hunch constitution bootstrap --behavior-deps <candidate>) or evaluate where they were built");
+        "no dependency snapshot cache exists on this machine (.hunch-cache/behavior-deps); executable behavior is unevaluated here, not failed — provision the policy's snapshots (hunch constitution g2 --behavior-deps <candidate> --behavior-review-hash <hash>) or evaluate where they were built");
     }
     return evaluation(policy, commit, { ...baseExecution, commit, error_code: "dependency-snapshot-unavailable" }, "error",
       `no unique exact dependency snapshot matches this commit's package.json/package-lock.json among the policy's pinned ids (${assertion.dependency_snapshot_ids.join(", ")}); dependency inputs changed since compilation — re-plan and re-prove the policy (rb_g2_stale_policy_01)`);

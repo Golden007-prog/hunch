@@ -19,7 +19,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { HunchStore } from "../store/hunchStore.js";
 import { hunchPaths } from "../core/paths.js";
 import { flushCapture } from "../integrations/sync.js";
-import { StateRefusal, capabilities, mergeReadResponses, readState, recordsState, subscribeState, writeState } from "../store/stateBinding.js";
+import { StateRefusal, capabilities, mergeReadResponses, readState, recordsState, stateHomeFor, subscribeState, writeState } from "../store/stateBinding.js";
 import { STATE_READ_VERSION, STATE_RECORDS_VERSION, STATE_SUBSCRIBE_VERSION, STATE_WRITE_VERSION, ReadScopesSchema, ScopeSchema, scopePath, type Principal, type Scope } from "../core/stateContract.js";
 import { partitionFor, resolvePrincipal, type ServeConfig } from "./config.js";
 import { WriteLockTimeout, withWriteLock } from "./writelock.js";
@@ -168,23 +168,26 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
       if (url.pathname === "/nuryel/v1/write") {
         const scope = requireScope(principal, body);
         const { store, root } = storeFor(scope);
-        const result = await withWriteLock(hunchPaths(root).hunch, () => writeState(store, { schema: STATE_WRITE_VERSION, principal, ...body }, {
+        const { hunchDir } = stateHomeFor(store, scope);
+        const result = await withWriteLock(hunchDir, () => writeState(store, { schema: STATE_WRITE_VERSION, principal, ...body }, {
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
         }));
         return send(res, result.outcome === "created" ? 201 : 200, result);
       }
       if (url.pathname === "/nuryel/v1/capture") {
         const scope = requireScope(principal, body);
-        const { store } = storeFor(scope);
-        const result = await withWriteLock(hunchPaths(store.publicRoot).hunch, () => captureState(store, { schema: STATE_CAPTURE_VERSION, principal, ...body }, {
-          flush: (isPrivate, message) => flushCapture(store, hunchPaths(store.publicRoot).hunch, isPrivate, message),
+        const { store, root } = storeFor(scope);
+        const { hunchDir } = stateHomeFor(store, scope);
+        const result = await withWriteLock(hunchDir, () => captureState(store, { schema: STATE_CAPTURE_VERSION, principal, ...body }, {
+          flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
         }));
         return send(res, result.outcome === "created" ? 201 : 200, result);
       }
       if (url.pathname === "/nuryel/v1/capture-batch") {
         const scope = requireScope(principal, body);
         const { store, root } = storeFor(scope);
-        const result = await withWriteLock(hunchPaths(root).hunch, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, principal, ...body }, {
+        const { hunchDir } = stateHomeFor(store, scope);
+        const result = await withWriteLock(hunchDir, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, principal, ...body }, {
           flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
         }));
         return send(res, 200, result);
