@@ -2,7 +2,7 @@
 
 ## 1.32.7 — 2026-09-13
 
-- Codex native command hooks cover Bash and PowerShell, while integration health accepts failure capture only from explicit failed-tool evidence. MCP finding captures now remain advisory `agent_recorded` testimony unless an authenticated human capture path exists.
+- Codex native command hooks cover Bash and PowerShell, while integration health accepts failure capture only from explicit failed-tool evidence. Commit handoff waits through the owner marker's transient release window. MCP finding captures remain advisory `agent_recorded` testimony unless an authenticated human capture path exists.
 
 ## 1.32.6 — 2026-09-13
 
