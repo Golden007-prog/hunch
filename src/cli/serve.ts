@@ -1,7 +1,9 @@
+import { readFileSync, statSync } from 'node:fs';
+import { proofPublicKey } from '../core/stateProof.js';
 import type { Command } from "commander";
 import { resolve } from "node:path";
 import { createServeApp } from "../serve/app.js";
-import { initServeConfig, partitionFor, readServeConfig } from "../serve/config.js";
+import { initServeConfig, partitionFor, readServeConfig, writeServeConfig } from "../serve/config.js";
 import { compactLedger } from "../store/changeLedger.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { hunchPaths } from "../core/paths.js";
@@ -38,6 +40,17 @@ export function registerServeCommands(program: Command): void {
       const stop = (): void => { app.close(() => { app.closeStores(); process.exit(0); }); };
       process.on("SIGINT", stop);
       process.on("SIGTERM", stop);
+    });
+
+  serve.command("revoke")
+    .description("Revoke a principal credential; current servers reload the config before each request")
+    .requiredOption("--principal <id>", "principal whose credential to revoke")
+    .action((opts: { principal: string }) => {
+      const { file, ...config } = readServeConfig(resolve(serve.opts<{ config?: string }>().config ?? DEFAULT_CONFIG));
+      if (!config.principals.some(p => p.id === opts.principal)) throw new Error('principal is not configured');
+      config.principals = config.principals.filter(p => p.id !== opts.principal);
+      writeServeConfig(file, config);
+      console.log(JSON.stringify({ revoked: opts.principal }));
     });
 
   serve.command("compact")
@@ -93,11 +106,13 @@ export function registerServeCommands(program: Command): void {
     .requiredOption("--root <dir>", "directory whose .hunch/ holds the partition (created if missing)")
     .option("--config <file>", `serve config to create or extend; default ${DEFAULT_CONFIG}`)
     .option("--principal <id>", "principal to add or rotate, granted this partition")
+    .option("--proof-key-file <file>", "bind this token to an Ed25519 public PEM or JWK key")
+    .option("--public-origin <origin>", "external HTTPS origin of the reverse proxy; required for key-bound tokens")
     .option("--kind <kind>", "principal kind: human | agent | service", "agent")
     .option("--grant <kind:id...>", "additional partitions to grant the principal (must be served by this config)")
     .option("--port <n>", "port to record in a new config")
     .option("--json", "machine-readable output")
-    .action((opts: { partition: string; root: string; config?: string; principal?: string; kind: string; grant?: string[]; port?: string; json?: boolean }) => {
+    .action((opts: { partition: string; root: string; config?: string; principal?: string; proofKeyFile?: string; publicOrigin?: string; kind: string; grant?: string[]; port?: string; json?: boolean }) => {
       if (!["human", "agent", "service"].includes(opts.kind)) throw new Error("--kind must be human, agent or service");
       // `serve` and `serve init` both take --config; Commander hands an option written after
       // `init` to whichever command claims it first, and that was the parent — so 1.26.0's
@@ -107,10 +122,18 @@ export function registerServeCommands(program: Command): void {
       const port = parent.port ?? opts.port;
       const scope = parseScopeArg(opts.partition);
       const grants = [scope, ...(opts.grant ?? []).map(parseScopeArg)];
+      let proofKey;
+      if (opts.proofKeyFile) {
+        if (!opts.principal) throw new Error('--proof-key-file requires --principal');
+        const stat = statSync(opts.proofKeyFile);
+        if (!stat.isFile() || stat.size > 8192) throw new Error('public proof key must be a regular file of at most 8 KiB');
+        proofKey = proofPublicKey(readFileSync(opts.proofKeyFile, 'utf8'));
+      }
       const result = initServeConfig({
         file: configFile, scope, root: resolve(opts.root),
-        ...(opts.principal ? { principal: { id: opts.principal, kind: opts.kind as "human" | "agent" | "service", grants } } : {}),
+        ...(opts.principal ? { principal: { id: opts.principal, kind: opts.kind as "human" | "agent" | "service", grants, proofKey } } : {}),
         ...(port ? { port: Number(port) } : {}),
+        ...(opts.publicOrigin ? { publicOrigin: opts.publicOrigin } : {}),
       });
       if (opts.json) { console.log(JSON.stringify({ config: configFile, partition: result.partition, token: result.token })); return; }
       console.log(`partition ${scopePath(scope)} → ${result.partition.root}`);

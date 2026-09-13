@@ -22,7 +22,9 @@ export class StateClientError extends Error {
   }
 }
 
+export interface StateProofRequest { method: string; url: string; token: string; nonce?: string }
 export interface StateClientOptions {
+  proof?: (request: StateProofRequest) => Promise<string>;
   baseUrl: string;
   token: string;
   fetch?: typeof fetch;
@@ -33,17 +35,30 @@ export function createStateClient(opts: StateClientOptions) {
   const base = opts.baseUrl.replace(/\/+$/, "");
   const doFetch = opts.fetch ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 15_000;
+  let nonce: string | undefined;
   async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await doFetch(`${base}${path}`, {
+      const url = `${base}${path}`;
+      const request = async () => doFetch(url, {
         method,
-        headers: { authorization: `Bearer ${opts.token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        headers: { authorization: `${opts.proof ? 'DPoP' : 'Bearer'} ${opts.token}`, ...(opts.proof ? { dpop: await opts.proof({ method, url, token: opts.token, nonce }) } : {}), ...(body !== undefined ? { "content-type": "application/json" } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
         redirect: "error",
       });
+      let response = await request();
+      // This one retry is an authentication challenge before any operation runs.
+      // Idempotency/conflict/network failures never trigger automatic write retries.
+      if (opts.proof && response.status === 401 && response.headers.has('dpop-nonce')) {
+        const challenge = await response.clone().json().catch(() => null) as { title?: string } | null;
+        if (challenge?.title === 'use_dpop_nonce') {
+          nonce = response.headers.get('dpop-nonce')!;
+          await response.arrayBuffer();
+          response = await request();
+        }
+      }
       const text = await response.text();
       const parsed = text ? (JSON.parse(text) as unknown) : {};
       if (!response.ok) {

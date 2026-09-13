@@ -6,7 +6,7 @@ export const operatorHtml = `<!doctype html>
 <header><div class="eyebrow">HUNCH / SHARED RECORD</div><span class="badge">Read-only view</span>
 <h1>Shared state</h1><p class="intro">What was decided, what happened, and what still needs doing.</p></header>
 <section id="connection" class="panel"><h2>Open your workspace</h2><p>Use a token issued by this Hunch server. It stays in this tab’s memory until you disconnect or reload.</p>
-<form id="connect-form"><label for="token">Access token</label><div class="row"><input id="token" type="password" required autocomplete="off" spellcheck="false" placeholder="Paste your access token"><button id="connect" type="submit">Connect</button></div></form>
+<form id="connect-form"><label for="token">Access token</label><div class="row"><input id="token" type="password" required autocomplete="off" spellcheck="false" placeholder="Paste your access token"><button id="connect" type="submit">Connect</button></div><details><summary>Key-bound token</summary><label for="proof-key">Private key file (Ed25519 JWK)</label><input id="proof-key" type="file" accept=".json,application/json"><p class="small muted">Used locally to sign requests. The private key stays in this tab and is cleared on disconnect.</p></details></form>
 <p class="muted small">The view makes no changes to records. The token keeps its existing server permissions.</p></section>
 <p id="status" role="status" aria-live="polite"></p><p id="error" role="alert" hidden></p>
 <div id="workspace" hidden>
@@ -32,6 +32,7 @@ export const operatorJs = String.raw`
   const $ = id => document.getElementById(id);
   const node = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
   const empty = text => node('p', text, 'empty');
+  let proofSigner, proofNonce;
   let token = '', scopes = [], subject = '', cursor = null, generation = 0, controller;
   const scope = () => scopes[Number($('scope').value)];
   function clearSubject() {
@@ -39,7 +40,7 @@ export const operatorJs = String.raw`
     $('subject-hint').textContent = 'Open a subject to see the record your agents share.'; $('record-view').hidden = true; $('record-content').replaceChildren();
   }
   function disconnect() {
-    generation++; controller?.abort(); token = ''; scopes = []; clearSubject(); $('token').value = ''; $('subject').value = '';
+    generation++; controller?.abort(); token = ''; proofSigner = undefined; proofNonce = undefined; $('proof-key').value = ''; scopes = []; clearSubject(); $('token').value = ''; $('subject').value = '';
     $('scope').replaceChildren(); $('identity').textContent = ''; $('activity').replaceChildren(); $('activity-note').textContent = '';
     $('workspace').hidden = true; $('connection').hidden = false; $('error').hidden = true; $('status').textContent = 'Disconnected. Workspace data cleared from this page.';
     $('connect').disabled = false; $('refresh').disabled = false; $('token').focus();
@@ -51,13 +52,35 @@ export const operatorJs = String.raw`
     catch (e) {
       if (id !== generation || e.name === 'AbortError') return;
       if (e.status === 401) disconnect();
-      $('error').textContent = e.status === 409 ? 'The records changed between pages. Show the subject again to restart from current state.' : e.status === 401 ? 'That token was not accepted. Check it and reconnect.' : e.message || 'Could not reach this Hunch server. Try again.';
+      $('error').textContent = e.status === 409 ? 'The records changed between pages. Show the subject again to restart from current state.' : e.status === 401 ? 'Those credentials were not accepted. Check the token and any required key, then reconnect.' : e.message || 'Could not reach this Hunch server. Try again.';
       $('error').hidden = false; $('status').textContent = 'Update failed. Displayed records may be out of date.';
     } finally { if (id === generation) { $('connect').disabled = false; $('refresh').disabled = false; } }
   }
+  async function importProofSigner(file) {
+    if (location.protocol !== 'https:') throw new Error('Key-bound tokens require the HTTPS server address.');
+    if (file.size > 8192) throw new Error('Private key files are limited to 8 KiB.');
+    const jwk = JSON.parse(await file.text());
+    if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || typeof jwk.x !== 'string' || typeof jwk.d !== 'string') throw new Error('Choose an Ed25519 private JWK file.');
+    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['sign']);
+    const publicKey = { crv: 'Ed25519', kty: 'OKP', x: jwk.x };
+    const base64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+    const encode = value => base64(new TextEncoder().encode(JSON.stringify(value)));
+    const header = encode({ typ: 'dpop+jwt', alg: 'EdDSA', jwk: publicKey });
+    return async (method, url, accessToken, nonce) => {
+      const ath = base64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(accessToken)));
+      const payload = encode({ jti: crypto.randomUUID(), htm: method, htu: url, iat: Math.floor(Date.now() / 1000), ath, ...(nonce ? { nonce } : {}) });
+      const message = header + '.' + payload;
+      return message + '.' + base64(await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(message)));
+    };
+  }
   async function api(route, body, signal) {
-    const response = await fetch('/nuryel/v1/' + route, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer ' + token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal, cache: 'no-store', credentials: 'omit', redirect: 'error' });
-    const data = await response.json(); if (!response.ok) { const e = new Error(data.detail || 'The server could not complete this read.'); e.status = response.status; throw e; } return data;
+    const method = body === undefined ? 'GET' : 'POST', path = '/nuryel/v1/' + route, accessToken = token, signer = proofSigner;
+    const request = async () => fetch(path, { method, headers: { Authorization: (signer ? 'DPoP ' : 'Bearer ') + accessToken, ...(signer ? { DPoP: await signer(method, location.origin + path, accessToken, proofNonce) } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal, cache: 'no-store', credentials: 'omit', redirect: 'error' });
+    let response = await request(), data = await response.json();
+    if (signer && response.status === 401 && data.title === 'use_dpop_nonce' && response.headers.has('dpop-nonce')) {
+      proofNonce = response.headers.get('dpop-nonce'); response = await request(); data = await response.json();
+    }
+    if (!response.ok) { const e = new Error(data.detail || 'The server could not complete this read.'); e.status = response.status; throw e; } return data;
   }
   function field(list, title, value) { if (value === undefined || value === null || value === '') return; list.append(node('dt', title), node('dd', typeof value === 'string' ? value : JSON.stringify(value))); }
   // Dependencies have a fixed JSON schema. Match the contract's sorted-key hash,
@@ -182,6 +205,9 @@ export const operatorJs = String.raw`
   $('connect-form').onsubmit = event => {
     event.preventDefault(); token = $('token').value.trim(); $('token').value = '';
     run('Connecting…', async (signal, current) => {
+      const file = $('proof-key').files[0]; $('proof-key').value = '';
+      proofSigner = undefined; proofNonce = undefined;
+      if (file) { const signer = await importProofSigner(file); if (!current()) return; proofSigner = signer; }
       const result = await api('capabilities', undefined, signal); if (!current()) return;
       scopes = result.principal.grants; $('scope').replaceChildren(); scopes.forEach((s, i) => { const option = node('option', s.kind + ' / ' + s.id); option.value = String(i); $('scope').append(option); });
       $('identity').textContent = 'Connected as ' + (result.principal.display || result.principal.id);
