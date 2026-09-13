@@ -1,0 +1,108 @@
+# Trusted-base, data-only receipt producer for hunch-guard-review.yml. The
+# ordinary Hunch Guard remains required until this path is qualified live.
+name: Hunch Guard Review Producer (candidate)
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] trusted default-branch workflow; no PR checkout, secrets, writes, or code execution
+    workflows: ["Hunch Guard"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hunch-guard-review-producer-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  produce:
+    if: github.event.repository.default_branch == 'main' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the trusted workflow revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read and bind the live PR revision
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-producer
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$TEMP_DIR"
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const dir = process.env.TEMP_DIR;
+          const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
+          const fullSha = /^[0-9a-f]{40}$/;
+          if (pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== process.env.GITHUB_REPOSITORY) throw new Error("PR is not an open main-branch PR");
+          if (!fullSha.test(pr.head?.sha ?? "") || !fullSha.test(pr.base?.sha ?? "")) throw new Error("PR did not provide full immutable revisions");
+          writeFileSync(`${dir}/normalized.json`, `${JSON.stringify({ number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha })}\n`);
+          writeFileSync(process.env.GITHUB_OUTPUT, `head_sha=${pr.head.sha}\nbase_sha=${pr.base.sha}\n` , { flag: "a" });
+          NODE
+
+      - name: Fetch the PR head as Git data
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          case "$PR_NUMBER" in (''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;; esac
+          git -c protocol.ext.allow=never -c protocol.file.allow=never fetch --no-tags --no-recurse-submodules origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/hunch-review-head"
+          test "$(git rev-parse refs/remotes/origin/hunch-review-head)" = "$HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}" || git -c protocol.ext.allow=never -c protocol.file.allow=never fetch --no-tags --no-recurse-submodules origin "$BASE_SHA"
+          test "$(git rev-parse "$BASE_SHA^{commit}")" = "$BASE_SHA"
+
+      - name: Install the trusted base evaluator without lifecycle scripts
+        id: evaluator
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          version="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const p=JSON.parse(readFileSync("package.json","utf8")); if(typeof p.version!=="string" || !/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(p.version)) throw new Error("invalid trusted-base package version"); process.stdout.write(p.version)')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Produce a machine-readable receipt from trusted code
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          EVALUATOR_VERSION: ${{ steps.evaluator.outputs.version }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review-producer
+          REPORT_DIR: ${{ github.workspace }}/.hunch-guard-review
+          TRUSTED_CLI: ${{ github.workspace }}/dist/cli/index.js
+        run: |
+          set -euo pipefail
+          mkdir -p "$TEMP_DIR"
+          mkdir -p "$REPORT_DIR"
+          node tooling/hunch-guard-review-producer.mjs \
+            --repo "$GITHUB_WORKSPACE" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --workflow-sha "$WORKFLOW_SHA" \
+            --run-id "$RUN_ID" \
+            --evaluator-version "$EVALUATOR_VERSION" \
+            --cli "$TRUSTED_CLI" \
+            --temp "$TEMP_DIR/work" \
+            --output "$REPORT_DIR/guard-report.json"
+
+      - name: Upload the bound guard receipt
+        if: always() && hashFiles('.hunch-guard-review/guard-report.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hunch-guard-report
+          path: .hunch-guard-review/guard-report.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 
 const SHA = /^[0-9a-f]{40}$/;
 const REPORT_HASH = /^sha256:[0-9a-f]{64}$/;
 const SCHEMA = "hunch.guard-review-policy/1";
 const REPORT_SCHEMA = "hunch.guard-report/1";
-const TRUSTED_GUARD_PATH = ".github/workflows/hunch-guard.yml";
+const TRUSTED_GUARD_PATH = ".github/workflows/hunch-guard-review-producer.yml";
+const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const REVIEWABLE_FAILURES = new Set(["direct_scope_blocker"]);
 const NEVER_WAIVE = new Set([
   "policy_failure",
@@ -44,6 +45,20 @@ export function canonicalJson(value) {
 
 export function reportHash(report) {
   return `sha256:${createHash("sha256").update(canonicalJson(report)).digest("hex")}`;
+}
+
+export function validateArtifactMetadata(payload, runId, name = "hunch-guard-report") {
+  if (!isObject(payload) || !Array.isArray(payload.artifacts)) fail("artifact metadata is invalid");
+  const matches = payload.artifacts.filter((artifact) => isObject(artifact) && artifact.name === name);
+  if (matches.length !== 1) fail(`expected exactly one ${name} artifact`);
+  const artifact = matches[0];
+  requiredInteger(artifact.id, "artifact.id");
+  requiredInteger(runId, "artifact run id");
+  if (artifact.expired === true || !Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes < 1 || artifact.size_in_bytes > MAX_ARTIFACT_BYTES) {
+    fail("guard artifact is expired or exceeds the 1 MiB limit");
+  }
+  if (!isObject(artifact.workflow_run) || artifact.workflow_run.id !== runId) fail("guard artifact is not bound to the requested run");
+  return artifact.id;
 }
 
 function requiredString(value, label, pattern = null) {
@@ -124,10 +139,10 @@ function validateReport(report, policy, request, run) {
   requiredInteger(source.run_id, "guard report source.run_id");
   requiredString(source.workflow_path, "guard report source.workflow_path");
   requiredString(source.workflow_sha, "guard report source.workflow_sha", SHA);
-  if (source.run_id !== run.id || source.workflow_path !== run.path || source.workflow_path !== TRUSTED_GUARD_PATH || source.workflow_sha !== request.base_sha) {
+  if (source.run_id !== run.id || source.workflow_path !== run.path || source.workflow_path !== TRUSTED_GUARD_PATH || source.workflow_sha !== run.head_sha) {
     fail("guard report source is not bound to the trusted base workflow run");
   }
-  if (run.event !== "pull_request_target" || run.head_sha !== request.base_sha || run.status !== "completed" || run.conclusion !== "failure") {
+  if (run.event !== "workflow_run" || run.status !== "completed" || run.conclusion !== "success" || run.head_branch !== policy.default_branch || run.head_sha !== source.workflow_sha) {
     fail("guard report run was not produced in trusted base context");
   }
   if (source.event !== run.event) fail("guard report event receipt does not match the run");
@@ -161,6 +176,9 @@ export function evaluateReview({ policy, request, pr, actor, report, run }) {
 
 function readJson(path, label) {
   try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink() || !stat.isFile()) fail(`${label} is not a regular file`);
+    if (stat.size > 1024 * 1024) fail(`${label} exceeds the 1 MiB receipt limit`);
     return JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
     fail(`could not read ${label}: ${error.message}`);

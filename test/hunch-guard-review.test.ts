@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { evaluateReview, reportHash } from "../tooling/hunch-guard-review.mjs";
+import { evaluateReview, reportHash, validateArtifactMetadata } from "../tooling/hunch-guard-review.mjs";
+import { classifySarif } from "../tooling/hunch-guard-review-producer.mjs";
 
 const head = "0123456789abcdef0123456789abcdef01234567";
 const base = "fedcba9876543210fedcba9876543210fedcba98";
+const trusted = "89abcdef0123456789abcdef0123456789abcdef";
 const runId = 741852;
 
 const policy = {
@@ -22,7 +24,7 @@ const pr = {
 };
 
 const actor = { id: 26892525, login: "davesheffer", type: "User" };
-const run = { id: runId, event: "pull_request_target", head_sha: base, path: ".github/workflows/hunch-guard.yml", status: "completed", conclusion: "failure" };
+const run = { id: runId, event: "workflow_run", head_sha: trusted, head_branch: "main", path: ".github/workflows/hunch-guard-review-producer.yml", status: "completed", conclusion: "success" };
 
 function fixture(overrides: Record<string, unknown> = {}) {
   return {
@@ -37,9 +39,9 @@ function fixture(overrides: Record<string, unknown> = {}) {
     evaluator: { package: "@davesheffer/hunch", version: "1.32.4" },
     source: {
       run_id: runId,
-      workflow_path: ".github/workflows/hunch-guard.yml",
-      workflow_sha: base,
-      event: "pull_request_target",
+      workflow_path: ".github/workflows/hunch-guard-review-producer.yml",
+      workflow_sha: trusted,
+      event: "workflow_run",
     },
     ...overrides,
   };
@@ -116,7 +118,7 @@ for (const failure of ["policy_failure", "executable_policy_failure", "conforman
 
 test("rejects a report produced by the existing untrusted pull_request run", () => {
   const report = fixture({ source: { ...fixture().source, event: "pull_request" } });
-  assert.throws(() => review({ report, run: { ...run, event: "pull_request" } }), /trusted base context/);
+  assert.throws(() => review({ report, run: { ...run, event: "pull_request" } }), /trusted base context|trusted base workflow run/);
 });
 
 test("rejects a report from a different workflow revision or run", () => {
@@ -135,4 +137,40 @@ test("review workflow remains data-only and separate from the required guard", (
   assert.doesNotMatch(workflow, /npm (?:install|run)/);
   assert.doesNotMatch(workflow, /\bhunch check\b/);
   assert.doesNotMatch(workflow, /checkout[^\n]*head\.sha/);
+});
+
+test("producer is default-branch workflow_run code and never installs or runs PR code", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/hunch-guard-review-producer.yml", import.meta.url), "utf8");
+  assert.match(workflow, /workflow_run:/);
+  assert.match(workflow, /workflows: \["Hunch Guard"\]/);
+  assert.match(workflow, /npm ci --ignore-scripts/);
+  assert.match(workflow, /node tooling\/hunch-guard-review-producer\.mjs/);
+  assert.doesNotMatch(workflow, /pull_request_target:/);
+  assert.doesNotMatch(workflow, /npm install/);
+  assert.doesNotMatch(workflow, /actions\/checkout[^\n]*head_sha/);
+});
+
+test("artifact metadata is exact, bounded, unexpired, and tied to the requested run", () => {
+  const payload = { artifacts: [{ id: 99, name: "hunch-guard-report", expired: false, size_in_bytes: 512, workflow_run: { id: runId } }] };
+  assert.equal(validateArtifactMetadata(payload, runId), 99);
+  for (const bad of [
+    { ...payload, artifacts: [{ ...payload.artifacts[0], size_in_bytes: 1024 * 1024 + 1 }] },
+    { ...payload, artifacts: [{ ...payload.artifacts[0], expired: true }] },
+    { ...payload, artifacts: [{ ...payload.artifacts[0], workflow_run: { id: runId + 1 } }] },
+    { ...payload, artifacts: [] },
+  ]) assert.throws(() => validateArtifactMetadata(bad, runId), /artifact/);
+});
+
+test("producer classifies only a lone direct constraint error as reviewable", () => {
+  const sarif = (results: object[]) => ({ version: "2.1.0", runs: [{ results }] });
+  assert.deepEqual(classifySarif(sarif([{ level: "error", ruleId: "con_scope", message: { text: "direct" } }]), 1), {
+    verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"],
+  });
+  assert.equal(classifySarif(sarif([{ level: "error", ruleId: "con_scope", message: { text: "direct" } }]), 1, "strict freshness error").reviewable, false);
+  for (const [ruleId, text] of [["pol_policy", "policy error"], ["dec_conf", "architectural conformance violated: x"], ["dec_veto", "reverses rejected approach"], ["dec_reg", "re-adds function"]]) {
+    const result = classifySarif(sarif([{ level: "error", ruleId, message: { text } }]), 1);
+    assert.equal(result.reviewable, false);
+    assert.equal(result.verdict, "failure");
+  }
+  assert.equal(classifySarif(null, null).evaluation_complete, false);
 });

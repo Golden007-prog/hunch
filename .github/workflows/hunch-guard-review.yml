@@ -129,6 +129,20 @@ jobs:
           TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
         run: |
           set -euo pipefail
+          node --input-type=module - "$TEMP_DIR/run.json" "$GUARD_RUN_ID" "$TEMP_DIR/request.json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const [runFile, runIdRaw, requestFile] = process.argv.slice(2);
+          const run = JSON.parse(readFileSync(runFile, "utf8"));
+          const request = JSON.parse(readFileSync(requestFile, "utf8"));
+          if (run.id !== Number(runIdRaw) || run.event !== "workflow_run" || run.head_branch !== "main" || run.path !== ".github/workflows/hunch-guard-review-producer.yml" || run.status !== "completed" || run.conclusion !== "success") throw new Error("guard run is not a completed trusted producer run");
+          NODE
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GUARD_RUN_ID}/artifacts?per_page=100" > "$TEMP_DIR/artifacts.json"
+          artifact_id="$(node --input-type=module - "$TEMP_DIR/artifacts.json" "$GUARD_RUN_ID" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { validateArtifactMetadata } from "./tooling/hunch-guard-review.mjs";
+          process.stdout.write(String(validateArtifactMetadata(JSON.parse(readFileSync(process.argv[2], "utf8")), Number(process.argv[3]))));
+          NODE
+          )"
           report_dir="$TEMP_DIR/report"
           mkdir -p "$report_dir"
           gh run download "$GUARD_RUN_ID" --name hunch-guard-report --dir "$report_dir"
@@ -136,8 +150,12 @@ jobs:
           test -f "$report" && test ! -L "$report"
           resolved="$(realpath "$report")"
           case "$resolved" in "$report_dir"/*) ;; *) echo "guard report escaped its artifact directory" >&2; exit 1 ;; esac
+          report_bytes="$(stat -c '%s' "$report")"
+          test "$report_bytes" -le 1048576
+          test -n "$artifact_id"
 
       - name: Verify receipt without loading PR code
+        id: verify
         env:
           TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
         run: |
@@ -151,19 +169,57 @@ jobs:
             --run "$TEMP_DIR/run.json" \
             --output "$TEMP_DIR/receipt.json"
 
+      - name: Seal and upload the exception receipt
+        if: always() && steps.verify.outcome == 'success'
+        env:
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          REVIEW_WORKFLOW_SHA: ${{ github.sha }}
+          REVIEW_ACTOR: ${{ github.actor }}
+          REVIEW_ACTOR_ID: ${{ github.actor_id }}
+          REVIEW_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { reportHash } from "./tooling/hunch-guard-review.mjs";
+          const path = `${process.env.TEMP_DIR}/receipt.json`;
+          const receipt = JSON.parse(readFileSync(path, "utf8"));
+          const sealed = { ...receipt, review_run_id: Number(process.env.REVIEW_RUN_ID), review_run_attempt: Number(process.env.REVIEW_RUN_ATTEMPT), review_workflow_sha: process.env.REVIEW_WORKFLOW_SHA, review_actor: { login: process.env.REVIEW_ACTOR, id: Number(process.env.REVIEW_ACTOR_ID) }, review_reason: process.env.REVIEW_REASON };
+          writeFileSync(path, `${JSON.stringify({ ...sealed, receipt_hash: reportHash(sealed) }, null, 2)}\n`, { mode: 0o600 });
+          NODE
+
+      - name: Upload the content-addressed exception receipt
+        if: always() && steps.verify.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hunch-guard-review-receipt-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+          path: ${{ runner.temp }}/hunch-guard-review/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Publish candidate status on the exact PR head
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
           TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
           test -s "$TEMP_DIR/pr-normalized.json" || { echo "PR metadata was not verified; refusing to publish a status" >&2; exit 1; }
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-publication.json"
+          PR_FILE="$TEMP_DIR/pr-normalized.json" LATEST_FILE="$TEMP_DIR/pr-publication.json" node --input-type=module - <<'NODE'
+          import { readFileSync } from "node:fs";
+          const first = JSON.parse(readFileSync(process.env.PR_FILE, "utf8"));
+          const latest = JSON.parse(readFileSync(process.env.LATEST_FILE, "utf8"));
+          if (latest.number !== first.number || latest.state !== first.state || latest.base?.ref !== first.base.ref || latest.base?.sha !== first.base.sha || latest.head?.sha !== first.head.sha) throw new Error("PR changed before status publication");
+          NODE
           HEAD_SHA="$(PR_FILE="$TEMP_DIR/pr-normalized.json" node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.env.PR_FILE,"utf8")).head.sha)')"
           state=failure
           description="review refused; no exception authorized"
-          if test -s "$TEMP_DIR/receipt.json"; then
+          if test "$JOB_STATUS" = success && test -s "$TEMP_DIR/receipt.json"; then
             state=success
             description="authorized direct-scope exception; receipt is bound to PR $PR_NUMBER"
           fi
