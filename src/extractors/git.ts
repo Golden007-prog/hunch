@@ -1689,7 +1689,11 @@ function waitForCommitLockHandoff(
   let attempt: CommitLockAttempt = first;
   while (Date.now() < deadline) {
     if (attempt.state === "acquired") return true;
-    if (attempt.state !== "held-live" || attempt.ownerPid === process.pid) return false;
+    // Once the first snapshot proved a live owner, an owner-less snapshot can be
+    // the normal release window: recursive cleanup removes owner-<pid> before
+    // removing the outer lock directory. Keep the bounded handoff wait through
+    // that transient state instead of reporting a false busy/no-op result.
+    if (attempt.state === "held-live" && attempt.ownerPid === process.pid) return false;
     Atomics.wait(sleeper, 0, 0, Math.min(25, deadline - Date.now()));
     attempt = acquireCommitLock(lock);
   }

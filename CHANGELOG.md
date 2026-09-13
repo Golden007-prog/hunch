@@ -1,8 +1,14 @@
 # Changelog
 
+## 1.32.7 — 2026-09-13
+
+- Codex native command hooks cover Bash and PowerShell, while integration health accepts failure capture only from explicit failed-tool evidence. Commit handoff waits through the owner marker's transient release window. MCP finding captures remain advisory `agent_recorded` testimony unless an authenticated human capture path exists.
+
 ## 1.32.6 — 2026-09-13
 
 - Codex native command hooks now observe `Bash` and `PowerShell`. Integration health accepts failure capture only from an explicit failed-tool result, so success-only `PostToolUse` delivery stays unverified.
+
+This release was superseded before npm publication; its hook fixes are included in 1.32.7.
 
 ## VS Code 0.18.2 — 2026-09-13
 
