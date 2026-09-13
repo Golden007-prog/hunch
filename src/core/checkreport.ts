@@ -250,7 +250,7 @@ export function renderMarkdown(r: CheckReport): string {
       r.regBlocking ? `${r.regBlocking} blocking-linked regression(s)` : "",
       r.vetoBlocking ? `${r.vetoBlocking} reversed-decision veto(es)` : "",
     ].filter(Boolean).join(" + ");
-    out.push(`❌ **This PR breaks ${reasons}.** Resolve or supersede the decision before merge.`);
+    out.push(`❌ **Merge requires review: ${reasons}.** Check the cited evidence and verify that the recorded requirements still hold before merging.`);
   } else if (r.strict) {
     out.push(`ℹ️ Nothing here is a direct, high-confidence, non-stale blocking invariant — **not blocking** this PR.`);
   } else {

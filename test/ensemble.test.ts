@@ -5,6 +5,7 @@ import {
   EnsembleProvider, mergeDecisionDrafts,
   type SynthProvider, type DecisionDraft, type CommitInput, type BugDraft, type FailureInput,
 } from "../src/synthesis/provider.js";
+import { withInitiator } from "../src/synthesis/initiator.js";
 
 const DRAFT = (over: Partial<DecisionDraft> = {}): DecisionDraft => ({
   title: "Add caching layer", context: "ctx", decision: "introduce an LRU cache in the data layer",
@@ -21,6 +22,10 @@ class MockWorker implements SynthProvider {
   async draftBug(_i: FailureInput): Promise<BugDraft> { throw new Error("not used"); }
 }
 const INPUT: CommitInput = { subject: "s", body: "b", files: ["a.ts"], diff: "" };
+const runAsEnsemble = <T>(work: () => T): T =>
+  withInitiator({ provider: "ensemble-test", source: "explicit" }, work);
+const ensemble = (workers: SynthProvider[], opts: { samples?: number } = {}): EnsembleProvider =>
+  runAsEnsemble(() => new EnsembleProvider(workers, opts));
 
 test("mergeDecisionDrafts: confidence is agreement-weighted and ALWAYS below the strict gate", () => {
   const agree = mergeDecisionDrafts([DRAFT(), DRAFT()]); // identical → max agreement
@@ -45,33 +50,33 @@ test("mergeDecisionDrafts: unions consequences + alternatives (deduped)", () => 
 });
 
 test("EnsembleProvider: >=2 workers merge (capped); 1 worker passes through; failures dropped", async () => {
-  const merged = await new EnsembleProvider([new MockWorker("a", DRAFT()), new MockWorker("b", DRAFT())]).draftDecision(INPUT);
+  const merged = await ensemble([new MockWorker("ensemble-test", DRAFT()), new MockWorker("ensemble-test", DRAFT())]).draftDecision(INPUT);
   assert.match(merged.source, /ensemble/);
   assert.ok(merged.confidence < STRICT_MIN_CONFIDENCE);
 
-  const single = await new EnsembleProvider([new MockWorker("a", DRAFT({ confidence: 0.7 }))]).draftDecision(INPUT);
+  const single = await ensemble([new MockWorker("ensemble-test", DRAFT({ confidence: 0.7 }))]).draftDecision(INPUT);
   assert.equal(single.source, "llm_draft"); // passthrough, not merged
   assert.equal(single.confidence, 0.7);
 
-  const survived = await new EnsembleProvider([
-    new MockWorker("a", new Error("boom")),
-    new MockWorker("b", DRAFT({ title: "kept" })),
+  const survived = await ensemble([
+    new MockWorker("ensemble-test", new Error("boom")),
+    new MockWorker("ensemble-test", DRAFT({ title: "kept" })),
   ]).draftDecision(INPUT);
   assert.equal(survived.title, "kept"); // the failed worker is dropped
 });
 
 test("EnsembleProvider: all workers fail → throws; available() reflects the pool", async () => {
-  const e = new EnsembleProvider([new MockWorker("a", new Error("x"))]);
+  const e = ensemble([new MockWorker("ensemble-test", new Error("x"))]);
   await assert.rejects(() => e.draftDecision(INPUT), /all workers failed/);
   assert.equal(await e.available(), true);
-  assert.equal(await new EnsembleProvider([]).available(), false);
+  assert.equal(await ensemble([]).available(), false);
 });
 
 // A worker that counts how many times it's sampled (self-consistency depth).
 const counting = (): { p: SynthProvider; calls: () => number } => {
   let n = 0;
   const p: SynthProvider = {
-    name: "solo",
+    name: "ensemble-test",
     available: async () => true,
     draftDecision: async () => { n++; return DRAFT({ decision: `take path ${n}` }); },
     draftBug: async (): Promise<BugDraft> => { throw new Error("not used"); },
@@ -81,7 +86,7 @@ const counting = (): { p: SynthProvider; calls: () => number } => {
 
 test("EnsembleProvider: a single CLI is sampled `samples` times and reconciled (self-consistency)", async () => {
   const { p, calls } = counting();
-  const out = await new EnsembleProvider([p], { samples: 3 }).draftDecision(INPUT);
+  const out = await ensemble([p], { samples: 3 }).draftDecision(INPUT);
   assert.equal(calls(), 3, "the lone CLI is sampled `samples` times");
   assert.equal(out.samples, 3, "telemetry records the reconciliation breadth");
   assert.match(out.source, /ensemble/);
@@ -90,14 +95,14 @@ test("EnsembleProvider: a single CLI is sampled `samples` times and reconciled (
 
 test("EnsembleProvider: samples default is 1 (passthrough) for direct construction", async () => {
   const { p, calls } = counting();
-  const out = await new EnsembleProvider([p]).draftDecision(INPUT);
+  const out = await ensemble([p]).draftDecision(INPUT);
   assert.equal(calls(), 1, "no extra sampling unless asked");
   assert.equal(out.source, "llm_draft", "single draft passes through un-merged");
 });
 
 test("EnsembleProvider: samples is clamped to a sane 1..5 band", async () => {
   const { p, calls } = counting();
-  await new EnsembleProvider([p], { samples: 99 }).draftDecision(INPUT);
+  await ensemble([p], { samples: 99 }).draftDecision(INPUT);
   assert.equal(calls(), 5, "runaway sample counts are capped");
 });
 
@@ -106,7 +111,7 @@ test("EnsembleProvider: a NaN/garbage samples value falls back to 1 (never 0 tas
   // NaN → Array.from({length:NaN}) is empty → 'all workers failed' → --deep silently
   // collapses to the deterministic draft. Must degrade to a real sample instead.
   const { p, calls } = counting();
-  const out = await new EnsembleProvider([p], { samples: NaN }).draftDecision(INPUT);
+  const out = await ensemble([p], { samples: NaN }).draftDecision(INPUT);
   assert.ok(calls() >= 1, "the lone CLI is still sampled at least once");
   assert.equal(out.source, "llm_draft", "single sample passes through (not an error fallback)");
 });

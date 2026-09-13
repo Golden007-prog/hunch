@@ -18,10 +18,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import { SYMLINK_SKIP } from "./helpers.js";
-
-const PROJECT_ROOT = process.cwd();
-const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
-const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
+import { hunchCliArgs } from "./cli-invocation.js";
 
 type CodeFixture = {
   root: string;
@@ -67,7 +64,7 @@ function actorEnv(home: string): NodeJS.ProcessEnv {
 }
 
 function runCli(fixture: Pick<CodeFixture, "root" | "env">, ...args: string[]) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: fixture.root,
     env: fixture.env,
     encoding: "utf8",
@@ -81,7 +78,7 @@ function runCliWithTimeout(
   timeout: number,
   ...args: string[]
 ) {
-  return spawnSync(process.execPath, [TSX, CLI, ...args], {
+  return spawnSync(process.execPath, hunchCliArgs(...args), {
     cwd: fixture.root,
     env: fixture.env,
     encoding: "utf8",
@@ -505,11 +502,12 @@ test("strict CLI refuses an existing shared overlay whose remote differs from co
 
 // Budget note (issue #56): the ASSERTION here is fast — the inner
 // runCliWithTimeout(…, 10_000, "mcp") passes, i.e. the refusal returns in under
-// 10s. The wall time is fixture setup, which spawns ~8 CLI processes through tsx;
+// 10s. The wall time is fixture setup, which spawns ~8 CLI processes;
 // on Windows that measured 88–91s against the old 90s budget, so the test was a
 // coin flip standalone and tipped over reliably under full-suite load. Budget
 // raised to match measured cost — this is not masking a hang, it is sizing the
-// harness to what it actually does.
+// harness to what it actually does. Like the other team suites, honor the
+// prebuilt-CLI mode in CI so loader contention cannot consume that 10s budget.
 test("MCP refuses an existing shared overlay whose remote differs from committed team.json", { timeout: 240_000 }, () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-team-remote-mismatch-mcp-"));
   try {

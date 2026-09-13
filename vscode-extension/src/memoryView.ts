@@ -10,7 +10,8 @@
  */
 import * as vscode from "vscode";
 import * as os from "node:os";
-import { runHunch, runHunchWithProgress } from "./cli.js";
+import { runHunch, runHunchWithProgress, type CliResult } from "./cli.js";
+import { RootLoadFence } from "./rootBinding.js";
 
 /** One memory move — mirrors src/core/memorylog.MemoryMove (JSON consumer). */
 export interface MemoryMove {
@@ -27,6 +28,8 @@ export interface MemoryMove {
   files: string[];
 }
 
+export type ViewRunner = (root: string, args: string[]) => Promise<CliResult>;
+
 const KIND_ICON: Record<MemoryMove["kind"], string> = {
   capture: "diff-added",
   adopt: "check",
@@ -40,7 +43,7 @@ const KIND_LABEL: Record<MemoryMove["kind"], string> = {
 };
 
 export class MoveNode extends vscode.TreeItem {
-  constructor(public readonly move: MemoryMove) {
+  constructor(public readonly move: MemoryMove, public readonly root: string) {
     super(move.subject.replace(/^hunch:\s*/, ""), vscode.TreeItemCollapsibleState.None);
     const ids = [...move.decisionIds, ...move.otherIds];
     this.description = `${move.date.slice(0, 10)} · ${KIND_LABEL[move.kind]}${ids.length ? " · " + ids.slice(0, 2).join(",") : ""}`;
@@ -89,7 +92,7 @@ export interface PolicyEntry {
 }
 
 export class EscalationNode extends vscode.TreeItem {
-  constructor(public readonly entry: EscalationEntry) {
+  constructor(public readonly entry: EscalationEntry, public readonly root: string) {
     super(entry.question, vscode.TreeItemCollapsibleState.None);
     // A non-actionable row (a duplicate-id commit-repair follower) still
     // surfaces for transparency, but must not read like its own question —
@@ -113,7 +116,7 @@ const POLICY_ICON: Record<string, string> = {
 };
 
 export class PolicyNode extends vscode.TreeItem {
-  constructor(public readonly policy: PolicyEntry) {
+  constructor(public readonly policy: PolicyEntry, public readonly root: string) {
     super(policy.statement.length > 80 ? policy.statement.slice(0, 79) + "…" : policy.statement, vscode.TreeItemCollapsibleState.None);
     this.description = `${policy.state} · ${policy.severity}${policy.authority?.actor ? ` · ${policy.authority.actor}` : ""}${policy.data_class !== "public" ? " · private" : ""}`;
     this.iconPath = new vscode.ThemeIcon(POLICY_ICON[policy.state] ?? "circle-outline");
@@ -132,7 +135,7 @@ export class PolicyNode extends vscode.TreeItem {
 }
 
 class GroupNode extends vscode.TreeItem {
-  constructor(label: string, icon: string, public readonly group: "escalations" | "policies") {
+  constructor(label: string, icon: string, public readonly group: "escalations" | "policies", public readonly root: string) {
     super(label, group === "escalations" ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
     this.iconPath = new vscode.ThemeIcon(icon);
     this.contextValue = `hunchGroup.${group}`;
@@ -148,36 +151,59 @@ export class MemoryTreeProvider implements vscode.TreeDataProvider<Node> {
   private escalations: EscalationEntry[] = [];
   private policies: PolicyEntry[] = [];
   private loaded = false;
+  private loadedRoot: string | undefined;
+  private readonly loadFence = new RootLoadFence();
 
-  constructor(private readonly root: string | undefined) {}
+  constructor(
+    private readonly root: string | undefined | (() => string | undefined),
+    private readonly runner: ViewRunner = runHunch,
+  ) {}
 
-  refresh(): void {
-    void this.load().then(() => this._changed.fire());
+  private currentRoot(): string | undefined {
+    return typeof this.root === "function" ? this.root() : this.root;
   }
 
-  private async load(): Promise<void> {
+  refresh(): void {
+    void this.load().then((applied) => { if (applied) this._changed.fire(); });
+  }
+
+  private async load(): Promise<boolean> {
     this.loaded = true;
-    if (!this.root) { this.moves = []; this.escalations = []; this.policies = []; return; }
+    const root = this.currentRoot();
+    const ticket = this.loadFence.begin(root);
+    if (!root) {
+      if (!this.loadFence.isCurrent(ticket, this.currentRoot())) return false;
+      this.moves = []; this.escalations = []; this.policies = []; this.loadedRoot = undefined;
+      return true;
+    }
     // Three independent reads; each degrades to empty on failure (a broken policy
     // store must not take the timeline down, and vice versa).
     const [log, esc, pol] = await Promise.all([
-      runHunch(this.root, ["log", "--json", "-n", "150"]),
-      runHunch(this.root, ["escalations", "--json"]),
-      runHunch(this.root, ["policy", "list", "--json"]),
+      this.runner(root, ["log", "--json", "-n", "150"]),
+      this.runner(root, ["escalations", "--json"]),
+      this.runner(root, ["policy", "list", "--json"]),
     ]);
+    if (!this.loadFence.isCurrent(ticket, this.currentRoot())) return false;
     try { this.moves = log.ok ? JSON.parse(log.stdout) as MemoryMove[] : []; } catch { this.moves = []; }
     // escalations exits non-zero when ACTIONABLE entries exist (#61) — the raw
     // JSON array can still carry non-actionable ones alongside a zero exit, so
     // parse regardless of `esc.ok`.
     try { this.escalations = JSON.parse(esc.stdout) as EscalationEntry[]; } catch { this.escalations = []; }
     try { this.policies = pol.ok ? JSON.parse(pol.stdout) as PolicyEntry[] : []; } catch { this.policies = []; }
+    this.loadedRoot = root;
+    return true;
   }
 
   getTreeItem(node: Node): vscode.TreeItem { return node; }
 
   async getChildren(element?: Node): Promise<Node[]> {
     if (!element) {
-      if (!this.loaded) await this.load();
+      // A root switch can occur between refreshes (or before the host asks for
+      // children). Force a load for the newly selected repository so rows from
+      // the previous folder are never presented as current.
+      if (!this.loaded || this.loadedRoot !== this.currentRoot()) await this.load();
+      const root = this.loadedRoot;
+      if (!root) return [];
       const roots: Node[] = [];
       if (this.escalations.length) {
         // Tally only the ACTIONABLE entries — a duplicate-id commit-repair
@@ -186,15 +212,20 @@ export class MemoryTreeProvider implements vscode.TreeDataProvider<Node> {
         // must not inflate the "needs your decision" count (#61).
         const actionableCount = this.escalations.filter((e) => e.actionable !== false).length;
         const context = this.escalations.length - actionableCount;
-        roots.push(new GroupNode(`⚖ Needs your decision (${actionableCount}${context ? `, +${context} for context` : ""})`, "issues", "escalations"));
+        roots.push(new GroupNode(`⚖ Needs your decision (${actionableCount}${context ? `, +${context} for context` : ""})`, "issues", "escalations", root));
       }
-      if (this.policies.length) roots.push(new GroupNode(`🏛 Constitution (${this.policies.length})`, "law", "policies"));
-      return [...roots, ...this.moves.map((m) => new MoveNode(m))];
+      if (this.policies.length) roots.push(new GroupNode(`🏛 Constitution (${this.policies.length})`, "law", "policies", root));
+      return [...roots, ...this.moves.map((m) => new MoveNode(m, root))];
     }
     if (element instanceof GroupNode) {
+      const root = this.loadedRoot;
+      // A group row can outlive a root switch while the tree is being
+      // refreshed. Do not populate an old group with the new repository's
+      // entries; the next refresh creates a group carrying the new root.
+      if (!root || element.root !== root) return [];
       return element.group === "escalations"
-        ? this.escalations.map((e) => new EscalationNode(e))
-        : this.policies.map((p) => new PolicyNode(p));
+        ? this.escalations.map((e) => new EscalationNode(e, root))
+        : this.policies.map((p) => new PolicyNode(p, root));
     }
     return [];
   }

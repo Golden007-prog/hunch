@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tempStore } from "./helpers.js";
-import { scaffoldProviders, writeCursorMcp, writeVscodeMcp, writeCodexConfig, writeCodexHooks, writeWindsurfMcp, writeAntigravityWorkspaceMcp } from "../src/integrations/providers.js";
+import { scaffoldProviders, writeCursorMcp, writeVscodeMcp, writeCodexConfig, writeCodexHooks, writeCursorHooks, writeWindsurfMcp, writeAntigravityWorkspaceMcp, writeAntigravityHooks } from "../src/integrations/providers.js";
 import { writeSlashCommands } from "../src/integrations/scaffold.js";
 import { publishedMcpInvocation } from "../src/cli/invocation.js";
 
@@ -256,12 +256,51 @@ test("writeVscodeMcp REFUSES to overwrite an unparseable config (no data loss)",
   } finally { cleanup(); }
 });
 
+test("MCP and hook writers refuse malformed nested arrays without changing user bytes", () => {
+  const { root, cleanup } = tempStore();
+  try {
+    const cases: Array<{ file: string; value: unknown; write: () => string }> = [
+      { file: ".cursor/mcp.json", value: { mcpServers: [] }, write: () => writeCursorMcp(root, inv) },
+      { file: ".vscode/mcp.json", value: { servers: [] }, write: () => writeVscodeMcp(root, inv) },
+      { file: ".windsurf/mcp_config.json", value: { mcpServers: [] }, write: () => writeWindsurfMcp(root, inv) },
+      { file: ".agents/mcp_config.json", value: { mcpServers: [] }, write: () => writeAntigravityWorkspaceMcp(root, inv) },
+      { file: ".agents/hooks.json", value: { hunch: [] }, write: () => writeAntigravityHooks(root, inv) },
+      { file: ".agents/hooks.json", value: { hunch: { PreToolUse: {} } }, write: () => writeAntigravityHooks(root, inv) },
+      { file: ".cursor/hooks.json", value: { hooks: [] }, write: () => writeCursorHooks(root, inv) },
+    ];
+    for (const { file, value, write } of cases) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      const before = JSON.stringify(value);
+      writeFileSync(join(root, file), before);
+      assert.throws(write, /configuration|object|shape|refusing/i, file);
+      assert.equal(readFileSync(join(root, file), "utf8"), before, `${file} left untouched`);
+    }
+  } finally { cleanup(); }
+});
+
 test("writeCodexConfig refuses to create a duplicate [mcp_servers.hunch] table", () => {
   const { root, cleanup } = tempStore();
   try {
     mkdirSync(join(root, ".codex"), { recursive: true });
     writeFileSync(join(root, ".codex/config.toml"), "[mcp_servers.hunch]\ncommand = 'old'\n");
     assert.throws(() => writeCodexConfig(root, inv), /already defines \[mcp_servers\.hunch\]/);
+  } finally { cleanup(); }
+});
+
+test("writeCodexConfig refuses malformed user TOML before appending its block", () => {
+  const { root, cleanup } = tempStore();
+  try {
+    mkdirSync(join(root, ".codex"), { recursive: true });
+    const file = join(root, ".codex/config.toml");
+    for (const broken of [
+      "invalid = [unterminated\n",
+      "mcp_servers = 42\n",
+      "# >>> hunch mcp (managed) >>>\n[mcp_servers.hunch]\nargs = [unquoted]\n# <<< hunch mcp <<<\n",
+    ]) {
+      writeFileSync(file, broken);
+      assert.throws(() => writeCodexConfig(root, inv), /TOML|parse|refusing/i);
+      assert.equal(readFileSync(file, "utf8"), broken, "incompatible TOML left untouched");
+    }
   } finally { cleanup(); }
 });
 

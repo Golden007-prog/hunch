@@ -23,7 +23,8 @@ test("strict + a direct high-confidence blocking invariant → FAILS, both rende
   assert.equal(reportFailsStrict(r), true);
   assert.match(renderText(r), /✗ 1 high-confidence blocking invariant/);
   const md = renderMarkdown(r);
-  assert.match(md, /❌ \*\*This PR breaks 1 high-confidence blocking invariant/);
+  assert.match(md, /❌ \*\*Merge requires review: 1 high-confidence blocking invariant/);
+  assert.doesNotMatch(md, /This PR breaks|Resolve or supersede/);
   assert.match(md, /con_004/);
 });
 

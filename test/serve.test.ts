@@ -6,11 +6,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServeApp } from "../src/serve/app.js";
+import { BODY_LIMIT_BYTES, createServeApp } from "../src/serve/app.js";
 import { hashToken, initServeConfig, readServeConfig, resolvePrincipal } from "../src/serve/config.js";
 import { withWriteLock, writeLockPath } from "../src/serve/writelock.js";
 import { createStateClient, StateClientError } from "../src/client/state.js";
@@ -114,8 +114,11 @@ test("HTTP: bearer resolves the principal, grants gate every route, refusals are
     assert.doesNotThrow(() => assertChangeSequence(stream.events, 0));
     assert.deepEqual(stream.events[0]?.cause, { kind: "write", principal: "sofia@david" });
 
-    const big = await fetch(`${base}/nuryel/v1/write`, { method: "POST", headers: { authorization: `Bearer ${sofiaToken}`, "content-type": "application/json", "content-length": String(2 * 1024 * 1024) }, body: "{}" }).catch(() => null);
-    if (big) assert.equal(big.status, 413);
+    const big = await fetch(`${base}/nuryel/v1/write`, { method: "POST", headers: { authorization: `Bearer ${sofiaToken}`, "content-type": "application/json" }, body: Buffer.alloc(BODY_LIMIT_BYTES + 1, 97) });
+    assert.equal(big.status, 413, "an actually oversized body is rejected");
+    const malformed = await fetch(`${base}/nuryel/v1/write`, { method: "POST", headers: { authorization: `Bearer ${sofiaToken}`, "content-type": "application/json" }, body: "[" });
+    assert.equal(malformed.status, 400, "malformed JSON is a typed client error");
+    assert.equal((await sofia.health()).ok, true, "the server remains usable after rejected bodies");
   } finally { await cleanup(); }
 });
 
@@ -193,6 +196,61 @@ test("the write lock is held across a sync section and released on throw", async
     assert.equal(max, 1, "never two holders");
     await assert.rejects(withWriteLock(dir, () => { throw new Error("boom"); }), /boom/);
     assert.ok(!existsSync(writeLockPath(dir)));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the write lock never steals a stale-looking lock held by a live same-host process", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hunch-writelock-live-"));
+  try {
+    const path = writeLockPath(dir);
+    writeFileSync(path, JSON.stringify({ pid: process.pid, host: hostname(), nonce: "other", at: new Date().toISOString() }));
+    const old = new Date(Date.now() - 2 * 60_000);
+    utimesSync(path, old, old);
+    let entered = false;
+    await assert.rejects(
+      withWriteLock(dir, () => { entered = true; }, { timeoutMs: 25 }),
+      /write lock .* held by pid/,
+    );
+    assert.equal(entered, false, "a live same-host owner must keep the lock despite its age");
+    assert.ok(existsSync(path), "the live owner's lock remains intact");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("HTTP writes lock the shared overlay home, leaving a public lock owned by another writer intact", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hunch-serve-overlay-lock-"));
+  const root = join(dir, "david");
+  const overlayRoot = join(dir, "memory");
+  const overlay = join(overlayRoot, ".hunch");
+  mkdirSync(overlay, { recursive: true });
+  execFileSync("git", ["init", "-q", overlayRoot]);
+  const file = join(dir, "hunch-serve.json");
+  const init = initServeConfig({ file, scope: david, root, principal: { id: "sofia@david", kind: "agent" } });
+  writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ privateDir: overlay, mode: "shared", autoCommit: false }) + "\n");
+  const publicLock = writeLockPath(join(root, ".hunch"));
+  try {
+    // A live writer in the public checkout may be old enough to trip age-based
+    // stealing. Shared-mode state belongs to the overlay, so this request must
+    // leave that unrelated public lock untouched.
+    writeFileSync(publicLock, JSON.stringify({ pid: process.pid, host: hostname(), nonce: "public-writer", at: new Date().toISOString() }));
+    const old = new Date(Date.now() - 2 * 60_000);
+    utimesSync(publicLock, old, old);
+    const app = createServeApp(readServeConfig(file), { version: "test" });
+    try {
+      const base = await listen(app);
+      const sofia = createStateClient({ baseUrl: base, token: init.token! });
+      const result = await sofia.write({
+        scope: david,
+        facet: "commitments",
+        record: { schema: "nuryel.commitment/1", scope: david, subject: "customer:overlay-lock", title: "overlay lock", owner: "david", due: "2026-09-30", status: "open", valid_from: "2026-09-08T10:00:00Z", valid_to: null, provenance: prov },
+        idempotency_key: "overlay-lock-http-1",
+      });
+      assert.equal(result.outcome, "created");
+      assert.ok(existsSync(publicLock), "the public writer's lock was not stolen");
+      assert.ok(existsSync(join(overlay, "commitments", `${result.record_id}.json`)), "the record landed in the shared overlay");
+    } finally {
+      await new Promise<void>((r) => app.close(() => r()));
+      app.closeStores();
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

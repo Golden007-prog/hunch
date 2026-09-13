@@ -33,9 +33,11 @@ import { registerLmTools } from "./lmTools.js";
 import { HunchMcp } from "./mcpClient.js";
 import { ContributionTreeProvider, openTaskEvidence, type TaskNode } from "./contributionView.js";
 import { MemoryTreeProvider, openMove, revertMove, syncNow, adoptDrafts, approveAndPush, setFirmness, openPolicyCard, openEscalation, activatePolicy, demotePolicy, withdrawPolicy, retirePolicy, type MoveNode, type PolicyNode, type EscalationNode } from "./memoryView.js";
+import { workspaceRootForFile } from "./workspace.js";
 
 function workspaceRoot(): string | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const folders = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+  return workspaceRootForFile(folders, vscode.window.activeTextEditor?.document.uri.fsPath);
 }
 
 function relPath(file: string): string {
@@ -51,6 +53,12 @@ class HunchCache {
   private cached: Hunch | null = null;
   private loaded = false;
   constructor(private root: string | undefined) {}
+  setRoot(root: string | undefined): void {
+    if (root === this.root) return;
+    this.root = root;
+    this.cached = null;
+    this.loaded = false;
+  }
   reload(): Hunch | null {
     this.cached = this.root ? loadHunch(this.root) : null;
     this.loaded = true;
@@ -232,9 +240,25 @@ async function capture(root: string, mcp: HunchMcp, cache: HunchCache, onDone: (
 // Activation
 // ---------------------------------------------------------------------------
 export function activate(context: vscode.ExtensionContext): void {
-  const root = workspaceRoot();
+  let root = workspaceRoot();
   const cache = new HunchCache(root);
   cache.reload();
+  let rebuildWorkspaceWatchers: () => void = () => { /* installed below */ };
+
+  // In a multi-root workspace every command and editor read belongs to the
+  // folder containing the active document. Keep the session's services aligned
+  // when the user switches folders instead of silently routing to folder[0].
+  const syncRoot = (): string | undefined => {
+    const next = workspaceRoot();
+    if (next !== root) {
+      root = next;
+      cache.setRoot(root);
+      // The private overlay is root-specific; move its watcher along with the
+      // active repository whenever an editor changes folders.
+      rebuildWorkspaceWatchers();
+    }
+    return root;
+  };
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   context.subscriptions.push(status);
@@ -251,16 +275,21 @@ export function activate(context: vscode.ExtensionContext): void {
     journeyStatus.show();
   };
 
-  const mcp = root ? new HunchMcp(root) : null;
-  if (mcp) context.subscriptions.push({ dispose: () => mcp.dispose() });
+  const mcps = new Map<string, HunchMcp>();
+  const mcpFor = (folder: string): HunchMcp => {
+    let mcp = mcps.get(folder);
+    if (!mcp) { mcp = new HunchMcp(folder); mcps.set(folder, mcp); }
+    return mcp;
+  };
+  context.subscriptions.push({ dispose: () => { for (const mcp of mcps.values()) mcp.dispose(); } });
 
   // The "Hunch Memory" activity-bar view: a source-control-style timeline of every
   // memory move (capture/adopt/supersede/prune), each reviewable + revertable.
-  const memoryTree = new MemoryTreeProvider(root);
+  const memoryTree = new MemoryTreeProvider(() => root);
   context.subscriptions.push(vscode.window.createTreeView("hunch.memory", { treeDataProvider: memoryTree }));
   // The "Contribution" view: per-task evidence of what Hunch delivered, saved,
   // guarded and checked — the host-neutral home for the Stop-hook card.
-  const contributionTree = new ContributionTreeProvider(root);
+  const contributionTree = new ContributionTreeProvider(() => root);
   context.subscriptions.push(vscode.window.createTreeView("hunch.contribution", { treeDataProvider: contributionTree }));
 
   const hover = new HunchHoverProvider(() => cache.get(), relPath);
@@ -269,9 +298,10 @@ export function activate(context: vscode.ExtensionContext): void {
     { language: "javascriptreact" }, { language: "python" }, { language: "go" }, { language: "rust" },
   ];
   context.subscriptions.push(vscode.languages.registerHoverProvider(SELECTOR, hover));
-  registerLmTools(context, () => cache.get(), () => root);
+  registerLmTools(context, () => { syncRoot(); return cache.get(); }, () => syncRoot());
 
   const refreshAll = () => {
+    syncRoot();
     cache.reload();
     updateStatusBar(status, cache);
     updateJourneyStatus();
@@ -285,6 +315,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return wr ? ed!.document.getText(wr) : undefined;
   };
   const withHunch = (fn: (b: Hunch, file: string) => void) => {
+    syncRoot();
     const file = vscode.window.activeTextEditor?.document.uri.fsPath;
     const hunch = cache.get();
     if (!hunch) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found — run `hunch init`.");
@@ -299,23 +330,27 @@ export function activate(context: vscode.ExtensionContext): void {
       withHunch((b, f) => whyBrief(b, f, name ?? cursorSymbol())),
     ),
     vscode.commands.registerCommand("hunch.search", () => {
+      const folder = syncRoot();
       const h = cache.get();
-      if (!h || !root) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found.");
-      runSearch(h, root);
+      if (!h || !folder) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found.");
+      runSearch(h, folder);
     }),
     vscode.commands.registerCommand("hunch.capture", () => {
-      if (!root || !mcp) return void vscode.window.showWarningMessage("No workspace folder open.");
-      void capture(root, mcp, cache, refreshAll);
+      const folder = syncRoot();
+      if (!folder) return void vscode.window.showWarningMessage("No workspace folder open.");
+      void capture(folder, mcpFor(folder), cache, refreshAll);
     }),
     vscode.commands.registerCommand("hunch.journey", () => {
+      const folder = syncRoot();
       const h = cache.get();
-      if (!h || !root) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found — run `hunch init`.");
-      void showJourney(root, h);
+      if (!h || !folder) return void vscode.window.showWarningMessage("No Hunch graph (.hunch/) found — run `hunch init`.");
+      void showJourney(folder, h);
     }),
     // Journey door: draft triage stays in the CLI — this just opens it there.
     vscode.commands.registerCommand("hunch.reviewInTerminal", () => {
-      if (!root) return;
-      const term = vscode.window.createTerminal({ name: "hunch review", cwd: root });
+      const folder = syncRoot();
+      if (!folder) return;
+      const term = vscode.window.createTerminal({ name: "hunch review", cwd: folder });
       term.show();
       term.sendText(`${cliCommand()} review`, true);
     }),
@@ -324,9 +359,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // overlay wiki wins when it has one; otherwise the public wiki; otherwise
     // say how to generate it.
     vscode.commands.registerCommand("hunch.memoryGraph", () => {
-      if (!root) return void vscode.window.showWarningMessage("No workspace folder open.");
+      const folder = syncRoot();
+      if (!folder) return void vscode.window.showWarningMessage("No workspace folder open.");
       const overlay = cache.get()?.overlay;
-      const wiki = resolveWikiGraph(root, overlay);
+      const wiki = resolveWikiGraph(folder, overlay);
       if (!wiki) {
         return void vscode.window.showInformationMessage(
           `No memory graph generated yet — run \`${cliCommand()} wiki${overlay?.state === "active" ? " --private" : ""}\` first.`);
@@ -337,47 +373,62 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("hunch.memory.refresh", () => memoryTree.refresh()),
     // --- Contribution view ---------------------------------------------------
     vscode.commands.registerCommand("hunch.contribution.refresh", () => contributionTree.refresh()),
-    vscode.commands.registerCommand("hunch.contribution.open", (node?: TaskNode) => { if (root && node) void openTaskEvidence(root, node); }),
-    vscode.commands.registerCommand("hunch.openMove", (node?: MoveNode) => { if (root && node) void openMove(root, node); }),
-    vscode.commands.registerCommand("hunch.revertMove", (node?: MoveNode) => { if (root && node) void revertMove(root, node, refreshAll); }),
-    vscode.commands.registerCommand("hunch.memory.sync", () => { if (root) void syncNow(root, refreshAll); }),
-    vscode.commands.registerCommand("hunch.memory.adopt", () => { if (root) void adoptDrafts(root, refreshAll); }),
-    vscode.commands.registerCommand("hunch.memory.push", () => { if (root) void approveAndPush(root, refreshAll); }),
-    vscode.commands.registerCommand("hunch.memory.strictness", () => { if (root) void setFirmness(root, refreshAll); }),
+    vscode.commands.registerCommand("hunch.contribution.open", (node?: TaskNode) => { if (node?.root) void openTaskEvidence(node.root, node); }),
+    vscode.commands.registerCommand("hunch.openMove", (node?: MoveNode) => { if (node?.root) void openMove(node.root, node); }),
+    vscode.commands.registerCommand("hunch.revertMove", (node?: MoveNode) => { if (node?.root) void revertMove(node.root, node, refreshAll); }),
+    vscode.commands.registerCommand("hunch.memory.sync", () => { const folder = syncRoot(); if (folder) void syncNow(folder, refreshAll); }),
+    vscode.commands.registerCommand("hunch.memory.adopt", () => { const folder = syncRoot(); if (folder) void adoptDrafts(folder, refreshAll); }),
+    vscode.commands.registerCommand("hunch.memory.push", () => { const folder = syncRoot(); if (folder) void approveAndPush(folder, refreshAll); }),
+    vscode.commands.registerCommand("hunch.memory.strictness", () => { const folder = syncRoot(); if (folder) void setFirmness(folder, refreshAll); }),
     // --- Constitution section (Phase 4: inline vouch from the panel) --------
-    vscode.commands.registerCommand("hunch.openPolicyCard", (node?: PolicyNode) => { if (root && node) void openPolicyCard(root, node); }),
+    vscode.commands.registerCommand("hunch.openPolicyCard", (node?: PolicyNode) => { if (node?.root) void openPolicyCard(node.root, node); }),
     vscode.commands.registerCommand("hunch.openEscalation", (node?: EscalationNode) => { if (node) void openEscalation(node); }),
-    vscode.commands.registerCommand("hunch.activatePolicy", (node?: PolicyNode) => { if (root && node) void activatePolicy(root, node, refreshAll); }),
-    vscode.commands.registerCommand("hunch.demotePolicy", (node?: PolicyNode) => { if (root && node) void demotePolicy(root, node, refreshAll); }),
-    vscode.commands.registerCommand("hunch.withdrawPolicy", (node?: PolicyNode) => { if (root && node) void withdrawPolicy(root, node, refreshAll); }),
-    vscode.commands.registerCommand("hunch.retirePolicy", (node?: PolicyNode) => { if (root && node) void retirePolicy(root, node, refreshAll); }),
+    vscode.commands.registerCommand("hunch.activatePolicy", (node?: PolicyNode) => { if (node?.root) void activatePolicy(node.root, node, refreshAll); }),
+    vscode.commands.registerCommand("hunch.demotePolicy", (node?: PolicyNode) => { if (node?.root) void demotePolicy(node.root, node, refreshAll); }),
+    vscode.commands.registerCommand("hunch.withdrawPolicy", (node?: PolicyNode) => { if (node?.root) void withdrawPolicy(node.root, node, refreshAll); }),
+    vscode.commands.registerCommand("hunch.retirePolicy", (node?: PolicyNode) => { if (node?.root) void retirePolicy(node.root, node, refreshAll); }),
   );
 
-  // live refresh when the Hunch changes on disk (incl. the private overlay)
-  if (root) {
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, ".hunch/**/*.json"));
-    watcher.onDidChange(refreshAll);
-    watcher.onDidCreate(refreshAll);
-    watcher.onDidDelete(refreshAll);
-    context.subscriptions.push(watcher);
-    // The observation ledger lives outside .hunch/ and changes on every hook
-    // event; refresh only the Contribution view for it.
-    const ledger = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, ".hunch-cache/served.db*"));
-    ledger.onDidChange(() => contributionTree.refresh());
-    ledger.onDidCreate(() => contributionTree.refresh());
-    context.subscriptions.push(ledger);
-  }
-  const overlay = cache.get()?.overlay;
-  if (overlay?.state === "active") {
-    const overlayWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(overlay.dir, "**/*.json"));
-    overlayWatcher.onDidChange(refreshAll);
-    overlayWatcher.onDidCreate(refreshAll);
-    overlayWatcher.onDidDelete(refreshAll);
-    context.subscriptions.push(overlayWatcher);
-  }
+  // Live refresh when any workspace folder's Hunch changes on disk. Rebuild
+  // this set when folders are added/removed, otherwise a newly added repo has
+  // no watcher and a removed repo leaves callbacks behind.
+  let workspaceWatchers: vscode.Disposable[] = [];
+  rebuildWorkspaceWatchers = () => {
+    for (const watcher of workspaceWatchers) watcher.dispose();
+    workspaceWatchers = [];
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const folderRoot = folder.uri.fsPath;
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folderRoot, ".hunch/**/*.json"));
+      watcher.onDidChange(refreshAll);
+      watcher.onDidCreate(refreshAll);
+      watcher.onDidDelete(refreshAll);
+      workspaceWatchers.push(watcher);
+      // The observation ledger lives outside .hunch/ and changes on every hook
+      // event; refresh only the Contribution view for it.
+      const ledger = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folderRoot, ".hunch-cache/served.db*"));
+      ledger.onDidChange(() => contributionTree.refresh());
+      ledger.onDidCreate(() => contributionTree.refresh());
+      ledger.onDidDelete(() => contributionTree.refresh());
+      workspaceWatchers.push(ledger);
+    }
+    const overlay = cache.get()?.overlay;
+    if (overlay?.state === "active") {
+      const overlayWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(overlay.dir, "**/*.json"));
+      overlayWatcher.onDidChange(refreshAll);
+      overlayWatcher.onDidCreate(refreshAll);
+      overlayWatcher.onDidDelete(refreshAll);
+      workspaceWatchers.push(overlayWatcher);
+    }
+  };
+  rebuildWorkspaceWatchers();
+  context.subscriptions.push({ dispose: () => {
+    for (const watcher of workspaceWatchers) watcher.dispose();
+    workspaceWatchers = [];
+  }});
 
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(() => updateStatusBar(status, cache)),
+    vscode.window.onDidChangeActiveTextEditor(() => { syncRoot(); refreshAll(); updateStatusBar(status, cache); }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => { syncRoot(); refreshAll(); rebuildWorkspaceWatchers(); }),
     vscode.workspace.onDidSaveTextDocument(() => updateStatusBar(status, cache)),
   );
   updateStatusBar(status, cache);

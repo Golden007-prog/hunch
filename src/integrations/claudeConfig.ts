@@ -172,11 +172,29 @@ export function healClaudeConfigCaseSplit(opts: HealOptions = {}): HealResult {
   for (const [norm, keys] of buckets) {
     if (keys.length < 2) continue; // no casing split for this directory
     keys.sort(); // deterministic first-wins union
-    const blocks = keys.map((k) => (isPlainObject(projects[k]) ? (projects[k] as ProjectBlock) : ({} as ProjectBlock)));
+    // A root object can still contain malformed project blocks. Do not replace a
+    // user's scalar/array block, or normalize malformed nested MCP/list fields,
+    // merely because another drive-letter casing is valid.
+    for (const key of keys) {
+      const block = projects[key];
+      if (!isPlainObject(block)) {
+        throw new Error(`refusing to modify ${file}: project ${key} is not an object; fix it, then re-run.`);
+      }
+      const mcp = block.mcpServers;
+      if (mcp !== undefined && !isPlainObject(mcp)) {
+        throw new Error(`refusing to modify ${file}: project ${key}.mcpServers must be an object; fix it, then re-run.`);
+      }
+      for (const listKey of ["enabledMcpjsonServers", "disabledMcpjsonServers"] as const) {
+        const list = block[listKey];
+        if (list !== undefined && (!Array.isArray(list) || !list.every((value) => typeof value === "string"))) {
+          throw new Error(`refusing to modify ${file}: project ${key}.${listKey} must be a string array; fix it, then re-run.`);
+        }
+      }
+    }
+    const blocks = keys.map((k) => projects[k] as ProjectBlock);
     const u = unionConfig(blocks);
     let groupChanged = false;
     for (const k of keys) {
-      if (!isPlainObject(projects[k])) projects[k] = {};
       if (applyUnion(projects[k] as ProjectBlock, u)) groupChanged = true;
     }
     if (groupChanged) {

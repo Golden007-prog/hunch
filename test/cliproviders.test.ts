@@ -13,8 +13,14 @@ import {
   meteredHostsAllowed,
   __resetAvailabilityCacheForTests,
 } from "../src/synthesis/provider.js";
+import { withInitiator } from "../src/synthesis/initiator.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+
+// Provider tests use a local fake endpoint. Keep them independent of the host
+// process's CODEX_THREAD_ID/HUNCH_INITIATOR while preserving the production
+// rule that an operation must stay with its initiating provider.
+const runAsOpenAi = <T>(work: () => T): T => withInitiator({ provider: "openai-compat", source: "explicit" }, work);
 
 test("extractCodexText returns the LAST assistant text from codex --json JSONL", () => {
   const jsonl = [
@@ -171,7 +177,7 @@ test("OpenAICompatProvider refuses public remotes in both availability and execu
       const provider = new OpenAICompatProvider();
       assert.equal(await provider.available(), false, `${baseUrl} blocked by default`);
       await assert.rejects(
-        provider.draftDecision({ subject: "s", body: "", files: [], diff: "" }),
+        runAsOpenAi(() => provider.draftDecision({ subject: "s", body: "", files: [], diff: "" })),
         /refusing to call public remote/,
       );
     }
@@ -241,7 +247,7 @@ test("OpenAICompatProvider.available() rejects malformed and non-HTTP base URLs"
     }
     process.env.HUNCH_SYNTH_BASE_URL = "not a url";
     await assert.rejects(
-      new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }),
+      runAsOpenAi(() => new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" })),
       /must be an http\(s\) base URL/,
     );
   } finally {
@@ -261,7 +267,7 @@ test("OpenAICompatProvider.draftDecision permits a metered host when HUNCH_SYNTH
   process.env.HUNCH_SYNTH_MODEL = "m";
   process.env.HUNCH_SYNTH_ALLOW_METERED = "1";
   try {
-    const draft = await new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" });
+    const draft = await runAsOpenAi(() => new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }));
     assert.ok(draft);
   } finally {
     delete process.env.HUNCH_SYNTH_BASE_URL;
@@ -286,7 +292,7 @@ test("OpenAICompatProvider.draftDecision POSTs {baseUrl}/chat/completions with m
   try {
     const provider = new OpenAICompatProvider();
     assert.equal(await provider.available(), true);
-    const draft = await provider.draftDecision({ subject: "feat: x", body: "", files: ["a.py"], diff: "+def a(): pass" });
+    const draft = await runAsOpenAi(() => provider.draftDecision({ subject: "feat: x", body: "", files: ["a.py"], diff: "+def a(): pass" }));
     assert.equal(draft.decision, "use a local model");
     assert.equal(received.method, "POST");
     assert.equal(received.path, "/chat/completions");
@@ -313,7 +319,7 @@ test("OpenAICompatProvider.draftProse requests free-form text instead of JSON mo
   process.env.HUNCH_SYNTH_BASE_URL = server.url;
   process.env.HUNCH_SYNTH_MODEL = "m";
   try {
-    const prose = await new OpenAICompatProvider().draftProse("Write one Markdown paragraph.");
+    const prose = await runAsOpenAi(() => new OpenAICompatProvider().draftProse("Write one Markdown paragraph."));
     assert.equal(responseFormat, undefined, "free-form prose must not be constrained to a JSON object");
     assert.equal(prose, "A grounded Markdown overview.");
   } finally {
@@ -333,7 +339,7 @@ test("OpenAICompatProvider sends a Bearer Authorization header only when HUNCH_S
   process.env.HUNCH_SYNTH_MODEL = "m";
   process.env.HUNCH_SYNTH_API_KEY = "sk-local-123";
   try {
-    await new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" });
+    await runAsOpenAi(() => new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }));
     assert.equal(authHeader, "Bearer sk-local-123");
   } finally {
     delete process.env.HUNCH_SYNTH_BASE_URL;
@@ -353,7 +359,7 @@ test("OpenAICompatProvider.draftDecision honors HUNCH_SYNTH_MAX_TOKENS", async (
   process.env.HUNCH_SYNTH_MODEL = "m";
   process.env.HUNCH_SYNTH_MAX_TOKENS = "512";
   try {
-    await new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" });
+    await runAsOpenAi(() => new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }));
     assert.equal(received.max_tokens, 512);
   } finally {
     delete process.env.HUNCH_SYNTH_BASE_URL;
@@ -372,7 +378,7 @@ test("OpenAICompatProvider.draftDecision throws on a non-2xx response (caller fa
   process.env.HUNCH_SYNTH_MODEL = "m";
   try {
     await assert.rejects(
-      new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }),
+      runAsOpenAi(() => new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" })),
       /500/,
     );
   } finally {
@@ -390,7 +396,7 @@ test("OpenAICompatProvider.draftDecision rejects when the endpoint exceeds HUNCH
   process.env.HUNCH_SYNTH_MODEL = "m";
   process.env.HUNCH_SYNTH_TIMEOUT_MS = "50";
   try {
-    await assert.rejects(new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" }));
+    await assert.rejects(runAsOpenAi(() => new OpenAICompatProvider().draftDecision({ subject: "s", body: "", files: [], diff: "" })));
   } finally {
     delete process.env.HUNCH_SYNTH_BASE_URL;
     delete process.env.HUNCH_SYNTH_MODEL;
@@ -473,7 +479,7 @@ test("selectProvider resolves openai-compat when forced and BASE_URL+MODEL are s
   process.env.HUNCH_SYNTH_MODEL = "m";
   process.env.HUNCH_SYNTH_PROVIDER = "openai-compat";
   try {
-    const p = await selectProvider();
+    const p = await runAsOpenAi(() => selectProvider());
     assert.equal(p.name, "openai-compat");
   } finally {
     delete process.env.HUNCH_SYNTH_BASE_URL;
@@ -489,7 +495,7 @@ test("HUNCH_SYNTH_PROVIDER=ollama is accepted as an alias for openai-compat", as
   process.env.HUNCH_SYNTH_MODEL = "m";
   process.env.HUNCH_SYNTH_PROVIDER = "ollama";
   try {
-    const p = await selectProvider();
+    const p = await runAsOpenAi(() => selectProvider());
     assert.equal(p.name, "openai-compat");
   } finally {
     delete process.env.HUNCH_SYNTH_BASE_URL;

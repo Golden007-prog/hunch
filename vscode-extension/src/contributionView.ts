@@ -9,7 +9,8 @@
  */
 import * as vscode from "vscode";
 import * as fs from "node:fs";
-import { runHunch } from "./cli.js";
+import { runHunch, type CliResult } from "./cli.js";
+import { RootLoadFence } from "./rootBinding.js";
 
 /** Mirrors src/core/taskReport.TaskSummary (JSON consumer). */
 export interface TaskSummary {
@@ -26,6 +27,8 @@ export interface TaskSummary {
   report_html: string | null;
   error: string | null;
 }
+
+export type ContributionRunner = (root: string, args: string[]) => Promise<CliResult>;
 
 function icon(s: TaskSummary): vscode.ThemeIcon {
   if (s.error) return new vscode.ThemeIcon("warning", new vscode.ThemeColor("notificationsWarningIcon.foreground"));
@@ -51,7 +54,7 @@ function describe(s: TaskSummary): string {
 }
 
 export class TaskNode extends vscode.TreeItem {
-  constructor(public readonly summary: TaskSummary) {
+  constructor(public readonly summary: TaskSummary, public readonly root: string) {
     super(summary.task.title, vscode.TreeItemCollapsibleState.None);
     const when = summary.task.started_at.slice(0, 16).replace("T", " ");
     this.description = `${when} · ${describe(summary)}`;
@@ -79,26 +82,44 @@ export class ContributionTreeProvider implements vscode.TreeDataProvider<TaskNod
   readonly onDidChangeTreeData = this._changed.event;
   private summaries: TaskSummary[] = [];
   private loaded = false;
+  private loadedRoot: string | undefined;
+  private readonly loadFence = new RootLoadFence();
 
-  constructor(private readonly root: string | undefined) {}
+  constructor(
+    private readonly root: string | undefined | (() => string | undefined),
+    private readonly runner: ContributionRunner = runHunch,
+  ) {}
 
-  refresh(): void {
-    void this.load().then(() => this._changed.fire());
+  private currentRoot(): string | undefined {
+    return typeof this.root === "function" ? this.root() : this.root;
   }
 
-  private async load(): Promise<void> {
+  refresh(): void {
+    void this.load().then((applied) => { if (applied) this._changed.fire(); });
+  }
+
+  private async load(): Promise<boolean> {
     this.loaded = true;
-    if (!this.root) { this.summaries = []; return; }
-    const res = await runHunch(this.root, ["task", "list", "--json"]);
+    const root = this.currentRoot();
+    const ticket = this.loadFence.begin(root);
+    if (!root) {
+      if (!this.loadFence.isCurrent(ticket, this.currentRoot())) return false;
+      this.summaries = []; this.loadedRoot = undefined; return true;
+    }
+    const res = await this.runner(root, ["task", "list", "--json"]);
+    if (!this.loadFence.isCurrent(ticket, this.currentRoot())) return false;
     try { this.summaries = res.ok ? JSON.parse(res.stdout) as TaskSummary[] : []; } catch { this.summaries = []; }
+    this.loadedRoot = root;
+    return true;
   }
 
   getTreeItem(node: TaskNode): vscode.TreeItem { return node; }
 
   async getChildren(element?: TaskNode): Promise<TaskNode[]> {
     if (element) return [];
-    if (!this.loaded) await this.load();
-    return this.summaries.map((s) => new TaskNode(s));
+    if (!this.loaded || this.loadedRoot !== this.currentRoot()) await this.load();
+    const root = this.loadedRoot;
+    return root ? this.summaries.map((s) => new TaskNode(s, root)) : [];
   }
 }
 

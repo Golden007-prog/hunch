@@ -162,6 +162,9 @@ test("foreign and malformed TOML are never rewritten", () => {
       assert.equal(readFileSync(join(f.root, ".codex/config.toml"), "utf8"), raw);
       assert.ok(readFileSync(join(f.root, ".mcp.json"), "utf8").includes("hunch@1.22.0"));
     }
+    // Restore a valid user document before exercising the writer itself; the
+    // writer must refuse malformed managed content rather than erase it.
+    f.write(".codex/config.toml", "model = 'gpt-5'\n");
     writeCodexConfig(f.root, launcher("1.22.0"));
     const valid = readFileSync(join(f.root, ".codex/config.toml"), "utf8");
     f.write(".codex/config.toml", valid + "\ninvalid = [unterminated\n");

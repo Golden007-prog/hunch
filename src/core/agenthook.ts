@@ -96,10 +96,14 @@ function applyPatchInput(raw: JsonObject): HunchToolInput | undefined {
   return file ? { file_path: file, content: patch } : undefined;
 }
 
-function normalizeToolInput(value: unknown): HunchToolInput | undefined {
+function normalizeToolInput(value: unknown, allowPatch = false): HunchToolInput | undefined {
   const raw = obj(value);
   if (!raw) return undefined;
-  const patched = applyPatchInput(raw);
+  // Only Codex's apply_patch tool carries patch text in a generic `input`,
+  // `patch`, or `content` field. A normal Write can contain documentation or
+  // examples with these markers; interpreting those as a patch would retarget
+  // policy to the first file named in the prose.
+  const patched = allowPatch ? applyPatchInput(raw) : undefined;
   if (patched) return patched;
   const replacementChunks = Array.isArray(raw.ReplacementChunks) ? raw.ReplacementChunks : raw.replacementChunks;
   const chunkEdits = Array.isArray(replacementChunks)
@@ -231,7 +235,9 @@ export function normalizeHookEvent(raw: unknown, provider: HookProvider): HunchH
 
   const event = eventName(input.hook_event_name ?? input.hookEventName ?? input.event, provider);
   if (!event) return null;
-  const toolInput = normalizeToolInput(input.tool_input ?? input.toolInput);
+  const rawToolName = stringAt(input, "tool_name", "toolName");
+  const toolInput = normalizeToolInput(input.tool_input ?? input.toolInput,
+    provider === "codex" && /^(?:apply_patch|patch)$/i.test(rawToolName ?? ""));
   const toolOutcome = normalizeToolOutcome(input, event);
   return {
     hook_event_name: event,
@@ -240,7 +246,7 @@ export function normalizeHookEvent(raw: unknown, provider: HookProvider): HunchH
     // says `prompt_id`; both are native per-prompt identities, never synthesized.
     ...(provider === "codex" && input.prompt_id === undefined && input.turn_id !== undefined ? { prompt_id: typeof input.turn_id === "string" ? input.turn_id : "" } : {}),
     ...(provider === "claude" || provider === "codex" ? Object.fromEntries(["prompt_id", "cwd", "agent_id"].filter(key => input[key] !== undefined).map(key => [key, typeof input[key] === "string" ? input[key] : ""])) : {}),
-    tool_name: hunchToolName(stringAt(input, "tool_name", "toolName"), toolInput ?? {}),
+    tool_name: hunchToolName(rawToolName, toolInput ?? {}),
     tool_input: toolInput,
     ...(toolOutcome ? { tool_outcome: toolOutcome } : {}),
     prompt: stringAt(input, "prompt", "user_prompt", "userPrompt"),
