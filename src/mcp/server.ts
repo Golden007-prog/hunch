@@ -2335,7 +2335,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         const report = store.buildCheckReport(files, diff, { strict: true, lastChange: (f) => lastChangeDate(f, root) });
         const v = verdict(report);
         const head = v === "block"
-          ? "VERDICT: ⛔ BLOCK — this change breaks a recorded invariant or re-opens a known bug."
+          ? "VERDICT: ⛔ BLOCK — a recorded guard requires review; inspect the cited scope and evidence below before merge."
           : v === "warn"
             ? "VERDICT: ⚠ WARN — this change touches engineering memory; review the cited why below before merge."
             : "VERDICT: ✅ PASS — touches no recorded invariants and re-introduces nothing deliberately retired.";
