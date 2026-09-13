@@ -1,6 +1,6 @@
 {
   "name": "@davesheffer/hunch",
-  "version": "1.32.8",
+  "version": "1.33.0",
   "mcpName": "io.github.davesheffer/hunch",
   "license": "Apache-2.0",
   "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
@@ -27,7 +27,10 @@
       "default": "./dist/projectDna.js"
     },
     "./state": "./dist/client/state.js",
-    "./state-proof": { "types": "./dist/client/stateProof.d.ts", "default": "./dist/client/stateProof.js" },
+    "./state-proof": {
+      "types": "./dist/client/stateProof.d.ts",
+      "default": "./dist/client/stateProof.js"
+    },
     "./reports": {
       "types": "./dist/taskReports.d.ts",
       "default": "./dist/taskReports.js"
