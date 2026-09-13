@@ -141,17 +141,38 @@ function toolOutput(value: unknown): string {
   }
 }
 
+function explicitToolOutcome(response: unknown): HunchToolOutcome["status"] {
+  const raw = obj(response);
+  if (!raw) return typeof response === "string" && response.trim() ? "success" : "unknown";
+  if (raw.success === false || raw.is_error === true || raw.isError === true || (raw.error !== undefined && raw.error !== null)) return "failure";
+  const status = raw.status;
+  if (typeof status === "string") {
+    if (/^(?:failure|failed|error|errored)$/i.test(status.trim())) return "failure";
+  }
+  let explicitSuccess = raw.success === true || raw.is_error === false || raw.isError === false;
+  for (const key of ["exit_code", "exitCode", "return_code", "returnCode"]) {
+    const value = raw[key];
+    const numeric = typeof value === "number" ? value : typeof value === "string" && /^-?\d+$/.test(value.trim()) ? Number(value) : undefined;
+    if (numeric === undefined || !Number.isFinite(numeric)) continue;
+    if (numeric !== 0) return "failure";
+    explicitSuccess = true;
+  }
+  if (typeof status === "string" && /^(?:success|succeeded|ok|completed)$/i.test(status.trim())) explicitSuccess = true;
+  if (explicitSuccess) return "success";
+  // Common successful tool-result shapes carry output fields even when the
+  // output is empty. An unstructured empty string (Codex's native failure
+  // payload) remains unknown until the host supplies an explicit status.
+  if (["stdout", "stderr", "output", "content"].some(key => Object.prototype.hasOwnProperty.call(raw, key))) return "success";
+  return "unknown";
+}
+
 function normalizeToolOutcome(input: JsonObject, event: HunchHookEvent): HunchToolOutcome | undefined {
   if (event !== "PostToolUse" && event !== "PostToolUseFailure") return undefined;
   const response = input.tool_response ?? input.toolResponse ?? input.tool_result ?? input.toolResult;
   return {
     // Claude Code splits successful and failed calls into separate lifecycle
     // events. Providers without that split may expose an explicit result flag.
-    status: event === "PostToolUseFailure"
-      ? "failure"
-      : obj(response)?.success === false || obj(response)?.is_error === true || obj(response)?.isError === true
-        ? "failure"
-        : "success",
+    status: event === "PostToolUseFailure" ? "failure" : explicitToolOutcome(response),
     output: event === "PostToolUseFailure"
       ? toolOutput(input.error ?? response)
       : toolOutput(response),

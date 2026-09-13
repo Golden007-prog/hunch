@@ -53,6 +53,48 @@ test("normalizes successful and failed tool outcomes without persisting raw prov
     error: "Command exited with non-zero status code 1",
   }, "claude");
   assert.deepEqual(failure?.tool_outcome, { status: "failure", output: "Command exited with non-zero status code 1" });
+
+  const codexFailure = normalizeHookEvent({
+    hook_event_name: "PostToolUse",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_input: { command: "sh -c 'exit 7'" },
+    tool_response: { exit_code: 7, output: "" },
+  }, "codex");
+  assert.equal(codexFailure?.tool_outcome?.status, "failure", "an explicit nonzero result in PostToolUse is failure evidence");
+
+  const contradictory = normalizeHookEvent({
+    hook_event_name: "PostToolUse",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_response: { success: true, exit_code: 7 },
+  }, "codex");
+  assert.equal(contradictory?.tool_outcome?.status, "failure", "a nonzero result outranks a contradictory success flag");
+
+  const nonfinite = normalizeHookEvent({
+    hook_event_name: "PostToolUse",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_response: { exit_code: Number.POSITIVE_INFINITY },
+  }, "codex");
+  assert.equal(nonfinite?.tool_outcome?.status, "unknown", "nonfinite result codes are not failure evidence");
+
+  const httpResponse = normalizeHookEvent({
+    hook_event_name: "PostToolUse",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_response: { status_code: 200, code: 200 },
+  }, "codex");
+  assert.equal(httpResponse?.tool_outcome?.status, "unknown", "generic status fields are not process exit evidence");
+
+  const codexUnknown = normalizeHookEvent({
+    hook_event_name: "PostToolUse",
+    session_id: "s1",
+    tool_name: "Bash",
+    tool_input: { command: "sh -c 'exit 7'" },
+    tool_response: "",
+  }, "codex");
+  assert.equal(codexUnknown?.tool_outcome?.status, "unknown", "an empty PostToolUse result cannot prove failure or success");
 });
 
 test("normalizes Cursor's lower-camel hook event and snake payload", () => {

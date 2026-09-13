@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { inspectIntegrations, repairIntegrationPins, integrationHealthFails, integrationSessionWarning, machineLocalIntegrationFiles, HARNESSES, CAPABILITIES } from "../src/integrations/health.js";
 import { probeIntegration } from "../src/integrations/probe.js";
@@ -87,6 +88,101 @@ test("hooks become verified only from host-delivered events on the expected vers
     f.write(".hunch/config.json", { firmness: "advisory" });
     assert.equal(inspectIntegrations(f.root, "claude").harnesses[0]!.capabilities["edit-blocking"].status, "advisory-only", "an observed event cannot certify blocking when firmness does not block");
   } finally { f.cleanup(); }
+});
+
+test("failure capture requires an explicit failed-tool event, not successful PostToolUse delivery", async () => {
+  const { recordHookObservation } = await import("../src/core/hookObservations.js");
+  const { HUNCH_VERSION } = await import("../src/core/version.js");
+  const f = fixture();
+  try {
+    f.write("package.json", { dependencies: { "@davesheffer/hunch": HUNCH_VERSION } });
+    f.claude(HUNCH_VERSION);
+    f.write(".hunch/config.json", { firmness: "strict" });
+
+    recordHookObservation(f.root, "claude", "PostToolUse");
+    let capability = inspectIntegrations(f.root, "claude").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "untested");
+    assert.match(capability.detail, /PostToolUse was observed.*failure capture remains untested/);
+
+    recordHookObservation(f.root, "claude", "PostToolUseFailure");
+    capability = inspectIntegrations(f.root, "claude").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "verified");
+    assert.match(capability.detail, /PostToolUseFailure observed from the claude host/);
+  } finally { f.cleanup(); }
+});
+
+test("failure capture accepts an explicit nonzero PostToolUse result while historical success-only evidence stays untested", async () => {
+  const { recordHookObservation } = await import("../src/core/hookObservations.js");
+  const { HUNCH_VERSION } = await import("../src/core/version.js");
+  const f = fixture();
+  try {
+    f.write("package.json", { dependencies: { "@davesheffer/hunch": HUNCH_VERSION } });
+    writeCodexConfig(f.root, launcher(HUNCH_VERSION));
+    writeCodexHooks(f.root, launcher(HUNCH_VERSION));
+    f.write(".hunch/config.json", { firmness: "strict" });
+
+    // Rows written before outcome tracking have no result and must remain
+    // historical delivery evidence, never failure proof.
+    recordHookObservation(f.root, "codex", "PostToolUse");
+    let capability = inspectIntegrations(f.root, "codex").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "untested");
+
+    recordHookObservation(f.root, "codex", "PostToolUse", "success");
+    capability = inspectIntegrations(f.root, "codex").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "untested");
+
+    recordHookObservation(f.root, "codex", "PostToolUse", "failure");
+    capability = inspectIntegrations(f.root, "codex").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "verified");
+    assert.match(capability.detail, /PostToolUse observed from the codex host/);
+
+    // A later successful command must not erase the most recent failure proof.
+    recordHookObservation(f.root, "codex", "PostToolUse", "success");
+    capability = inspectIntegrations(f.root, "codex").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "verified");
+  } finally { f.cleanup(); }
+});
+
+test("fresh expected-version failure evidence wins over a stale failure row", async () => {
+  const { recordHookObservation, readHookObservations } = await import("../src/core/hookObservations.js");
+  const { withServedDatabase } = await import("../src/core/served.js");
+  const { HUNCH_VERSION } = await import("../src/core/version.js");
+  const f = fixture();
+  try {
+    f.write("package.json", { dependencies: { "@davesheffer/hunch": HUNCH_VERSION } });
+    writeCodexConfig(f.root, launcher(HUNCH_VERSION));
+    writeCodexHooks(f.root, launcher(HUNCH_VERSION));
+    f.write(".hunch/config.json", { firmness: "strict" });
+    recordHookObservation(f.root, "codex", "PostToolUse", "failure");
+    assert.equal(readHookObservations(f.root).find(row => row.event === "PostToolUse")?.outcome, "failure");
+    withServedDatabase(f.root, db => db.prepare(
+      "INSERT INTO hook_observations (provider, event, at, version, outcome) VALUES (?, ?, ?, ?, ?)",
+    ).run("codex", "PostToolUseFailure", new Date().toISOString(), "1.0.0", "failure"));
+
+    const capability = inspectIntegrations(f.root, "codex").harnesses[0]!.capabilities["failure-capture"];
+    assert.equal(capability.status, "verified");
+    assert.match(capability.detail, /PostToolUse observed from the codex host/);
+  } finally { f.cleanup(); }
+});
+
+test("legacy four-column hook observation ledgers migrate without treating old rows as failure evidence", async (t) => {
+  const { readHookObservations, recordHookObservation } = await import("../src/core/hookObservations.js");
+  const root = mkdtempSync(join(tmpdir(), "hunch-hook-observations-legacy-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cache = join(root, ".hunch-cache");
+  mkdirSync(cache, { recursive: true });
+  const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+  const db = new DatabaseSync(join(cache, "served.db"));
+  db.exec(`CREATE TABLE hook_observations (
+    provider TEXT NOT NULL, event TEXT NOT NULL, at TEXT NOT NULL, version TEXT NOT NULL,
+    PRIMARY KEY (provider, event)
+  )`);
+  db.prepare("INSERT INTO hook_observations VALUES (?, ?, ?, ?)").run("codex", "PostToolUse", new Date().toISOString(), "1.32.5");
+  db.close();
+
+  assert.equal(readHookObservations(root)[0]?.outcome, null, "legacy rows are unknown after additive migration");
+  recordHookObservation(root, "codex", "PostToolUse", "failure");
+  assert.equal(readHookObservations(root)[0]?.outcome, "failure");
 });
 
 test("Codex MCP configuration alone cannot imply lifecycle support; its hooks file makes the capabilities configurable but still unverified", () => {

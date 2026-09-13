@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — התאמה ארכיטקטונית לקוד AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "הוקים של Codex מדווחות על כשלים בכנות",
       "כתיבת הזיכרון ופעולות סביבת העבודה נשארות בטוחות",
       "קריאות הכלים מפסיקות להיכשל בשקט",
       "הצהרה עדכנית אחת לנושא, ו-flush שלא נתקע",
@@ -65,6 +66,7 @@ export const changelogLocales = {
       footer: "© Hunch — архитектурное соответствие для ИИ-кода.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Хуки Codex честно сообщают о сбоях",
       "Безопасная запись памяти и действия в нужном рабочем пространстве",
       "Вызовы инструментов больше не падают молча",
       "Одно актуальное утверждение на субъект и flush, который не зависает",
@@ -122,6 +124,7 @@ export const changelogLocales = {
       footer: "© Hunch — التوافق المعماري لكود الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "خطافات Codex تُبلغ عن الإخفاقات بصدق",
       "كتابة آمنة للذاكرة وإجراءات في مساحة العمل الصحيحة",
       "استدعاءات الأدوات لم تعد تفشل بصمت",
       "بيان حالي واحد لكل موضوع، وتدفق لا يتجمّد",
@@ -179,6 +182,7 @@ export const changelogLocales = {
       footer: "© Hunch — conformidad arquitectónica para código de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Los hooks de Codex informan de los fallos con honestidad",
       "Escrituras de memoria seguras y acciones en el espacio de trabajo correcto",
       "Las llamadas a herramientas dejan de fallar en silencio",
       "Una sola declaración vigente por sujeto, y un volcado que no se congela",

@@ -15,6 +15,8 @@ import { readHookObservations, type HookObservation } from "../core/hookObservat
 const CAPABILITY_EVIDENCE: Record<Exclude<Capability, "mcp">, readonly string[]> = {
   context: ["SessionStart", "UserPromptSubmit"],
   "edit-blocking": ["PreToolUse"],
+  // A successful PostToolUse only proves that the post hook ran. A provider
+  // may instead include an explicit failure status in that same event.
   "failure-capture": ["PostToolUseFailure", "PostToolUse"],
   compaction: ["PreCompact"],
 };
@@ -53,6 +55,17 @@ const object = (v: unknown): Obj => {
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("expected a configuration object");
   return v as Obj;
 };
+function evidenceFor(capability: Exclude<Capability, "mcp">, harness: Harness, observed: HookObservation[], expectedVersion: string): HookObservation | undefined {
+  const matches = observed.filter(o => o.provider === harness && (
+    capability !== "failure-capture"
+      ? CAPABILITY_EVIDENCE[capability].includes(o.event)
+      : o.event === "PostToolUseFailure" || (o.event === "PostToolUse" && o.outcome === "failure")
+  ));
+  // A stale row must not hide a fresh result recorded by a newer hook. Keep a
+  // matching stale row as the fallback so the caller can explain why it is not
+  // verified rather than treating the evidence as absent.
+  return matches.find(o => o.version === expectedVersion && Date.now() - Date.parse(o.at) <= OBSERVATION_FRESH_MS) ?? matches[0];
+}
 function strings(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap(strings);
@@ -174,13 +187,15 @@ export function inspectIntegrations(root: string, selected?: Harness): Integrati
       } else {
         // Verified only by an event the host actually delivered, on the expected
         // version, recently. Matchers and tool coverage beyond that event stay unproven.
-        const hit = observed.find(o => o.provider === harness && CAPABILITY_EVIDENCE[capability].includes(o.event));
+        const hit = evidenceFor(capability, harness, observed, report.expectedVersion);
         const fresh = hit !== undefined && Date.now() - Date.parse(hit.at) <= OBSERVATION_FRESH_MS;
         if (hit && fresh && hit.version === report.expectedVersion) {
           status.status = "verified";
           status.detail = `${hit.event} observed from the ${harness} host at ${hit.at} on Hunch ${hit.version}; matchers and tool coverage beyond that event are not verified`;
         } else if (hit) {
           status.detail = `${event} configured; last observed ${hit.at} on Hunch ${hit.version}${hit.version === report.expectedVersion ? " (stale)" : `, not the expected ${report.expectedVersion}`}`;
+        } else if (capability === "failure-capture" && observed.some(o => o.provider === harness && o.event === "PostToolUse")) {
+          status.detail = `${event} configured; PostToolUse was observed, but no explicit failed-tool event was delivered, so failure capture remains untested`;
         } else {
           status.detail = `${event} configured; host delivery, matchers, and tool coverage are not verified`;
         }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.32.6 — 2026-09-13
+
+- Codex native command hooks now observe `Bash` and `PowerShell`. Integration health accepts failure capture only from an explicit failed-tool result, so success-only `PostToolUse` delivery stays unverified.
+
 ## VS Code 0.18.2 — 2026-09-13
 
 - Include and require the Windows launcher's third-party license notice in both
