@@ -10,7 +10,7 @@ import type { CaptureRequest, CaptureBatchRequest, CaptureBatchResult } from "..
 export type ClientReadRequest = Omit<ReadRequest, "schema" | "principal">;
 export type ClientWriteRequest = Omit<WriteRequest, "schema" | "principal" | "expected_version"> & { expected_version?: string | number | null };
 export type ClientSubscribeRequest = Omit<SubscribeRequest, "schema" | "principal">;
-export interface ClientSubscribeResponse { schema: string; scope: Scope; head_seq: number; events: ChangeEvent[]; filtered: boolean }
+export interface ClientSubscribeResponse { schema: string; scope: Scope; head_seq: number; events: ChangeEvent[]; filtered: boolean; floor_seq: number; resync: boolean }
 
 export interface StateProblem { type: string; title: string; status: number; detail: string; conflict?: { incumbent_id: string; reason: string }; issues?: string[] }
 
@@ -42,6 +42,7 @@ export function createStateClient(opts: StateClientOptions) {
         headers: { authorization: `Bearer ${opts.token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
+        redirect: "error",
       });
       const text = await response.text();
       const parsed = text ? (JSON.parse(text) as unknown) : {};
