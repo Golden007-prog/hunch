@@ -5,7 +5,7 @@ import { closeSync, existsSync, lstatSync, openSync, readFileSync, realpathSync,
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DecisionSchema } from '../src/core/types.ts';
-import { isGitRepoRoot } from '../src/extractors/git.ts';
+import { isGitRepoRoot, isLinkedWorktree } from '../src/extractors/git.ts';
 
 const hash = value => 'sha256:' + createHash('sha256').update(value).digest('hex');
 const readJson = file => {
@@ -20,8 +20,7 @@ export function prepareDevelopmentRun({ worktree, proposal, argvFile, minutes = 
   const cwd = realpathSync(worktree);
   if (!isGitRepoRoot(cwd)) throw new Error('worktree must name its repository root');
   const gitDir = realpathSync(git(cwd, ['rev-parse', '--absolute-git-dir']));
-  const common = realpathSync(resolve(cwd, git(cwd, ['rev-parse', '--git-common-dir'])));
-  if (gitDir === common) throw new Error('use a linked Git worktree, not the primary checkout');
+  if (!isLinkedWorktree(cwd)) throw new Error('use a linked Git worktree, not the primary checkout');
   const branch = git(cwd, ['branch', '--show-current']);
   if (!branch.startsWith('agent/')) throw new Error('the isolated branch must start with agent/');
   if (git(cwd, ['status', '--porcelain'])) throw new Error('the isolated worktree must be clean before a run');
