@@ -78,8 +78,9 @@ test("a contending process drains a record written after the first owner's exact
       `const ready = ${JSON.stringify(ready)};`,
       "fs.mkdirSync(path.join(lock, `owner-${process.pid}`), { recursive: true });",
       'fs.writeFileSync(ready, "ready\\n");',
-      "setTimeout(() => { fs.rmSync(lock, { recursive: true, force: true }); }, 750);",
-      "setTimeout(() => process.exit(0), 800);",
+      "setTimeout(() => { fs.rmSync(path.join(lock, `owner-${process.pid}`), { recursive: true, force: true }); }, 750);",
+      "setTimeout(() => { fs.rmSync(lock, { recursive: true, force: true }); }, 1_500);",
+      "setTimeout(() => process.exit(0), 1_550);",
     ].join("\n");
     owner = spawn(process.execPath, ["-e", ownerProgram], { stdio: "ignore" });
     await waitFor(() => existsSync(ready), 5_000);
