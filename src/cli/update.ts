@@ -55,7 +55,12 @@ export function updateHunch(root: string, opts: UpdateOptions = {}, run: Run = (
     log(`npm ${args.join(" ")}`);
     if (!opts.dryRun) run(args);
   }
-  if (!opts.dryRun) log("Hunch updated; repository integration check passed. Restart or reconnect active harnesses to load the new MCP version.");
+  if (!opts.dryRun) {
+    log("Hunch updated; repository configuration check passed. Restart or reconnect active harnesses to load the new MCP version. Runtime hook delivery is not verified by this check.");
+    if (existsSync(join(root, ".codex", "hooks.json"))) {
+      log("Codex: open /hooks to review and trust any changed commands, then start a new session. Command changes require renewed trust; Hunch does not grant it automatically.");
+    }
+  }
 }
 
 export function registerUpdateCommand(program: Command): void {

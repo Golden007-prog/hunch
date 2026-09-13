@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { updateHunch, runNpm } from "../src/cli/update.js";
+import { Command } from "commander";
+import { registerIntegrationCommands } from "../src/cli/integrations.js";
+import { writeCodexConfig, writeCodexHooks } from "../src/integrations/providers.js";
 
 const pkg = "@davesheffer/hunch";
 function fixture(manifest?: unknown) {
@@ -48,6 +51,51 @@ test("preview only reads the registry", () => {
     assert.ok(f.logs.some(line => line.includes("repair-pins")));
     assert.ok(!f.logs.some(line => line.includes("check passed")));
   } finally { f.cleanup(); }
+});
+
+test("updates with Codex hooks explain trust renewal and remaining runtime verification", () => {
+  const f = fixture();
+  try {
+    mkdirSync(join(f.root, ".codex"));
+    const file = join(f.root, ".codex", "hooks.json");
+    writeFileSync(file, '{"hooks":{}}');
+    updateHunch(f.root, {}, f.run, f.log);
+    assert.match(f.logs.join("\n"), /\/hooks.*review.*trust.*changed commands/i);
+    assert.match(f.logs.join("\n"), /new session/i);
+    assert.match(f.logs.join("\n"), /runtime.*not verified/i);
+    assert.equal(readFileSync(file, "utf8"), '{"hooks":{}}');
+  } finally { f.cleanup(); }
+});
+
+test("pin repair gives Codex trust guidance only when its hook commands changed", () => {
+  const f = fixture({ dependencies: { [pkg]: "9.8.7" } });
+  const previousCwd = process.cwd(), previousExitCode = process.exitCode;
+  const previousLog = console.log;
+  try {
+    mkdirSync(join(f.root, ".git"));
+    const inv = { command: "npx", args: ["-y", `--package=hunch-exact@npm:${pkg}@1.0.0`, "hunch"] };
+    writeCodexConfig(f.root, inv);
+    writeCodexHooks(f.root, inv);
+    process.chdir(f.root);
+    console.log = f.log;
+    const run = () => {
+      const program = new Command();
+      registerIntegrationCommands(program, () => []);
+      program.parse(["node", "hunch", "integrations", "repair-pins"]);
+    };
+    run();
+    assert.match(f.logs.join("\n"), /\/hooks.*review.*trust.*changed commands/i);
+    assert.match(f.logs.join("\n"), /new session/i);
+    assert.equal(process.exitCode, previousExitCode);
+    f.logs.length = 0;
+    run();
+    assert.doesNotMatch(f.logs.join("\n"), /\/hooks/);
+  } finally {
+    console.log = previousLog;
+    process.chdir(previousCwd);
+    process.exitCode = previousExitCode;
+    f.cleanup();
+  }
 });
 
 test("failed install never launches repair; failed repair never reports success", () => {

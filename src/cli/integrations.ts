@@ -23,11 +23,14 @@ export function registerIntegrationCommands(program: Command, refreshGrounding: 
       if (integrationHealthFails(report, required as Capability[])) process.exitCode = 1;
     });
   integrations.command("repair-pins")
-    .description("Align existing exact-version pins and refresh existing Hunch instructions; preserves other settings and does not enable hooks")
+    .description("Align pins, repair known Hunch launch commands and refresh instructions; preserves other settings and does not enable hooks")
     .action(() => {
       const root = findRoot();
       const files = repairIntegrationPins(root);
       console.log(files.length ? `Updated ${files.length} integration file(s): ${files.join(", ")}. Reconnect active MCP sessions.` : "Integration pins already aligned.");
+      if (files.includes(".codex/hooks.json")) {
+        console.log("Codex: open /hooks to review and trust the changed commands, then start a new session. Command changes require renewed trust; Hunch does not grant it automatically.");
+      }
       const grounding = refreshGrounding();
       if (grounding.length) console.log(`Updated Hunch instructions: ${grounding.join(", ")}. Reconnect the agent to load task reporting instructions.`);
       const report = inspectIntegrations(root);
