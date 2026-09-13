@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { evaluateReview, reportHash, validateArtifactMetadata } from "../tooling/hunch-guard-review.mjs";
-import { activeExecutablePolicy, assertLivePrRevision, classifySarif, normalizeLivePr, validateProducerReport, workflowRunMeta } from "../tooling/hunch-guard-review-producer.mjs";
+import { activeExecutablePolicy, assertLivePrRevision, classifySarif, isBaseAncestor, normalizeLivePr, validateProducerReport, workflowRunMeta } from "../tooling/hunch-guard-review-producer.mjs";
 
 const head = "0123456789abcdef0123456789abcdef01234567";
 const base = "fedcba9876543210fedcba9876543210fedcba98";
@@ -120,7 +120,7 @@ test("rejects a report that does not prove the full evaluation completed", () =>
   assert.throws(() => review({ report }), /reviewable failure/);
 });
 
-for (const failure of ["policy_failure", "executable_policy_failure", "conformance_failure", "veto", "regression", "unknown", "incomplete_evaluation", "infrastructure_failure"]) {
+for (const failure of ["policy_failure", "stale_base", "executable_policy_failure", "conformance_failure", "veto", "regression", "unknown", "incomplete_evaluation", "infrastructure_failure"]) {
   test(`never waives ${failure}`, () => {
     const report = fixture({ failure_classes: [failure] });
     assert.throws(() => review({ report }), /non-waivable|unrecognized/);
@@ -229,6 +229,26 @@ test("producer finalization accepts trusted pass and keeps direct failures revie
   assert.equal(validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "pass", reviewable: false, evaluation_complete: true, failure_classes: [], findings: [], evaluator, source }, expected).state, "success");
   assert.equal(validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"], findings: [{ rule_id: "con_scope", level: "error", message: "direct" }], evaluator, source }, expected).state, "failure");
   assert.throws(() => validateProducerReport({ schema: "hunch.guard-report/1", ...expected, verdict: "failure", reviewable: true, evaluation_complete: true, failure_classes: ["direct_scope_blocker"], findings: [{ rule_id: "other", level: "error", message: "uncited" }], evaluator, source }, expected), /cited blocking invariant/);
+});
+
+test("behind-main PR heads are refused before synthetic evaluation", () => {
+  const dir = mkdtempSync(join(tmpdir(), "hunch-guard-ancestry-"));
+  execFileSync("git", ["init", "--quiet", dir]);
+  execFileSync("git", ["-C", dir, "config", "user.name", "fixture"]);
+  execFileSync("git", ["-C", dir, "config", "user.email", "fixture@invalid"]);
+  writeFileSync(join(dir, "README.md"), "root\n");
+  execFileSync("git", ["-C", dir, "add", "."]);
+  execFileSync("git", ["-C", dir, "commit", "--quiet", "-m", "root"]);
+  const headSha = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  writeFileSync(join(dir, "main.txt"), "main\n");
+  execFileSync("git", ["-C", dir, "add", "."]);
+  execFileSync("git", ["-C", dir, "commit", "--quiet", "-m", "main moved"]);
+  const baseSha = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  assert.equal(isBaseAncestor(dir, baseSha, headSha, process.env), false);
+  const expected = { pr_number: 42, head_sha: head, base_sha: base, trigger_head_sha: head, workflow_sha: trusted, run_id: runId, evaluator_version: evaluatorVersion };
+  const source = { run_id: runId, workflow_path: ".github/workflows/hunch-guard-review-producer.yml", workflow_sha: trusted, event: "workflow_run", trigger_head_sha: head };
+  const report = { schema: "hunch.guard-report/1", ...expected, verdict: "failure", reviewable: false, evaluation_complete: false, failure_classes: ["stale_base"], findings: [{ rule_id: "hunch/stale-base", level: "error", message: "PR head does not contain the current protected main branch tip" }], evaluator: { package: "@davesheffer/hunch", version: evaluatorVersion }, source };
+  assert.equal(validateProducerReport(report, expected).reviewable, false);
 });
 
 test("producer finalizer is a separate least-privilege status publisher", () => {
