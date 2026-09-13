@@ -36,8 +36,8 @@ import { DELIVERY_PROFILES, type DeliveryEnvelope } from "./delivery.js";
 import { isHumanConfirmed as sourceIsHumanConfirmed } from "./strictgate.js";
 import {
   ScopeSchema, scopePath, externalKey, DependencyRefSchema, ExternalRefSchema,
-  RECEIPT_SCHEMA_VERSION, COMMITMENT_SCHEMA_VERSION, DERIVED_SCHEMA_VERSION, ENTITY_SCHEMA_VERSION, RELATIONSHIP_SCHEMA_VERSION,
-  type Scope, type ActionReceipt, type Commitment, type DerivedState,
+  CONVENTION_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION, COMMITMENT_SCHEMA_VERSION, DERIVED_SCHEMA_VERSION, ENTITY_SCHEMA_VERSION, RELATIONSHIP_SCHEMA_VERSION,
+  type Convention, type Scope, type ActionReceipt, type Commitment, type DerivedState,
 } from "./stateRecords.js";
 
 export * from "./stateRecords.js";
@@ -60,7 +60,7 @@ export const STATE_FIELD_PROVENANCE_VERSION = "nuryel.field-provenance/1" as con
  *  `unsupported`, never a compatible-looking degraded answer. */
 export const STATE_CAPABILITIES = [
   STATE_READ_VERSION, STATE_WRITE_VERSION, STATE_SUBSCRIBE_VERSION, STATE_RECORDS_VERSION, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION, STATE_OBSERVATION_LINKS_VERSION, STATE_OBSERVATION_REVIEW_VERSION, STATE_OBSERVATION_PAGES_VERSION, STATE_FIELD_PROVENANCE_VERSION, STATE_RECORD_VISIBILITY_VERSION,
-  RECEIPT_SCHEMA_VERSION, COMMITMENT_SCHEMA_VERSION, DERIVED_SCHEMA_VERSION, ENTITY_SCHEMA_VERSION, RELATIONSHIP_SCHEMA_VERSION,
+  CONVENTION_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION, COMMITMENT_SCHEMA_VERSION, DERIVED_SCHEMA_VERSION, ENTITY_SCHEMA_VERSION, RELATIONSHIP_SCHEMA_VERSION,
 ] as const;
 export type StateCapability = (typeof STATE_CAPABILITIES)[number];
 
@@ -124,7 +124,7 @@ export function captureTransform(scope: Scope, subject: string, statement: strin
   return CAPTURE_TRANSFORM + stateHash({ scope, subject, statement: normalizeAssertion(statement), evidence: identities }).slice(7);
 }
 
-export const STATE_FACETS = ["decisions", "constraints", "bugs", "findings", "receipts", "commitments", "derived", "entities", "relationships"] as const;
+export const STATE_FACETS = ["decisions", "constraints", "bugs", "findings", "receipts", "commitments", "derived", "entities", "relationships", "conventions"] as const;
 export type StateFacet = (typeof STATE_FACETS)[number];
 
 // ---- verbs ------------------------------------------------------------------------------
@@ -178,7 +178,15 @@ export const StateOfRecordSchema = z.object({
 }).strict();
 export type StateOfRecord = z.infer<typeof StateOfRecordSchema>;
 
+export const ConventionDeliverySchema = z.object({
+  advisory: z.literal(true),
+  items: z.array(z.object({ ref: StateRefSchema, key: z.string(), conflict: z.boolean(), currentness: z.enum(["recorded", "stale"]) }).strict()).max(16),
+  truncated: z.boolean(),
+}).strict();
+export type ConventionDelivery = z.infer<typeof ConventionDeliverySchema>;
+
 export const ReadResponseSchema = z.object({
+  conventions: ConventionDeliverySchema.optional(),
   schema: z.literal(STATE_READ_VERSION),
   receipt_id: z.string().regex(/^hdr_[a-f0-9]{24}$/).describe("the delivery envelope's receipt"),
   scope: ScopeSchema,
@@ -318,6 +326,9 @@ export function actionReceiptId(r: Pick<ActionReceipt, "scope" | "actor" | "acti
 export function commitmentId(c: Pick<Commitment, "scope" | "subject" | "title" | "owner" | "due">): string {
   return idFrom("ncm", { scope: c.scope, subject: c.subject, title: c.title.trim(), owner: c.owner, due: c.due });
 }
+export function conventionId(c: Pick<Convention, "scope" | "key" | "value" | "sources">): string {
+  return idFrom("ncv", { scope: c.scope, key: c.key, value: c.value.trim(), sources: c.sources.map(stateHash).sort(compareCodeUnits) });
+}
 export function derivedId(d: Pick<DerivedState, "scope" | "subject" | "transform_version" | "dependencies">): string {
   // Capture's reserved transform includes assertion/evidence identity, independent of
   // read time and unrelated source edits. Ordinary summary identity is unchanged.
@@ -358,6 +369,7 @@ export function assertReadWithinGrants(principal: Principal, response: ReadRespo
   const granted = new Set(principal.grants.map(grantKey));
   if (!granted.has(grantKey(response.scope))) throw new Error(`read response scope ${grantKey(response.scope)} is outside the principal's grants`);
   const refs = response.state_of_record ? [...response.state_of_record.current, ...response.state_of_record.in_force, ...response.state_of_record.done, ...(response.state_of_record.observed ?? [])] : [];
+  refs.push(...(response.conventions?.items.map(item => item.ref) ?? []));
   for (const ref of refs) {
     if (!granted.has(grantKey(ref.scope))) throw new Error(`state ref ${ref.id} in scope ${grantKey(ref.scope)} leaked outside the principal's grants`);
   }

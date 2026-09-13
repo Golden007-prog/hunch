@@ -42,6 +42,10 @@ write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', 
 const citedText = '😀 Ready. Ready.';
 write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: citedText, content_hash: stateHash(citedText), dependencies: sources, field_provenance: [{ selector: { kind: 'text', start: 2, end: 8 }, value_hash: stateHash('Ready.'), dependency_hashes: sources.map(stateHash) }], transform_version: 'text/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance }, 'cited-text');
 const privateRecord = write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: 'Restricted operator fixture', content_hash: stateHash('Restricted operator fixture'), dependencies: [sources[0]], transform_version: 'restricted/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance, visibility: { owner: principal.id, readers: ['reviewer'], writers: [] } }, 'private-record');
+for (const [status, value] of [['accepted', 'Use concise updates.'], ['proposed', '<img src=x onerror="window.injected=true"> Use detailed updates.']]) {
+  writeState(store, { schema: 'nuryel.state.write/1', principal: { id: 'reviewer', kind: 'human', grants: [org] }, scope: org, facet: 'conventions', idempotency_key: 'operator-convention-' + status,
+    record: { schema: 'nuryel.convention/1', key: 'communication.status', value, status, sources: [{ kind: 'external', ref: { ...ref, version: '1' } }], valid_from: '2026-09-13T10:00:00Z', valid_to: null, review_by: '2099-01-01T00:00:00Z', provenance: { ...provenance, source: 'human_confirmed' } } });
+}
 const addObservations = (start, count) => captureBatchState(store, {
   schema: 'nuryel.state.capture-batch/1', principal, scope: org,
   sources: [{ ref, source_text: Array.from({ length: count }, (_, i) => 'Customer observation ' + (start + i) + '.').join(' ') }],
@@ -87,6 +91,9 @@ app = createServeApp(readServeConfig(file), { openStore: root => root === join(d
   assert.match(await page.locator('.field-citations').first().innerText(), /do not verify truth/);
   await page.getByRole('heading', { name: 'event:42', exact: true }).first().waitFor();
   assert.ok((await page.locator('#state-content').innerText()).includes('Restricted operator fixture'));
+  await page.getByRole('heading', { name: 'Explicit conventions', exact: true }).waitFor();
+  assert.match(await page.locator('#state-content').innerText(), /CONFLICT/);
+  assert.match(await page.locator('#state-content').innerText(), /Use concise updates/);
   writeState(store, { schema: 'nuryel.state.write/1', principal, scope: org, facet: 'derived', record: { ...privateRecord.record, visibility: { owner: principal.id, readers: [], writers: [] } }, idempotency_key: 'operator-revoke-reader', expected_version: privateRecord.record_hash });
   await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await idle();
   assert.ok(!(await page.locator('#state-content').innerText()).includes('Restricted operator fixture'));
