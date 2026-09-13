@@ -132,11 +132,11 @@ if (process.argv[1] && new URL(`file://${process.argv[1]}`).pathname === new URL
       evaluator: { package: "@davesheffer/hunch", version: evaluatorVersion },
       source: { run_id: runId, workflow_path: ".github/workflows/hunch-guard-review-producer.yml", workflow_sha: workflowSha, event: "workflow_run" },
     };
-    if (activeExecutablePolicy(repo)) {
+    const synthetic = buildSyntheticRepo(repo, baseSha, headSha, temp, env);
+    if (activeExecutablePolicy(synthetic.checkout)) {
       writeFileSync(output, `${JSON.stringify({ ...baseReport, verdict: "failure", reviewable: false, evaluation_complete: false, failure_classes: ["executable_policy_failure"] }, null, 2)}\n`, { mode: 0o600 });
       process.exit(0);
     }
-    const synthetic = buildSyntheticRepo(repo, baseSha, headSha, temp, env);
     const result = spawnSync(process.execPath, [cli, "check", "--base", synthetic.syntheticBase, "--strict", "--format", "sarif", "--public-only"], {
       cwd: synthetic.checkout,
       env: { ...env, HUNCH_PRIVATE_DIR: "" },
