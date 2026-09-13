@@ -15,6 +15,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: '3.11'
+            cryptography-version: '46.0.0'
+          - python-version: '3.14'
+            cryptography-version: '50.0.1'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: npm ci
+      - run: npm run build
+      - run: node --import tsx tooling/generate-state-contracts.mjs --check
+      - name: Build and install the Python wheel with request signing
+        run: |
+          python -m pip install build==1.6.1 mypy==2.3.1 cryptography==${{ matrix.cryptography-version }}
+          python -m build clients/python
+          python -m pip install clients/python/dist/*.whl
+      - run: python -m mypy --strict clients/python/src/hunch_state
+      - run: python -m unittest discover -s clients/python/tests
+      - run: node tooling/verify-python-state.mjs python --proof
+
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 20

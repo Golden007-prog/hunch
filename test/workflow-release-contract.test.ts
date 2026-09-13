@@ -69,12 +69,23 @@ test("PR CI proves the full gate, Node 24 package candidate, and Windows team Ma
   assert.match(ci, /test\/team-matrix-e2e\.test\.ts/,
     "Windows exercises the real multi-clone team Matrix");
   assert.match(ci, /platform-matrix-safety\.json[\s\S]*uses: actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/);
-  assert.equal((ci.match(/actions\/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10/g) ?? []).length, 2,
-    "every CI checkout is pinned to the reviewed action commit");
-  assert.equal((ci.match(/fetch-depth: 0/g) ?? []).length, 2,
-    "every CI checkout has the pinned compatibility tag and its full history");
-  assert.equal((ci.match(/actions\/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38/g) ?? []).length, 2,
-    "every CI runtime setup is pinned to the reviewed action commit");
+  for (const job of ['ci', 'platform-matrix-safety', 'python-state']) {
+    const block = jobBlock(ci, job);
+    assert.match(block, /actions\/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10/,
+      `${job} uses the reviewed checkout action`);
+    assert.match(block, /actions\/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38/,
+      `${job} uses the reviewed Node setup action`);
+    if (job !== 'python-state') assert.match(block, /fetch-depth: 0/,
+      `${job} needs the pinned compatibility tag and full history`);
+  }
+  const python = jobBlock(ci, 'python-state');
+  assert.match(python, /python-version: '3\.11'/);
+  assert.match(python, /python-version: '3\.14'/);
+  assert.match(python, /generate-state-contracts\.mjs --check/);
+  assert.match(python, /python -m build clients\/python[\s\S]*pip install clients\/python\/dist\/\*\.whl/,
+    'Python qualification installs the built wheel');
+  assert.match(python, /verify-python-state\.mjs python --proof/,
+    'Python exercises the real HTTPS state contract and signing');
   for (const [, action, pin] of ci.matchAll(/uses: (actions\/[A-Za-z0-9_-]+)@([^\s#]+)/g)) {
     assert.match(pin, /^[0-9a-f]{40}$/, `${action} must be pinned by full commit SHA`);
   }

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hunch-state"
+version = "0.1.0"
+description = "Typed Python client for the Hunch shared state contract"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{name = "Hunch contributors"}]
+dependencies = []
+
+[project.optional-dependencies]
+proof = ["cryptography>=46"]
+
+[project.urls]
+Repository = "https://github.com/davesheffer/hunch"
+Documentation = "https://github.com/davesheffer/hunch/blob/main/docs/python-state-client.md"
+
+[tool.setuptools.package-data]
+hunch_state = ["py.typed", "schemas.json"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
