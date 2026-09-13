@@ -1,5 +1,13 @@
 # Changelog
 
+## VS Code 0.18.2 — 2026-09-13
+
+- Include and require the Windows launcher's third-party license notice in both
+  VSIX publication checks. Version 0.18.1 stopped before publication because the
+  packaging allowlist rejected this required attribution file. ZIP-level
+  regressions now exercise both gates, including missing attribution and private
+  file rejection.
+
 ## 1.32.5 — 2026-09-13
 
 - Concurrent memory updates now lock the actual shared store, refuse a busy
