@@ -1,0 +1,250 @@
+# Candidate path for a maintainer-authorized exception to a direct scope guard
+# block. This workflow is deliberately separate from the required Hunch Guard
+# until the receipt producer has been qualified in the live repository.
+name: Hunch Guard Review (candidate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Open PR number"
+        required: true
+        type: string
+      head_sha:
+        description: "Exact current PR head SHA"
+        required: true
+        type: string
+      base_sha:
+        description: "Exact current protected base SHA"
+        required: true
+        type: string
+      guard_run_id:
+        description: "Trusted-context guard run that produced guard-report.json"
+        required: true
+        type: string
+      report_hash:
+        description: "sha256 hash of canonical guard-report.json"
+        required: true
+        type: string
+      reason:
+        description: "Human reason for the direct-scope exception"
+        required: true
+        type: string
+      authorize_exception:
+        description: "Explicitly authorize the bounded exception"
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  statuses: write
+
+concurrency:
+  group: hunch-guard-review-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    # workflow_dispatch can target another ref. Only the protected default
+    # branch may provide the verifier and policy that authorize a status.
+    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up the trusted Node.js runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22.13.0
+
+      - name: Bind evaluator identity to the trusted package manifest
+        id: evaluator
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const policy = JSON.parse(readFileSync(".github/hunch-guard-review.json", "utf8"));
+          if (policy.evaluator?.version_source !== "trusted-package-json" || policy.evaluator.package !== packageJson.name) throw new Error("trusted evaluator policy is not bound to package metadata");
+          if (typeof packageJson.version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version)) throw new Error("invalid trusted-base package version");
+          writeFileSync(process.env.GITHUB_OUTPUT, `version=${packageJson.version}\n`, { flag: "a" });
+          NODE
+
+      - name: Collect exact PR and guard-run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GUARD_RUN_ID: ${{ inputs.guard_run_id }}
+          ACTOR_LOGIN: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_BASE_SHA: ${{ inputs.base_sha }}
+          INPUT_REPORT_HASH: ${{ inputs.report_hash }}
+          INPUT_REASON: ${{ inputs.reason }}
+          INPUT_AUTHORIZE_EXCEPTION: ${{ inputs.authorize_exception }}
+        run: |
+          set -euo pipefail
+          umask 077
+          case "$PR_NUMBER" in (''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;; esac
+          case "$GUARD_RUN_ID" in (''|*[!0-9]*) echo "invalid guard run id" >&2; exit 1 ;; esac
+          mkdir -p "$TEMP_DIR"
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr.json"
+          gh api "/users/${ACTOR_LOGIN}" > "$TEMP_DIR/actor.json"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GUARD_RUN_ID}" > "$TEMP_DIR/run.json"
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const dir = process.env.TEMP_DIR;
+          const pr = JSON.parse(readFileSync(`${dir}/pr.json`, "utf8"));
+          const actor = JSON.parse(readFileSync(`${dir}/actor.json`, "utf8"));
+          if (actor.login !== process.env.ACTOR_LOGIN || String(actor.id) !== process.env.ACTOR_ID) throw new Error("dispatch actor changed");
+          const request = {
+            pr_number: Number(process.env.PR_NUMBER),
+            head_sha: process.env.INPUT_HEAD_SHA,
+            base_sha: process.env.INPUT_BASE_SHA,
+            report_hash: process.env.INPUT_REPORT_HASH,
+            reason: process.env.INPUT_REASON,
+            authorize_exception: process.env.INPUT_AUTHORIZE_EXCEPTION === "true",
+          };
+          if (!Number.isSafeInteger(request.pr_number) || request.pr_number !== pr.number) throw new Error("PR number changed");
+          if (request.head_sha !== pr.head.sha || request.base_sha !== pr.base.sha) throw new Error("PR revision changed");
+          writeFileSync(`${dir}/request.json`, `${JSON.stringify(request)}\n`);
+          writeFileSync(`${dir}/pr-normalized.json`, `${JSON.stringify({
+            number: pr.number,
+            state: pr.state,
+            head: { sha: pr.head.sha, repo: { full_name: pr.head.repo?.full_name } },
+            base: { ref: pr.base.ref, sha: pr.base.sha, repo: { full_name: pr.base.repo?.full_name } },
+          })}\n`);
+          NODE
+
+      - name: Recheck the PR before evaluating the receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-latest.json"
+          node --input-type=module - <<'NODE'
+          import { readFileSync } from "node:fs";
+          const dir = process.env.TEMP_DIR;
+          const first = JSON.parse(readFileSync(`${dir}/pr-normalized.json`, "utf8"));
+          const latest = JSON.parse(readFileSync(`${dir}/pr-latest.json`, "utf8"));
+          if (latest.number !== first.number || latest.state !== first.state || latest.base.ref !== first.base.ref || latest.base.sha !== first.base.sha || latest.head.sha !== first.head.sha) throw new Error("PR changed while review was being prepared");
+          NODE
+
+      - name: Download the guard receipt as data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUARD_RUN_ID: ${{ inputs.guard_run_id }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$TEMP_DIR/run.json" "$GUARD_RUN_ID" "$TEMP_DIR/request.json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const [runFile, runIdRaw, requestFile] = process.argv.slice(2);
+          const run = JSON.parse(readFileSync(runFile, "utf8"));
+          const request = JSON.parse(readFileSync(requestFile, "utf8"));
+          if (run.id !== Number(runIdRaw) || run.event !== "workflow_run" || run.head_branch !== "main" || run.path !== ".github/workflows/hunch-guard-review-producer.yml" || run.status !== "completed" || run.conclusion !== "success") throw new Error("guard run is not a completed trusted producer run");
+          NODE
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GUARD_RUN_ID}/artifacts?per_page=100" > "$TEMP_DIR/artifacts.json"
+          artifact_id="$(node --input-type=module - "$TEMP_DIR/artifacts.json" "$GUARD_RUN_ID" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { validateArtifactMetadata } from "./tooling/hunch-guard-review.mjs";
+          process.stdout.write(String(validateArtifactMetadata(JSON.parse(readFileSync(process.argv[2], "utf8")), Number(process.argv[3]))));
+          NODE
+          )"
+          report_dir="$TEMP_DIR/report"
+          mkdir -p "$report_dir"
+          gh run download "$GUARD_RUN_ID" --name hunch-guard-report --dir "$report_dir"
+          report="$report_dir/guard-report.json"
+          test -f "$report" && test ! -L "$report"
+          resolved="$(realpath "$report")"
+          case "$resolved" in "$report_dir"/*) ;; *) echo "guard report escaped its artifact directory" >&2; exit 1 ;; esac
+          report_bytes="$(stat -c '%s' "$report")"
+          test "$report_bytes" -le 1048576
+          test -n "$artifact_id"
+
+      - name: Verify receipt without loading PR code
+        id: verify
+        env:
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          EVALUATOR_VERSION: ${{ steps.evaluator.outputs.version }}
+        run: |
+          set -euo pipefail
+          node tooling/hunch-guard-review.mjs --verify \
+            --policy .github/hunch-guard-review.json \
+            --request "$TEMP_DIR/request.json" \
+            --pr "$TEMP_DIR/pr-normalized.json" \
+            --actor "$TEMP_DIR/actor.json" \
+            --report "$TEMP_DIR/report/guard-report.json" \
+            --run "$TEMP_DIR/run.json" \
+            --evaluator-version "$EVALUATOR_VERSION" \
+            --output "$TEMP_DIR/receipt.json"
+
+      - name: Seal and upload the exception receipt
+        if: always() && steps.verify.outcome == 'success'
+        env:
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          REVIEW_WORKFLOW_SHA: ${{ github.sha }}
+          REVIEW_ACTOR: ${{ github.actor }}
+          REVIEW_ACTOR_ID: ${{ github.actor_id }}
+          REVIEW_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { reportHash } from "./tooling/hunch-guard-review.mjs";
+          const path = `${process.env.TEMP_DIR}/receipt.json`;
+          const receipt = JSON.parse(readFileSync(path, "utf8"));
+          const sealed = { ...receipt, review_run_id: Number(process.env.REVIEW_RUN_ID), review_run_attempt: Number(process.env.REVIEW_RUN_ATTEMPT), review_workflow_sha: process.env.REVIEW_WORKFLOW_SHA, review_actor: { login: process.env.REVIEW_ACTOR, id: Number(process.env.REVIEW_ACTOR_ID) }, review_reason: process.env.REVIEW_REASON };
+          writeFileSync(path, `${JSON.stringify({ ...sealed, receipt_hash: reportHash(sealed) }, null, 2)}\n`, { mode: 0o600 });
+          NODE
+
+      - name: Upload the content-addressed exception receipt
+        if: always() && steps.verify.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hunch-guard-review-receipt-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+          path: ${{ runner.temp }}/hunch-guard-review/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish candidate status on the exact PR head
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          TEMP_DIR: ${{ runner.temp }}/hunch-guard-review
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          test -s "$TEMP_DIR/pr-normalized.json" || { echo "PR metadata was not verified; refusing to publish a status" >&2; exit 1; }
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$TEMP_DIR/pr-publication.json"
+          PR_FILE="$TEMP_DIR/pr-normalized.json" LATEST_FILE="$TEMP_DIR/pr-publication.json" node --input-type=module - <<'NODE'
+          import { readFileSync } from "node:fs";
+          const first = JSON.parse(readFileSync(process.env.PR_FILE, "utf8"));
+          const latest = JSON.parse(readFileSync(process.env.LATEST_FILE, "utf8"));
+          if (latest.number !== first.number || latest.state !== first.state || latest.base?.ref !== first.base.ref || latest.base?.sha !== first.base.sha || latest.head?.sha !== first.head.sha) throw new Error("PR changed before status publication");
+          NODE
+          HEAD_SHA="$(PR_FILE="$TEMP_DIR/pr-normalized.json" node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.env.PR_FILE,"utf8")).head.sha)')"
+          state=failure
+          description="review refused; no exception authorized"
+          if test "$JOB_STATUS" = success && test -s "$TEMP_DIR/receipt.json"; then
+            state=success
+            description="authorized direct-scope exception; receipt is bound to PR $PR_NUMBER"
+          fi
+          gh api --method POST "/repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state="$state" \
+            -f context="hunch-guard-review" \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

@@ -1,0 +1,11 @@
+{
+  "schema": "hunch.guard-review-policy/1",
+  "default_branch": "main",
+  "maintainers": [
+    { "id": 26892525, "login": "davesheffer" }
+  ],
+  "evaluator": {
+    "package": "@davesheffer/hunch",
+    "version_source": "trusted-package-json"
+  }
+}
