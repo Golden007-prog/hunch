@@ -626,20 +626,20 @@ export class HunchStore {
    *  relevance ordering (liveness/provenance/recency + topic-chain promotion)
    *  go through hybridSearch/searchScoped, where rerankByPriors applies.
    *  Falls back to LIKE if the query has no FTS-tokenizable terms. */
-  search(query: string, limit = 12): SearchHit[] {
+  search(query: string, limit = 12, allowedIds?: readonly string[]): SearchHit[] {
     const match = toFtsQuery(query);
     // No FTS-tokenizable terms (e.g. a CJK-only query) — degrade to LIKE rather
     // than silently returning nothing (the documented fallback).
-    if (!match) return this.likeSearch(query, limit);
+    if (!match) return this.likeSearch(query, limit, undefined, allowedIds);
     try {
       const rows = this.db.prepare(
         `SELECT ref, kind, title, snippet(search, 3, '[', ']', '…', 12) AS snip, bm25(search) AS score
-         FROM search WHERE search MATCH ? ORDER BY score LIMIT ?`,
-      ).all(match, limit) as Array<{ ref: string; kind: string; title: string; snip: string; score: number }>;
+         FROM search WHERE search MATCH ? ${allowedIds ? 'AND ref IN (SELECT value FROM json_each(?))' : ''} ORDER BY score LIMIT ?`,
+      ).all(...(allowedIds ? [match, JSON.stringify(allowedIds), limit] : [match, limit])) as Array<{ ref: string; kind: string; title: string; snip: string; score: number }>;
       return this.demoteHistoricalState(rows.map((r) => ({ ref: r.ref, kind: r.kind, title: r.title, snippet: r.snip, score: r.score })));
     } catch {
       // Malformed FTS expression — degrade to a LIKE scan over titles/bodies.
-      return this.likeSearch(query, limit);
+      return this.likeSearch(query, limit, undefined, allowedIds);
     }
   }
 
@@ -738,7 +738,7 @@ export class HunchStore {
    * `hunchrecorddecision` and matched nothing — on precisely the runtimes with no FTS5,
    * where this fallback is the only search there is. Escaping keeps the term literal;
    * leaving `_` unescaped would silently over-match instead. */
-  private likeSearch(query: string, limit: number, kind?: string): SearchHit[] {
+  private likeSearch(query: string, limit: number, kind?: string, allowedIds?: readonly string[]): SearchHit[] {
     const terms = (query.toLowerCase().match(/[\p{L}\p{N}_]+/gu)
       ?? [query.toLowerCase().trim()].filter(Boolean)).slice(0, 32);
     if (!terms.length) return [];
@@ -747,8 +747,7 @@ export class HunchStore {
       const like = `%${term.replace(/[\\%_]/g, "\\$&")}%`;
       return [like, like];
     });
-    const where = kind ? `kind = ? AND (${predicates})` : `(${predicates})`;
-    const params: Array<string | number> = kind ? [kind, ...likes, limit] : [...likes, limit];
+    const where = (kind ? `kind = ? AND (${predicates})` : `(${predicates})`) + (allowedIds ? " AND ref IN (SELECT value FROM json_each(?))" : "");
     // Ordered so a TRUNCATING limit drops the least relevant row rather than an
     // arbitrary one: a title hit outranks a body-only hit, then shortest title
     // (a constraint's one-line statement beats a long decision body that merely
@@ -761,7 +760,7 @@ export class HunchStore {
        WHERE ${where}
        ORDER BY CASE WHEN ${titleLikes} THEN 0 ELSE 1 END, length(title), ref
        LIMIT ?`,
-    ).all(...(kind ? [kind, ...likes, ...titleParams, limit] : [...likes, ...titleParams, limit])) as Array<{ ref: string; kind: string; title: string; snip: string }>;
+    ).all(...[...(kind ? [kind] : []), ...likes, ...(allowedIds ? [JSON.stringify(allowedIds)] : []), ...titleParams, limit]) as Array<{ ref: string; kind: string; title: string; snip: string }>;
     return this.demoteHistoricalState(rows.map((r) => ({ ref: r.ref, kind: r.kind, title: r.title, snippet: r.snip, score: 0 })));
   }
 
@@ -1273,13 +1272,13 @@ export class HunchStore {
    *  return only decisions/constraints whose valid-time window contained that
    *  instant — "what did we believe as of commit X?". Omit `asOf` for the full,
    *  history-inclusive view (backward-compatible default). */
-  why(target: string, opts: { asOf?: string } = {}): WhyResult {
+  why(target: string, opts: { asOf?: string; canRead?: (record: unknown) => boolean } = {}): WhyResult {
     target = toPosixTarget(target);
-    const decisions = this.recs("decisions");
-    const bugs = this.recs("bugs");
-    const constraints = this.recs("constraints");
-    const symbols = this.recs("symbols");
-    const components = this.recs("components");
+    const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
+    const bugs = this.recs("bugs").filter(opts.canRead ?? (() => true));
+    const constraints = this.recs("constraints").filter(opts.canRead ?? (() => true));
+    const symbols = this.recs("symbols").filter(opts.canRead ?? (() => true));
+    const components = this.recs("components").filter(opts.canRead ?? (() => true));
     const asOf = opts.asOf;
 
     // pathsRelated, not bare endsWith: "scenario.ts".endsWith("io.ts") is true,
@@ -1911,14 +1910,14 @@ export class HunchStore {
   }
 
   /** Bugs matching a symptom (FTS over bugs) or a symbol, with lineage (hunch_bug_lineage). */
-  bugLineage(symptomOrSymbol: string): Bug[] {
-    const bugs = this.recs("bugs");
+  bugLineage(symptomOrSymbol: string, canRead?: (record: unknown) => boolean): Bug[] {
+    const bugs = this.recs("bugs").filter(canRead ?? (() => true));
     const direct = bugs.filter(
       (b) => b.affected_symbols.includes(symptomOrSymbol) || b.affected_files.includes(symptomOrSymbol),
     );
     if (direct.length) return direct;
     // fall back to fts over bug titles/symptoms
-    const hits = this.search(symptomOrSymbol).filter((h) => h.kind === "bugs").map((h) => h.ref);
+    const hits = this.search(symptomOrSymbol, 12, canRead ? bugs.map(b => b.id) : undefined).filter((h) => h.kind === "bugs").map((h) => h.ref);
     const byHit = bugs.filter((b) => hits.includes(b.id));
     if (byHit.length) return byHit;
     // last resort: naive substring over symptom/root_cause
@@ -1997,7 +1996,7 @@ export class HunchStore {
   /** The Context Assembler (DESIGN §2.1/§6): the MINIMAL relevant Hunch slice for
    *  a task on `target`, ordered by what matters most — invariants first, then the
    *  why, then blast radius and bug history — trimmed to a rough token budget. */
-  assembleContext(target: string, budget = 1500, opts: { asOf?: string } = {}): AssembledContext {
+  assembleContext(target: string, budget = 1500, opts: { asOf?: string; canRead?: (record: unknown) => boolean } = {}): AssembledContext {
     target = toPosixTarget(target);
     const w = this.why(target, opts);
     const symIds = w.symbols.map((s) => s.id);
@@ -2008,7 +2007,7 @@ export class HunchStore {
         if (!prev || d.depth < prev.depth) blast.set(d.id, d); // keep the MIN depth across start symbols
       }
     }
-    const bugs = w.bugs.length ? w.bugs : this.bugLineage(target);
+    const bugs = w.bugs.length ? w.bugs : this.bugLineage(target, opts.canRead);
 
     const ctx: AssembledContext = {
       target,
@@ -2017,13 +2016,13 @@ export class HunchStore {
       bugs,
       blast_radius: [...blast.values()].sort((a, b) => a.depth - b.depth).slice(0, 12),
       components: w.components,
-      findings: this.liveFindingsFor(target).slice(0, 8),
+      findings: this.liveFindingsFor(target).filter(opts.canRead ?? (() => true)).slice(0, 8),
       // Landscape records do not yet carry a valid-time window. A historical
       // query therefore withholds them instead of mixing current graph state
       // into an as-of memory envelope.
       landscape: opts.asOf
         ? undefined
-        : selectReviewedLandscape(this.recs("resources"), this.recs("edges"), target),
+        : selectReviewedLandscape(this.recs("resources").filter(opts.canRead ?? (() => true)), this.recs("edges").filter(opts.canRead ?? (() => true)), target),
       budget_tokens: budget,
     };
     return ctx;

@@ -342,3 +342,29 @@ test("HTTP and typed client round-trip field citations and refuse stale value bi
     await assert.rejects(client.write({ scope: david, facet: "derived", record: { ...record, field_provenance: [{ ...field_provenance[0], value_hash: stateHash("Changed") }] }, idempotency_key: "cited-http-invalid" }), (e: StateClientError) => e.status === 400 && e.code === "malformed" && /value_hash/.test(e.message));
   } finally { await cleanup(); }
 });
+
+test('HTTP authenticates visibility across partitions and concurrent users, including source revocation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hunch-http-visibility-')), file = join(dir, 'serve.json');
+  initServeConfig({ file, scope: david, root: join(dir, 'user') });
+  const ownerToken = initServeConfig({ file, scope: acme, root: join(dir, 'org'), principal: { id: 'owner', kind: 'human', grants: [david, acme] } }).token!;
+  const readerToken = initServeConfig({ file, scope: acme, root: join(dir, 'org'), principal: { id: 'reader', kind: 'agent', grants: [david, acme] } }).token!;
+  const app = createServeApp(readServeConfig(file));
+  try {
+    const base = await listen(app), owner = createStateClient({ baseUrl: base, token: ownerToken }), reader = createStateClient({ baseUrl: base, token: readerToken });
+    const visibility = { owner: 'owner', readers: ['reader'], writers: [] };
+    const content = 'Restricted CRM schedule';
+    const source = await owner.write({ scope: david, facet: 'derived', idempotency_key: 'cross-private-source', record: { schema: 'nuryel.derived/1', scope: david, subject: 'customer:restricted', content, content_hash: stateHash(content), dependencies: [{ kind: 'schema', name: 'crm', fingerprint: stateHash('v1') }], transform_version: 'schedule/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance: prov, visibility } });
+    const linked = await owner.write({ scope: acme, facet: 'derived', idempotency_key: 'cross-linked-record', record: { ...source.record, id: undefined, visibility: undefined, scope: acme, transform_version: 'linked/v1', dependencies: [{ kind: 'record', scope: david, id: source.record_id, record_hash: source.record_hash }] } });
+    assert.ok((await reader.records({ scope: acme, ids: [linked.record_id] })).records[linked.record_id]);
+    await owner.write({ scope: david, facet: 'derived', idempotency_key: 'revoke-source-reader', expected_version: source.record_hash, record: { ...source.record, visibility: { ...visibility, readers: [] } } });
+    const [own, denied] = await Promise.all([owner.read({ scope: acme, subject: 'customer:restricted' }), reader.read({ scope: acme, subject: 'customer:restricted' })]);
+    assert.equal(own.state_of_record?.current.length, 1);
+    assert.deepEqual(denied.state_of_record?.current, []);
+    assert.ok(!JSON.stringify(denied).includes(source.record_id));
+    assert.deepEqual((await reader.records({ scope: acme, ids: [linked.record_id] })).missing, [linked.record_id]);
+    assert.deepEqual((await reader.subscribe({ scope: acme, after_seq: 0 })).events, []);
+    const spoof = await fetch(base + '/nuryel/v1/records', { method: 'POST', headers: { authorization: 'Bearer ' + readerToken, 'content-type': 'application/json' }, body: JSON.stringify({ principal: { id: 'owner', kind: 'human', grants: [david, acme] }, scope: david, ids: [source.record_id] }) });
+    assert.deepEqual((await spoof.json() as { missing: string[] }).missing, [source.record_id]);
+    await assert.rejects(reader.write({ scope: david, facet: 'derived', idempotency_key: 'cross-private-source', record: source.record! }), (e: StateClientError) => e.status === 403 && !JSON.stringify(e.problem).includes(source.record_id));
+  } finally { await new Promise<void>(r => app.close(() => r())); app.closeStores(); rmSync(dir, { recursive: true, force: true }); }
+});

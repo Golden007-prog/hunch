@@ -1,3 +1,4 @@
+import { createStateAccess } from "./stateAccess.js";
 import type { HunchStore } from "./hunchStore.js";
 import { CaptureRequestSchema, CaptureBatchRequestSchema, STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION, STATE_WRITE_VERSION, assertDerivedState, captureTransform, derivedId, normalizeAssertion, canonicalObjectKey, externalKey, scopePath, stateHash, type CaptureBatchResult, type DerivedState, type WriteResult } from "../core/stateContract.js";
 import { isCredentialFreeValue } from "../core/provenance.js";
@@ -27,6 +28,8 @@ export function captureState(store: HunchStore, input: unknown, opts: CaptureOpt
   const id = derivedId({ scope: request.scope, subject: request.subject, transform_version: transform, dependencies: [] });
   const incumbent = store.getStateDirect("derived", id, home);
   if (incumbent) {
+    if (!createStateAccess(store, request.principal, opts).canRead(incumbent)) throw new StateRefusal("outside-grants", "record unavailable or operation not permitted");
+    if (request.visibility && stateHash(request.visibility) !== stateHash(incumbent.visibility ?? null)) throw new StateRefusal("conflict", "capture already exists with different visibility; use write with expected_version to change its audience");
     assertDerivedState(incumbent);
     if (incumbent.transform_version !== transform || scopePath(incumbent.scope) !== scopePath(request.scope) || incumbent.subject !== request.subject) throw new StateRefusal("conflict", "capture identity collision; incumbent preserved");
     // Never revive stale or human-corrected evidence, replace its author, or claim a new
@@ -37,6 +40,7 @@ export function captureState(store: HunchStore, input: unknown, opts: CaptureOpt
   const content = JSON.stringify({ schema: "nuryel.observation-content/1", statement, relevance: request.relevance,
     evidence: evidence.map(e => ({ source: externalKey(e.ref), excerpt: e.excerpt })), captured_by: request.principal.id });
   const record: Omit<DerivedState, "id"> = {
+    ...(request.visibility ? { visibility: request.visibility } : {}),
     schema: "nuryel.derived/1", scope: request.scope, subject: request.subject, content, content_hash: stateHash(content),
     dependencies: refs.map(ref => ({ kind: "external", ref })), transform_version: transform,
     computed_at: (opts.now ?? (() => new Date()))().toISOString(), valid_to: null, state: "unknown",
@@ -63,6 +67,7 @@ export function captureBatchState(store: HunchStore, input: unknown, opts: Write
     for (const [index, review] of (request.reviews ?? []).entries()) {
       try {
         const record = store.getStateDirect("derived", review.record_id, home);
+        if (record && !createStateAccess(store, request.principal, opts).canWrite(record)) throw new StateRefusal("outside-grants", "record unavailable or operation not permitted");
         if (!record || scopePath(record.scope) !== scopePath(request.scope) || !record.transform_version.startsWith('agent-capture/1:')) throw new StateRefusal('conflict', 'captured observation is absent from this partition');
         if (!isCredentialFreeValue(review.reason)) throw new StateRefusal('malformed', 'review reason contains credential material');
         const evidence = review.evidence.map(e => {
@@ -85,7 +90,7 @@ export function captureBatchState(store: HunchStore, input: unknown, opts: Write
         const at = (opts.now ?? (() => new Date()))().toISOString();
         const result = writeState(store, { schema: STATE_WRITE_VERSION, principal: request.principal, scope: request.scope, facet: 'derived',
           record: { ...record, state: 'stale', review: { by: request.principal.id, at, previous_hash: review.expected_hash, reason: review.reason, evidence } },
-          expected_version: review.expected_hash, idempotency_key: `observation-review:${identity}`, cause: { kind: 'external', ref: evidence[0]!.ref } }, { now: opts.now, ledgerCache, deferReindex: true });
+          expected_version: review.expected_hash, idempotency_key: `observation-review:${identity}`, cause: { kind: 'external', ref: evidence[0]!.ref } }, { now: opts.now, additionalStores: opts.additionalStores, ledgerCache, deferReindex: true });
         changed ||= result.outcome !== 'replayed'; reviews.push({ index, status: 'saved', result });
       } catch (error) {
         if (!(error instanceof StateRefusal)) throw error;
@@ -99,7 +104,7 @@ export function captureBatchState(store: HunchStore, input: unknown, opts: Write
           if (!source) throw new StateRefusal("malformed", `evidence source index ${e.source} is absent`);
           return { ...source, excerpt: e.excerpt };
         });
-        const result = captureState(store, { schema: STATE_CAPTURE_VERSION, principal: request.principal, scope: request.scope, ...observation, evidence }, { now: opts.now, sourceHashes, ledgerCache, deferReindex: true });
+        const result = captureState(store, { schema: STATE_CAPTURE_VERSION, principal: request.principal, scope: request.scope, ...observation, evidence }, { now: opts.now, additionalStores: opts.additionalStores, sourceHashes, ledgerCache, deferReindex: true });
         changed ||= result.outcome !== "replayed";
         results.push({ index, status: "saved", result });
       } catch (error) {

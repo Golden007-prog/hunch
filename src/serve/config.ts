@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "../core/io.js";
-import { ScopeSchema, scopePath, type Principal, type Scope } from "../core/stateContract.js";
+import { ScopeSchema, PartitionDeclarationSchema, scopePath, type Principal, type Scope } from "../core/stateContract.js";
 
 export const SERVE_CONFIG_VERSION = "nuryel.serve-config/1" as const;
 
@@ -110,7 +110,7 @@ export function initServeConfig(opts: { file: string; scope: Scope; root: string
   mkdirSync(hunchDir, { recursive: true });
   const partitionFile = resolve(hunchDir, "partition.json");
   if (existsSync(partitionFile)) {
-    const declared = ScopeSchema.parse(JSON.parse(readFileSync(partitionFile, "utf8")));
+    const declared = PartitionDeclarationSchema.parse(JSON.parse(readFileSync(partitionFile, "utf8")));
     if (scopePath(declared) !== scopePath(opts.scope)) throw new Error(`${root} already declares partition ${scopePath(declared)}, not ${scopePath(opts.scope)}`);
   } else {
     writeFileAtomic(partitionFile, JSON.stringify(opts.scope, null, 2) + "\n");

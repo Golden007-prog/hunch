@@ -41,6 +41,7 @@ const annotations = Object.entries(JSON.parse(citedJson)).map(([key, value]) => 
 write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: citedJson, content_hash: stateHash(citedJson), dependencies: [...sources].reverse(), field_provenance: annotations, transform_version: 'json/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance }, 'cited-json');
 const citedText = '😀 Ready. Ready.';
 write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: citedText, content_hash: stateHash(citedText), dependencies: sources, field_provenance: [{ selector: { kind: 'text', start: 2, end: 8 }, value_hash: stateHash('Ready.'), dependency_hashes: sources.map(stateHash) }], transform_version: 'text/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance }, 'cited-text');
+const privateRecord = write('derived', { schema: 'nuryel.derived/1', scope: org, subject: 'event:42', content: 'Restricted operator fixture', content_hash: stateHash('Restricted operator fixture'), dependencies: [sources[0]], transform_version: 'restricted/v1', computed_at: '2026-09-13T10:00:00Z', valid_to: null, state: 'current', provenance, visibility: { owner: principal.id, readers: ['reviewer'], writers: [] } }, 'private-record');
 const addObservations = (start, count) => captureBatchState(store, {
   schema: 'nuryel.state.capture-batch/1', principal, scope: org,
   sources: [{ ref, source_text: Array.from({ length: count }, (_, i) => 'Customer observation ' + (start + i) + '.').join(' ') }],
@@ -66,7 +67,7 @@ app = createServeApp(readServeConfig(file), { openStore: root => root === join(d
   assert.equal(await page.locator('#scope option').count(), 2);
   await page.screenshot({ path: join(tmpdir(), 'hunch-operator-activity.png') });
   await lookup('event:42');
-  await page.getByRole('heading', { name: 'Current records (3)', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Current records (4)', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Open commitments & rules (1)', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Completed work (1)', exact: true }).waitFor();
   assert.match(await page.locator('#state-content').innerText(), /Observations 1–64 of 65/);
@@ -84,6 +85,13 @@ app = createServeApp(readServeConfig(file), { openStore: root => root === join(d
     assert.ok(!text.includes('unavailable_dependency_hash'));
   }
   assert.match(await page.locator('.field-citations').first().innerText(), /do not verify truth/);
+  await page.getByRole('heading', { name: 'event:42', exact: true }).first().waitFor();
+  assert.ok((await page.locator('#state-content').innerText()).includes('Restricted operator fixture'));
+  writeState(store, { schema: 'nuryel.state.write/1', principal, scope: org, facet: 'derived', record: { ...privateRecord.record, visibility: { owner: principal.id, readers: [], writers: [] } }, idempotency_key: 'operator-revoke-reader', expected_version: privateRecord.record_hash });
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await idle();
+  assert.ok(!(await page.locator('#state-content').innerText()).includes('Restricted operator fixture'));
+  assert.ok(!(await page.locator('#activity').innerText()).includes(privateRecord.record_id));
+
 
   assert.equal(await page.locator('#state-content img').count(), 0);
   assert.equal(await page.evaluate(() => window.injected), undefined);

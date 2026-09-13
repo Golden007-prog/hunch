@@ -105,6 +105,7 @@ export const operatorJs = String.raw`
     article.append(node('h3', title, 'record-title'));
     const description = observation ? observation.relevance?.reason : r.content || r.decision || r.rationale;
     if (description) article.append(node('p', description, 'record-content'));
+    if (r.visibility) article.append(node('p', 'Restricted record · access owner: ' + r.visibility.owner, 'metadata'));
     if (r.owner || r.actor) article.append(node('p', (r.owner ? 'Owner: ' + r.owner : 'Actor: ' + r.actor), 'metadata'));
     if (r.due) article.append(node('p', 'Due ' + r.due, 'metadata'));
     if (r.occurred_at || r.computed_at || r.created_at) article.append(node('p', r.occurred_at || r.computed_at || r.created_at, 'metadata'));
