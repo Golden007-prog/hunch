@@ -11,6 +11,7 @@ const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const REVIEWABLE_FAILURES = new Set(["direct_scope_blocker"]);
 const NEVER_WAIVE = new Set([
   "policy_failure",
+  "stale_base",
   "executable_policy_failure",
   "conformance_failure",
   "veto",

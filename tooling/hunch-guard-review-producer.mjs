@@ -7,7 +7,7 @@ const SHA = /^[0-9a-f]{40}$/;
 const REVIEWABLE = "direct_scope_blocker";
 const MAX_SARIF_BYTES = 2 * 1024 * 1024;
 const REPORT_SCHEMA = "hunch.guard-report/1";
-const REPORT_FAILURES = new Set([REVIEWABLE, "policy_failure", "executable_policy_failure", "conformance_failure", "veto", "regression", "unknown", "incomplete_evaluation", "infrastructure_failure"]);
+const REPORT_FAILURES = new Set([REVIEWABLE, "stale_base", "policy_failure", "executable_policy_failure", "conformance_failure", "veto", "regression", "unknown", "incomplete_evaluation", "infrastructure_failure"]);
 
 function fail(message) { throw new Error(message); }
 function required(value, label) { if (typeof value !== "string" || !value) fail(`${label} is missing`); return value; }
@@ -22,8 +22,31 @@ export function workflowRunMeta(event) {
   return { pr_number: pull.number, trigger_head_sha: pull.head.sha };
 }
 
+export function normalizeLivePr(pr, baseRef, triggerHeadSha, repository, trustedWorkflowSha = null) {
+  const fullSha = SHA;
+  if (!pr || pr.state !== "open" || pr.base?.ref !== "main" || pr.base?.repo?.full_name !== repository) fail("PR is not an open main-branch PR");
+  if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !fullSha.test(pr.head?.sha ?? "") || pr.head.sha !== triggerHeadSha) fail("PR head is not the exact triggering revision");
+  if (baseRef?.ref !== "refs/heads/main" || baseRef.object?.type !== "commit" || !fullSha.test(baseRef.object?.sha ?? "")) fail("protected main branch ref is not a full commit SHA");
+  if (trustedWorkflowSha !== null && (!fullSha.test(trustedWorkflowSha) || baseRef.object.sha !== trustedWorkflowSha)) fail("trusted workflow revision is not the current protected main branch tip");
+  return { number: pr.number, head_sha: pr.head.sha, base_sha: baseRef.object.sha };
+}
+
+export function assertLivePrRevision(expected, pr, baseRef, triggerHeadSha, repository, trustedWorkflowSha = null) {
+  const latest = normalizeLivePr(pr, baseRef, triggerHeadSha, repository, trustedWorkflowSha);
+  if (latest.number !== expected.number || latest.head_sha !== expected.head_sha || latest.base_sha !== expected.base_sha) fail("PR head or protected base branch moved during review");
+  return latest;
+}
+
 function git(repo, args, env) {
   return execFileSync("git", ["-C", repo, ...args], { env, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+export function isBaseAncestor(repo, baseSha, headSha, env) {
+  const result = spawnSync("git", ["-C", repo, "merge-base", "--is-ancestor", baseSha, headSha], { env, stdio: "ignore" });
+  if (result.error) fail(`could not verify base ancestry: ${result.error.message}`);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  fail(`could not verify base ancestry (git exited ${result.status ?? " without a status"})`);
 }
 
 function archive(repo, revision, destination, pathspec = null, env) {
@@ -177,6 +200,10 @@ if (process.argv[1] && new URL(`file://${process.argv[1]}`).pathname === new URL
       source: { run_id: runId, workflow_path: ".github/workflows/hunch-guard-review-producer.yml", workflow_sha: workflowSha, event: "workflow_run", trigger_head_sha: triggerHeadSha },
     };
     if (triggerHeadSha !== headSha) fail("triggering guard run is stale for the current PR head");
+    if (!isBaseAncestor(repo, baseSha, headSha, env)) {
+      writeFileSync(output, `${JSON.stringify({ ...baseReport, verdict: "failure", reviewable: false, evaluation_complete: false, failure_classes: ["stale_base"], findings: [{ rule_id: "hunch/stale-base", level: "error", message: "PR head does not contain the current protected main branch tip; refresh the branch before evaluation" }] }, null, 2)}\n`, { mode: 0o600 });
+      process.exit(0);
+    }
     const synthetic = buildSyntheticRepo(repo, baseSha, headSha, temp, env);
     if (activeExecutablePolicy(synthetic.checkout)) {
       writeFileSync(output, `${JSON.stringify({ ...baseReport, verdict: "failure", reviewable: false, evaluation_complete: false, failure_classes: ["executable_policy_failure"], findings: [{ rule_id: "hunch/executable-policy", level: "error", message: "active executable-behavior policy requires a separately isolated trusted evaluation" }] }, null, 2)}\n`, { mode: 0o600 });
