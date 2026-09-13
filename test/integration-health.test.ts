@@ -60,6 +60,109 @@ test("configuration never certifies runtime hook delivery, enforcement, or model
   } finally { f.cleanup(); }
 });
 
+test("upgrade rejects and repairs misrouted Codex hooks without changing user settings", () => {
+  const f = fixture();
+  try {
+    writeCodexConfig(f.root, launcher());
+    writeCodexHooks(f.root, { ...launcher(), args: [...launcher().args, "mcp"] });
+    const file = join(f.root, ".codex/hooks.json");
+    const config = JSON.parse(readFileSync(file, "utf8"));
+    config.hooks.PreToolUse[0].hooks[0].timeout = 45;
+    config.hooks.Stop[0].hooks[0].enabled = false;
+    const foreign = { hooks: [{ type: "command", command: 'echo "@davesheffer/hunch@0.1.0 hunch mcp hook --provider codex"' }] };
+    config.hooks.SessionStart.push(foreign);
+    const before = `// preserve this comment\n${JSON.stringify(config, null, 2)}\n`;
+    f.write(".codex/hooks.json", before);
+
+    const report = inspectIntegrations(f.root, "codex");
+    assert.ok(report.issues.some(i => i.code === "hook-command" && i.detail.includes("repair-pins")));
+    assert.equal(integrationHealthFails(report), true);
+    assert.notEqual(report.harnesses[0]!.capabilities.context.status, "verified");
+    assert.deepEqual(repairIntegrationPins(f.root), [".codex/hooks.json"]);
+    const after = readFileSync(file, "utf8");
+    assert.equal(after, before.replaceAll(
+      `${command().replace("hunch hook", "hunch mcp hook")} --provider codex`, `${command()} --provider codex`,
+    ));
+    assert.deepEqual(repairIntegrationPins(f.root), [], "a second repair changes nothing");
+    assert.deepEqual(inspectIntegrations(f.root, "codex").issues, []);
+  } finally { f.cleanup(); }
+});
+
+test("upgrade migrates legacy quoted launchers and disabled hooks without enabling them", () => {
+  const f = fixture();
+  try {
+    const old = { command: "npx", args: ["-y", "--package=@davesheffer/hunch@1.22.0", "hunch"] };
+    writeCodexConfig(f.root, old);
+    writeCodexHooks(f.root, old);
+    const file = join(f.root, ".codex/hooks.json");
+    const config = JSON.parse(readFileSync(file, "utf8"));
+    config.hooks.Stop[0].hooks[0].enabled = false;
+    config.hooks.PreCompact[0].enabled = false;
+    config.hooks.SessionStart[0].hooks[0].command = [...old.args, "mcp", "hook", "--provider", "codex"]
+      .map(s => JSON.stringify(s)).join(" ");
+    config.hooks.SessionStart[0].hooks[0].command = '"npx" ' + config.hooks.SessionStart[0].hooks[0].command;
+    f.write(".codex/hooks.json", config);
+    assert.deepEqual(repairIntegrationPins(f.root), [".codex/config.toml", ".codex/hooks.json"]);
+    const after = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(after.hooks.Stop[0].hooks[0].enabled, false);
+    assert.equal(after.hooks.PreCompact[0].enabled, false);
+    for (const groups of Object.values(after.hooks) as Array<Array<{ hooks: Array<{ command: string }> }>>) {
+      for (const group of groups) for (const hook of group.hooks) {
+        assert.match(hook.command, /^npx -y /);
+        assert.ok(hook.command.includes(`--package=hunch-exact@npm:@davesheffer/hunch@${version}`));
+        assert.ok(!hook.command.includes('"mcp"'));
+      }
+    }
+    assert.ok(readFileSync(join(f.root, ".codex/config.toml"), "utf8").includes(`--package=hunch-exact@npm:@davesheffer/hunch@${version}`));
+    assert.deepEqual(inspectIntegrations(f.root, "codex").issues, []);
+    assert.deepEqual(repairIntegrationPins(f.root), []);
+  } finally { f.cleanup(); }
+});
+
+test("intentionally disabled hooks do not block updates or certify a required capability", () => {
+  const f = fixture();
+  try {
+    for (const [event, capability] of [["PreCompact", "compaction"], ["PreToolUse", "edit-blocking"]] as const) {
+      for (const nested of [false, true]) {
+        writeCodexConfig(f.root, launcher("1.22.0"));
+        writeCodexHooks(f.root, launcher("1.22.0"));
+        const file = join(f.root, ".codex/hooks.json");
+        const config = JSON.parse(readFileSync(file, "utf8"));
+        const group = config.hooks[event][0];
+        (nested ? group.hooks[0] : group).enabled = false;
+        f.write(".codex/hooks.json", config);
+        repairIntegrationPins(f.root);
+        const report = inspectIntegrations(f.root, "codex");
+        assert.equal(integrationHealthFails(report), false);
+        assert.equal(report.harnesses[0]!.capabilities[capability].status, "unsupported");
+        assert.equal(integrationHealthFails(report, [capability]), true);
+        const after = JSON.parse(readFileSync(file, "utf8"));
+        assert.equal((nested ? after.hooks[event][0].hooks[0] : after.hooks[event][0]).enabled, false);
+        assert.deepEqual(repairIntegrationPins(f.root), []);
+      }
+    }
+  } finally { f.cleanup(); }
+});
+
+test("repair never interprets a quoted argument or shell wrapper as a Hunch launcher", () => {
+  const f = fixture();
+  try {
+    writeCodexConfig(f.root, launcher());
+    const invalid = [
+      command().replace("hunch hook", 'hunch "hook --provider codex"'),
+      `echo '${command()} --provider codex'`,
+      `${command()} --provider codex && echo done`,
+    ];
+    for (const cmd of invalid) {
+      f.write(".codex/hooks.json", { hooks: { SessionStart: [{ hooks: [{ type: "command", command: cmd }] }] } });
+      const before = readFileSync(join(f.root, ".codex/hooks.json"), "utf8");
+      assert.ok(inspectIntegrations(f.root, "codex").issues.some(i => i.code === "missing-hook"));
+      assert.deepEqual(repairIntegrationPins(f.root), []);
+      assert.equal(readFileSync(join(f.root, ".codex/hooks.json"), "utf8"), before);
+    }
+  } finally { f.cleanup(); }
+});
+
 test("hooks become verified only from host-delivered events on the expected version", async () => {
   const { recordHookObservation } = await import("../src/core/hookObservations.js");
   const { HUNCH_VERSION } = await import("../src/core/version.js");
@@ -347,6 +450,35 @@ test("CLI reports JSON and fails requirements; pin repair clears the original mi
     assert.equal(run("check", "--require", "typo").status, 1);
     assert.equal(run("check", "--probe").status, 1);
     assert.equal(run("check", "--harness", "unknown").status, 1);
+  } finally { f.cleanup(); }
+});
+
+test("CLI upgrade repairs installed Codex hooks into a runnable handler", () => {
+  const f = fixture();
+  const cli = fileURLToPath(new URL("../dist/cli/index.js", import.meta.url));
+  const run = (...args: string[]) => spawnSync(process.execPath, [cli, ...args], { cwd: f.root, encoding: "utf8", timeout: 15_000 });
+  try {
+    mkdirSync(join(f.root, ".git"));
+    writeCodexConfig(f.root, launcher("1.22.0"));
+    writeCodexHooks(f.root, { ...launcher("1.22.0"), args: [...launcher("1.22.0").args, "mcp"] });
+    const before = run("integrations", "check", "--harness", "codex", "--json");
+    assert.equal(before.status, 1, before.stderr);
+    assert.ok(JSON.parse(before.stdout).issues.some((i: { code: string }) => i.code === "hook-command"));
+    const repaired = run("integrations", "repair-pins");
+    assert.equal(repaired.status, 0, repaired.stderr);
+    assert.match(repaired.stdout, /\/hooks/);
+    const hooksFile = join(f.root, ".codex/hooks.json");
+    const hooks = JSON.parse(readFileSync(hooksFile, "utf8"));
+    const args = hooks.hooks.SessionStart[0].hooks[0].command.split(" ").slice(4);
+    const result = spawnSync(process.execPath, [cli, ...args], {
+      cwd: f.root, encoding: "utf8", timeout: 15_000,
+      input: JSON.stringify({ hook_event_name: "SessionStart", cwd: f.root, session_id: "upgrade-smoke" }),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.hookEventName, "SessionStart");
+    const stable = readFileSync(hooksFile, "utf8");
+    assert.equal(run("integrations", "repair-pins").status, 0);
+    assert.equal(readFileSync(hooksFile, "utf8"), stable);
   } finally { f.cleanup(); }
 });
 

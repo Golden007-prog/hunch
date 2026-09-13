@@ -48,7 +48,7 @@ To update Hunch and configured harness pins for the current repository:
 hunch update
 ```
 
-Agents receive an instruction to run this when you ask **“update Hunch”** in generated Hunch guidance. Restart active harnesses afterward.
+Agents receive an instruction to run this when you ask **“update Hunch”** in generated Hunch guidance. The update aligns existing integration pins and repairs known Hunch launch commands while preserving your other settings. Restart or reconnect active harnesses afterward. If you use Codex hooks, open `/hooks` to review and trust the changed commands, then start a new session. Changing a pinned version changes the command and requires renewed trust; Hunch does not approve hooks for you.
 
 Check integrations after upgrading Hunch or switching assistants:
 
@@ -56,12 +56,12 @@ Check integrations after upgrading Hunch or switching assistants:
 hunch integrations check
 hunch integrations repair-pins
 hunch integrations check --harness claude --probe --require mcp
-hunch integrations check --harness codex --require context,edit-blocking
+hunch integrations check --harness codex --require context
 ```
 
-Capabilities are reported as **verified**, **advisory-only**, **unsupported** or **untested**. `--require` fails unless every named capability is verified. `mcp` is verified by a fresh-server probe; hook capabilities become verified only from lifecycle events actually delivered to Hunch's hook on the expected version within the last 30 days (machine-local evidence, the same trust level as the served ledger), so a repository whose agent has actually run shows it, and one that only has configuration does not.
+Run the Codex context check after trusting the hooks and starting the new session. Capabilities are reported as **verified**, **advisory-only**, **unsupported** or **untested**. `--require` fails unless every named capability is verified. `mcp` is verified by a fresh-server probe; hook capabilities become verified only from lifecycle events actually delivered to Hunch's hook on the expected version within the last 30 days (machine-local evidence, the same trust level as the served ledger), so a repository whose agent has actually run shows it, and one that only has configuration does not. Add `edit-blocking` to `--require` only when you use strict firmness and the host has delivered a pre-edit event.
 
-Codex CLI 0.153+ gets a native lifecycle adapter (`.codex/hooks.json`: session orientation, prompt task IDs from `turn_id`, `apply_patch` pre-edit grounding and strict denial, native `Bash`/`PowerShell` post-tool observation, Stop cards); project-layer hooks load only for a trusted project and must be trusted once in Codex with `/hooks`. Failure capture is certified only by an explicit failed-tool lifecycle event; a successful `PostToolUse` observation does not prove it. The opt-in `--probe` verifies a fresh MCP process, not whether an existing host session or model actually followed the memory.
+Codex CLI 0.153+ gets a native lifecycle adapter (`.codex/hooks.json`: session orientation, prompt task IDs from `turn_id`, `apply_patch` pre-edit grounding and strict denial, native `Bash`/`PowerShell` post-tool observation, Stop cards); project-layer hooks load only for a trusted project and must be reviewed and trusted in Codex with `/hooks` when installed or when their commands change. Failure capture is certified only by an explicit failed-tool lifecycle event; a successful `PostToolUse` observation does not prove it. The opt-in `--probe` verifies a fresh MCP process, not whether an existing host session or model actually followed the memory.
 
 Use `hunch integrations check` in CI to prevent pin drift; add `--require` for capabilities your workflow cannot operate without.
 

@@ -72,15 +72,29 @@ function strings(value: unknown): string[] {
   if (value && typeof value === "object") return Object.values(value).flatMap(strings);
   return [];
 }
-function hookCommands(value: unknown): string[] {
-  if (Array.isArray(value)) return value.flatMap(hookCommands);
+function hookCommands(value: unknown, includeDisabled = false): string[] {
+  if (Array.isArray(value)) return value.flatMap(v => hookCommands(v, includeDisabled));
   if (!value || typeof value !== "object") return [];
   const obj = value as Obj;
-  if (obj.enabled === false || (obj.type !== undefined && obj.type !== "command")) return [];
+  if ((!includeDisabled && obj.enabled === false) || (obj.type !== undefined && obj.type !== "command")) return [];
   const command = typeof obj.command === "string" ? obj.command : "";
-  const own = /(?:@davesheffer\/hunch|(?:dist|src)[\\/]+cli[\\/]+index\.(?:js|ts))/.test(command)
+  const own = publishedHookCommand(command) !== undefined || /(?:dist|src)[\\/]+cli[\\/]+index\.(?:js|ts)/.test(command)
     && /\s"?hook"?(?:\s+"?--provider"?\s+"?[a-z]+"?)?\s*$/.test(command);
-  return [...(own ? [command] : []), ...(obj.hooks ? hookCommands(obj.hooks) : [])];
+  return [...(own ? [command] : []), ...(obj.hooks ? hookCommands(obj.hooks, includeDisabled) : [])];
+}
+
+/** Recognize only generated npm commands, including their legacy quoted form.
+ * Never normalize a wrapper, shell expression, or another program's arguments. */
+function publishedHookCommand(command: string): string | undefined {
+  const parts = command.trim().match(/"[^"\\]*"|'[^']*'|[^\s"'\\]+/g);
+  if (!parts || parts.join(" ") !== command.trim().replace(/\s+/g, " ")) return undefined;
+  const tokens = parts.map(p => /^["']/.test(p) ? p.slice(1, -1) : p);
+  if (tokens.some(token => /\s/.test(token))) return undefined;
+  const bare = tokens.join(" ");
+  return /^npx(?:\.cmd)? (?:-y|--yes) --package=(?:hunch-exact@npm:)?@davesheffer\/hunch@[0-9A-Za-z.+-]+ (?:-- )?hunch (?:mcp )?hook(?: --provider [a-z]+)?$/.test(bare) ? bare : undefined;
+}
+function misroutedHook(command: string): boolean {
+  return publishedHookCommand(command)?.includes(" hunch mcp hook") ?? false;
 }
 /** Pin repair is restricted to Hunch's marker-owned TOML block. */
 function codexBlock(raw: string): string {
@@ -161,12 +175,22 @@ export function inspectIntegrations(root: string, selected?: Harness): Integrati
         const config = object(parseJsonc(readFileSync(join(root, spec.hooks), "utf8")));
         disabled = config.disableAllHooks === true;
         events = object(harness === "antigravity" ? config.hunch : config.hooks);
-        recordPins(spec.hooks, Object.values(events).flatMap(hookCommands));
+        const commands = Object.values(events).flatMap(v => hookCommands(v));
+        recordPins(spec.hooks, commands);
+        if (commands.some(misroutedHook)) report.issues.push({
+          file: spec.hooks, code: "hook-command",
+          detail: "Hunch hooks invoke the MCP subcommand instead of the hook handler; run hunch integrations repair-pins",
+        });
       } catch (e) { report.issues.push({ file: spec.hooks, code: "hook-config", detail: (e as Error).message }); }
     }
     for (const [i, capability] of (["context", "edit-blocking", "failure-capture", "compaction"] as const).entries()) {
       const event = spec.events[i];
       const status = capabilities[capability];
+      const matchesProvider = (command: string) => {
+        if (misroutedHook(command)) return false;
+        const dialect = (publishedHookCommand(command) ?? command).match(/"?--provider"?\s+"?([a-z]+)"?/i)?.[1]?.toLowerCase() ?? "claude";
+        return dialect === harness;
+      };
       if (!event) {
         status.status = capability === "context" ? "advisory-only" : "unsupported";
         status.detail = capability === "context" ? "Hunch relies on instructions and voluntary MCP calls on this adapter" : "No Hunch lifecycle adapter for this capability";
@@ -175,12 +199,14 @@ export function inspectIntegrations(root: string, selected?: Harness): Integrati
       } else if (disabled || firmness === "off" || ((capability === "failure-capture") && process.env.HUNCH_PIPELINE === "0")) {
         status.status = "unsupported";
         status.detail = "Disabled by local hook settings, firmness, or HUNCH_PIPELINE";
-      } else if (!hookCommands(events[event]).some(command => {
-        const dialect = command.match(/"?--provider"?\s+"?([a-z]+)"?/i)?.[1]?.toLowerCase() ?? "claude";
-        return dialect === harness;
-      })) {
-        status.detail = `Missing Hunch ${event} handler`;
-        report.issues.push({ file: spec.hooks, code: "missing-hook", detail: status.detail });
+      } else if (!hookCommands(events[event]).some(matchesProvider)) {
+        if (hookCommands(events[event], true).some(matchesProvider)) {
+          status.status = "unsupported";
+          status.detail = `Hunch ${event} handler disabled by local hook settings`;
+        } else {
+          status.detail = `Missing Hunch ${event} handler`;
+          report.issues.push({ file: spec.hooks, code: "missing-hook", detail: status.detail });
+        }
       } else if (capability === "edit-blocking" && firmness !== "strict") {
         status.status = "advisory-only";
         status.detail = `firmness=${firmness}; edits are not blocked`;
@@ -218,7 +244,8 @@ export function machineLocalIntegrationFiles(root: string): string[] {
   return (r.stdout ?? "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 }
 
-/** Repair only exact published pins. Preserve formatting and all other values.
+/** Repair exact published pins and the known misplaced MCP hook subcommand.
+ * Preserve formatting and all other values, including disabled hook settings.
  * Preflight every affected file before writing any; reject malformed JSON/TOML.
  * `skip` leaves a file untouched (used to keep machine-local pins on a version
  * npm can actually serve while a release is still publishing). */
@@ -236,7 +263,7 @@ export function repairIntegrationPins(root: string, opts: { skip?: (file: string
       const replace = (text: string) => text.replace(pinPattern, (match, old: string) => {
         if (!exactVersion.test(old)) throw new Error(`refusing non-exact Hunch pin in ${file}`);
         return `@davesheffer/hunch@${version}`;
-      });
+      }).replace(/--package=@davesheffer\/hunch@/g, "--package=hunch-exact@npm:@davesheffer/hunch@");
       let after: string;
       if (name === "codex" && file === spec.mcp) {
         readLauncher(root, "codex");
@@ -253,8 +280,14 @@ export function repairIntegrationPins(root: string, opts: { skip?: (file: string
         const config = object(parseJsonc(before));
         const values = file === spec.mcp
           ? strings(object(object(config[spec.key]).hunch).args)
-          : Object.values(object(name === "antigravity" ? config.hunch : config.hooks)).flatMap(hookCommands);
-        const replacements = new Map(values.map(v => [v, replace(v)]).filter(([a, b]) => a !== b) as Array<[string, string]>);
+          : Object.values(object(name === "antigravity" ? config.hunch : config.hooks)).flatMap(v => hookCommands(v, true));
+        const replacements = new Map(values.map(v => {
+          // Every recognized npm token is shell-safe. Bare tokens also repair
+          // the legacy quoted executable, which PowerShell treats as a string.
+          const published = file === spec.hooks ? publishedHookCommand(v) : undefined;
+          const repaired = published?.replace(" hunch mcp hook", " hunch hook") ?? v;
+          return [v, replace(repaired)];
+        }).filter(([a, b]) => a !== b) as Array<[string, string]>);
         const counts = new Map<string, number>();
         // Tokenize comments too, so a quoted command in a comment is untouched.
         after = before.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"/g, token => {
