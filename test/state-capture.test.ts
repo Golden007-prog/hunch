@@ -101,3 +101,15 @@ test("different assertions in the same excerpt survive; observed history is boun
     assert.equal(response.state_of_record?.observed_truncated, true);
   } finally { f.cleanup(); }
 });
+
+test('restricted capture replay uses exact lookups and preserves its audience without enumerating derived records', () => {
+  const f = fixture();
+  try {
+    const request = { ...f.request, visibility: { owner: f.principal.id, readers: [], writers: [] } };
+    const first = captureState(f.store, request);
+    const loadAll = f.store.json.loadAll.bind(f.store.json);
+    f.store.json.loadAll = ((kind: Parameters<typeof loadAll>[0]) => { assert.notEqual(kind, 'derived', 'restricted replay must retain the exact-lookup bound'); return loadAll(kind); }) as typeof f.store.json.loadAll;
+    assert.equal(captureState(f.store, request).record_id, first.record_id);
+    assert.throws(() => captureState(f.store, { ...request, principal: { ...f.principal, id: 'outsider' } }), /not permitted/);
+  } finally { f.cleanup(); }
+});
