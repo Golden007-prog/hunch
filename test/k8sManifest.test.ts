@@ -404,3 +404,88 @@ test("an apostrophe mid-word does not open a phantom quote that swallows a real 
   const [doc] = extractK8sManifest(src);
   assert.equal((doc!.resource!.name as { value: string }).value, "it's-fine");
 });
+
+// CRLF line endings (found on third review pass): `core.autocrlf=true` is the
+// Git-for-Windows default, so every .yaml file in a Windows checkout is
+// CRLF-terminated -- confirmed this silently zeroed out the whole module's
+// output before the KEY_LINE regex fix (JS `.` never matches `\r`, and `$`
+// without /m only matches at true end-of-string).
+
+test("a CRLF-terminated manifest is scanned identically to its LF equivalent", () => {
+  const lf = `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: my-app\nspec:\n  template:\n    spec:\n      containers:\n      - name: app\n        envFrom:\n        - configMapRef:\n            name: my-config\n`;
+  const crlf = lf.replace(/\n/g, "\r\n");
+  const [lfDoc] = extractK8sManifest(lf);
+  const [crlfDoc] = extractK8sManifest(crlf);
+  assert.equal(crlfDoc!.resource?.kind, "Deployment");
+  assert.equal((crlfDoc!.resource!.name as { value: string }).value, (lfDoc!.resource!.name as { value: string }).value);
+  assert.equal(crlfDoc!.references.length, lfDoc!.references.length);
+  assert.equal((crlfDoc!.references[0]!.name as { value: string }).value, "my-config");
+});
+
+test("a CRLF-terminated Service selector and workload labels are extracted the same as LF", () => {
+  const lf = `apiVersion: v1\nkind: Service\nmetadata:\n  name: my-service\nspec:\n  selector:\n    app: my-app\n`;
+  const crlf = lf.replace(/\n/g, "\r\n");
+  const [doc] = extractK8sManifest(crlf);
+  assert.deepEqual(doc!.selector, { app: "my-app" });
+});
+
+// Unrecognized line shapes (found on third review pass): a line the scanner
+// can't parse at all (a quoted key, a YAML merge key) must taint its
+// container as unresolved, not silently vanish -- a dropped key makes a
+// selector/labels map strictly MORE permissive, which risks a false-positive
+// edge on real, untemplated YAML.
+
+test("a quoted label key is left unresolved (null), not silently dropped from the map", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `spec:`, `  selector:`, `    "app.kubernetes.io/name": mychart`, `    app.kubernetes.io/instance: rel-a`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "a quoted key the scanner can't parse must taint the whole map, not vanish silently");
+});
+
+test("a YAML merge key (<<: *anchor) is left unresolved (null), not silently dropped from the map", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    metadata:`, `      labels:`,
+    `        <<: *commonLabels`, `        app: my-app`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.labels, null);
+});
+
+test("an unresolved-line taint at one nesting level does not affect an unrelated sibling container", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `  "weird-quoted-key": value`, // unresolved, taints metadata (irrelevant to selector)
+    `spec:`, `  selector:`, `    app: my-app`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.deepEqual(doc!.selector, { app: "my-app" }, "an unresolved line under metadata must not taint spec.selector");
+});
+
+// ReplicaSet full wiring (found on third review pass): ReplicaSet was
+// allowlisted only for its role as the dominant ownerReferences bearer, but
+// left out of the pod-spec/labels tables, silently dropping its OWN
+// container references and pod-template labels.
+
+test("a hand-written ReplicaSet's own envFrom/volumes references are extracted, not silently dropped", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: ReplicaSet`, `metadata:`, `  name: my-rs`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`, `      - name: app`,
+    `        envFrom:`, `        - configMapRef:`, `            name: my-config`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  const ref = doc!.references.find((r) => r.refKind === "ConfigMap");
+  assert.ok(ref, "ReplicaSet's own container references must be extracted, same as any other pod-spec-embedding kind");
+});
+
+test("a ReplicaSet's pod-template labels are extracted for Phase 2 matching", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: ReplicaSet`, `metadata:`, `  name: my-rs`,
+    `spec:`, `  template:`, `    metadata:`, `      labels:`, `        app: my-app`,
+    `    spec:`, `      containers:`, `      - name: app`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.deepEqual(doc!.labels, { app: "my-app" });
+});

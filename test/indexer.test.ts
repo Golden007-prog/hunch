@@ -1071,6 +1071,55 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a quoted selector key the scanner can't parse produces NO edge, not an over-permissive false-positive one (regression, found on third review pass)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-quoted-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  // svc-a's selector genuinely requires BOTH name=mychart AND instance=rel-a.
+  // The quoted key must not be silently dropped -- if it were, the selector
+  // would collapse to {instance: rel-a}, which dep-other-chart satisfies even
+  // though its own name label is a completely different chart's.
+  writeFileSync(join(root, "manifests/service.yaml"), `
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-a
+spec:
+  selector:
+    "app.kubernetes.io/name": mychart
+    app.kubernetes.io/instance: rel-a
+`);
+  writeFileSync(join(root, "manifests/deployment.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dep-other-chart
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: OTHERCHART
+        app.kubernetes.io/instance: rel-a
+    spec:
+      containers:
+      - name: app
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const service = syms.find((s) => s.name === "Service/svc-a");
+  assert.ok(service);
+  const edges = store.json.loadAll("edges");
+  assert.equal(edges.filter((e) => e.from === service!.id && e.type === "references").length, 0,
+    "the quoted app.kubernetes.io/name key must taint the whole selector, not silently vanish and over-match on the remainder");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a Helm-templated block-form selector/labels pair produces no Phase 2 edge and does not crash indexing", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-tpl-"));
   mkdirSync(join(root, "templates"), { recursive: true });

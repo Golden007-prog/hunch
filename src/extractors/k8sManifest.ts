@@ -91,18 +91,22 @@ interface StackFrame {
   nextIndex?: number;
 }
 
-const KEY_LINE = /^(\s*)(-\s+)?([A-Za-z0-9_.\/-]+):[ \t]*(.*)$/;
+// `\r?` before `$`: without it, a CRLF-terminated line (the Git-for-Windows
+// `core.autocrlf=true` default -- every .yaml file in a Windows checkout) never
+// matches at all, since JS `.` never matches `\r` and `$` (no /m flag) only
+// matches at the true end of the string. That silently zeroes out this whole
+// module's output on any Windows clone, with no error. `.*?` (lazy, not `.*`
+// greedy) so `\r?` gets first claim on a trailing `\r` instead of the value
+// capture swallowing it.
+const KEY_LINE = /^(\s*)(-\s+)?([A-Za-z0-9_.\/-]+):[ \t]*(.*?)\r?$/;
 // A line that is ENTIRELY a `{{ ... }}` template action (no `key:` prefix at
 // all) -- e.g. a block-form injection appearing as a SIBLING after other
 // literal keys under the same mapping (`app: my-app` then, on its own later
 // line, `{{- include "mychart.selectorLabels" . | nindent 4 }}`). This never
 // matches KEY_LINE (there's no colon-terminated key), so without explicit
 // handling it's silently invisible to the scanner -- neither contributing a
-// value nor marking its container as template-tainted, which lets a
-// literal-looking map that's actually partially templated pass as fully
-// literal. The value-less-key-followed-by-{{-on-next-line case (pendingBlockKey
-// below) is a different shape: this handles the block injection landing
-// mid-mapping, not only immediately after its opening key.
+// value nor marking its container as unresolved, which lets a literal-looking
+// map that's actually partially templated pass as fully literal.
 const BARE_TEMPLATE_LINE = /^(\s*)(-\s+)?(\{\{[\s\S]*)$/;
 
 /** Strip a trailing YAML comment: `#` only opens one at the start of the
@@ -147,12 +151,19 @@ function stripQuotes(value: string): string {
  *  below its own indent; a sequence frame is only ever closed by a
  *  shallower-indent line, never by an equal-indent one (equal-indent means
  *  "next item"). */
-function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEntry[]; blockTemplated: Set<string> } {
+function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEntry[]; unresolvedContainers: Set<string> } {
   const entries: FieldPathEntry[] = [];
-  const blockTemplated = new Set<string>();
+  // A container (mapping) this scanner could not fully account for -- either
+  // an explicit {{ }} template injection, OR a line shape KEY_LINE doesn't
+  // recognize at all (a quoted key, a YAML merge key `<<:`, ...). Both get the
+  // SAME treatment: a dropped/unrecognized key would make a selector/labels
+  // map strictly MORE permissive (fewer real constraints), which risks a
+  // false-positive edge -- the failure mode this whole module exists to
+  // avoid. Silently ignoring what the scanner can't parse is not safe here;
+  // "I can't tell" must read as "unresolved," the same as a real template.
+  const unresolvedContainers = new Set<string>();
   const stack: StackFrame[] = [];
   let byteOffset = baseByte;
-  let pendingBlockKey: { path: string; indent: number } | null = null;
 
   const popToForListItem = (dashIndent: number): void => {
     while (stack.length) {
@@ -167,35 +178,38 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
   const popOrdinary = (indent: number): void => {
     while (stack.length && stack[stack.length - 1]!.indent >= indent) stack.pop();
   };
+  // Pops to a line's context (same rule an ordinary/list-item key line would
+  // use) WITHOUT pushing a frame -- the line has no key of its own -- then
+  // marks whatever container it now sits inside as unresolved. Covers both a
+  // bare `{{ }}` injection and any other line KEY_LINE doesn't match.
+  const markUnresolvedContainer = (dashIndent: number, listMarker: string | undefined): void => {
+    if (listMarker) popToForListItem(dashIndent); else popOrdinary(dashIndent);
+    unresolvedContainers.add(stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "["));
+  };
 
   for (const line of text.split("\n")) {
     const lineStartByte = byteOffset;
     byteOffset += line.length + 1; // +1 for the \n split() consumed
 
-    if (pendingBlockKey) {
-      const trimmed = line.trim();
-      if (trimmed.length > 0) {
-        const lineIndent = line.length - line.trimStart().length;
-        if (lineIndent > pendingBlockKey.indent && trimmed.startsWith("{{")) blockTemplated.add(pendingBlockKey.path);
-      }
-      pendingBlockKey = null; // only the immediately-following non-blank line decides this
-    }
-
     const bareTemplate = BARE_TEMPLATE_LINE.exec(line);
     if (bareTemplate) {
       const [, bIndentStr, bListMarker] = bareTemplate;
-      const bDashIndent = bIndentStr!.length;
-      // Pop to this line's context (same rule an ordinary/list-item key line
-      // would use) WITHOUT pushing a frame of its own -- it has no key --
-      // then mark whatever container it now sits inside as template-tainted.
-      if (bListMarker) popToForListItem(bDashIndent); else popOrdinary(bDashIndent);
-      const containerPath = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
-      blockTemplated.add(containerPath);
+      markUnresolvedContainer(bIndentStr!.length, bListMarker);
       continue;
     }
 
     const m = KEY_LINE.exec(line);
-    if (!m) continue;
+    if (!m) {
+      // Any other non-blank, non-comment line is a shape this scanner can't
+      // account for at all (a quoted key, a merge key, ...) -- see
+      // unresolvedContainers' own comment above for why this can't be a
+      // silent skip.
+      const trimmed = line.trim();
+      if (trimmed.length > 0 && !trimmed.startsWith("#")) {
+        markUnresolvedContainer(line.length - line.trimStart().length, undefined);
+      }
+      continue;
+    }
     const [, indentStr, listMarker, key, rawValue] = m;
     const dashIndent = indentStr!.length;
     const itemIndent = dashIndent + (listMarker?.length ?? 0);
@@ -244,11 +258,16 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
           ? { form: "template", sourceText: value, atByte, endByte }
           : { form: "literal", value: stripQuotes(value), atByte, endByte },
       });
-    } else {
-      pendingBlockKey = { path, indent: itemIndent };
     }
+    // A value-less key (e.g. `selector:`) needs no bookkeeping of its own
+    // here: whatever follows it (a real nested mapping, a `{{ }}` block
+    // injection, or an unrecognized line) is handled uniformly by the
+    // BARE_TEMPLATE_LINE / "unrecognized line" branches above on ITS OWN
+    // line, since that line's own popToForListItem/popOrdinary call pops
+    // back to (but never past) this key's frame -- verified equivalent to a
+    // prior explicit next-line lookahead by mutation testing before removal.
   }
-  return { entries, blockTemplated };
+  return { entries, unresolvedContainers };
 }
 
 function findEntry(entries: FieldPathEntry[], path: string): FieldPathEntry | undefined {
@@ -270,6 +289,12 @@ const POD_SPEC_PATH_BY_KIND: Record<string, string> = {
   DaemonSet: "spec.template.spec",
   Job: "spec.template.spec",
   CronJob: "spec.jobTemplate.spec.template.spec",
+  // ReplicaSet embeds a pod spec the same shape as Deployment -- it's
+  // allowlisted primarily as the dominant ownerReferences bearer (see
+  // ALLOWED_KINDS above), but a hand-written ReplicaSet's own env/volume
+  // references and pod-template labels are real and worth extracting too,
+  // not silently dropped just because it's a secondary use case.
+  ReplicaSet: "spec.template.spec",
 };
 
 const CONTAINER_REF_SUFFIXES: Array<{ suffix: string; refKind: string }> = [
@@ -347,6 +372,7 @@ const LABELS_PATH_BY_KIND: Record<string, string> = {
   Job: "spec.template.metadata.labels",
   CronJob: "spec.jobTemplate.spec.template.metadata.labels",
   Pod: "metadata.labels",
+  ReplicaSet: "spec.template.metadata.labels",
 };
 
 /** A literal label map at `prefix.<key>` for each direct child leaf. Returns
@@ -355,8 +381,8 @@ const LABELS_PATH_BY_KIND: Record<string, string> = {
  *  exists, or any direct-child leaf is itself templated -- a partially-literal
  *  map is still unusable for subset-match without evaluating the templated
  *  half, so the whole map is treated as unresolved. */
-function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], blockTemplated: Set<string>): ManifestLabelMap | null {
-  if (blockTemplated.has(prefix)) return null;
+function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], unresolvedContainers: Set<string>): ManifestLabelMap | null {
+  if (unresolvedContainers.has(prefix)) return null;
   const map: ManifestLabelMap = {};
   let found = false;
   for (const e of entries) {
@@ -373,7 +399,7 @@ function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], block
   return found ? map : null;
 }
 
-function buildDocument(text: string, docStartByte: number, entries: FieldPathEntry[], blockTemplated: Set<string>): K8sManifestDocument {
+function buildDocument(text: string, docStartByte: number, entries: FieldPathEntry[], unresolvedContainers: Set<string>): K8sManifestDocument {
   const kindEntry = findEntry(entries, "kind");
   const kind = kindEntry?.value.form === "literal" ? kindEntry.value.value : null;
   if (!kind || !ALLOWED_KINDS.has(kind)) return { resource: null, references: [], selector: null, labels: null };
@@ -384,9 +410,9 @@ function buildDocument(text: string, docStartByte: number, entries: FieldPathEnt
     : null;
 
   const references = [...extractFieldReferences(kind, entries), ...extractOwnerReferenceCandidates(entries)];
-  const selector = kind === "Service" ? extractLiteralLabelMap("spec.selector", entries, blockTemplated) : null;
+  const selector = kind === "Service" ? extractLiteralLabelMap("spec.selector", entries, unresolvedContainers) : null;
   const labelsPath = LABELS_PATH_BY_KIND[kind];
-  const labels = labelsPath ? extractLiteralLabelMap(labelsPath, entries, blockTemplated) : null;
+  const labels = labelsPath ? extractLiteralLabelMap(labelsPath, entries, unresolvedContainers) : null;
   return { resource, references, selector, labels };
 }
 
@@ -402,8 +428,8 @@ export function extractK8sManifest(source: string): K8sManifestDocument[] {
     const start = starts[i]!;
     const end = ends[i]!;
     const text = source.slice(start, end);
-    const { entries, blockTemplated } = scanFieldPaths(text, start);
-    docs.push(buildDocument(text, start, entries, blockTemplated));
+    const { entries, unresolvedContainers } = scanFieldPaths(text, start);
+    docs.push(buildDocument(text, start, entries, unresolvedContainers));
   }
   return docs;
 }
