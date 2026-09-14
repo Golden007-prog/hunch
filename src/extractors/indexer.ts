@@ -13,6 +13,7 @@ import { dirname, join, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { parseSource, attributeCalls, attributeRelations, type ParsedRelation } from "./parse.js";
 import { extractHelmDirectives } from "./helm.js";
+import { extractK8sManifest, type K8sManifestDocument, type ManifestNameRef } from "./k8sManifest.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
 import { externalImportNodeId, externalPackage } from "../core/externalImports.js";
 import { resolveRelativeImport } from "../core/relativeImports.js";
@@ -158,6 +159,10 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   const perFileCalls: Array<{ file: string; bySym: Map<number, Map<string, boolean>> }> = [];
   const perFileImports: Array<{ file: string; imports: string[] }> = [];
   const perFileRelations: Array<{ file: string; bySym: Map<number, ParsedRelation[]> }> = [];
+  const k8sResourceIndex: Array<{ symbolId: string; scope: string; kind: string; nameKey: string }> = [];
+  const k8sReferenceCandidates: Array<{ fromSymbolId: string; scope: string; refKind: string; nameKey: string; reason: string }> = [];
+  const k8sSelectors: Array<{ symbolId: string; scope: string; selector: Record<string, string> }> = [];
+  const k8sWorkloadLabels: Array<{ symbolId: string; scope: string; labels: Record<string, string> }> = [];
   const phpNamespaces = new Map<string, string | null>();
   const phpUseDeclarations = new Map<string, string[]>();
   // Batched per-file git metrics (churn + last commit) in TWO `git log` spawns
@@ -225,6 +230,24 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       parsed.symbols = [...parsed.symbols, ...helm.symbols].sort((a, b) => a.startByte - b.startByte);
       parsed.calls = [...parsed.calls, ...helm.calls];
     }
+    // Runs for EVERY yaml file, chart or not (unlike the Helm merge above) --
+    // raw manifests with no Chart.yaml are still in scope; what varies below is
+    // resolution SCOPE (chartRoot ?? this file), not whether extraction runs.
+    let k8sDocs: K8sManifestDocument[] = [];
+    if (languageFor(rel)?.id === "yaml") {
+      k8sDocs = extractK8sManifest(src);
+      const k8sSymbols = k8sDocs
+        .filter((d): d is K8sManifestDocument & { resource: NonNullable<K8sManifestDocument["resource"]> } => d.resource !== null)
+        .map((d) => ({
+          name: `${d.resource.kind}/${displayNameText(d.resource.name)}`,
+          kind: "variable" as const,
+          startByte: d.resource.startByte,
+          endByte: d.resource.endByte,
+          loc: src.slice(d.resource.startByte, d.resource.endByte).split("\n").length,
+          bodyText: src.slice(d.resource.startByte, d.resource.endByte).slice(0, 4000),
+        }));
+      parsed.symbols = [...parsed.symbols, ...k8sSymbols].sort((a, b) => a.startByte - b.startByte);
+    }
 
     const m = gitMeta?.get(rel);
     const churn = opts.churn === false ? (preservedChurn.get(rel) ?? 0) : (m?.churn ?? 0);
@@ -233,6 +256,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     const idsInFile: string[] = [];
     const symbolIndexId = new Map<number, string>();
     const idCounts = new Map<string, number>(); // disambiguate same (file,name,kind)
+    const k8sSymbolIdByStartByte = new Map<number, string>();
     for (const [index, ps] of parsed.symbols.entries()) {
       const base = symbolId(rel, ps.name, ps.kind);
       const n = idCounts.get(base) ?? 0;
@@ -249,6 +273,22 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
         metrics: { loc: ps.loc, churn_90d: churn, bug_count: 0, fan_in: 0, fan_out: 0 },
         last_changed: last,
       });
+      k8sSymbolIdByStartByte.set(ps.startByte, id); // harmless for non-K8s symbols, only consulted below
+    }
+    for (const doc of k8sDocs) {
+      if (!doc.resource) continue;
+      const fromId = k8sSymbolIdByStartByte.get(doc.resource.startByte);
+      if (!fromId) continue;
+      const scope = chartRoot ?? rel;
+      k8sResourceIndex.push({ symbolId: fromId, scope, kind: doc.resource.kind, nameKey: nameKeyText(doc.resource.name) });
+      for (const ref of doc.references) {
+        k8sReferenceCandidates.push({
+          fromSymbolId: fromId, scope, refKind: ref.refKind, nameKey: nameKeyText(ref.name),
+          reason: `${doc.resource.kind}/${displayNameText(doc.resource.name)} references ${ref.refKind}`,
+        });
+      }
+      if (doc.selector) k8sSelectors.push({ symbolId: fromId, scope, selector: doc.selector });
+      if (doc.labels) k8sWorkloadLabels.push({ symbolId: fromId, scope, labels: doc.labels });
     }
     fileSymbols.set(rel, idsInFile);
     fileSymbolIndexId.set(rel, symbolIndexId);
@@ -344,6 +384,63 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
           from: callerId, to: calleeId, type: edgeType,
           reason: `${callerName} ${edgeType} ${calleeName}`, strength: 0.8,
           provenance: extracted(0.8, [file]),
+          environment: null,
+          metadata: {},
+        });
+      }
+    }
+  }
+
+  // ---- K8s manifest cross-resource references (Phase 1: name-keyed) --------
+  // Own resolver, not resolveName(): resolveName() indexes by bare symbol name
+  // only, with no concept of Kubernetes kind -- a ConfigMap and a Secret that
+  // happen to share a name would incorrectly conflate. Same ambiguity contract
+  // as resolveName() though: 0 matches or 2+ matches -> no edge, never guess.
+  const kindNameIndex = new Map<string, string[]>();
+  for (const r of k8sResourceIndex) {
+    const key = `${r.scope}:${r.kind}:${r.nameKey}`;
+    (kindNameIndex.get(key) ?? kindNameIndex.set(key, []).get(key)!).push(r.symbolId);
+  }
+  for (const ref of k8sReferenceCandidates) {
+    const candidates = kindNameIndex.get(`${ref.scope}:${ref.refKind}:${ref.nameKey}`) ?? [];
+    if (candidates.length !== 1) continue; // 0 or 2+ -> ambiguous or absent, don't guess
+    const toId = candidates[0]!;
+    if (toId === ref.fromSymbolId) continue;
+    addEdge({
+      schema: "hunch.edge/1",
+      id: edgeId(ref.fromSymbolId, toId, "references"),
+      from: ref.fromSymbolId, to: toId, type: "references",
+      reason: ref.reason, strength: 0.7,
+      provenance: extracted(0.7, [ref.scope]),
+      environment: null,
+      metadata: {},
+    });
+  }
+
+  // ---- K8s manifest cross-resource references (Phase 2: label-selector) ----
+  // Structurally different from Phase 1: no name to look up, a SUBSET match
+  // between a Service's selector and a workload's pod-template labels, within
+  // the same scope. Only ever fires on LITERAL selector/labels (k8sSelectors/
+  // k8sWorkloadLabels are already filtered to literal-only by k8sManifest.ts --
+  // a block-form templated value is never guessed at).
+  const selectorsByScope = new Map<string, typeof k8sSelectors>();
+  for (const s of k8sSelectors) (selectorsByScope.get(s.scope) ?? selectorsByScope.set(s.scope, []).get(s.scope)!).push(s);
+  const labelsByScope = new Map<string, typeof k8sWorkloadLabels>();
+  for (const l of k8sWorkloadLabels) (labelsByScope.get(l.scope) ?? labelsByScope.set(l.scope, []).get(l.scope)!).push(l);
+
+  for (const [scope, selectors] of selectorsByScope) {
+    const workloads = labelsByScope.get(scope) ?? [];
+    for (const svc of selectors) {
+      for (const wl of workloads) {
+        if (svc.symbolId === wl.symbolId) continue;
+        const isSubset = Object.entries(svc.selector).every(([k, v]) => wl.labels[k] === v);
+        if (!isSubset) continue;
+        addEdge({
+          schema: "hunch.edge/1",
+          id: edgeId(svc.symbolId, wl.symbolId, "references"),
+          from: svc.symbolId, to: wl.symbolId, type: "references",
+          reason: "Service selector matches workload pod-template labels", strength: 0.6,
+          provenance: extracted(0.6, [scope]),
           environment: null,
           metadata: {},
         });
@@ -519,6 +616,21 @@ export function indexRepo(store: HunchStore, root: string, opts: IndexRepoOption
  *  subchart's define — nearest-ancestor scoping will miss that edge rather
  *  than fabricate a wrong one. No test currently covers the nested
  *  charts/<sub>/Chart.yaml case — tracked as issue #42. */
+/** Human-readable text for a name/kind field -- a literal value as-is, or a
+ *  template's exact raw `{{ }}` source text (never evaluated). Used for
+ *  display (symbol names, edge reasons); NOT for resolution-key equality --
+ *  see nameKeyText below for that. */
+function displayNameText(ref: ManifestNameRef): string {
+  return ref.form === "literal" ? ref.value : ref.sourceText;
+}
+
+/** Normalized resolution-key text for a name/kind field: a literal value or a
+ *  template's exact raw source text, EACH PREFIXED so a literal "foo" can
+ *  never collide with a template whose source text happens to read "foo". */
+function nameKeyText(ref: ManifestNameRef): string {
+  return ref.form === "literal" ? `L:${ref.value}` : `T:${ref.sourceText}`;
+}
+
 function nearestChartRoot(rels: string[]): (file: string) => string | null {
   const tracked = new Set(rels);
   const cache = new Map<string, string | null>();
