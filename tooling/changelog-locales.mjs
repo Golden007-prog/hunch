@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — תיעוד משותף לסוכני AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "משימות שהסתיימו הופכות לזיכרון בגרף",
       "הודעת עדכון שקטה ומשימות בעץ העבודה הנכון",
       "מציגים ומשתפים מצב עם הרשאות ומקורות מפורשים",
       "עדכונים מתקנים hooks ושומרים על הגדרות המשתמש",
@@ -70,6 +71,7 @@ export const changelogLocales = {
       footer: "© Hunch — общие записи для ИИ-агентов.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Завершённые задачи становятся памятью графа",
       "Тихое уведомление об обновлении и задачи в нужном рабочем дереве",
       "Просмотр и обмен состоянием с явным доступом и источниками",
       "Обновления исправляют хуки и сохраняют настройки пользователя",
@@ -132,6 +134,7 @@ export const changelogLocales = {
       footer: "© Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "المهام المكتملة تصبح ذاكرة في الرسم البياني",
       "إشعار تحديث هادئ ومهام في شجرة العمل الصحيحة",
       "تصفّح الحالة وشاركها بصلاحيات ومصادر واضحة",
       "التحديثات تصلح الخطافات وتحافظ على إعدادات المستخدم",
@@ -194,6 +197,7 @@ export const changelogLocales = {
       footer: "© Hunch — un registro compartido para agentes de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Las tareas terminadas se convierten en memoria del grafo",
       "Aviso de actualización silencioso y tareas en el árbol de trabajo correcto",
       "Consulta y comparte estado con acceso y fuentes explícitos",
       "Las actualizaciones reparan hooks y conservan los ajustes del usuario",
