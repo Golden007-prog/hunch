@@ -854,7 +854,11 @@ kind: ConfigMap
 metadata:
   name: my-config
 `);
-  writeFileSync(join(root, "manifests/unrelated.yaml"), `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: another-config\n`);
+  // Deliberately the SAME name as bundle.yaml's own ConfigMap (not a
+  // different name) -- this is what actually exercises file-scope isolation.
+  // A different name would never match on any code path, silently passing
+  // regardless of whether isolation works at all.
+  writeFileSync(join(root, "manifests/unrelated.yaml"), `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: my-config\n`);
   const store = new HunchStore(hunchPaths(root));
   store.json.ensureDirs();
   indexRepo(store, root, { churn: false });
@@ -862,10 +866,13 @@ metadata:
 
   const syms = store.json.loadAll("symbols");
   const deployment = syms.find((s) => s.name === "Deployment/my-app");
-  const configMap = syms.find((s) => s.name === "ConfigMap/my-config");
-  assert.ok(deployment && configMap);
+  const ownConfigMap = syms.find((s) => s.name === "ConfigMap/my-config" && s.file === "manifests/bundle.yaml");
+  const unrelatedConfigMap = syms.find((s) => s.name === "ConfigMap/my-config" && s.file === "manifests/unrelated.yaml");
+  assert.ok(deployment && ownConfigMap && unrelatedConfigMap, "all three resource symbols indexed, including the same-named unrelated one");
+
   const edges = store.json.loadAll("edges");
-  assert.ok(edges.some((e) => e.from === deployment!.id && e.to === configMap!.id && e.type === "references"), "own-file (no chart root) resolution still works");
+  assert.ok(edges.some((e) => e.from === deployment!.id && e.to === ownConfigMap!.id && e.type === "references"), "own-file (no chart root) resolution still works");
+  assert.equal(edges.some((e) => e.from === deployment!.id && e.to === unrelatedConfigMap!.id), false, "the same-named ConfigMap in a different, unrelated file (no shared chart scope) is never targeted");
 
   store.close();
   rmSync(root, { recursive: true, force: true });
@@ -952,6 +959,68 @@ spec:
   const service = syms.find((s) => s.name === "Service/my-service");
   const edges = store.json.loadAll("edges");
   assert.equal(edges.filter((e) => e.from === service!.id && e.type === "references").length, 0, "non-matching selector produces no edge");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a Service's selector matching TWO workloads' labels produces edges to BOTH -- fan-out is intentional here, unlike Phase 1's ambiguity guard", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-fanout-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "manifests/service.yaml"), `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: my-app
+`);
+  writeFileSync(join(root, "manifests/deployment-blue.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app-blue
+spec:
+  template:
+    metadata:
+      labels:
+        app: my-app
+        track: blue
+    spec:
+      containers:
+      - name: app
+`);
+  writeFileSync(join(root, "manifests/deployment-green.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app-green
+spec:
+  template:
+    metadata:
+      labels:
+        app: my-app
+        track: green
+    spec:
+      containers:
+      - name: app
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const service = syms.find((s) => s.name === "Service/my-service");
+  const blue = syms.find((s) => s.name === "Deployment/my-app-blue");
+  const green = syms.find((s) => s.name === "Deployment/my-app-green");
+  assert.ok(service && blue && green);
+
+  const edges = store.json.loadAll("edges");
+  assert.ok(edges.some((e) => e.from === service!.id && e.to === blue!.id && e.type === "references"), "matches the blue deployment");
+  assert.ok(edges.some((e) => e.from === service!.id && e.to === green!.id && e.type === "references"), "AND matches the green deployment -- a real blue/green pattern, not an error to guard against");
 
   store.close();
   rmSync(root, { recursive: true, force: true });

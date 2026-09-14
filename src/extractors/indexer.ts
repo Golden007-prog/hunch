@@ -174,7 +174,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     if (languageFor(path)?.id !== "yaml") continue;
     const chartRoot = chartRootFor(path);
     if (chartRoot === null) continue;
-    (chartFiles.get(chartRoot) ?? chartFiles.set(chartRoot, []).get(chartRoot)!).push(path);
+    pushInto(chartFiles, chartRoot, path);
   }
   const gitMeta = useGit ? fileGitMetrics(root, rels, opts.churn === false ? 0 : 90) : null;
   let skipped = 0;
@@ -234,6 +234,13 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     // raw manifests with no Chart.yaml are still in scope; what varies below is
     // resolution SCOPE (chartRoot ?? this file), not whether extraction runs.
     let k8sDocs: K8sManifestDocument[] = [];
+    // Byte ranges of THIS file's K8s resource symbols only -- scopes the id
+    // lookup below to exactly the symbols this pass creates, rather than every
+    // symbol in the file. Also closes a latent collision: without this, a
+    // Helm `define` symbol that happened to share a startByte with a K8s doc
+    // symbol in the same .yaml file would silently attach K8s edges to the
+    // wrong (Helm) symbol instead.
+    const k8sStartBytes = new Set<number>();
     if (languageFor(rel)?.id === "yaml") {
       k8sDocs = extractK8sManifest(src);
       const k8sSymbols = k8sDocs
@@ -246,6 +253,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
           loc: src.slice(d.resource.startByte, d.resource.endByte).split("\n").length,
           bodyText: src.slice(d.resource.startByte, d.resource.endByte).slice(0, 4000),
         }));
+      for (const s of k8sSymbols) k8sStartBytes.add(s.startByte);
       parsed.symbols = [...parsed.symbols, ...k8sSymbols].sort((a, b) => a.startByte - b.startByte);
     }
 
@@ -265,7 +273,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       const id = n === 0 ? base : `${base}_${n}`;
       idsInFile.push(id);
       symbolIndexId.set(index, id);
-      (nameIndex.get(ps.name) ?? nameIndex.set(ps.name, []).get(ps.name)!).push(id);
+      pushInto(nameIndex, ps.name, id);
       symbols.push({
         id, file: rel, name: ps.name, kind: ps.kind,
         signature_hash: sha1(ps.bodyText).slice(0, 16),
@@ -273,7 +281,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
         metrics: { loc: ps.loc, churn_90d: churn, bug_count: 0, fan_in: 0, fan_out: 0 },
         last_changed: last,
       });
-      k8sSymbolIdByStartByte.set(ps.startByte, id); // harmless for non-K8s symbols, only consulted below
+      if (k8sStartBytes.has(ps.startByte)) k8sSymbolIdByStartByte.set(ps.startByte, id);
     }
     for (const doc of k8sDocs) {
       if (!doc.resource) continue;
@@ -399,7 +407,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   const kindNameIndex = new Map<string, string[]>();
   for (const r of k8sResourceIndex) {
     const key = `${r.scope}:${r.kind}:${r.nameKey}`;
-    (kindNameIndex.get(key) ?? kindNameIndex.set(key, []).get(key)!).push(r.symbolId);
+    pushInto(kindNameIndex, key, r.symbolId);
   }
   for (const ref of k8sReferenceCandidates) {
     const candidates = kindNameIndex.get(`${ref.scope}:${ref.refKind}:${ref.nameKey}`) ?? [];
@@ -423,10 +431,17 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
   // the same scope. Only ever fires on LITERAL selector/labels (k8sSelectors/
   // k8sWorkloadLabels are already filtered to literal-only by k8sManifest.ts --
   // a block-form templated value is never guessed at).
+  //
+  // Deliberately NO ambiguity guard here, unlike Phase 1's "0 or 2+ candidates
+  // -> no edge": a Service legitimately fronting multiple workloads (blue/green,
+  // canary, a shared-label pair of Deployments) is normal, intentional
+  // Kubernetes usage, not an ambiguous match to decline -- Phase 1's guard
+  // exists because a ConfigMap named X is exactly one resource by definition,
+  // which has no analogue here. Fan-out is the correct behavior, not a gap.
   const selectorsByScope = new Map<string, typeof k8sSelectors>();
-  for (const s of k8sSelectors) (selectorsByScope.get(s.scope) ?? selectorsByScope.set(s.scope, []).get(s.scope)!).push(s);
+  for (const s of k8sSelectors) pushInto(selectorsByScope, s.scope, s);
   const labelsByScope = new Map<string, typeof k8sWorkloadLabels>();
-  for (const l of k8sWorkloadLabels) (labelsByScope.get(l.scope) ?? labelsByScope.set(l.scope, []).get(l.scope)!).push(l);
+  for (const l of k8sWorkloadLabels) pushInto(labelsByScope, l.scope, l);
 
   for (const [scope, selectors] of selectorsByScope) {
     const workloads = labelsByScope.get(scope) ?? [];
@@ -606,6 +621,15 @@ export function indexRepo(store: HunchStore, root: string, opts: IndexRepoOption
 
 // ---- helpers --------------------------------------------------------------
 
+/** Append `value` to the array at `key`, creating the array on first use.
+ *  Function declaration (not `const`) so it's usable from pass-1 code above
+ *  this section via hoisting, without reordering. */
+function pushInto<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const bucket = map.get(key);
+  if (bucket) bucket.push(value);
+  else map.set(key, [value]);
+}
+
 /** Nearest-ancestor Chart.yaml lookup, memoized per directory: walks a file's
  *  own directory upward through the tracked-file set until it finds
  *  `<dir>/Chart.yaml`, or returns null if the file isn't under any chart.
@@ -616,21 +640,6 @@ export function indexRepo(store: HunchStore, root: string, opts: IndexRepoOption
  *  subchart's define — nearest-ancestor scoping will miss that edge rather
  *  than fabricate a wrong one. No test currently covers the nested
  *  charts/<sub>/Chart.yaml case — tracked as issue #42. */
-/** Human-readable text for a name/kind field -- a literal value as-is, or a
- *  template's exact raw `{{ }}` source text (never evaluated). Used for
- *  display (symbol names, edge reasons); NOT for resolution-key equality --
- *  see nameKeyText below for that. */
-function displayNameText(ref: ManifestNameRef): string {
-  return ref.form === "literal" ? ref.value : ref.sourceText;
-}
-
-/** Normalized resolution-key text for a name/kind field: a literal value or a
- *  template's exact raw source text, EACH PREFIXED so a literal "foo" can
- *  never collide with a template whose source text happens to read "foo". */
-function nameKeyText(ref: ManifestNameRef): string {
-  return ref.form === "literal" ? `L:${ref.value}` : `T:${ref.sourceText}`;
-}
-
 function nearestChartRoot(rels: string[]): (file: string) => string | null {
   const tracked = new Set(rels);
   const cache = new Map<string, string | null>();
@@ -644,6 +653,21 @@ function nearestChartRoot(rels: string[]): (file: string) => string | null {
     return result;
   };
   return (file: string): string | null => resolveDir(file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "");
+}
+
+/** Human-readable text for a name/kind field -- a literal value as-is, or a
+ *  template's exact raw `{{ }}` source text (never evaluated). Used for
+ *  display (symbol names, edge reasons); NOT for resolution-key equality --
+ *  see nameKeyText below for that. */
+function displayNameText(ref: ManifestNameRef): string {
+  return ref.form === "literal" ? ref.value : ref.sourceText;
+}
+
+/** Normalized resolution-key text for a name/kind field: a literal value or a
+ *  template's exact raw source text, EACH PREFIXED so a literal "foo" can
+ *  never collide with a template whose source text happens to read "foo". */
+function nameKeyText(ref: ManifestNameRef): string {
+  return ref.form === "literal" ? `L:${ref.value}` : `T:${ref.sourceText}`;
 }
 
 /** Resolve a callee name to a symbol id: prefer same-file, otherwise require a

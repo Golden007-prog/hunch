@@ -261,3 +261,76 @@ test("a ConfigMap (no selector/labels concept in scope) has null selector and nu
   assert.equal(doc!.selector, null);
   assert.equal(doc!.labels, null);
 });
+
+// Comment-stripping fix
+
+test("an inline YAML comment after a value is stripped, not folded into the value", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: my-config  # app settings`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal((doc!.resource!.name as { value: string }).value, "my-config");
+});
+
+test("a ConfigMap name with a trailing comment still resolves against a Deployment's uncommented reference to it", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`, `      - name: app`,
+    `        envFrom:`, `          - configMapRef:`, `              name: my-config`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  const ref = doc!.references.find((r) => r.refKind === "ConfigMap");
+  assert.equal((ref!.name as { value: string }).value, "my-config");
+
+  const configMapSrc = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: my-config  # app settings`, ``].join("\n");
+  const [configMapDoc] = extractK8sManifest(configMapSrc);
+  // Both sides normalize to the same literal value -- the comment never
+  // leaks into either side's identity, so a downstream (scope, kind, name)
+  // resolver would see them as the same candidate.
+  assert.equal((configMapDoc!.resource!.name as { value: string }).value, (ref!.name as { value: string }).value);
+});
+
+test("a quoted value's own # character is NOT treated as a comment opener", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: "my-config#not-a-comment"`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal((doc!.resource!.name as { value: string }).value, "my-config#not-a-comment");
+});
+
+test("a Sprig default inside a template expression ({{ .x | default \"#fff\" }}) keeps its # intact", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: {{ .Values.color | default "#fff" }}`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal((doc!.resource!.name as { sourceText: string }).sourceText, `{{ .Values.color | default "#fff" }}`);
+});
+
+test("a value-less key with only a trailing comment on its own line is still treated as opening a nested block, not an inline value", () => {
+  // kind: Pod, not ConfigMap -- Pod is the kind LABELS_PATH_BY_KIND extracts
+  // metadata.labels for; a ConfigMap has no labels concept in this scanner.
+  const src = [`apiVersion: v1`, `kind: Pod`, `metadata:`, `  name: my-pod`, `  labels:  # no literal labels here`, `    app: my-app`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.deepEqual(doc!.labels, { app: "my-app" });
+});
+
+// Edge cases identified during review
+
+test("a file starting with a leading --- separator produces a harmless empty leading document, not an off-by-one on the real ones", () => {
+  const src = `---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-one\n`;
+  const docs = extractK8sManifest(src);
+  assert.equal(docs.length, 2, "leading --- splits off one empty document ahead of the real one");
+  assert.equal(docs[0]!.resource, null, "the empty leading document has no resource");
+  assert.equal(docs[1]!.resource?.kind, "ConfigMap");
+});
+
+test("a flow-style selector (selector: {app: my-app}) is conservatively left unresolved, not walked as a literal map", () => {
+  const src = [`apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`, `spec:`, `  selector: {app: my-app}`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "flow-style collections aren't walked by this scanner -- conservative miss, not a guess");
+});
+
+test("a ConfigMap's data: block scalar containing manifest-looking YAML text does not produce phantom nested resources", () => {
+  const src = [
+    `apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: my-config`,
+    `data:`, `  embedded.yaml: |`, `    kind: Deployment`, `    metadata:`, `      name: not-a-real-resource`, ``,
+  ].join("\n");
+  const docs = extractK8sManifest(src);
+  assert.equal(docs.length, 1, "the block-scalar body is not split into a second document");
+  assert.equal(docs[0]!.resource?.kind, "ConfigMap");
+  assert.equal((docs[0]!.resource!.name as { value: string }).value, "my-config");
+});

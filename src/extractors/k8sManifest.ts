@@ -82,6 +82,26 @@ interface StackFrame {
 
 const KEY_LINE = /^(\s*)(-\s+)?([A-Za-z0-9_.\/-]+):[ \t]*(.*)$/;
 
+/** Strip a trailing YAML comment: `#` only opens one at the start of the
+ *  value or after whitespace, and never inside a quoted scalar -- so
+ *  `key: "a # b"` keeps its `#` and `key: {{ .x | default "#fff" }}` keeps
+ *  its Sprig default intact, but `key: my-config  # app settings` drops the
+ *  comment. Without this, a comment silently becomes part of the value text:
+ *  it never matches the same resource's uncommented name elsewhere, so the
+ *  reference quietly resolves to nothing instead of erroring -- the worst
+ *  failure mode for a "no match -> no edge, never guess" design, since it's
+ *  indistinguishable from correctly declining to guess. */
+function stripTrailingComment(raw: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (quote) { if (ch === quote) quote = null; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if (ch === "#" && (i === 0 || /\s/.test(raw[i - 1]!))) return raw.slice(0, i);
+  }
+  return raw;
+}
+
 function stripQuotes(value: string): string {
   if (value.length >= 2) {
     const first = value[0];
@@ -156,7 +176,7 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
       popOrdinary(dashIndent);
     }
 
-    const value = rawValue!.trim();
+    const value = stripTrailingComment(rawValue!).trim();
     stack.push({ indent: itemIndent, key: key!, isSeq: false, hasValue: value.length > 0 });
     const path = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
 
@@ -165,6 +185,15 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
       const valueStartInLine = line.indexOf(value, colonIdx);
       const atByte = lineStartByte + valueStartInLine;
       const endByte = atByte + value.length;
+      // A value like `prefix-{{ .Values.x }}` (template text NOT at the very
+      // start) is classified "literal" here, not "template" -- deliberately
+      // narrow, matching only the common `name: {{ ... }}` whole-value case.
+      // Matching still stays correct either way: both a literal/literal and a
+      // template/template comparison require the two sides' raw text to be
+      // byte-identical (nameKeyText's L:/T: prefixes in indexer.ts), so a
+      // "prefix-{{ x }}" value only ever matches another identical
+      // "prefix-{{ x }}" value, never a bare "{{ x }}" -- just via the
+      // "literal" bucket instead of the "template" one.
       entries.push({
         path,
         value: value.startsWith("{{")
