@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.33.0 — 2026-09-14
+
+- Inspect shared state in the read-only `/operator` browser view: current records, commitments, completed work, activity and exact writer-supplied field citations.
+- Restrict individual records to explicit readers and writers, with owner-controlled audience changes and grants-first dependency and history checks. Protected partitions refuse older state readers; upgrade every server before enabling visibility.
+- Record sourced user, team and organization conventions. Explicit review, source currentness and conflict checks keep advisory preferences separate from policy authority.
+- Read, write, resolve records and subscribe through `hunch state`. Optional DPoP key-bound identities support live rotation, revocation and durable replay checks; all serving processes must be upgraded before enabling them.
+- Build the typed Python client from this repository, with optional request signing, generated contracts and real-server wheel tests. It is not yet published to PyPI.
+- Add a frozen state-recall evaluation and a pinned local-model measurement. Synthetic fixture results are separate from production accuracy and two-user pilot acceptance.
+- Prepare one-task development runs with bounded execution and read-only PR evidence. No schedule or authority promotion is installed. Policy recovery guidance now distinguishes cache repair from human-approved replacement.
+- Refuse reserved `__proto__` object keys in state hashing instead of silently omitting them; valid canonical encodings and string content remain unchanged.
+
+See [the upgrade guide](docs/upgrade-1.33.md) for mixed-version deployments, client setup and the acceptance gates that remain open.
+
 ## 1.32.8 — 2026-09-13
 
 - Updates repair legacy npm launchers and malformed `hunch mcp hook` commands while preserving unrelated settings, comments, and intentionally disabled hooks. Repeated repairs leave aligned configuration unchanged.

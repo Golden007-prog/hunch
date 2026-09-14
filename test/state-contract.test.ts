@@ -76,6 +76,15 @@ test("canonical hashing is key-order independent and rejects non-finite numbers"
 
 // ---- verbs ----
 
+test("canonical hashing refuses silently omitted prototype keys without changing valid encodings", () => {
+  for (const value of [JSON.parse('{"__proto__":1}'), JSON.parse('{"nested":[{"__proto__":{"claim":"changed"}}]}')]) {
+    assert.throws(() => stateHash(value), /reserved.*__proto__/, "a supplied key cannot disappear from an evidence hash");
+  }
+  assert.equal(JSON.stringify(canonicalize({ b: 1, a: { d: [1, 2], c: "x" } })), '{"a":{"c":"x","d":[1,2]},"b":1}');
+  assert.equal(canonicalize('{"__proto__":1}'), '{"__proto__":1}', "derived content remains an exact string, including JSON text");
+  assert.equal(JSON.stringify(canonicalize({ constructor: "ordinary", prototype: 1 })), '{"constructor":"ordinary","prototype":1}');
+});
+
 test("read: the response is bound to a delivery receipt and never leaks outside the grants", () => {
   ReadRequestSchema.parse({ schema: "nuryel.state.read/1", principal: sofiaAgent, scope: user, subject: "event:10042", profile: "builder", facets: ["decisions", "receipts", "commitments"] });
   const ok = ReadResponseSchema.parse({ schema: "nuryel.state.read/1", receipt_id: "hdr_" + "a".repeat(24), scope: user, state_of_record: { subject: "event:10042", current: [{ facet: "derived", id: "nds_" + "b".repeat(24), record_hash: stateHash("x"), scope: user }], in_force: [], done: [], depends_on: [], invalidated_by: [] } });

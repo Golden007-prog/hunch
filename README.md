@@ -41,7 +41,9 @@ Hunch works with Claude Code, Codex, Cursor, VS Code/Copilot, Windsurf, Antigrav
 | Check the rules your team chose | Evaluates supported constraints and code relationships without a model in the blocking path. |
 | See what happened during a task | Separates delivered memory, the agent's reported use, rule results, and observed command results in a contribution report. |
 | Share project memory with teammates | Keeps repository memory in Git, with an optional dedicated private memory repository. |
-| Share work state across agents | Serves authorized records for decisions, actions, commitments, entities, and relationships through HTTP, MCP, and a typed client. |
+| Share work state across agents | Serves authorized records through HTTP, MCP, the state CLI, and typed TypeScript and Python clients. |
+| Inspect what the agents know | A read-only browser view shows current records, commitments, completed work and writer-supplied citations. |
+| Keep access and conventions explicit | Optional per-record audiences, key-bound credentials and sourced conventions use the same state contract. |
 
 For example, a team fixes a logout bug by keeping sessions on the server. Months later, an agent proposes removing that code. Hunch can surface the original reason and rejected alternative before the edit. A supported, trusted rule can flag the conflict; strict mode can block it. Recording the lesson and configuring the integration are what make this possible.
 
@@ -124,13 +126,17 @@ This shares a project's engineering memory. The state server below adds authenti
 
 A coding agent needs to know why a module exists. An operations agent may need to know whether a customer action was completed or who owes the next follow-up. Both need a maintained record they can check.
 
-Hunch already ships `hunch serve`: a self-hosted HTTP service for organization, team, user, and repository records. A configured identity determines which scopes an agent may access. The same state contract is available through MCP and the `@davesheffer/hunch/state` client.
+Hunch ships `hunch serve`: a self-hosted HTTP service for organization, team, user, and repository records. A configured identity determines which scopes an agent may access. Optional record audiences further restrict access; optional key-bound credentials require proof from the configured private key on each request.
+
+Open `/operator` on your server to inspect current records, completed work and commitments in a read-only browser view. Writer-supplied citations can point to an exact summary field or text passage and its recorded sources. They show traceability; they do not prove that a source supports a claim.
+
+Agents can use the same contract through MCP, `hunch state read|write|records|subscribe`, the `@davesheffer/hunch/state` TypeScript client, or the [Python client](docs/python-state-client.md). The Python package is built and tested from this repository; it is not yet published to PyPI. [Scoped conventions](docs/scoped-conventions.md) let a person record sourced user, team or organization preferences. Those preferences remain advisory and do not silently become blocking rules.
 
 Records can describe decisions, action outcomes, commitments, entities, relationships, and summaries that name their dependencies. Actions retain their status, including unknown or unverified outcomes. Repeated writes have stable identities, conflicting current decisions are refused, and confirmed human records receive protections against agent overwrites. These are defined checks on structured records; Hunch cannot establish every fact in the outside world on its own.
 
 This is what **deterministic state** means here: explicit rules govern the stored record, rather than having each agent reconstruct it from scratch. Git holds the durable data; SQLite is a rebuildable index. The server binds to loopback and requires deployment and agent integration by its operator. Hunch does not provide a managed CRM or email connector service.
 
-[Set up and understand the state server](docs/deterministic-state.md) · [State contract and client reference](docs/nuryel-state-contract.md)
+[Set up and understand the state server](docs/deterministic-state.md) · [State contract and client reference](docs/nuryel-state-contract.md) · [Upgrade to 1.33](docs/upgrade-1.33.md)
 
 ### The vision, and what is still being tested
 

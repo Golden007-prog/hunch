@@ -13,6 +13,10 @@ export function canonicalize(value: unknown): unknown {
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value as Record<string, unknown>).sort(compareCodeUnits)) {
+      // The historical encoding assigns into an ordinary object. This key would
+      // invoke its prototype setter and disappear from JSON. Refuse ambiguous
+      // input rather than silently collide or change existing valid identities.
+      if (key === "__proto__") throw new Error("canonical form rejects reserved key __proto__");
       const v = (value as Record<string, unknown>)[key];
       if (v !== undefined) out[key] = canonicalize(v);
     }

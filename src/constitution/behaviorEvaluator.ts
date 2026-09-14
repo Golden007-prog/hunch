@@ -166,7 +166,7 @@ export function evaluateExecutableBehaviorPolicy(
         "no dependency snapshot cache exists on this machine (.hunch-cache/behavior-deps); executable behavior is unevaluated here, not failed — provision the policy's snapshots (hunch constitution g2 --behavior-deps <candidate> --behavior-review-hash <hash>) or evaluate where they were built");
     }
     return evaluation(policy, commit, { ...baseExecution, commit, error_code: "dependency-snapshot-unavailable" }, "error",
-      `no unique exact dependency snapshot matches this commit's package.json/package-lock.json among the policy's pinned ids (${assertion.dependency_snapshot_ids.join(", ")}); dependency inputs changed since compilation — re-plan and re-prove the policy (rb_g2_stale_policy_01)`);
+      `no unique exact dependency snapshot matches this commit's package.json/package-lock.json among the policy's pinned ids (${assertion.dependency_snapshot_ids.join(", ")}); restore and validate the exact pinned cache first. If dependency inputs changed, prepare a replacement behavior candidate and replay; human selection, activation and retirement remain required. Re-proving an active policy does not refresh its pins (docs/behavior-policy-recovery.md)`);
   }
 
   const session = mkdtempSync(join(tmpdir(), "hunch-behavior-policy-"));
