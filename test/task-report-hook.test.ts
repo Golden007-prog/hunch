@@ -180,3 +180,21 @@ test("an in-flight pre-upgrade native task keeps its legacy title and still rece
   assert.match(prompt.hookSpecificOutput.additionalContext, /title: "Claude task"/);
   assert.equal(listReportTasks(root).length, 1);
 });
+
+test("prompt-derived titles are opt-in: the default retains no prompt text, the opt-in keeps a bounded first line", t => {
+  const root = fixture(t);
+  writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ taskTitles: "prompt" }));
+  const prompt = hook(root, "UserPromptSubmit", { prompt: "Fix the settings merge so nested overrides survive\nsecond line is never used" });
+  const [task] = listReportTasks(root);
+  assert.equal(task!.title, "Fix the settings merge so nested overrides survive");
+  assert.match(prompt.hookSpecificOutput.additionalContext, /title: "Fix the settings merge so nested overrides survive"/);
+  // A credential-looking prompt keeps the generic title even when opted in.
+  const secret = hook(root, "UserPromptSubmit", { prompt: "-----BEGIN PRIVATE KEY-----\nabc", prompt_id: "prompt-b" });
+  assert.match(secret.hookSpecificOutput.additionalContext, /title: "Assistant task"/);
+  assert.equal(readFileSync(join(root, ".hunch-cache", "served.db")).includes(Buffer.from("BEGIN PRIVATE KEY")), false);
+  // The model paraphrasing the title on hunch_task start must not fork a task: the same
+  // identity re-opened with the persisted title is the only valid answer.
+  const again = hook(root, "UserPromptSubmit", { prompt: "Fix the settings merge so nested overrides survive\nsecond line is never used" });
+  assert.equal(listReportTasks(root).filter(x => x.task_id === task!.task_id).length, 1);
+  assert.match(again.hookSpecificOutput.additionalContext, new RegExp(task!.task_id));
+});

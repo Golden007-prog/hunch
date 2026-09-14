@@ -1,6 +1,8 @@
 /** Native lifecycle coverage is independent of whether a model follows reporting
  * instructions. Only an authoritative prompt identity may join its evidence. */
 import { pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { HookProvider, HunchHookInput } from "./agenthook.js";
 import { findRoot } from "./paths.js";
 import { canonicalReportRoot } from "./taskReportPaths.js";
@@ -20,6 +22,15 @@ const NATIVE_PROMPT_HOSTS: ReadonlySet<HookProvider> = new Set<HookProvider>(["c
 const NATIVE_TASK_TITLE = "Assistant task";
 const GENERIC_TASK_TITLES: ReadonlySet<string> = new Set(["Assistant task", "Claude task"]);
 const TASK_TITLE_MAX = 72;
+
+/** Prompt-derived titles are OPT-IN (`"taskTitles": "prompt"` in .hunch/local.json).
+ * The default keeps the documented guarantee that no prompt text is retained
+ * anywhere: not in the ledger, the Stop card, the Contribution view, nor a graph
+ * record that may be committed to a public repository. */
+export function promptTitlesEnabled(root: string): boolean {
+  try { return JSON.parse(readFileSync(join(root, ".hunch", "local.json"), "utf8")).taskTitles === "prompt"; }
+  catch { return false; }
+}
 
 /** A short, safe task title from the prompt's first line: control characters
  * and runs of whitespace collapse, credential-looking text is refused, and the
@@ -68,7 +79,8 @@ export function hookReportTaskId(root: string, provider: HookProvider, event: Hu
 }
 
 /** Every prompt receives its exact ID, even when ambient reminders were deduped.
- * No raw prompt, host session identifier, or transcript is retained. */
+ * No raw prompt, host session identifier, or transcript is retained; a repository
+ * that opts in (`taskTitles: "prompt"`) keeps only a bounded first-line title. */
 export function startHookReport(root: string, provider: HookProvider, event: HunchHookInput): string | null {
   const id = identity(root, provider, event);
   if (!id || id === "legacy") return null;
@@ -77,7 +89,7 @@ export function startHookReport(root: string, provider: HookProvider, event: Hun
   const cwd = nativeHookCwd(root, provider, event);
   if (!cwd) return null;
   const cwdLiteral = JSON.stringify(cwd);
-  const title = promptTaskTitle(event.prompt) ?? NATIVE_TASK_TITLE;
+  const title = (promptTitlesEnabled(root) ? promptTaskTitle(event.prompt) : null) ?? NATIVE_TASK_TITLE;
   let task: ReturnType<typeof startReportTask>;
   try { task = startReportTask(root, title, id); }
   catch (error) {
