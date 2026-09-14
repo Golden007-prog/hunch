@@ -245,7 +245,11 @@ test("a spawned source-checkout CLI neither checks nor writes a user cache", () 
       encoding: "utf8",
       env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CACHE_HOME: join(home, ".cache") },
     });
-    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    // Doctor's exit status reflects repository health (for example a release commit whose
+    // pins npm cannot serve yet), which is not what this test measures. It only proves the
+    // source-checkout CLI ran and left no user cache behind.
+    assert.equal(typeof result.status, "number", `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /Hunch root:/, `${result.stdout}${result.stderr}`);
     assert.equal(existsSync(join(home, ".cache", "hunch", "update-check.json")), false);
   } finally {
     rmSync(home, { recursive: true, force: true });
