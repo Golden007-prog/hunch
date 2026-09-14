@@ -4,6 +4,9 @@
 
 - Keep finished tasks as graph memory. A task that delivered, saved, checked, applied or denied anything is written to `.hunch/tasks/<id>.json` through the same capture path as decisions and findings (public/private homing, one home per record, auto-commit, team routing). Empty tasks stay in the local ledger. Task records are searchable, `hunch_why` lists recent tasks that touched a file, and `hunch task list` and the VS Code Contribution view show graph tasks next to local observations, including tasks finished on another machine. Set `"taskRecords": false` in `.hunch/local.json` to opt out.
 - Fix task scoping on Windows: the prompt hook and the MCP server could hash the same checkout under different drive-letter casing, so `hunch_task` reported "task not found" and the Contribution view saw half the ledger. Scopes now use the on-disk path; rows written by earlier releases stay readable.
+- Title native tasks from the prompt's first line (72 characters, credential-looking prompts stay generic), so `hunch task list`, the Contribution view and graph records say what the task was. A hook-opened task keeps its title when the model paraphrases it on `hunch_task start`.
+- Retain the target of each context delivery in the task report, and record path-like targets as files the task touched, so `hunch_why <file>` also lists read-only tasks.
+- Add `"taskRecordsFlush": "batch"` to `.hunch/local.json` for repositories that prefer one memory commit per real capture over one per prompt.
 
 ## 1.34.0 — 2026-09-14
 

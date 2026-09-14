@@ -1254,7 +1254,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
             const records = as_of ? [] : snapshotDeliveredRecords(store, envelope);
             // First delivery of a revision in this task earns one line; repeats stay quiet.
             const recalled = renderRecalledLine(unseenLessons(root, task_id, records));
-            const occurrence = recordTaskDelivery(root, task_id, envelope, records);
+            const occurrence = recordTaskDelivery(root, task_id, envelope, records, undefined, target);
             result.content.push({ type: "text", text: `${recalled ? `${recalled}\n` : ""}Task evidence: ${task_id} · occurrence ${occurrence}.\n${records.slice(0, 20).map(r => `${r.record_id} @ ${r.content_hash}`).join("\n")}${records.length > 20 ? "\nMore record identities: hunch_report(task_id)." : ""}` });
           } catch {
             result.content.push({ type: "text", text: `Task evidence could not be recorded for ${task_id}. Context remains available; this delivery's report attribution is unverified. Check the task ID, working directory, and local ledger.` });

@@ -4032,7 +4032,7 @@ program
       try {
         const records = asOf ? [] : snapshotDeliveredRecords(store, envelope);
         const recalled = renderRecalledLine(unseenLessons(root, opts.task, records));
-        const occurrence = recordTaskDelivery(root, opts.task, envelope, records);
+        const occurrence = recordTaskDelivery(root, opts.task, envelope, records, undefined, target);
         console.log(`\n${recalled ? `${recalled}\n` : ""}Task evidence: ${opts.task} · occurrence ${occurrence}`);
       } catch {
         console.error(`Task evidence could not be recorded for ${opts.task}; context remains available but report attribution is unverified.`);
@@ -4720,7 +4720,7 @@ program
           // The first time a lesson reaches this prompt's task, tell the USER in one
           // line (systemMessage); repeats of the same revision stay silent.
           recalled = reportPresentationEnabled(root) ? renderRecalledLine(unseenLessons(root, reportTaskId, snapshots)) : null;
-          const occurrence = recordTaskDelivery(root, reportTaskId, envelope, snapshots);
+          const occurrence = recordTaskDelivery(root, reportTaskId, envelope, snapshots, undefined, target);
           reportNotice = `\n\nHunch task ${reportTaskId} · delivery ${occurrence}. Inspect exact application references with hunch_report(task_id).`;
         } catch { reportNotice = "\n\nTask report observation unavailable; this delivery's task contribution remains unverified."; recalled = null; }
       }

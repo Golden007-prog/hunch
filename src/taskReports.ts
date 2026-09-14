@@ -34,8 +34,8 @@ export function createTaskReporter(root: string) {
     /** The caller supplies the exact envelope it issued plus snapshots of the
      * included revisions. Return the occurrence with the context to the agent.
      * Issuance alone does not prove the model applied or even attended to it. */
-    delivered(taskId: string, envelope: DeliveryEnvelope, records: ReportRecord[], occurrenceId?: string) {
-      return recordTaskDelivery(scope, taskId, envelope, records, occurrenceId);
+    delivered(taskId: string, envelope: DeliveryEnvelope, records: ReportRecord[], occurrenceId?: string, target?: string) {
+      return recordTaskDelivery(scope, taskId, envelope, records, occurrenceId, target);
     },
     applied(taskId: string, claim: ReportClaim) { return recordReportClaim(scope, taskId, claim); },
     /** Runs locally as argv, without a shell. Only use commands authorized by

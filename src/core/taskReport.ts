@@ -97,6 +97,9 @@ export type ReportTask = z.infer<typeof TaskSchema>;
 export interface TaskDelivery {
   occurrence_id: string; at: string; receipt_id: string;
   envelope_hash: string; envelope: DeliveryEnvelope; records: ReportRecord[];
+  /** What the caller asked context for (a file, symbol or task phrase); null for
+   * deliveries recorded by releases that did not retain it. */
+  target: string | null;
 }
 export interface TaskReport {
   schema: typeof TASK_REPORT_SCHEMA;
@@ -322,7 +325,7 @@ export function unseenLessons(root: string, taskId: string, records: readonly Re
 }
 /** Strict operation for explicit callers. Passive integrations catch failure
  * and disclose it without blocking context delivery. Empty envelopes count. */
-export function recordTaskDelivery(root: string, taskId: string, envelope: DeliveryEnvelope, records: ReportRecord[], occurrenceId = `hocc_${randomBytes(12).toString("hex")}`): string {
+export function recordTaskDelivery(root: string, taskId: string, envelope: DeliveryEnvelope, records: ReportRecord[], occurrenceId = `hocc_${randomBytes(12).toString("hex")}`, target?: string): string {
   assertDeliveryEnvelope(envelope);
   const snapshots = z.array(ReportRecordSchema).max(512).parse(records);
   const seen = new Set<string>();
@@ -331,7 +334,10 @@ export function recordTaskDelivery(root: string, taskId: string, envelope: Deliv
     if (seen.has(key) || !envelope.delivered.some(r => r.record_id === record.record_id && r.kind === record.kind)) throw new Error("snapshot is duplicated or was not delivered");
     seen.add(key);
   }
-  return appendEvent(root, taskId, "delivery", { envelope, records: snapshots }, occurrenceId);
+  // The target is optional so envelopes recorded without one keep their exact
+  // event hash; it is bounded like any other retained text.
+  const retainedTarget = typeof target === "string" && target.trim() && target.length <= 1024 && isCredentialFreeText(target) ? target : undefined;
+  return appendEvent(root, taskId, "delivery", { envelope, records: snapshots, ...(retainedTarget ? { target: retainedTarget } : {}) }, occurrenceId);
 }
 export function recordReportClaim(root: string, taskId: string, claim: ReportClaim): string {
   const value = ReportClaimSchema.parse(claim);
@@ -576,7 +582,7 @@ export function readTaskReport(root: string, taskId: string, currentSnapshot: st
       if (reportHash(value) !== event.content_hash) throw new Error("report evidence hash mismatch");
       if (event.kind === "delivery") {
         assertDeliveryEnvelope(value.envelope);
-        deliveries.push({ occurrence_id: event.event_id, at: event.at, receipt_id: value.envelope.receipt_id, envelope_hash: reportHash(value.envelope), envelope: value.envelope, records: z.array(ReportRecordSchema).parse(value.records) });
+        deliveries.push({ occurrence_id: event.event_id, at: event.at, receipt_id: value.envelope.receipt_id, envelope_hash: reportHash(value.envelope), envelope: value.envelope, records: z.array(ReportRecordSchema).parse(value.records), target: typeof value.target === "string" ? value.target : null });
       } else if (event.kind === "claim") claims.push({ ...ReportClaimSchema.parse(value), at: event.at, attribution: "agent-reported", supported_by: null });
       else if (event.kind === "conformance") {
         const rule = ReportConformanceSchema.parse(value);

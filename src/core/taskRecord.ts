@@ -21,10 +21,31 @@ import { ENTITY_KINDS, TaskRecordSchema, type EntityKind, type TaskRecord } from
 
 export type TaskRecordHome = "public" | "private";
 
+function localConfig(root: string): Record<string, unknown> {
+  try { return JSON.parse(readFileSync(join(root, ".hunch", "local.json"), "utf8")) as Record<string, unknown>; }
+  catch { return {}; }
+}
+
 /** `taskRecords: false` in `.hunch/local.json` keeps tasks ledger-only. */
 export function taskRecordsEnabled(root: string): boolean {
-  try { return JSON.parse(readFileSync(join(root, ".hunch", "local.json"), "utf8")).taskRecords !== false; }
-  catch { return true; }
+  return localConfig(root).taskRecords !== false;
+}
+
+/** `taskRecordsFlush: "batch"` writes the record but leaves the commit to the
+ * next capture flush (decision, finding, correction), so a busy repository
+ * gets one memory commit per real capture instead of one per prompt. Default
+ * "each": every finished task commits like any other capture. */
+export function taskRecordFlushMode(root: string): "each" | "batch" {
+  return localConfig(root).taskRecordsFlush === "batch" ? "batch" : "each";
+}
+
+/** A delivery target that names code (a path or dotted symbol), not a task
+ * phrase like "fix the login redirect". Phrases never become file anchors. */
+export function targetLooksLikePath(target: string): boolean {
+  const t = target.trim();
+  if (!t || t.length > 512 || /\s/.test(t)) return false;
+  if (!/^[A-Za-z0-9_@$./\\:-]+$/.test(t)) return false;
+  return /[./\\]/.test(t) && !/^\.+$/.test(t);
 }
 
 /** The durable summary of a finished report, or null when there is nothing to keep. */
@@ -39,6 +60,7 @@ export function taskRecordFromReport(report: TaskReport): TaskRecord | null {
     }
   }
   const files = new Set<string>();
+  for (const d of report.deliveries) if (d.target && targetLooksLikePath(d.target)) files.add(d.target.trim().replace(/\\/g, "/"));
   for (const c of report.conformance) for (const f of c.files) files.add(f);
   for (const r of report.refusals) files.add(r.target);
   const latestRule = new Map<string, TaskRecord["conformance"][number]>();
@@ -104,7 +126,8 @@ export function persistTaskRecord(root: string, store: HunchStore, taskId: strin
   if (existing && existing.report_hash === record.report_hash) return { record: existing, home, flushed: null, changed: false };
   const stored = store.putCapture("tasks", record, home === "private");
   store.reindex();
-  const flushed = options.flush === false ? null : flushCapture(store, hunchPaths(root).hunch, home === "private", `hunch: task ${record.id}`);
+  const flushNow = options.flush ?? taskRecordFlushMode(root) === "each";
+  const flushed = flushNow ? flushCapture(store, hunchPaths(root).hunch, home === "private", `hunch: task ${record.id}`) : null;
   return { record: stored, home, flushed, changed: true };
 }
 

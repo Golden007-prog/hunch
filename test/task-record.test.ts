@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { buildDeliveryEnvelope } from "../src/core/delivery.js";
 import type { AssembledContext } from "../src/store/hunchStore.js";
 import { finishReportTask, forgetReportTask, listTaskSummaries, readTaskReport, recordReportSave, recordTaskDelivery, reportHash, startReportTask } from "../src/core/taskReport.js";
-import { mergeDurableTaskSummaries, persistTaskRecord, taskRecordFromReport } from "../src/core/taskRecord.js";
+import { mergeDurableTaskSummaries, persistTaskRecord, targetLooksLikePath, taskRecordFromReport } from "../src/core/taskRecord.js";
 import { canonicalReportRoot } from "../src/core/taskReportPaths.js";
+import { promptTaskTitle } from "../src/core/taskReportHook.js";
 import { withServedDatabase } from "../src/core/served.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
@@ -153,4 +154,49 @@ test("task scope survives drive-letter casing differences between the hook and M
   } else {
     assert.equal(readTaskReport(root, task.task_id).task.task_id, task.task_id);
   }
+});
+
+test("delivery targets that name code become task files; task phrases never do", t => {
+  const root = fixture(t), store = openStore(root, t);
+  const task = startReportTask(root, "Read-only review");
+  recordTaskDelivery(root, task.task_id, envelope(), [record], undefined, "src/config.js");
+  recordTaskDelivery(root, task.task_id, envelope(), [record], undefined, "fix the login redirect");
+  recordTaskDelivery(root, task.task_id, envelope(), [record]);
+  finishReportTask(root, task.task_id);
+  const report = readTaskReport(root, task.task_id);
+  assert.deepEqual(report.deliveries.map(d => d.target), ["src/config.js", "fix the login redirect", null]);
+  const saved = persistTaskRecord(root, store, task.task_id, { flush: false });
+  assert.ok(saved);
+  assert.deepEqual(saved.record.files, ["src/config.js"]);
+  assert.deepEqual(store.tasksFor("src/config.js").map(r => r.id), [task.task_id], "hunch_why can now see a read-only task");
+  assert.equal(targetLooksLikePath("src/auth/session.ts"), true);
+  assert.equal(targetLooksLikePath("dbo.GetOrders"), true);
+  assert.equal(targetLooksLikePath("fix the login redirect"), false);
+  assert.equal(targetLooksLikePath("login"), false);
+});
+
+test("batch flush mode writes the record but leaves the commit to the next capture", t => {
+  const root = fixture(t);
+  mkdirSync(join(root, ".hunch"), { recursive: true });
+  writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ taskRecordsFlush: "batch" }));
+  const store = openStore(root, t);
+  const task = startReportTask(root, "Batched task");
+  recordTaskDelivery(root, task.task_id, envelope(), [record]);
+  finishReportTask(root, task.task_id);
+  const saved = persistTaskRecord(root, store, task.task_id);
+  assert.ok(saved);
+  assert.equal(saved.flushed, null);
+  assert.ok(existsSync(join(root, ".hunch", "tasks", `${task.task_id}.json`)));
+  assert.throws(() => execFileSync("git", ["-C", root, "rev-parse", "--verify", "HEAD"], { stdio: "pipe" }), "no memory commit was made for the task alone");
+});
+
+test("native task titles come from the prompt's first line and never carry credentials", () => {
+  assert.equal(promptTaskTitle(undefined), null);
+  assert.equal(promptTaskTitle("   \n\n  "), null);
+  assert.equal(promptTaskTitle("  Fix the   login\tredirect\nmore detail below"), "Fix the login redirect");
+  const long = promptTaskTitle("please refactor the settings merge so that nested user overrides survive a partial update of the config file");
+  assert.ok(long && long.endsWith("…") && long.length <= 73, long ?? "null");
+  assert.ok(long && !long.includes("  "));
+  assert.equal(promptTaskTitle("-----BEGIN PRIVATE KEY-----\nabc"), null);
+  assert.equal(promptTaskTitle("check status\n-----BEGIN PRIVATE KEY-----\nabc"), null, "a credential anywhere in the prompt keeps the generic title");
 });

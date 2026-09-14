@@ -78,7 +78,15 @@ export function registerTaskReportTools(server: McpServer, getRoot: () => string
       const root = getRoot();
       if (action === "start") {
         if (!title || applications?.length || outcome) throw new Error("start requires a short task title and no completion evidence");
-        const task = startReportTask(root, title, task_id);
+        let task: ReturnType<typeof startReportTask>;
+        try { task = startReportTask(root, title, task_id); }
+        catch (error) {
+          // A native prompt task already exists under this exact ID (opened by the
+          // host hook). Its persisted title is authoritative; a paraphrased title
+          // from the model must not fork a second report or fail the start.
+          if (!task_id || !/different title/.test((error as Error).message)) throw error;
+          task = readTaskReport(root, task_id, reportSourceSnapshot(root).hash).task;
+        }
         const launcher = verificationLauncher();
         return { content: [{ type: "text" as const, text: `Task ${task.task_id} · ${task.state}. Pass task_id to every hunch_context and decision/correction/finding capture call. Before the final response, finish with hunch_task and include its contribution card. For checks use this exact installation (the global hunch binary may be stale): ${launcher.shell} task verify ${task.task_id} -- <command> [arguments]. The default budget is 2 minutes; add --timeout <seconds> before -- for a long suite.` }], structuredContent: { task, verification_argv: [...launcher.argv, "task", "verify", task.task_id, "--"] } };
       }
