@@ -13,7 +13,7 @@
 import { resolve, join, dirname, isAbsolute, relative } from "node:path";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { toPosixTarget, hunchPathsForDir, type HunchPaths } from "../core/paths.js";
-import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type Finding, type RejectedTripwire, type EntityKind, type EntityFor } from "../core/types.js";
+import { ENTITY_KINDS, type Component, type Constraint, type Bug, type Decision, type Symbol, type Edge, type Finding, type RejectedTripwire, type EntityKind, type EntityFor, type TaskRecord } from "../core/types.js";
 import { openDb, withTx, type DB } from "./db.js";
 import { RESET_SQL, embedHash } from "./schema.js";
 import { selectEmbedder, type Embedder } from "./embedder.js";
@@ -596,6 +596,16 @@ export class HunchStore {
           `${f.observation} ${f.evidence.join(" ")} ${f.affected_files.join(" ")} ${f.affected_symbols.join(" ")} ${f.triage}`);
       }
       counts.findings = fnds.length;
+
+      // Tasks (finished agent work as graph memory): same FTS-only ride. Title +
+      // the lesson/save/application record ids and touched files, so "what did
+      // an agent do around X" and a record id both hit.
+      const tasks = this.recs("tasks");
+      for (const t of tasks) {
+        fts(t.id, "tasks", t.title,
+          `${t.lessons.map((l) => `${l.record_id} ${l.title}`).join(" ")} ${t.applied.map((a) => a.record_id).join(" ")} ${t.saved.map((s) => s.record_id).join(" ")} ${t.files.join(" ")} ${t.state} ${t.coverage}`);
+      }
+      counts.tasks = tasks.length;
 
       // nuryel.state/1 kinds (receipts, commitments, derived, entities, relationships):
       // advisory records on the same FTS-only ride as runbooks/findings — no dedicated
@@ -1557,6 +1567,17 @@ export class HunchStore {
         f.affected_files.some((af) => pathMatchesGlob(t, af) || pathMatchesGlob(af, t) || pathsRelated(toPosixTarget(af), t))
         || f.affected_symbols.some((s) => s === scope))
       .sort((a, b) => (SEV_FINDING[b.severity] ?? 0) - (SEV_FINDING[a.severity] ?? 0) || a.id.localeCompare(b.id));
+  }
+
+  /** Finished agent tasks that touched a file or glob (rule-checked changes and
+   *  denied edits), newest first. Graph memory, so it spans machines and survives
+   *  the local ledger's retention window. */
+  tasksFor(scope: string, limit = 8): TaskRecord[] {
+    const t = toPosixTarget(scope);
+    return this.recs("tasks")
+      .filter((r) => r.files.some((f) => pathMatchesGlob(t, f) || pathMatchesGlob(f, t) || pathsRelated(toPosixTarget(f), t)))
+      .sort((a, b) => b.finished_at.localeCompare(a.finished_at) || a.id.localeCompare(b.id))
+      .slice(0, Math.max(1, limit));
   }
 
   /** The causal chain behind a constraint — the WHY a diff-only reviewer can't see.

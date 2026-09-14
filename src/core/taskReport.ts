@@ -7,7 +7,7 @@ import { z } from "zod";
 import { assertDeliveryEnvelope, type DeliveryEnvelope } from "./delivery.js";
 import { isCredentialFreeText } from "./types.js";
 import { withServedDatabase } from "./served.js";
-import { assertReportPath } from "./taskReportPaths.js";
+import { assertReportPath, canonicalReportRoot } from "./taskReportPaths.js";
 
 export const TASK_REPORT_SCHEMA = "hunch.task-report/1" as const;
 export const TaskIdSchema = z.string().regex(/^htask_[a-f0-9]{24}$/);
@@ -207,9 +207,9 @@ export function readLessonHistory(root: string, reference: LessonReference, opti
       const rows = db.prepare(`SELECT e.rowid AS seq, e.event_id, e.kind, e.at, e.body, e.content_hash, t.body AS task
         FROM report_record_links l JOIN report_events e ON e.event_id = l.event_id
         JOIN report_tasks t ON t.task_id = e.task_id
-        WHERE t.scope = ? AND l.kind = ? AND l.record_id = ?
+        WHERE t.scope IN (?, ?, ?) AND l.kind = ? AND l.record_id = ?
           AND (? IS NULL OR l.content_hash = ?) AND e.rowid < ?
-        ORDER BY e.rowid DESC LIMIT ?`).all(scopeOf(root), ref.kind, ref.record_id, ref.content_hash ?? null, ref.content_hash ?? null, before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<{ seq: number; event_id: string; kind: string; at: string; body: string; content_hash: string; task: string }>;
+        ORDER BY e.rowid DESC LIMIT ?`).all(...scopePair(root), ref.kind, ref.record_id, ref.content_hash ?? null, ref.content_hash ?? null, before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<{ seq: number; event_id: string; kind: string; at: string; body: string; content_hash: string; task: string }>;
       return { more, rows };
     }, true);
     const entries = rows.slice(0, limit).map(row => {
@@ -225,10 +225,21 @@ export function readLessonHistory(root: string, reference: LessonReference, opti
     return { schema: "hunch.lesson-history/1", reference: ref, entries, index_complete: !more, truncated: rows.length > limit, next_before: !more && rows.length > limit ? rows[limit - 1]!.seq : null };
   });
 }
-function scopeOf(root: string): string { return reportHash(realpathSync(root)); }
+/** Task scope = the physical repository root. Rows written by releases that hashed
+ * the caller-cased realpath stay readable until they expire: the caller's own
+ * spelling plus, on Windows, the other drive-letter case (a hook and an MCP
+ * server spawned by the same host commonly disagree on exactly that). */
+function scopeOf(root: string): string { return reportHash(canonicalReportRoot(root)); }
+function scopePair(root: string): [string, string, string] {
+  const legacy = realpathSync(root);
+  const swapped = /^[A-Za-z]:/.test(legacy)
+    ? (legacy.charAt(0) === legacy.charAt(0).toLowerCase() ? legacy.charAt(0).toUpperCase() : legacy.charAt(0).toLowerCase()) + legacy.slice(1)
+    : legacy;
+  return [scopeOf(root), reportHash(legacy), reportHash(swapped)];
+}
 function readTask(db: Database, root: string, id: string): ReportTask {
   TaskIdSchema.parse(id);
-  const row = db.prepare("SELECT body FROM report_tasks WHERE task_id = ? AND scope = ?").get(id, scopeOf(root)) as { body: string } | undefined;
+  const row = db.prepare("SELECT body FROM report_tasks WHERE task_id = ? AND scope IN (?, ?, ?)").get(id, ...scopePair(root)) as { body: string } | undefined;
   if (!row) throw new Error("task not found in this repository/worktree; use its exact task ID and working directory");
   return TaskSchema.parse(JSON.parse(row.body));
 }
@@ -399,6 +410,8 @@ export interface TaskSummary {
   report_html: string | null;
   /** Set when the observation ledger could not be read for this task. */
   error: string | null;
+  /** Set when the task has a graph record (.hunch/tasks/), and where it lives. */
+  durable?: { home: "public" | "private" } | null;
 }
 
 /** One bounded summary per recent task for status lines and host views; the
@@ -473,7 +486,7 @@ export function taskReportStats(root: string, days = 7): TaskReportStats {
   const empty: TaskReportStats = { since, tasks: 0, completed: 0, with_delivery: 0, with_check: 0, with_claim: 0, with_save: 0, with_refusal: 0, empty: 0, delivery_rate: null };
   if (!existsSync(join(root, ".hunch-cache", "served.db"))) return empty;
   return taskDb(root, db => {
-    const tasks = (db.prepare("SELECT body FROM report_tasks WHERE scope = ? AND json_extract(body, '$.started_at') >= ?").all(scopeOf(root), since) as Array<{ body: string }>)
+    const tasks = (db.prepare("SELECT body FROM report_tasks WHERE scope IN (?, ?, ?) AND json_extract(body, '$.started_at') >= ?").all(...scopePair(root), since) as Array<{ body: string }>)
       .map(r => TaskSchema.parse(JSON.parse(r.body)));
     if (!tasks.length) return empty;
     const kinds = (taskId: string) => new Set((db.prepare("SELECT DISTINCT kind FROM report_events WHERE task_id = ?").all(taskId) as Array<{ kind: string }>).map(r => r.kind));
@@ -494,14 +507,14 @@ export function taskReportStats(root: string, days = 7): TaskReportStats {
 }
 
 export function listReportTasks(root: string): ReportTask[] {
-  return taskDb(root, db => (db.prepare("SELECT body FROM report_tasks WHERE scope = ? ORDER BY rowid DESC LIMIT 30").all(scopeOf(root)) as Array<{ body: string }>).map(r => TaskSchema.parse(JSON.parse(r.body))));
+  return taskDb(root, db => (db.prepare("SELECT body FROM report_tasks WHERE scope IN (?, ?, ?) ORDER BY rowid DESC LIMIT 30").all(...scopePair(root)) as Array<{ body: string }>).map(r => TaskSchema.parse(JSON.parse(r.body))));
 }
 export function reportActivity(root: string): string {
   if (!existsSync(join(root, ".hunch-cache", "served.db"))) return "Task reporting: no task activity observed yet. Reconnect the agent after updating; inspect with `hunch report`.";
   try {
     return taskDb(root, db => {
-      const row = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(body, '$.state') = 'completed' THEN 1 ELSE 0 END) AS completed FROM report_tasks WHERE scope = ?`).get(scopeOf(root)) as { total: number; completed: number | null };
-      const { deliveries } = db.prepare("SELECT COUNT(*) AS deliveries FROM report_events WHERE kind = 'delivery' AND task_id IN (SELECT task_id FROM report_tasks WHERE scope = ?)").get(scopeOf(root)) as { deliveries: number };
+      const row = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(body, '$.state') = 'completed' THEN 1 ELSE 0 END) AS completed FROM report_tasks WHERE scope IN (?, ?, ?)`).get(...scopePair(root)) as { total: number; completed: number | null };
+      const { deliveries } = db.prepare("SELECT COUNT(*) AS deliveries FROM report_events WHERE kind = 'delivery' AND task_id IN (SELECT task_id FROM report_tasks WHERE scope IN (?, ?, ?))").get(...scopePair(root)) as { deliveries: number };
       return `Task reporting: ${row.total} observed task(s), ${row.completed ?? 0} completed report(s), ${deliveries} linked context delivery(s). Activity alone does not prove contribution; inspect with \`hunch report\`.`;
     });
   } catch { return "Task reporting: observation ledger unavailable; activity and contribution are unverified."; }
@@ -525,9 +538,9 @@ export function pruneReportHistory(root: string, olderThanDays = 90): number {
   const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
   return taskDb(root, db => transaction(db, () => {
     const expired = db.prepare(`SELECT task_id FROM report_tasks
-      WHERE scope = ? AND ((json_extract(body, '$.state') != 'open' AND json_extract(body, '$.finished_at') < ?)
+      WHERE scope IN (?, ?, ?) AND ((json_extract(body, '$.state') != 'open' AND json_extract(body, '$.finished_at') < ?)
         OR (json_extract(body, '$.state') = 'open' AND json_extract(body, '$.started_at') < ?)) LIMIT 1000`)
-      .all(scopeOf(root), cutoff, cutoff) as Array<{ task_id: string }>;
+      .all(...scopePair(root), cutoff, cutoff) as Array<{ task_id: string }>;
     for (const task of expired) {
       // Serialize expiry with concurrent starts/results. Discard abandoned
       // evidence without inventing a completion or interruption observation.

@@ -1,16 +1,16 @@
 /** Native lifecycle coverage is independent of whether a model follows reporting
  * instructions. Only an authoritative prompt identity may join its evidence. */
-import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { HookProvider, HunchHookInput } from "./agenthook.js";
 import { findRoot } from "./paths.js";
+import { canonicalReportRoot } from "./taskReportPaths.js";
 import { isEmptyTaskReport, readTaskReport, recordReportRefusal, reportHash, reportPresentationEnabled, startReportTask } from "./taskReport.js";
 import { reportSourceSnapshot } from "./taskReportEvidence.js";
 import { renderTaskReport, writeTaskReportHtml } from "./taskReportRender.js";
 
 /** The exact task identity a native host prompt maps to. */
 export function promptTaskId(root: string, sessionId: string, promptId: string, agentId: string | null = null, provider: HookProvider = "claude"): string {
-  return `htask_${reportHash([realpathSync(root), provider, sessionId, promptId, agentId]).slice(7, 31)}`;
+  return `htask_${reportHash([canonicalReportRoot(root), provider, sessionId, promptId, agentId]).slice(7, 31)}`;
 }
 
 /** Hosts whose hooks deliver a native per-prompt identity (Claude Code's
@@ -24,8 +24,8 @@ const NATIVE_TASK_TITLE = "Assistant task";
 export function nativeHookCwd(root: string, provider: HookProvider, event: HunchHookInput): string | null {
   if (!NATIVE_PROMPT_HOSTS.has(provider) || !event.cwd) return null;
   try {
-    const physicalRoot = realpathSync(root);
-    return realpathSync(findRoot(event.cwd)) === physicalRoot ? physicalRoot : null;
+    const physicalRoot = canonicalReportRoot(root);
+    return canonicalReportRoot(findRoot(event.cwd)) === physicalRoot ? physicalRoot : null;
   } catch {
     return null;
   }

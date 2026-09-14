@@ -513,6 +513,46 @@ export const FindingSchema = z.object({
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
+/** A finished agent task as durable graph memory: what Hunch delivered, what the
+ * agent says it applied, what it saved and checked, and which files it touched.
+ * Written automatically when a task finishes with at least one observation; the
+ * raw observation ledger (.hunch-cache/served.db) stays machine-local. Titles are
+ * the only prose; no prompt text, transcript, or private context payload is kept. */
+export const TaskRecordSchema = z.object({
+  visibility: RecordVisibilitySchema.optional(),
+  id: z.string().describe("htask_*"),
+  title: z.string(),
+  state: z.enum(["completed", "interrupted"]),
+  started_at: z.string(),
+  finished_at: z.string(),
+  coverage: z.enum(["no-delivery-observed", "no-relevant-memory", "delivered"]),
+  lessons: z.array(z.object({
+    kind: z.string(), record_id: z.string(), content_hash: z.string(), title: z.string(),
+  })).default([]).describe("exact record revisions Hunch delivered to the agent"),
+  applied: z.array(z.object({
+    record_id: z.string(), content_hash: z.string(), action: z.string(),
+    supported_by: z.string().nullable().default(null),
+  })).default([]).describe("agent-reported applications; supported_by names Hunch's own rule evaluation when one held"),
+  saved: z.array(z.object({
+    kind: z.string(), record_id: z.string(), content_hash: z.string(),
+    home: z.enum(["public", "private"]), operation: z.enum(["created", "updated"]),
+    durability: z.enum(["local", "committed", "pushed"]),
+  })).default([]).describe("memory the task wrote, with its actual home and proven durability"),
+  checks: z.array(z.object({
+    label: z.string(), state: z.enum(["passed", "failed", "timed out", "cancelled"]), exit_code: z.number().int().nullable(),
+  })).default([]).describe("independently observed command results (hunch task verify)"),
+  conformance: z.array(z.object({
+    kind: z.enum(["constraints", "decisions"]), record_id: z.string(), content_hash: z.string(),
+    outcome: z.enum(["satisfied", "violated", "not-exercised", "unavailable"]),
+  })).default([]).describe("Hunch's deterministic evaluation of each delivered rule against the changed files"),
+  refusals: z.number().int().nonnegative().default(0).describe("edits the native gate denied during the task"),
+  files: z.array(z.string()).default([]).describe("files the task touched: delivery targets, rule-checked changes, denied edits"),
+  source_snapshot: z.string().nullable().default(null).describe("bounded source snapshot hash at the last check, when one ran"),
+  report_hash: z.string().describe("content hash of the full local report this record summarizes"),
+  provenance: ProvenanceSchema,
+});
+export type TaskRecord = z.infer<typeof TaskRecordSchema>;
+
 export const LANDSCAPE_DRIFT_CANDIDATE_SCHEMA_VERSION = "hunch.landscape-drift-candidate/1" as const;
 const LANDSCAPE_DRIFT_HASH = /^sha256:[a-f0-9]{64}$/;
 const LANDSCAPE_DRIFT_RECEIPT_ID = /^[a-z][a-z0-9_:-]{2,127}$/;
@@ -657,7 +697,7 @@ export function landscapeDriftCandidateFinding(value: unknown): Finding {
 // loads exactly as before, and an older build ignores directories it does not know.
 export const ENTITY_KINDS = [
   "components", "resources", "edges", "symbols", "decisions", "bugs", "constraints", "runbooks", "findings",
-  "receipts", "commitments", "derived", "entities", "relationships", "conventions",
+  "receipts", "commitments", "derived", "entities", "relationships", "conventions", "tasks",
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -677,6 +717,7 @@ export const SCHEMAS = {
   derived: DerivedStateSchema,
   entities: ExternalEntitySchema,
   relationships: StateRelationshipSchema,
+  tasks: TaskRecordSchema,
 } as const;
 
 export type EntityFor = {
@@ -695,6 +736,7 @@ export type EntityFor = {
   derived: DerivedState;
   entities: ExternalEntity;
   relationships: StateRelationship;
+  tasks: TaskRecord;
 };
 
 /** Default provenance helper for deterministic (extracted) records. */

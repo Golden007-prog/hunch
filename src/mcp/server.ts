@@ -967,6 +967,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         parts.push(`\nBUG HISTORY:\n${bugs.slice(0, WHY_CAP).map((b) => `  • ${b.id} [${b.status}/${b.severity}] ${b.title}\n      root cause: ${b.root_cause}${provLine(b)}`).join("\n")}${more(bugs.length, WHY_CAP)}`);
       if (w.components.length) parts.push(`\nCOMPONENTS: ${w.components.map((c) => `${c.name} (${c.id})`).join(", ")}`);
       if (w.symbols.length) parts.push(`\nSYMBOLS: ${w.symbols.slice(0, WHY_CAP * 2).map((s) => `${s.name} [fan-in ${s.metrics.fan_in}, churn ${s.metrics.churn_90d}]`).join(", ")}${more(w.symbols.length, WHY_CAP * 2)}`);
+      const recentTasks = store.tasksFor(target, 5);
+      if (recentTasks.length) {
+        parts.push(`\nRECENT TASKS (agent work that touched this):\n${recentTasks.map((t) => `  • ${t.id} ${t.finished_at.slice(0, 10)} ${t.title} — ${t.lessons.length} lesson(s), ${t.applied.length} applied, ${t.saved.length} saved${t.conformance.some((c) => c.outcome === "violated") ? ", rule VIOLATED" : ""}`).join("\n")}`);
+      }
       if (parts.length === 1) parts.push("\n(No recorded decisions/bugs/constraints yet for this target.)");
       return ok(parts.join("\n"));
     },

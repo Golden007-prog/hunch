@@ -1,6 +1,5 @@
 /** Provider-neutral, local engine integration. The authorized harness owns
  * lifecycle and display; neither operation depends on model compliance. */
-import { realpathSync } from "node:fs";
 import { z } from "zod";
 import { finishReportTask, listReportTasks, readTaskReport, readLessonHistory, recordReportClaim, recordTaskDelivery, reportHash, reportPresentationEnabled, startReportTask, type ReportClaim, type ReportRecord, type LessonReference } from "./core/taskReport.js";
 import { DEFAULT_CHECK_TIMEOUT_MS, reportSourceSnapshot, runReportCheck, runReportConformance } from "./core/taskReportEvidence.js";
@@ -13,6 +12,8 @@ import { HunchStore } from "./store/hunchStore.js";
 export type { TaskReport, ReportTask, ReportClaim, ReportCheck, ReportConformance, ReportSave, ReportDurability, ReportRefusal, ReportRecord, TaskDelivery, LessonReference, LessonHistory } from "./core/taskReport.js";
 export { TASK_REPORT_SCHEMA, TaskIdSchema } from "./core/taskReport.js";
 export { renderTaskReport, renderTaskReportHtml } from "./core/taskReportRender.js";
+import { canonicalReportRoot } from "./core/taskReportPaths.js";
+import { persistTaskRecord } from "./core/taskRecord.js";
 
 const IdentitySchema = z.object({ task: z.string().min(1).max(1024), attempt: z.string().min(1).max(1024) }).strict();
 
@@ -20,7 +21,7 @@ const IdentitySchema = z.object({ task: z.string().min(1).max(1024), attempt: z.
  * a correlation reference, never an access token. Remote adapters must enforce
  * their own principal/partition boundary before reaching this local API. */
 export function createTaskReporter(root: string) {
-  const scope = realpathSync(root);
+  const scope = canonicalReportRoot(root);
   const report = (taskId: string) => readTaskReport(scope, taskId, reportSourceSnapshot(scope).hash);
   return {
     /** Omit identity for a fresh task, or supply the harness's stable task AND
@@ -52,6 +53,11 @@ export function createTaskReporter(root: string) {
     finish(taskId: string, outcome: "completed" | "interrupted" = "completed") {
       if (outcome === "completed") { try { this.conform(taskId); } catch { /* the report's unknowns disclose it */ } }
       finishReportTask(scope, taskId, outcome);
+      // Graph memory of the finished task; disclosed in the report, never blocking.
+      try {
+        const store = new HunchStore(hunchPaths(scope));
+        try { persistTaskRecord(scope, store, taskId); } finally { store.close(); }
+      } catch { /* the ledger keeps the observations; the graph write is retried on the next finish */ }
       const result = report(taskId);
       return { report: result, contribution_card: reportPresentationEnabled(scope) ? renderTaskReport(result) : null };
     },

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
+import { canonicalReportRoot } from "./taskReportPaths.js";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { analyzeDiff } from "../extractors/diff.js";
@@ -35,7 +36,7 @@ export interface ReportSnapshot { hash: string | null; limitations: string[] }
 export function reportSourceSnapshot(root: string): ReportSnapshot {
   const limitations = ["Git-ignored files, Hunch memory/cache, and external dependencies are outside this source snapshot."];
   try {
-    const base = realpathSync(root);
+    const base = canonicalReportRoot(root);
     const env: NodeJS.ProcessEnv = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
     for (const key of Object.keys(env)) if (key.startsWith("GIT_") && key !== "GIT_OPTIONAL_LOCKS") delete env[key];
     const paths = execFileSync("git", ["-C", base, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { env, timeout: 5_000, maxBuffer: 4_000_000 }).toString("utf8").split("\0").filter(Boolean);

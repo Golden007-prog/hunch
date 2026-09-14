@@ -26,6 +26,8 @@ export interface TaskSummary {
   empty: boolean;
   report_html: string | null;
   error: string | null;
+  /** Present when the task is graph memory (.hunch/tasks/), and where it lives. */
+  durable?: { home: "public" | "private" } | null;
 }
 
 export type ContributionRunner = (root: string, args: string[]) => Promise<CliResult>;
@@ -50,6 +52,7 @@ function describe(s: TaskSummary): string {
   if (s.saves) parts.push(`${s.saves} saved`);
   if (s.refusals) parts.push("denied");
   if (s.check) parts.push(`${s.check.state}${s.check.current ? "" : "*"}`);
+  if (s.durable) parts.push(`in graph (${s.durable.home})`);
   return parts.join(" · ");
 }
 
@@ -128,6 +131,17 @@ export class ContributionTreeProvider implements vscode.TreeDataProvider<TaskNod
 export async function openTaskEvidence(root: string, node: TaskNode): Promise<void> {
   const res = await runHunch(root, ["report", node.summary.task.task_id, "--html"]);
   const file = node.summary.report_html ?? (res.ok ? res.stdout.trim().split("\n").find((l) => l.endsWith(".html")) ?? null : null);
+  if ((!file || !fs.existsSync(file)) && node.summary.durable) {
+    // Graph-only task (another machine, a teammate, or an expired local ledger):
+    // show the durable record itself rather than a missing evidence file.
+    const rec = await runHunch(root, ["report", node.summary.task.task_id, "--json"]);
+    if (rec.ok) {
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const panel = vscode.window.createWebviewPanel("hunch.contribution", `Hunch · ${node.summary.task.title}`, vscode.ViewColumn.Beside, { enableScripts: false });
+      panel.webview.html = `<!doctype html><meta charset="utf-8"><body style="font-family:var(--vscode-editor-font-family);padding:1rem"><h2>${esc(node.summary.task.title)}</h2><p>Graph record (${esc(node.summary.durable.home)} memory). No local observation ledger for this task on this machine.</p><pre style="white-space:pre-wrap">${esc(rec.stdout)}</pre></body>`;
+      return;
+    }
+  }
   if (!file || !fs.existsSync(file)) {
     return void vscode.window.showWarningMessage(`Hunch: no evidence view for ${node.summary.task.task_id}${res.ok ? "" : ` — ${res.stderr.trim() || "report failed"}`}`);
   }

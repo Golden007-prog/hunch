@@ -63,6 +63,7 @@ const MEM_ENTRIES = [
   ".hunch/edges/",
   ".hunch/runbooks/",
   ".hunch/findings/",
+  ".hunch/tasks/",
   // nuryel.state/1 record kinds (state facets)
   ".hunch/receipts/",
   ".hunch/commitments/",
