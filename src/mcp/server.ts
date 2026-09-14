@@ -967,6 +967,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         parts.push(`\nBUG HISTORY:\n${bugs.slice(0, WHY_CAP).map((b) => `  • ${b.id} [${b.status}/${b.severity}] ${b.title}\n      root cause: ${b.root_cause}${provLine(b)}`).join("\n")}${more(bugs.length, WHY_CAP)}`);
       if (w.components.length) parts.push(`\nCOMPONENTS: ${w.components.map((c) => `${c.name} (${c.id})`).join(", ")}`);
       if (w.symbols.length) parts.push(`\nSYMBOLS: ${w.symbols.slice(0, WHY_CAP * 2).map((s) => `${s.name} [fan-in ${s.metrics.fan_in}, churn ${s.metrics.churn_90d}]`).join(", ")}${more(w.symbols.length, WHY_CAP * 2)}`);
+      const recentTasks = store.tasksFor(target, 5);
+      if (recentTasks.length) {
+        parts.push(`\nRECENT TASKS (agent work that touched this):\n${recentTasks.map((t) => `  • ${t.id} ${t.finished_at.slice(0, 10)} ${t.title} — ${t.lessons.length} lesson(s), ${t.applied.length} applied, ${t.saved.length} saved${t.conformance.some((c) => c.outcome === "violated") ? ", rule VIOLATED" : ""}`).join("\n")}`);
+      }
       if (parts.length === 1) parts.push("\n(No recorded decisions/bugs/constraints yet for this target.)");
       return ok(parts.join("\n"));
     },
@@ -1250,7 +1254,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
             const records = as_of ? [] : snapshotDeliveredRecords(store, envelope);
             // First delivery of a revision in this task earns one line; repeats stay quiet.
             const recalled = renderRecalledLine(unseenLessons(root, task_id, records));
-            const occurrence = recordTaskDelivery(root, task_id, envelope, records);
+            const occurrence = recordTaskDelivery(root, task_id, envelope, records, undefined, target);
             result.content.push({ type: "text", text: `${recalled ? `${recalled}\n` : ""}Task evidence: ${task_id} · occurrence ${occurrence}.\n${records.slice(0, 20).map(r => `${r.record_id} @ ${r.content_hash}`).join("\n")}${records.length > 20 ? "\nMore record identities: hunch_report(task_id)." : ""}` });
           } catch {
             result.content.push({ type: "text", text: `Task evidence could not be recorded for ${task_id}. Context remains available; this delivery's report attribution is unverified. Check the task ID, working directory, and local ledger.` });

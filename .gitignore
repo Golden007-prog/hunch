@@ -70,6 +70,7 @@ docs/superpowers/
 !.hunch/runbooks/
 !.hunch/bugs/
 !.hunch/findings/
+!.hunch/tasks/
 # nuryel.state/1 record kinds — repository scope only; organization/team/user
 # partitions are served by the product and never ride a repository.
 !.hunch/receipts/

@@ -8,6 +8,7 @@ import { DEFAULT_CHECK_TIMEOUT_MS, MAX_CHECK_TIMEOUT_MS, reportSourceSnapshot, r
 import { renderTaskReport, writeTaskReportHtml } from "../core/taskReportRender.js";
 import { assertReportPath } from "../core/taskReportPaths.js";
 import { publicTaskReport } from "../core/taskReportPublic.js";
+import { mergeDurableTaskSummaries, persistTaskRecord } from "../core/taskRecord.js";
 import type { HunchStore } from "../store/hunchStore.js";
 
 export function registerTaskReportCommands(program: Command, openStore: () => { store: HunchStore; root: string }): void {
@@ -28,17 +29,35 @@ export function registerTaskReportCommands(program: Command, openStore: () => { 
         try { const opened = openStore(); try { runReportConformance(opened.root, opened.store, id); } finally { opened.store.close(); } } catch { /* disclosed as unverified */ }
       }
       finishReportTask(root, id, opts.interrupted ? "interrupted" : "completed");
-      console.log(renderTaskReport(readTaskReport(root, id, reportSourceSnapshot(root).hash)));
+      // The finished task becomes graph memory (.hunch/tasks/) through the normal
+      // capture path. A failed write is disclosed, never a reason to lose the card.
+      let graph = "";
+      try {
+        const opened = openStore();
+        try {
+          const saved = persistTaskRecord(opened.root, opened.store, id);
+          graph = saved
+            ? `\nGraph     ${saved.changed ? "saved" : "already saved"} as ${saved.record.id} (${saved.home}${saved.flushed ? `, ${saved.flushed}` : ""})`
+            : "\nGraph     nothing to keep (no observation, or task records disabled)";
+        } finally { opened.store.close(); }
+      } catch (error) { graph = `\nGraph     not saved: ${(error as Error).message}`; }
+      console.log(renderTaskReport(readTaskReport(root, id, reportSourceSnapshot(root).hash)) + graph);
     });
   task.command("list").description("Recent tasks observed in this repository with what Hunch delivered, saved, guarded, and checked")
     .option("--limit <n>", "how many recent tasks (max 30)", "30")
     .option("--json", "machine-readable summaries (consumed by the VS Code Contribution view)")
     .action((opts: { limit: string; json?: boolean }) => {
       const root = findRoot();
-      const summaries = listTaskSummaries(root, Number(opts.limit) || 30, reportSourceSnapshot(root).hash);
+      const limit = Number(opts.limit) || 30;
+      let summaries = listTaskSummaries(root, limit, reportSourceSnapshot(root).hash);
+      // Graph records (this machine's or a teammate's) join the local ledger view.
+      try {
+        const opened = openStore();
+        try { summaries = mergeDurableTaskSummaries(opened.store, summaries, limit); } finally { opened.store.close(); }
+      } catch { /* ledger-only view when the store is unavailable */ }
       if (opts.json) { console.log(JSON.stringify(summaries, null, 2)); return; }
       if (!summaries.length) { console.log("No task activity observed yet."); return; }
-      for (const s of summaries) console.log(`${s.task.started_at.slice(0, 16).replace("T", " ")}  ${s.task.task_id}  ${s.task.state.padEnd(11)} ${renderTaskStatusLine(s) || "nothing observed"}`);
+      for (const s of summaries) console.log(`${s.task.started_at.slice(0, 16).replace("T", " ")}  ${s.task.task_id}  ${s.task.state.padEnd(11)} ${renderTaskStatusLine(s) || "nothing observed"}${s.durable ? `  [graph: ${s.durable.home}]` : ""}`);
     });
   task.command("stats").description("Adherence over a window: how many prompts Hunch reached (delivery), checked, saved, or guarded — from the ledger, never from agent claims")
     .option("--days <days>", "window in days", "7")
@@ -140,7 +159,18 @@ export function registerTaskReportCommands(program: Command, openStore: () => { 
       }
       if (opts.html) { console.log(writeTaskReportHtml(root, id, opts.publicOnly)); return; }
       if (opts.publicOnly) { console.log(JSON.stringify(publicTaskReport(root, id), null, 2)); return; }
-      const report = readTaskReport(root, id, reportSourceSnapshot(root).hash);
+      let report: ReturnType<typeof readTaskReport>;
+      try { report = readTaskReport(root, id, reportSourceSnapshot(root).hash); }
+      catch (error) {
+        // Not in this machine's ledger: the graph record (if any) is what remains.
+        const opened = openStore();
+        try {
+          const record = opened.store.getRec("tasks", id);
+          if (!record) throw error;
+          console.log(opts.json ? JSON.stringify(record, null, 2) : `Task ${record.id} · ${record.state} · ${record.title}\nGraph record only (no local observation ledger for it here): ${record.lessons.length} lesson(s), ${record.applied.length} applied, ${record.saved.length} saved, ${record.checks.length} check(s), ${record.refusals} denied. Files: ${record.files.join(", ") || "none recorded"}.`);
+          return;
+        } finally { opened.store.close(); }
+      }
       console.log(opts.json ? JSON.stringify(report, null, 2) : renderTaskReport(report));
     });
 }

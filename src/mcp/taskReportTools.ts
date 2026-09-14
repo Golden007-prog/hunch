@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
 import { TaskIdSchema, ReportClaimSchema, LessonReferenceSchema, finishReportTask, listReportTasks, readTaskReport, readLessonHistory, recordReportClaim, reportPresentationEnabled, startReportTask } from "../core/taskReport.js";
+import { persistTaskRecord } from "../core/taskRecord.js";
 import { reportSourceSnapshot, runReportConformance } from "../core/taskReportEvidence.js";
 import { renderTaskReport, writeTaskReportHtml } from "../core/taskReportRender.js";
 import type { HunchStore } from "../store/hunchStore.js";
@@ -77,7 +78,15 @@ export function registerTaskReportTools(server: McpServer, getRoot: () => string
       const root = getRoot();
       if (action === "start") {
         if (!title || applications?.length || outcome) throw new Error("start requires a short task title and no completion evidence");
-        const task = startReportTask(root, title, task_id);
+        let task: ReturnType<typeof startReportTask>;
+        try { task = startReportTask(root, title, task_id); }
+        catch (error) {
+          // A native prompt task already exists under this exact ID (opened by the
+          // host hook). Its persisted title is authoritative; a paraphrased title
+          // from the model must not fork a second report or fail the start.
+          if (!task_id || !/different title/.test((error as Error).message)) throw error;
+          task = readTaskReport(root, task_id, reportSourceSnapshot(root).hash).task;
+        }
         const launcher = verificationLauncher();
         return { content: [{ type: "text" as const, text: `Task ${task.task_id} · ${task.state}. Pass task_id to every hunch_context and decision/correction/finding capture call. Before the final response, finish with hunch_task and include its contribution card. For checks use this exact installation (the global hunch binary may be stale): ${launcher.shell} task verify ${task.task_id} -- <command> [arguments]. The default budget is 2 minutes; add --timeout <seconds> before -- for a long suite.` }], structuredContent: { task, verification_argv: [...launcher.argv, "task", "verify", task.task_id, "--"] } };
       }
@@ -87,12 +96,25 @@ export function registerTaskReportTools(server: McpServer, getRoot: () => string
       // no verdict. Failure is disclosed by the report and never blocks finish.
       if ((outcome ?? "completed") === "completed") { try { runReportConformance(root, getStore(), task_id); } catch { /* unknowns disclose it */ } }
       finishReportTask(root, task_id, outcome ?? "completed");
+      // The finished task becomes graph memory through the normal capture path;
+      // a failed write is disclosed on the card, never a reason to lose it.
+      let graph: { id: string; home: "public" | "private"; flushed: "pushed" | "committed" | null; changed: boolean } | null = null;
+      let graphNote = "";
+      try {
+        const saved = persistTaskRecord(root, getStore(), task_id);
+        if (saved) {
+          graph = { id: saved.record.id, home: saved.home, flushed: saved.flushed, changed: saved.changed };
+          graphNote = `\nGraph     ${saved.changed ? "saved" : "already saved"} as ${saved.record.id} (${saved.home}${saved.flushed ? `, ${saved.flushed}` : ""})`;
+        } else {
+          graphNote = "\nGraph     nothing to keep (no observation, or task records disabled)";
+        }
+      } catch (error) { graphNote = `\nGraph     not saved: ${(error as Error).message}`; }
       const report = readTaskReport(root, task_id, reportSourceSnapshot(root).hash);
       const show = reportPresentationEnabled(root);
       let file: string | null = null;
       try { file = writeTaskReportHtml(root, task_id); } catch { /* retained report remains inspectable through MCP */ }
-      const card = file ? renderTaskReport(report).replace(/^Evidence .*$/m, `Evidence  [Open local report](<${file}>)`) : renderTaskReport(report);
-      return { content: [{ type: "text" as const, text: show ? card : "Task report retained. Automatic presentation is disabled; omit the contribution card from the final response." }], structuredContent: { ...boundedTaskReportForHost(report), presentation_enabled: show, contribution_card: show ? card : null, report_path: file } as unknown as Record<string, unknown> };
+      const card = (file ? renderTaskReport(report).replace(/^Evidence .*$/m, `Evidence  [Open local report](<${file}>)`) : renderTaskReport(report)) + graphNote;
+      return { content: [{ type: "text" as const, text: show ? card : "Task report retained. Automatic presentation is disabled; omit the contribution card from the final response." }], structuredContent: { ...boundedTaskReportForHost(report), presentation_enabled: show, contribution_card: show ? card : null, report_path: file, graph_record: graph } as unknown as Record<string, unknown> };
     } catch (error) {
       const message = `Task report unavailable: ${(error as Error).message}`;
       // Some hosts show structuredContent instead of text blocks. Return exact

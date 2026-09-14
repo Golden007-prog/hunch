@@ -1,6 +1,15 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
+/** The ONE physical identity of a repository root for task scoping. Node's
+ * realpathSync keeps whatever drive-letter/segment casing the caller passed
+ * (a lowercase vs uppercase drive letter), so a hook spawned with one spelling and an MCP
+ * server spawned with the other hashed to two scopes for the same checkout and
+ * every task lookup failed. The native resolver returns on-disk casing. */
+export function canonicalReportRoot(root: string): string {
+  try { return realpathSync.native(root); } catch { return realpathSync(root); }
+}
+
 /** Report paths are local to this physical worktree. Existing symlinks and
  * hard-linked files are refused; never follow a cache pointer into another scope. */
 export function assertReportPath(root: string, ...parts: string[]): string {
