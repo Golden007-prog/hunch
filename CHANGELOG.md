@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.34.0 — 2026-09-14
+
+- Show a quiet notice when a newer Hunch release is published. The check runs in a detached worker at most once per 24 hours, never delays a command, and is skipped for hooks, MCP, CI, servers, source checkouts and the documented opt-outs.
+- Describe a fresh clone with committed hooks but no machine-local MCP setup as untested rather than broken in the aggregate health check.
+- Route native task, context, report and capture calls to the exact worktree the prompt hook observed. A prompt in a linked worktree no longer lands a correctly followed capture on the primary checkout's branch; a foreign or malformed native `cwd` fails closed.
+- Give native Claude and Codex task reports a host-neutral title while preserving reports opened by older releases.
+- Return the product documentation (state contract, clients, upgrade guide, task reports, Project DNA, change proof) to this repository under `docs/`. Planning, pilot and competitive documents stay in the private overlay.
+
 ## 1.33.0 — 2026-09-14
 
 - Inspect shared state in the read-only `/operator` browser view: current records, commitments, completed work, activity and exact writer-supplied field citations.
