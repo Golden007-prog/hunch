@@ -18,6 +18,8 @@
 
 This release was tagged but superseded before npm publication; every change above ships in 1.35.0.
 
+This release was tagged but never published to npm: its release run waited for a deployment approval that was not given, and 1.35.0 shipped first. Every 1.34.0 change is included in 1.35.0.
+
 ## 1.33.0 — 2026-09-14
 
 - Inspect shared state in the read-only `/operator` browser view: current records, commitments, completed work, activity and exact writer-supplied field citations.
