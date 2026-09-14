@@ -334,3 +334,73 @@ test("a ConfigMap's data: block scalar containing manifest-looking YAML text doe
   assert.equal(docs[0]!.resource?.kind, "ConfigMap");
   assert.equal((docs[0]!.resource!.name as { value: string }).value, "my-config");
 });
+
+// Dotted label keys (found on re-review): a Kubernetes label key legitimately
+// contains dots (app.kubernetes.io/instance is the `helm create` default),
+// which is indistinguishable from path nesting once folded into one
+// dot-joined string -- FieldPathEntry.parentPath/key must be tracked
+// structurally, never re-derived by slicing/counting dots in the joined path.
+
+test("an all-dotted selector (the helm create default convention) is extracted, not silently dropped", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `spec:`, `  selector:`,
+    `    app.kubernetes.io/name: my-app`,
+    `    app.kubernetes.io/instance: prod`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.deepEqual(doc!.selector, { "app.kubernetes.io/name": "my-app", "app.kubernetes.io/instance": "prod" });
+});
+
+test("a mixed selector whose dotted key differs from the workload's does NOT subset-match on the plain-key remainder alone", () => {
+  // Regression for the exact false positive found on re-review: both sides
+  // used to collapse to {app: my-app} (the dotted key silently dropped),
+  // which made a real mismatch (prod vs staging) look like a match.
+  const selectorSrc = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `spec:`, `  selector:`, `    app: my-app`, `    app.kubernetes.io/instance: prod`, ``,
+  ].join("\n");
+  const labelsSrc = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    metadata:`, `      labels:`,
+    `        app: my-app`, `        app.kubernetes.io/instance: staging`, ``,
+  ].join("\n");
+  const selector = extractK8sManifest(selectorSrc)[0]!.selector!;
+  const labels = extractK8sManifest(labelsSrc)[0]!.labels!;
+  assert.deepEqual(selector, { app: "my-app", "app.kubernetes.io/instance": "prod" });
+  assert.deepEqual(labels, { app: "my-app", "app.kubernetes.io/instance": "staging" });
+  // The values genuinely differ -- a real subset check must reject this.
+  const isSubset = Object.entries(selector).every(([k, v]) => labels[k] === v);
+  assert.equal(isSubset, false, "differing app.kubernetes.io/instance values must NOT read as a match");
+});
+
+test("a label key containing both a dot and a slash round-trips into the map with its key intact", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Pod`, `metadata:`, `  name: my-pod`,
+    `  labels:`, `    app.kubernetes.io/name: my-app`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.deepEqual(doc!.labels, { "app.kubernetes.io/name": "my-app" });
+});
+
+test("a block-form template injection appearing as a LATER sibling after literal keys taints the whole map, not just a lookahead from the opening key", () => {
+  // Regression: the opening `selector:` key already has a literal first
+  // child (`app: my-app`), so the value-less-key-then-{{-on-next-line
+  // lookahead never fires for THIS key -- the injection lands as a sibling
+  // several lines later, which must still be caught.
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `spec:`, `  selector:`, `    app: my-app`,
+    `    {{- include "mychart.selectorLabels" . | nindent 4 }}`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "partially-templated map (literal siblings + a later injection) must not read as fully literal");
+});
+
+// Comment-stripping quote hardening (found on re-review)
+
+test("an apostrophe mid-word does not open a phantom quote that swallows a real trailing comment", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: it's-fine  # a real comment`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal((doc!.resource!.name as { value: string }).value, "it's-fine");
+});

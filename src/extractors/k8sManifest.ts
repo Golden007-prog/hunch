@@ -64,6 +64,17 @@ const ALLOWED_KINDS = new Set([
 interface FieldPathEntry {
   /** Concrete path with real sequence indices, e.g. "spec.containers[0].env[1].value". */
   path: string;
+  /** path's containing segment (everything but this entry's own key) -- e.g.
+   *  "spec.selector" for a "spec.selector.app.kubernetes.io/instance" entry.
+   *  Computed structurally from the frame stack, NOT by string-splitting
+   *  `path` on ".": a Kubernetes label key legitimately contains dots
+   *  (`app.kubernetes.io/instance` is the `helm create` default), which is
+   *  indistinguishable from path nesting once joined into one string. Callers
+   *  that need "is this a direct child of prefix X" must compare parentPath,
+   *  never re-derive a key by slicing path. */
+  parentPath: string;
+  /** This entry's own raw key exactly as written, dots/slashes included. */
+  key: string;
   value: ManifestNameRef;
 }
 
@@ -81,6 +92,18 @@ interface StackFrame {
 }
 
 const KEY_LINE = /^(\s*)(-\s+)?([A-Za-z0-9_.\/-]+):[ \t]*(.*)$/;
+// A line that is ENTIRELY a `{{ ... }}` template action (no `key:` prefix at
+// all) -- e.g. a block-form injection appearing as a SIBLING after other
+// literal keys under the same mapping (`app: my-app` then, on its own later
+// line, `{{- include "mychart.selectorLabels" . | nindent 4 }}`). This never
+// matches KEY_LINE (there's no colon-terminated key), so without explicit
+// handling it's silently invisible to the scanner -- neither contributing a
+// value nor marking its container as template-tainted, which lets a
+// literal-looking map that's actually partially templated pass as fully
+// literal. The value-less-key-followed-by-{{-on-next-line case (pendingBlockKey
+// below) is a different shape: this handles the block injection landing
+// mid-mapping, not only immediately after its opening key.
+const BARE_TEMPLATE_LINE = /^(\s*)(-\s+)?(\{\{[\s\S]*)$/;
 
 /** Strip a trailing YAML comment: `#` only opens one at the start of the
  *  value or after whitespace, and never inside a quoted scalar -- so
@@ -96,7 +119,12 @@ function stripTrailingComment(raw: string): string {
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i]!;
     if (quote) { if (ch === quote) quote = null; continue; }
-    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    // A quote only OPENS a quoted scalar at the value's start or after
+    // whitespace -- mirrors the # rule below, and keeps a Sprig
+    // `default "#fff"` working (its " follows a space) while an apostrophe
+    // mid-word (`it's-fine`) no longer opens a phantom quote that would
+    // swallow a real trailing comment whole.
+    if ((ch === '"' || ch === "'") && (i === 0 || /\s/.test(raw[i - 1]!))) { quote = ch; continue; }
     if (ch === "#" && (i === 0 || /\s/.test(raw[i - 1]!))) return raw.slice(0, i);
   }
   return raw;
@@ -153,6 +181,19 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
       pendingBlockKey = null; // only the immediately-following non-blank line decides this
     }
 
+    const bareTemplate = BARE_TEMPLATE_LINE.exec(line);
+    if (bareTemplate) {
+      const [, bIndentStr, bListMarker] = bareTemplate;
+      const bDashIndent = bIndentStr!.length;
+      // Pop to this line's context (same rule an ordinary/list-item key line
+      // would use) WITHOUT pushing a frame of its own -- it has no key --
+      // then mark whatever container it now sits inside as template-tainted.
+      if (bListMarker) popToForListItem(bDashIndent); else popOrdinary(bDashIndent);
+      const containerPath = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
+      blockTemplated.add(containerPath);
+      continue;
+    }
+
     const m = KEY_LINE.exec(line);
     if (!m) continue;
     const [, indentStr, listMarker, key, rawValue] = m;
@@ -177,6 +218,7 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
     }
 
     const value = stripTrailingComment(rawValue!).trim();
+    const parentPath = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
     stack.push({ indent: itemIndent, key: key!, isSeq: false, hasValue: value.length > 0 });
     const path = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
 
@@ -196,6 +238,8 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
       // "literal" bucket instead of the "template" one.
       entries.push({
         path,
+        parentPath,
+        key: key!,
         value: value.startsWith("{{")
           ? { form: "template", sourceText: value, atByte, endByte }
           : { form: "literal", value: stripQuotes(value), atByte, endByte },
@@ -314,13 +358,16 @@ const LABELS_PATH_BY_KIND: Record<string, string> = {
 function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], blockTemplated: Set<string>): ManifestLabelMap | null {
   if (blockTemplated.has(prefix)) return null;
   const map: ManifestLabelMap = {};
-  const dotPrefix = `${prefix}.`;
   let found = false;
   for (const e of entries) {
-    if (!e.path.startsWith(dotPrefix)) continue;
-    const key = e.path.slice(dotPrefix.length);
-    if (key.includes(".") || key.includes("[")) continue; // not a direct child leaf -- ignore defensively, K8s labels are always a flat map
-    if (e.value.form !== "template") { map[key] = e.value.value; found = true; }
+    // Match on parentPath, never by slicing e.path on the prefix length: a
+    // Kubernetes label key legitimately contains dots (app.kubernetes.io/
+    // instance is the `helm create` default), which is indistinguishable
+    // from nesting once folded into one dot-joined path string. parentPath
+    // is computed structurally from the frame stack, so it's exact -- no
+    // guessing by counting dots in what's left after the prefix.
+    if (e.parentPath !== prefix) continue;
+    if (e.value.form !== "template") { map[e.key] = e.value.value; found = true; }
     else return null; // any templated label value makes the whole map unusable for subset matching
   }
   return found ? map : null;

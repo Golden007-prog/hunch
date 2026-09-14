@@ -1026,6 +1026,51 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a dotted app.kubernetes.io/instance label that genuinely differs between Service selector and workload labels does NOT produce a references edge (regression: a false-positive edge on real, untemplated YAML)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-dotted-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "manifests/service.yaml"), `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: my-app
+    app.kubernetes.io/instance: prod
+`);
+  writeFileSync(join(root, "manifests/deployment.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  template:
+    metadata:
+      labels:
+        app: my-app
+        app.kubernetes.io/instance: staging
+    spec:
+      containers:
+      - name: app
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const service = syms.find((s) => s.name === "Service/my-service");
+  assert.ok(service);
+  const edges = store.json.loadAll("edges");
+  assert.equal(edges.filter((e) => e.from === service!.id && e.type === "references").length, 0,
+    "the app label matches but app.kubernetes.io/instance genuinely differs (prod vs staging) -- must not read as a match");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a Helm-templated block-form selector/labels pair produces no Phase 2 edge and does not crash indexing", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-tpl-"));
   mkdirSync(join(root, "templates"), { recursive: true });

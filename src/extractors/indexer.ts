@@ -234,13 +234,15 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     // raw manifests with no Chart.yaml are still in scope; what varies below is
     // resolution SCOPE (chartRoot ?? this file), not whether extraction runs.
     let k8sDocs: K8sManifestDocument[] = [];
-    // Byte ranges of THIS file's K8s resource symbols only -- scopes the id
-    // lookup below to exactly the symbols this pass creates, rather than every
-    // symbol in the file. Also closes a latent collision: without this, a
-    // Helm `define` symbol that happened to share a startByte with a K8s doc
-    // symbol in the same .yaml file would silently attach K8s edges to the
-    // wrong (Helm) symbol instead.
-    const k8sStartBytes = new Set<number>();
+    // THIS file's K8s resource symbol OBJECTS (identity, not their byte
+    // offsets) -- scopes the id lookup below to exactly the symbols this pass
+    // creates. Identity, not a Set<number> of startBytes, because a byte
+    // value is not a reliable per-symbol key: a Helm `define` symbol that
+    // happens to share a startByte with a K8s doc symbol in the same .yaml
+    // file (both legitimately synthetic, both can start at byte 0) would
+    // otherwise be indistinguishable by offset alone, and the wrong (Helm)
+    // symbol id could get recorded instead of the K8s one.
+    const k8sSymbolObjects = new Set<object>();
     if (languageFor(rel)?.id === "yaml") {
       k8sDocs = extractK8sManifest(src);
       const k8sSymbols = k8sDocs
@@ -253,7 +255,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
           loc: src.slice(d.resource.startByte, d.resource.endByte).split("\n").length,
           bodyText: src.slice(d.resource.startByte, d.resource.endByte).slice(0, 4000),
         }));
-      for (const s of k8sSymbols) k8sStartBytes.add(s.startByte);
+      for (const s of k8sSymbols) k8sSymbolObjects.add(s);
       parsed.symbols = [...parsed.symbols, ...k8sSymbols].sort((a, b) => a.startByte - b.startByte);
     }
 
@@ -281,7 +283,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
         metrics: { loc: ps.loc, churn_90d: churn, bug_count: 0, fan_in: 0, fan_out: 0 },
         last_changed: last,
       });
-      if (k8sStartBytes.has(ps.startByte)) k8sSymbolIdByStartByte.set(ps.startByte, id);
+      if (k8sSymbolObjects.has(ps)) k8sSymbolIdByStartByte.set(ps.startByte, id);
     }
     for (const doc of k8sDocs) {
       if (!doc.resource) continue;
