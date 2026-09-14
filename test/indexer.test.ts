@@ -1120,6 +1120,59 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a column-0 template conditional inside a Service's selector does not produce a false-positive edge to the wrong workload (regression, found on fourth review pass)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-col0-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  // The selector's REAL intent is app=my-app AND track=stable, but the
+  // second line lives inside a column-0 {{- if }} -- the idiomatic way Helm
+  // charts guard an optional selector constraint. If the action's own column
+  // were (wrongly) treated as structure, this would either drop the
+  // conditional line's taint entirely or attach it to the wrong ancestor,
+  // leaving app=my-app as a fully literal (and over-permissive) selector.
+  writeFileSync(join(root, "manifests/service.yaml"), `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-svc
+spec:
+  selector:
+    app: my-app
+{{- if .Values.stableOnly }}
+    track: stable
+{{- end }}
+`);
+  writeFileSync(join(root, "manifests/deployment-canary.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app-canary
+spec:
+  template:
+    metadata:
+      labels:
+        app: my-app
+        track: canary
+    spec:
+      containers:
+      - name: app
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const service = syms.find((s) => s.name === "Service/my-svc");
+  assert.ok(service);
+  const edges = store.json.loadAll("edges");
+  assert.equal(edges.filter((e) => e.from === service!.id && e.type === "references").length, 0,
+    "the column-0 conditional must taint the whole selector, not leave app=my-app as a false-positive match against the canary track");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a Helm-templated block-form selector/labels pair produces no Phase 2 edge and does not crash indexing", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-tpl-"));
   mkdirSync(join(root, "templates"), { recursive: true });

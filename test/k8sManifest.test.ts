@@ -489,3 +489,88 @@ test("a ReplicaSet's pod-template labels are extracted for Phase 2 matching", ()
   const [doc] = extractK8sManifest(src);
   assert.deepEqual(doc!.labels, { app: "my-app" });
 });
+
+// A {{ }} action line's own indentation is meaningless (found on fourth review
+// pass): `{{-` chomps it away, and the `| indent N` idiom REQUIRES the action
+// at column 0 while injecting content at depth N. The same manifest at three
+// different (semantically irrelevant) action indents must produce identical
+// output -- and, critically, a column-0 action must NOT destroy tracking of
+// every field-path that follows it in the document.
+
+function refsOf(src: string): Array<[string, string]> {
+  return extractK8sManifest(src)[0]!.references.map((r): [string, string] => [r.refKind, r.name.form === "literal" ? r.name.value : r.name.sourceText]);
+}
+
+test("a template action's indent (column 0, mid, or co-indented with its siblings) does not change which references are extracted", () => {
+  const withActionAt = (actionIndent: string) => [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`, `      - name: app`,
+    `        envFrom:`,
+    `${actionIndent}{{- if true }}`,
+    `        - configMapRef:`,
+    `            name: my-config`,
+    `${actionIndent}{{- end }}`, ``,
+  ].join("\n");
+  const col0 = refsOf(withActionAt(""));
+  const mid = refsOf(withActionAt("    "));
+  const coIndented = refsOf(withActionAt("        "));
+  assert.deepEqual(col0, [["ConfigMap", "my-config"]]);
+  assert.deepEqual(mid, col0, "action at a mid indent must extract the same reference as column 0");
+  assert.deepEqual(coIndented, col0, "action co-indented with its siblings must extract the same reference as column 0");
+});
+
+test("a column-0 template action does not annihilate the frame stack for the rest of the document (regression: everything after it used to be lost)", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`,
+    `      - name: app`,
+    `{{- if .Values.extraEnv }}`,
+    `        env:`, `          - name: X`, `            valueFrom:`,
+    `              secretKeyRef:`, `                name: my-secret`,
+    `{{- end }}`,
+    `        envFrom:`, `        - configMapRef:`, `            name: my-config`, ``,
+  ].join("\n");
+  const refs = refsOf(src);
+  assert.deepEqual(refs.sort(), [["ConfigMap", "my-config"], ["Secret", "my-secret"]].sort());
+});
+
+test("a template action inside a Service's selector, at column 0, leaves the selector unresolved rather than a false-positive partial match", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-svc`,
+    `spec:`, `  selector:`, `    app: my-app`,
+    `{{- if .Values.stableOnly }}`,
+    `    track: stable`,
+    `{{- end }}`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "a column-0 conditional inside the selector must taint the whole map, not leave a partial literal one");
+});
+
+// Document separators (found on fourth review pass): `--- # comment` is legal
+// YAML and must still split documents; `...` is a document-end marker.
+// Missing either silently merges two documents into one.
+
+test("a document separator with a trailing comment (--- # note) still splits documents", () => {
+  const src = [
+    `apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: cm-one`,
+    `--- # the second doc`,
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: svc-two`, ``,
+  ].join("\n");
+  const docs = extractK8sManifest(src);
+  assert.equal(docs.length, 2);
+  assert.equal(docs[0]!.resource?.kind, "ConfigMap");
+  assert.equal(docs[1]!.resource?.kind, "Service");
+});
+
+test("a document-end marker (...) is recognized as a document boundary", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: cm-one`, `...`, ``].join("\n");
+  const docs = extractK8sManifest(src);
+  assert.equal(docs[0]!.resource?.kind, "ConfigMap");
+});
+
+test("four or more dashes at column 0 (----) is NOT mistaken for a document separator", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: cm-one`, `----`, `spec: {}`, ``].join("\n");
+  const docs = extractK8sManifest(src);
+  assert.equal(docs.length, 1, "four dashes must not be treated as a document boundary the way three dashes are");
+  assert.equal(docs[0]!.resource?.kind, "ConfigMap");
+});

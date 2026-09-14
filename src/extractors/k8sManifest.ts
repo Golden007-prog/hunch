@@ -106,8 +106,11 @@ const KEY_LINE = /^(\s*)(-\s+)?([A-Za-z0-9_.\/-]+):[ \t]*(.*?)\r?$/;
 // matches KEY_LINE (there's no colon-terminated key), so without explicit
 // handling it's silently invisible to the scanner -- neither contributing a
 // value nor marking its container as unresolved, which lets a literal-looking
-// map that's actually partially templated pass as fully literal.
-const BARE_TEMPLATE_LINE = /^(\s*)(-\s+)?(\{\{[\s\S]*)$/;
+// map that's actually partially templated pass as fully literal. No capture
+// groups: unlike an unrecognized-but-real YAML line, this line's OWN
+// indentation is deliberately never inspected -- see
+// markAllOpenContainersUnresolved's comment for why.
+const BARE_TEMPLATE_LINE = /^\s*(?:-\s+)?\{\{[\s\S]*$/;
 
 /** Strip a trailing YAML comment: `#` only opens one at the start of the
  *  value or after whitespace, and never inside a quoted scalar -- so
@@ -180,21 +183,36 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
   };
   // Pops to a line's context (same rule an ordinary/list-item key line would
   // use) WITHOUT pushing a frame -- the line has no key of its own -- then
-  // marks whatever container it now sits inside as unresolved. Covers both a
-  // bare `{{ }}` injection and any other line KEY_LINE doesn't match.
+  // marks whatever container it now sits inside as unresolved. Used ONLY for
+  // a line that IS real YAML structure the scanner just can't decode the key
+  // of (a quoted key, a merge key) -- there, the line's indentation is
+  // genuine, meaningful nesting depth.
   const markUnresolvedContainer = (dashIndent: number, listMarker: string | undefined): void => {
     if (listMarker) popToForListItem(dashIndent); else popOrdinary(dashIndent);
     unresolvedContainers.add(stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "["));
+  };
+  // A `{{ }}` action line's OWN indentation carries NO structural meaning:
+  // `{{-` chomps it away entirely, and the extremely common `| indent N`
+  // idiom REQUIRES the action to sit at column 0 while injecting content at
+  // depth N. Popping the frame stack by that column (as an ordinary line
+  // would) either taints the wrong ancestor container or, at column 0,
+  // destroys every open frame -- reparenting every subsequent line in the
+  // document to the root and losing all their field-paths. Never pop the
+  // real stack for this; instead, conservatively taint every container
+  // currently open (root down through the innermost), since the injection
+  // could be targeting any of them and there is no way to tell which.
+  const markAllOpenContainersUnresolved = (): void => {
+    for (let depth = 0; depth <= stack.length; depth++) {
+      unresolvedContainers.add(stack.slice(0, depth).map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "["));
+    }
   };
 
   for (const line of text.split("\n")) {
     const lineStartByte = byteOffset;
     byteOffset += line.length + 1; // +1 for the \n split() consumed
 
-    const bareTemplate = BARE_TEMPLATE_LINE.exec(line);
-    if (bareTemplate) {
-      const [, bIndentStr, bListMarker] = bareTemplate;
-      markUnresolvedContainer(bIndentStr!.length, bListMarker);
+    if (BARE_TEMPLATE_LINE.test(line)) {
+      markAllOpenContainersUnresolved();
       continue;
     }
 
@@ -416,7 +434,15 @@ function buildDocument(text: string, docStartByte: number, entries: FieldPathEnt
   return { resource, references, selector, labels };
 }
 
-const DOC_SEPARATOR = /^---[ \t]*\r?$/m;
+// Matches a YAML document-start marker (`---`, optionally with a trailing
+// comment -- `--- # second doc` is legal YAML) or a document-end marker
+// (`...`). Without the trailing-comment allowance, a commented separator
+// silently failed to split at all, merging two documents into one -- the
+// later document's fields overwrite the earlier one's (object spread order),
+// and the earlier resource's symbol/edges vanish entirely. `----` (four or
+// more dashes) is deliberately NOT a separator -- real YAML doesn't treat it
+// as one either.
+const DOC_SEPARATOR = /^(?:---(?:[ \t]+#.*)?|\.\.\.)[ \t]*\r?$/m;
 
 export function extractK8sManifest(source: string): K8sManifestDocument[] {
   const docs: K8sManifestDocument[] = [];
