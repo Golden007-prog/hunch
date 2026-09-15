@@ -77,6 +77,7 @@ import { formatContext, formatSearchHit, formatStructure } from "../core/format.
 import { isStateKind, renderStateLine, stateSupplements, type StateRecord } from "../core/stateDelivery.js";
 import { taskSelectionSupplements } from "../core/taskDelivery.js";
 import { buildTaskRankingQuery } from "../core/taskQuery.js";
+import { rankingStatusLine, resolveTaskRankingMode } from "../core/taskRankingMode.js";
 import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
 import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/evidenceMap.js";
 import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
@@ -4027,7 +4028,7 @@ program
       decisionCorpus: store.recs("decisions"),
       historical: !!asOf,
       profile: opts.profile as DeliveryProfile,
-      supplements: [...stateGrounding, ...(asOf ? [] : taskSelectionSupplements(store.selectTasksFor(target, buildTaskRankingQuery(root, opts.task ?? null, target)), target))],
+      supplements: [...stateGrounding, ...(asOf ? [] : taskSelectionSupplements(store.selectTasksAuto(target, buildTaskRankingQuery(root, opts.task ?? null, target)), target))],
     });
     process.stdout.write(envelope.text);
     if (opts.task) {
@@ -4654,7 +4655,7 @@ program
       // from this file. No diff exists yet, so this is context — "don't re-add X" —
       // not a block; the commit-time `hunch check` does the actual gating.
       const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
-      const recentTasks = taskSelectionSupplements(store.selectTasksFor(target, buildTaskRankingQuery(root, hookReportTaskId(root, provider, evt), target)), target);
+      const recentTasks = taskSelectionSupplements(store.selectTasksAuto(target, buildTaskRankingQuery(root, hookReportTaskId(root, provider, evt), target)), target);
       const hasContent =
         ctx.constraints.length ||
         ctx.decisions.length ||
@@ -6126,6 +6127,8 @@ program
       if (!roadmap.length) console.log("  (empty — record what's next as a PROPOSED decision via /capture and it appears here)");
       for (const r of roadmap) console.log(`  • ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
       if (pendingReview > 0) console.log(`\n  (${pendingReview} legacy un-vouched draft(s) — \`hunch adopt-drafts\` to auto-trust them as advisory)`);
+      // Task-record ranking: evaluated automatically on every task write; the kill rule applies itself.
+      try { console.log(`\n📊 ${rankingStatusLine(resolveTaskRankingMode(store.publicRoot, store))}`); } catch { /* no task records or no cache dir: nothing to say */ }
     } finally {
       store.close();
     }

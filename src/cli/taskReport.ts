@@ -10,6 +10,7 @@ import { assertReportPath } from "../core/taskReportPaths.js";
 import { publicTaskReport } from "../core/taskReportPublic.js";
 import { mergeDurableTaskSummaries, persistTaskRecord } from "../core/taskRecord.js";
 import { evaluateTaskRanking, renderRankEval } from "../core/taskRankEval.js";
+import { rankingStatusLine, refreshRankEval, resolveTaskRankingMode } from "../core/taskRankingMode.js";
 import { taskRecordStats } from "../core/taskRecordStats.js";
 import type { HunchStore } from "../store/hunchStore.js";
 
@@ -84,6 +85,7 @@ export function registerTaskReportCommands(program: Command, openStore: () => { 
           console.log(`Graph task records: ${rs.records}`);
           console.log(`  re-verified an earlier check (24h)  ${rate(rs.reverification_rate, rs.reverify_candidates)}`);
           console.log(`  repeated an earlier violation       ${rate(rs.repeat_violation_rate, rs.violation_candidates)}`);
+          console.log(`  ${rankingStatusLine(resolveTaskRankingMode(opened.root, opened.store))}`);
         } finally { opened.store.close(); }
       } catch { /* no store: ledger stats only */ }
     });
@@ -97,6 +99,8 @@ export function registerTaskReportCommands(program: Command, openStore: () => { 
         const cutoff = Date.now() - (Number(opts.since) || 365) * 86_400_000;
         const records = store.recs("tasks").filter((r) => (Date.parse(r.finished_at) || 0) >= cutoff);
         const report = evaluateTaskRanking(records, { split: Math.min(1, Math.max(0.05, Number(opts.split) || 0.3)) });
+        // Keep the automatic cache current too, so delivery and `hunch now` agree with what was just printed.
+        refreshRankEval(findRoot(), store, { force: true });
         console.log(opts.json ? JSON.stringify(report, null, 2) : renderRankEval(report));
       } finally { store.close(); }
     });

@@ -28,7 +28,8 @@ import {
 import { pathMatchesGlob, pathsRelated } from "../core/glob.js";
 import { cochangeFor } from "../core/cochange.js";
 import { withServedDatabase } from "../core/served.js";
-import { normalizePath, rankTaskRecords, recordIdsOf, selectTaskSlots, type RankingContext, type RankingQuery, type RankingWeights, type SlotOptions, type TaskSelection } from "../core/taskRanking.js";
+import { normalizePath, rankTaskRecords, recordIdsOf, selectLatestTasks, selectTaskSlots, type RankingContext, type RankingQuery, type RankingWeights, type SlotOptions, type TaskSelection } from "../core/taskRanking.js";
+import { resolveTaskRankingMode } from "../core/taskRankingMode.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
@@ -1663,10 +1664,19 @@ export class HunchStore {
   }
 
   /** Gate → score → slots for one target and the current task's query (dec_66925aa0ee). */
-  selectTasksFor(target: string, query: RankingQuery, options: SlotOptions & { weights?: Readonly<RankingWeights> } = {}): TaskSelection {
+  selectTasksFor(target: string, query: RankingQuery, options: SlotOptions & { weights?: Readonly<RankingWeights>; mode?: "ranked" | "latest" } = {}): TaskSelection {
     const ctx = this.taskRankingContext(target, query);
-    const ranked = rankTaskRecords(this.taskCandidates(target, query, ctx), query, ctx, options.weights);
+    const candidates = this.taskCandidates(target, query, ctx);
+    if (options.mode === "latest") return selectLatestTasks(candidates, query, ctx);
+    const ranked = rankTaskRecords(candidates, query, ctx, options.weights);
     return selectTaskSlots(ranked, options);
+  }
+
+  /** What delivery uses: the mode comes from the automatic evaluation (or a
+   *  local pin), never from a flag the caller has to remember. */
+  selectTasksAuto(target: string, query: RankingQuery): TaskSelection {
+    const resolved = resolveTaskRankingMode(this.paths.root, this);
+    return this.selectTasksFor(target, query, { mode: resolved.mode });
   }
 
   /** The causal chain behind a constraint — the WHY a diff-only reviewer can't see.

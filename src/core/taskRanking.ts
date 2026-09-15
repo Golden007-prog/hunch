@@ -88,6 +88,21 @@ export interface TaskSelection {
   /** Ranked candidates not shown. */
   more: number;
   candidates: number;
+  /** How the picks were chosen: the ranker, or the "latest 3" fallback the kill rule imposes. */
+  mode?: "ranked" | "latest";
+}
+
+/** The pre-ranking behaviour, kept as the baseline and the fallback: the three
+ * most recent records on the exact file, no scoring. */
+export function selectLatestTasks(records: readonly TaskRecord[], query: RankingQuery, ctx: RankingContext, limit = 3): TaskSelection {
+  const target = normalizePath(query.target);
+  const ranked = records
+    .filter((r) => !ctx.superseded?.has(r.id) && recordFiles(r).includes(target))
+    .map((r) => rankTaskRecord(r, query, ctx))
+    .filter((r): r is RankedTask => r !== null)
+    .sort(newestFirst);
+  const picks: SlotPick[] = ranked.slice(0, Math.max(1, limit)).map((r) => ({ slot: "latest" as const, ranked: r }));
+  return { picks, more: ranked.length - picks.length, candidates: ranked.length, mode: "latest" };
 }
 
 export interface SlotOptions { limit?: number; relevant?: number; lambda?: number }
@@ -267,5 +282,5 @@ export function selectTaskSlots(ranked: readonly RankedTask[], options: SlotOpti
     take("relevant", best);
     remaining = remaining.filter((r) => r !== best);
   }
-  return { picks, more: ranked.length - picks.length, candidates: ranked.length };
+  return { picks, more: ranked.length - picks.length, candidates: ranked.length, mode: "ranked" };
 }
