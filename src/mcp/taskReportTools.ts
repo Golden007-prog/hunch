@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { TaskIdSchema, ReportClaimSchema, LessonReferenceSchema, finishReportTask, listReportTasks, readTaskReport, readLessonHistory, recordReportClaim, reportPresentationEnabled, startReportTask } from "../core/taskReport.js";
 import { persistTaskRecord } from "../core/taskRecord.js";
 import { reportSourceSnapshot, runReportConformance } from "../core/taskReportEvidence.js";
@@ -57,7 +57,11 @@ export function boundedTaskReportForHost(report: ReturnType<typeof readTaskRepor
 function verificationLauncher(): { argv: string[]; shell: string } {
   const dev = import.meta.url.endsWith(".ts");
   const entry = fileURLToPath(new URL(`../cli/index.${dev ? "ts" : "js"}`, import.meta.url));
-  const argv = [process.execPath, ...(dev ? ["--import", fileURLToPath(import.meta.resolve("tsx"))] : []), entry];
+  // `--import` takes a URL. Converting the resolved loader to a path made Node on
+  // Windows reject it ("Received protocol 'c:'"), so every verification launched
+  // from a source checkout there failed before running and cards showed no check.
+  const loader = import.meta.resolve("tsx");
+  const argv = [process.execPath, ...(dev ? ["--import", loader.startsWith("file:") ? loader : pathToFileURL(loader).href] : []), entry];
   const quote = (s: string) => process.platform === "win32" ? `'${s.replace(/'/g, "''")}'` : `'${s.replace(/'/g, "'\\''")}'`;
   return { argv, shell: `${process.platform === "win32" ? "& " : ""}${argv.map(quote).join(" ")}` };
 }
