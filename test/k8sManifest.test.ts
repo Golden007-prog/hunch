@@ -743,3 +743,19 @@ test("a bare dash list marker followed by a second real inline item both get dis
   const names = doc!.references.filter((r) => r.refKind === "ConfigMap").map((r) => (r.name as { value: string }).value).sort();
   assert.deepEqual(names, ["config-a", "config-b"]);
 });
+
+// imagePullSecrets[].name -> Secret (found while verifying this design
+// against real production Helm charts: a registry pull secret is a common,
+// legitimate reference the original field-path table never covered).
+
+test("spec.template.spec.imagePullSecrets[].name produces a Secret reference candidate", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      imagePullSecrets:`,
+    `      - name: my-registry-secret`, `      containers:`, `      - name: app`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  const ref = doc!.references.find((r) => r.refKind === "Secret");
+  assert.ok(ref);
+  assert.equal((ref!.name as { value: string }).value, "my-registry-secret");
+});

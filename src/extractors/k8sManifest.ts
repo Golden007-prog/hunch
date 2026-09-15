@@ -402,6 +402,14 @@ const VOLUME_REF_SUFFIXES: Array<{ suffix: string; refKind: string }> = [
   { suffix: "volumes[].persistentVolumeClaim.claimName", refKind: "PersistentVolumeClaim" },
 ];
 
+// Pod-spec-level (not container- or volume-scoped) references. Found missing
+// while verifying this design against real production charts: a registry
+// pull secret is an extremely common, legitimate Secret reference that the
+// original field-path table simply never enumerated.
+const POD_SPEC_REF_SUFFIXES: Array<{ suffix: string; refKind: string }> = [
+  { suffix: "imagePullSecrets[].name", refKind: "Secret" },
+];
+
 function fieldSpecsForKind(kind: string): FieldPathSpec[] {
   const specs: FieldPathSpec[] = [];
   const podSpecPath = POD_SPEC_PATH_BY_KIND[kind];
@@ -410,6 +418,7 @@ function fieldSpecsForKind(kind: string): FieldPathSpec[] {
       for (const { suffix, refKind } of CONTAINER_REF_SUFFIXES) specs.push({ path: `${podSpecPath}.${containerList}.${suffix}`, refKind });
     }
     for (const { suffix, refKind } of VOLUME_REF_SUFFIXES) specs.push({ path: `${podSpecPath}.${suffix}`, refKind });
+    for (const { suffix, refKind } of POD_SPEC_REF_SUFFIXES) specs.push({ path: `${podSpecPath}.${suffix}`, refKind });
   }
   if (kind === "Ingress") {
     specs.push({ path: "spec.rules[].http.paths[].backend.service.name", refKind: "Service" });
