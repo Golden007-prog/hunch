@@ -33,6 +33,7 @@ import { withWriteLock } from "../serve/writelock.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, overlayMatchesTeamRemote, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
 import { formatSearchHit, formatStructure } from "../core/format.js";
 import { isStateKind, stateSupplements } from "../core/stateDelivery.js";
+import { taskSupplements } from "../core/taskDelivery.js";
 import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
 import {
   compileVerifiedEvidenceMap,
@@ -1277,6 +1278,9 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       // latest receipts whose subject/text matches the target — bounded, ordered, sharing the
       // brief's budget as supplements. Withheld on time-travel: state records carry no as-of view.
       const stateGrounding = asOf ? [] : stateSupplements(store.stateSlice(target), target);
+      // Recent finished tasks that touched the target: what earlier agent work did
+      // here, from graph memory. Advisory history sharing the brief's budget.
+      const recentTasks = asOf ? [] : taskSupplements(store.tasksFor(target, 3), target);
       const options = {
         root,
         symbols: store.recs("symbols"),
@@ -1284,7 +1288,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         decisionCorpus: store.recs("decisions"),
         historical: !!asOf,
         profile: profile ?? "builder",
-        supplements: [...(dnaSupplement ? [dnaSupplement] : []), ...stateGrounding, ...(asOf ? [] : conventionSupplements(store.recs("conventions")))],
+        supplements: [...(dnaSupplement ? [dnaSupplement] : []), ...stateGrounding, ...recentTasks, ...(asOf ? [] : conventionSupplements(store.recs("conventions")))],
       };
       // Task-phrase input ("improve retrieval ranking") resolves no file/symbol and
       // used to return an empty brief while the graph held the answer — fall back to
@@ -1313,6 +1317,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
             supplements: [
               ...(dnaSupplement ? [dnaSupplement] : []),
               ...stateGrounding,
+              ...recentTasks,
               ...hits
               // State hits are delivered through the State section above, not as raw search lines.
               .filter((hit) => !["constraints", "decisions", "bugs", "findings"].includes(hit.kind) && !isStateKind(hit.kind))

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Deliver the three most recent graph tasks that touched a file as a RECENT TASKS supplement in `hunch_context`, the pre-edit hook and `hunch context`, so an agent sees what earlier work did and verified there before touching it.
+
 ## 1.35.0 — 2026-09-14
 
 - Keep finished tasks as graph memory. A task that delivered, saved, checked, applied or denied anything is written to `.hunch/tasks/<id>.json` through the same capture path as decisions and findings (public/private homing, one home per record, auto-commit, team routing). Empty tasks stay in the local ledger. Task records are searchable, `hunch_why` lists recent tasks that touched a file, and `hunch task list` and the VS Code Contribution view show graph tasks next to local observations, including tasks finished on another machine. Set `"taskRecords": false` in `.hunch/local.json` to opt out.

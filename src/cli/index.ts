@@ -75,6 +75,7 @@ import { scaffoldProviders, regenerateGrounding, refreshExistingGrounding, refre
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatSearchHit, formatStructure } from "../core/format.js";
 import { isStateKind, renderStateLine, stateSupplements, type StateRecord } from "../core/stateDelivery.js";
+import { taskSupplements } from "../core/taskDelivery.js";
 import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
 import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/evidenceMap.js";
 import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
@@ -4025,7 +4026,7 @@ program
       decisionCorpus: store.recs("decisions"),
       historical: !!asOf,
       profile: opts.profile as DeliveryProfile,
-      supplements: stateGrounding,
+      supplements: [...stateGrounding, ...(asOf ? [] : taskSupplements(store.tasksFor(target, 3), target))],
     });
     process.stdout.write(envelope.text);
     if (opts.task) {
@@ -4652,6 +4653,7 @@ program
       // from this file. No diff exists yet, so this is context — "don't re-add X" —
       // not a block; the commit-time `hunch check` does the actual gating.
       const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
+      const recentTasks = taskSupplements(store.tasksFor(target, 3), target);
       const hasContent =
         ctx.constraints.length ||
         ctx.decisions.length ||
@@ -4661,6 +4663,7 @@ program
         ctx.landscape?.resources.length ||
         ctx.landscape?.relationships.length ||
         retired.length ||
+        recentTasks.length ||
         docGround;
       if (!hasContent) return; // no noise on files Hunch hasn't learned yet
       const envelope = buildDeliveryEnvelope(ctx, {
@@ -4677,6 +4680,7 @@ program
             text: `⚠ Deliberately RETIRED from this file — do not re-introduce without cause: ${retired.map((r) => `${[...r.symbols, ...r.deps].join(", ")} (${r.decision})`).join("; ")}.`,
           }] : []),
           ...(docGround ? [{ id: "doc-grounding", kind: "doc-grounding", priority: 100, text: docGround }] : []),
+          ...recentTasks,
         ],
       });
       const text = envelope.text.trim();
