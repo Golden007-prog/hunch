@@ -45,6 +45,10 @@ export interface RankingContext {
   lexical: ReadonlyMap<string, number>;
   /** Fraction of a record's files that still exist; 1 when it names no files. */
   anchorsAlive: (record: TaskRecord) => number;
+  /** Task ids some later record supersedes; never delivered. */
+  superseded?: ReadonlySet<string>;
+  /** Last time a task line was delivered (ms since epoch), when receipts know. */
+  lastDelivered?: (taskId: string) => number | null;
 }
 
 export interface RankingWeights {
@@ -107,14 +111,17 @@ function recordFiles(record: TaskRecord): string[] {
   return record.files.map(normalizePath);
 }
 
-function ageDays(record: TaskRecord, now: number): number {
+/** Age from the later of finishing and the last delivery: a record that keeps
+ * being delivered stays warm (access-based decay, as in Generative Agents). */
+function ageDays(record: TaskRecord, now: number, lastDelivered: number | null = null): number {
   const finished = Date.parse(record.finished_at);
-  if (!Number.isFinite(finished)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, (now - finished) / DAY_MS);
+  const anchor = Math.max(Number.isFinite(finished) ? finished : Number.NEGATIVE_INFINITY, lastDelivered ?? Number.NEGATIVE_INFINITY);
+  if (!Number.isFinite(anchor)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, (now - anchor) / DAY_MS);
 }
 
-export function recencyTerm(record: TaskRecord, now: number): number {
-  const days = ageDays(record, now);
+export function recencyTerm(record: TaskRecord, now: number, lastDelivered: number | null = null): number {
+  const days = ageDays(record, now, lastDelivered);
   if (!Number.isFinite(days)) return RECENCY_FLOOR;
   return Math.max(RECENCY_FLOOR, Math.pow(0.5, days / RECENCY_HALF_LIFE_DAYS));
 }
@@ -142,6 +149,7 @@ function clip(text: string, max: number): string {
 /** Gate, score and explain one record. Null when the gate rejects it. */
 export function rankTaskRecord(record: TaskRecord, query: RankingQuery, ctx: RankingContext, weights: Readonly<RankingWeights> = DEFAULT_WEIGHTS): RankedTask | null {
   const target = normalizePath(query.target);
+  if (ctx.superseded?.has(record.id)) return null; // a later task verified over it
   const files = recordFiles(record);
   const alive = files.length ? ctx.anchorsAlive(record) : 1;
   if (files.length && alive === 0) return null; // nothing it names still exists
@@ -175,7 +183,8 @@ export function rankTaskRecord(record: TaskRecord, query: RankingQuery, ctx: Ran
 
   const outcome = outcomeTerm(record);
   const lexicalValue = Math.max(0, Math.min(1, ctx.lexical.get(record.id) ?? 0));
-  const recencyValue = recencyTerm(record, query.now);
+  const lastDelivered = ctx.lastDelivered?.(record.id) ?? null;
+  const recencyValue = recencyTerm(record, query.now, lastDelivered);
   const touched = files.filter((f) => query.files.has(f));
   const workingSetValue = query.files.size ? Math.min(1, touched.length / query.files.size) : 0;
 
@@ -196,7 +205,9 @@ export function rankTaskRecord(record: TaskRecord, query: RankingQuery, ctx: Ran
   if (outcome.reason) reasons.push({ weight: weights.outcome * outcome.value, text: outcome.reason });
   if (lexicalValue > 0 && query.phrase) reasons.push({ weight: weights.lexical * lexicalValue, text: `matches "${clip(query.phrase, 40)}"` });
   if (touched.length) reasons.push({ weight: weights.workingSet * workingSetValue, text: `also touched ${touched[0]} this task` });
-  reasons.push({ weight: weights.recency * recencyValue, text: humanAge(ageDays(record, query.now)) });
+  const finishedAge = ageDays(record, query.now);
+  const effectiveAge = ageDays(record, query.now, lastDelivered);
+  reasons.push({ weight: weights.recency * recencyValue, text: effectiveAge < finishedAge ? `delivered ${humanAge(effectiveAge)}` : humanAge(finishedAge) });
   if (alive < 1) reasons.push({ weight: 0, text: "files since changed" });
   reasons.sort((a, b) => b.weight - a.weight);
 

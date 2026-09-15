@@ -4691,19 +4691,27 @@ program
       // Delivery receipts (dec_925f4bcaad): the ledger of what actually reached
       // an agent. A full injection is a serve; a delta one-liner attests the
       // earlier serve is still standing. Never throws, never blocks.
-      const receipts = (event: "served" | "refreshed") => recordServed(root, envelope.delivered.map((item) => ({
-        event,
-        kind: item.kind,
-        record_id: item.record_id,
-        target,
-        session_id: evt.session_id,
-        rank: item.rank,
-        delivery_reason: item.delivery_reason,
-        provenance_status: item.provenance_status,
-        token_cost: item.token_cost,
-        delivery_profile: envelope.profile,
-        ranking_policy: envelope.ranking_policy,
-      })));
+      const receipts = (event: "served" | "refreshed") => recordServed(root, [
+        ...envelope.delivered.map((item) => ({
+          event,
+          kind: item.kind,
+          record_id: item.record_id,
+          target,
+          session_id: evt.session_id,
+          rank: item.rank,
+          delivery_reason: item.delivery_reason,
+          provenance_status: item.provenance_status,
+          token_cost: item.token_cost,
+          delivery_profile: envelope.profile,
+          ranking_policy: envelope.ranking_policy,
+        })),
+        // Delivered task lines are receipts too: they feed access-based recency.
+        ...envelope.supplements.filter((s) => s.kind === "recent-task" && s.delivered).map((s) => ({
+          event, kind: "tasks", record_id: s.id, target, session_id: evt.session_id,
+          rank: s.rank, delivery_reason: "supplemental", token_cost: s.token_cost,
+          delivery_profile: envelope.profile, ranking_policy: envelope.ranking_policy,
+        })),
+      ]);
       const reportTaskId = hookReportTaskId(root, provider, evt);
       // A new authoritative prompt gets its own full delivery. An earlier
       // prompt's session-level delta cannot establish this task's receipt.

@@ -39,6 +39,17 @@ test("gate: structure or a shared rule admits; lexical, recency or outcome alone
   assert.equal(rankTaskRecord(rec("ubiq", { files: ["src/elsewhere.js"], lessons: [lesson("con_common")] }), query({ recordIds: new Set(["con_common"]) }), c), null, "a rule shared by most tasks is not evidence of relatedness");
   assert.equal(rankTaskRecord(rec("viol", { files: ["src/elsewhere.js"], conformance: [{ kind: "constraints", record_id: "con_x", content_hash: reportHash("x"), outcome: "violated" }] }), query(), c), null, "outcome alone never admits");
   assert.equal(rankTaskRecord(rec("gone"), query(), ctx({ anchorsAlive: () => 0 })), null, "a record whose files are all gone is excluded");
+  const sup = rec("sup");
+  assert.equal(rankTaskRecord(sup, query(), ctx({ superseded: new Set([sup.id]) })), null, "a superseded record is never delivered");
+});
+
+test("recency follows the last delivery when receipts know it, and says so", () => {
+  const old = rec("old", { finished_at: day(60) });
+  const cold = rankTaskRecord(old, query(), ctx())!;
+  const warm = rankTaskRecord(old, query(), ctx({ lastDelivered: () => NOW - 2 * 86_400_000 }))!;
+  assert.ok(warm.terms.recency > cold.terms.recency * 3, `${warm.terms.recency} vs ${cold.terms.recency}`);
+  assert.ok(warm.reasons.includes("delivered 2 days ago"), warm.reasons.join(" | "));
+  assert.ok(cold.reasons.includes("60 days ago"));
 });
 
 test("terms at their boundaries: file tiers, IDF-weighted rules, outcome ladder, recency floor, working set", () => {

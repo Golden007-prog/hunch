@@ -27,6 +27,7 @@ import {
 } from "../extractors/git.js";
 import { pathMatchesGlob, pathsRelated } from "../core/glob.js";
 import { cochangeFor } from "../core/cochange.js";
+import { withServedDatabase } from "../core/served.js";
 import { normalizePath, rankTaskRecords, recordIdsOf, selectTaskSlots, type RankingContext, type RankingQuery, type RankingWeights, type SlotOptions, type TaskSelection } from "../core/taskRanking.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
@@ -1604,6 +1605,25 @@ export class HunchStore {
     return [...out.values()];
   }
 
+  /** Every task id some later record verified over. */
+  supersededTaskIds(): Set<string> {
+    const out = new Set<string>();
+    for (const r of this.recs("tasks")) for (const id of r.supersedes) out.add(id);
+    return out;
+  }
+
+  /** Last delivery time per task record from the local receipt ledger, if any. */
+  taskLastDelivered(): Map<string, number> {
+    const out = new Map<string, number>();
+    try {
+      withServedDatabase(this.paths.root, (db) => {
+        const rows = db.prepare("SELECT record_id, MAX(at) AS at FROM served WHERE kind = 'tasks' GROUP BY record_id").all() as Array<{ record_id: string; at: string }>;
+        for (const row of rows) { const t = Date.parse(row.at); if (Number.isFinite(t)) out.set(row.record_id, t); }
+      });
+    } catch { /* no ledger on this machine: recency falls back to finished_at */ }
+    return out;
+  }
+
   /** bm25 of a phrase over task titles and lesson titles, normalized to the top hit. */
   taskLexicalScores(phrase: string | null, limit = 50): Map<string, number> {
     const scores = new Map<string, number>();
@@ -1637,7 +1657,9 @@ export class HunchStore {
     const ruleStats = (id: string) => { const d = df.get(id) ?? 0; return { df: d, idf: Math.log((n + 1) / (d + 1)) + 1e-6 }; };
     const lexical = this.taskLexicalScores(query.phrase);
     const anchorsAlive = (r: TaskRecord) => r.files.length ? r.files.filter((f) => existsSync(join(this.paths.root, normalizePath(f)))).length / r.files.length : 1;
-    return { dependents, cochange, ruleStats, lexical, anchorsAlive };
+    const superseded = this.supersededTaskIds();
+    const delivered = this.taskLastDelivered();
+    return { dependents, cochange, ruleStats, lexical, anchorsAlive, superseded, lastDelivered: (id) => delivered.get(id) ?? null };
   }
 
   /** Gate → score → slots for one target and the current task's query (dec_66925aa0ee). */

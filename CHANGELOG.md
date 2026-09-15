@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Task records carry `supersedes`: a verified later task on the same file hides the older ones it re-checked; delivered task lines are receipts, so recency follows last delivery rather than finish time alone.
 - Measure the RECENT TASKS selection: `hunch task rank-eval` replays task history leave-one-out and reports Hit@5/MRR against "latest 3 on the file" with a paired bootstrap interval; `hunch task stats` adds re-verification and repeat-violation rates computed from task records.
 - Choose the RECENT TASKS lines by relevance, not recency alone: candidates are gated by structure (same file, dependent, co-change, shared rule), scored by file relation, IDF-weighted shared records, outcome, phrase match, recency and the current task's working set, then slotted as latest / problem / relevant with near-duplicates removed; each line states its reasons.
 
