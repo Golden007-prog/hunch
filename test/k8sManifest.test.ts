@@ -574,3 +574,58 @@ test("four or more dashes at column 0 (----) is NOT mistaken for a document sepa
   assert.equal(docs.length, 1, "four dashes must not be treated as a document boundary the way three dashes are");
   assert.equal(docs[0]!.resource?.kind, "ConfigMap");
 });
+
+// A flow collection value is a shape a line-oriented scan can't fully see
+// (found on fifth review pass): keys written on the OPENING line of a
+// multi-line `{ ... }`/`[ ... ]` value are invisible to the scanner, which
+// silently drops them instead of the whole map reading as unresolved -- for
+// a selector, a dropped key makes the match strictly MORE permissive.
+
+test("a multi-line flow-style selector is left unresolved (null), not a partial map missing the key written on its opening line", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `spec:`, `  selector: {app: web-frontend,`, `    tier: web`, `  }`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "app was written on the selector's own opening line and must not silently vanish");
+});
+
+test("a multi-line flow-style labels map does not bake a trailing comma into a value", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Pod`, `metadata:`, `  name: my-pod`,
+    `  labels: {app: myapp,`, `    tier: web`, `  }`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.labels, null, "a partially-seen flow map must not read as resolved, comma-corrupted values included");
+});
+
+test("a single-line flow-style selector is still left unresolved, same as before (no behavior change for the already-correct case)", () => {
+  const src = [`apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`, `spec:`, `  selector: {app: my-app}`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null);
+});
+
+// Quoted vs. unquoted template text (found on fifth review pass): idiomatic
+// Helm text is pre-render, not valid YAML yet, so the SAME template
+// expression routinely appears both bare and quoted in one chart (helm
+// create's own test-connection.yaml quotes it). Classifying on the raw value
+// instead of the quote-stripped text tagged one "literal" and the other
+// "template", giving them different nameKeyText prefixes and silently
+// breaking the match between a resource's own name and a quoted reference.
+
+test("a quoted template expression classifies as the SAME template form as its unquoted equivalent", () => {
+  const unquotedSrc = [`apiVersion: v1`, `kind: Secret`, `metadata:`, `  name: {{ include "mychart.fullname" . }}`, ``].join("\n");
+  // Realistic helm create-style quoting: unescaped inner quotes -- Helm text
+  // is pre-render, not valid YAML yet, so this is common and tolerated.
+  const quotedSrc = String.raw`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ include "mychart.fullname" . }}"
+`;
+  const unquotedName = extractK8sManifest(unquotedSrc)[0]!.resource!.name;
+  const quotedName = extractK8sManifest(quotedSrc)[0]!.resource!.name;
+  assert.equal(unquotedName.form, "template");
+  assert.equal(quotedName.form, "template", "a quoted template expression must classify as \"template\", not \"literal\"");
+  assert.equal((quotedName as { sourceText: string }).sourceText, (unquotedName as { sourceText: string }).sourceText,
+    "quoted and unquoted forms of the identical expression must produce identical sourceText, so they share the same nameKeyText and can match");
+});

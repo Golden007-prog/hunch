@@ -1173,6 +1173,56 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a multi-line flow-style selector does not produce a false-positive edge from a dropped key (regression, found on fifth review pass)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-flow-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  // The selector's real intent is app=web-frontend AND tier=web. Written as a
+  // multi-line flow mapping, `app` sits on the SAME line as `selector:` --
+  // invisible to a line-oriented scan unless that key's whole container is
+  // marked unresolved. A workload with a DIFFERENT app but the same tier
+  // must never match.
+  writeFileSync(join(root, "manifests/service.yaml"), `
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+spec:
+  selector: {app: web-frontend,
+    tier: web
+  }
+`);
+  writeFileSync(join(root, "manifests/api.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-backend
+spec:
+  template:
+    metadata:
+      labels:
+        app: api-backend
+        tier: web
+    spec:
+      containers:
+      - name: app
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const service = syms.find((s) => s.name === "Service/web-svc");
+  assert.ok(service);
+  const edges = store.json.loadAll("edges");
+  assert.equal(edges.filter((e) => e.from === service!.id && e.type === "references").length, 0,
+    "the multi-line flow selector's dropped app key must taint the whole map, not leave tier=web as a false-positive match against a different app");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a Helm-templated block-form selector/labels pair produces no Phase 2 edge and does not crash indexing", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-tpl-"));
   mkdirSync(join(root, "templates"), { recursive: true });

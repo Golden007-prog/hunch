@@ -186,9 +186,12 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
   // marks whatever container it now sits inside as unresolved. Used ONLY for
   // a line that IS real YAML structure the scanner just can't decode the key
   // of (a quoted key, a merge key) -- there, the line's indentation is
-  // genuine, meaningful nesting depth.
-  const markUnresolvedContainer = (dashIndent: number, listMarker: string | undefined): void => {
-    if (listMarker) popToForListItem(dashIndent); else popOrdinary(dashIndent);
+  // genuine, meaningful nesting depth. Always uses ordinary (non-list)
+  // popping: its one call site never sees a list-marker-prefixed line (that
+  // shape -- e.g. `- <<: *base` -- is a known, separate, non-blocking gap,
+  // not something this function is meant to special-case).
+  const markUnresolvedContainer = (indent: number): void => {
+    popOrdinary(indent);
     unresolvedContainers.add(stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "["));
   };
   // A `{{ }}` action line's OWN indentation carries NO structural meaning:
@@ -224,7 +227,7 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
       // silent skip.
       const trimmed = line.trim();
       if (trimmed.length > 0 && !trimmed.startsWith("#")) {
-        markUnresolvedContainer(line.length - line.trimStart().length, undefined);
+        markUnresolvedContainer(line.length - line.trimStart().length);
       }
       continue;
     }
@@ -254,27 +257,50 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
     stack.push({ indent: itemIndent, key: key!, isSeq: false, hasValue: value.length > 0 });
     const path = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
 
+    // A value that OPENS a flow collection (`{`/`[`, never a `{{` template
+    // action) means this key's real content is flow syntax, possibly spread
+    // over later lines -- a line-oriented scan can't see keys written on the
+    // opening line itself (`selector: {app: x,` loses `app` entirely once a
+    // later line like `tier: web` gets read as this key's only child). Same
+    // rule as any other shape the scanner can't fully account for: mark it
+    // unresolved rather than let a partially-seen map read as complete. Also
+    // covers the single-line case (`selector: {app: x}`) harmlessly -- that
+    // already returned null via "no children found", this just makes the
+    // reason explicit instead of incidental.
+    if ((value.startsWith("{") && !value.startsWith("{{")) || value.startsWith("[")) unresolvedContainers.add(path);
+
     if (value.length > 0) {
       const colonIdx = line.indexOf(":", dashIndent);
       const valueStartInLine = line.indexOf(value, colonIdx);
       const atByte = lineStartByte + valueStartInLine;
       const endByte = atByte + value.length;
+      // Classify on the QUOTE-STRIPPED text, not the raw value: idiomatic
+      // Helm text is pre-render, not valid YAML yet, so a template expression
+      // routinely appears both bare (`name: {{ include "c.fullname" . }}`)
+      // and wrapped in quotes elsewhere in the same chart (`name: "{{ include
+      // "c.fullname" . }}"`, e.g. helm create's own test-connection.yaml
+      // pattern). Both forms carry the identical expression text once quotes
+      // are stripped -- classifying on the raw value would tag one "literal"
+      // and the other "template", giving them different nameKeyText (L:/T:)
+      // prefixes in indexer.ts and silently breaking the match between a
+      // resource's own name and a quoted reference to it.
+      //
       // A value like `prefix-{{ .Values.x }}` (template text NOT at the very
-      // start) is classified "literal" here, not "template" -- deliberately
-      // narrow, matching only the common `name: {{ ... }}` whole-value case.
-      // Matching still stays correct either way: both a literal/literal and a
+      // start) is still classified "literal" here, not "template" --
+      // deliberately narrow, matching only the whole-value case. Matching
+      // still stays correct either way: both a literal/literal and a
       // template/template comparison require the two sides' raw text to be
-      // byte-identical (nameKeyText's L:/T: prefixes in indexer.ts), so a
-      // "prefix-{{ x }}" value only ever matches another identical
-      // "prefix-{{ x }}" value, never a bare "{{ x }}" -- just via the
-      // "literal" bucket instead of the "template" one.
+      // byte-identical, so a "prefix-{{ x }}" value only ever matches another
+      // identical "prefix-{{ x }}" value, never a bare "{{ x }}" -- just via
+      // the "literal" bucket instead of the "template" one.
+      const unquoted = stripQuotes(value);
       entries.push({
         path,
         parentPath,
         key: key!,
-        value: value.startsWith("{{")
-          ? { form: "template", sourceText: value, atByte, endByte }
-          : { form: "literal", value: stripQuotes(value), atByte, endByte },
+        value: unquoted.startsWith("{{")
+          ? { form: "template", sourceText: unquoted, atByte, endByte }
+          : { form: "literal", value: unquoted, atByte, endByte },
       });
     }
     // A value-less key (e.g. `selector:`) needs no bookkeeping of its own
