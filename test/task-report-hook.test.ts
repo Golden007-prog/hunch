@@ -8,7 +8,7 @@ import { listReportTasks, listTaskSummaries, readTaskReport, startReportTask } f
 import { promptTaskId } from "../src/core/taskReportHook.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
-import { mkConstraint } from "./helpers.js";
+import { mkConstraint, tsxLoaderUrl } from "./helpers.js";
 
 const cli = resolve("src/cli/index.ts");
 function fixture(t: { after: (f: () => void) => void }) {
@@ -20,7 +20,7 @@ function fixture(t: { after: (f: () => void) => void }) {
   return root;
 }
 function hook(root: string, event: string, extra: Record<string, unknown> = {}, provider = "claude") {
-  const output = execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), cli, "hook", "--provider", provider], {
+  const output = execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, "hook", "--provider", provider], {
     cwd: root, env: { ...process.env, HUNCH_PIPELINE: "0" },
     input: JSON.stringify({ hook_event_name: event, cwd: root, session_id: "session-a", prompt_id: "prompt-a", ...extra }), encoding: "utf8",
   }).trim();
@@ -48,7 +48,7 @@ test("native Stop shows the card as soon as a check is observed, even when the a
   const root = fixture(t);
   hook(root, "UserPromptSubmit");
   const [task] = listReportTasks(root);
-  execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), cli, "task", "verify", task!.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
+  execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, "task", "verify", task!.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
   const stop = hook(root, "Stop");
   assert.match(stop.systemMessage, /No task-linked delivery observed/);
   assert.match(stop.systemMessage, /Checked .*passed/);
@@ -66,7 +66,7 @@ test("host identities separate prompts and sessions; old hosts never borrow a re
   hook(root, "UserPromptSubmit", { prompt_id: "prompt-b" });
   hook(root, "UserPromptSubmit", { session_id: "session-b" });
   assert.equal(listReportTasks(root).length, 3);
-  execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), cli, "task", "verify", first.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
+  execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, "task", "verify", first.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
   assert.match(hook(root, "Stop").systemMessage, new RegExp(first.task_id));
   const legacy = hook(root, "Stop", { prompt_id: undefined });
   assert.match(legacy.systemMessage, /exact prompt identifier/);
@@ -146,7 +146,7 @@ test("Codex hooks open the same per-prompt report from turn_id and never share a
   assert.equal(task.title, "Assistant task");
   assert.match(prompt.hookSpecificOutput.additionalContext, new RegExp(task.task_id));
   assert.equal(hook(root, "Stop", { prompt_id: undefined, turn_id: "turn-1" }, "codex"), null, "nothing observed yet: silent");
-  execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), cli, "task", "verify", task.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
+  execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, "task", "verify", task.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
   const stop = hook(root, "Stop", { prompt_id: undefined, turn_id: "turn-1" }, "codex").systemMessage;
   assert.match(stop, new RegExp(task.task_id));
   assert.match(stop, /Hunch · Assistant task/);

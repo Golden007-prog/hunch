@@ -9,6 +9,7 @@ import type { AssembledContext } from "../src/store/hunchStore.js";
 import { isEmptyTaskReport, listTaskSummaries, readTaskReport, recordTaskDelivery, renderTaskStatusLine, reportHash, startReportTask, summarizeTaskReport, taskReportStats } from "../src/core/taskReport.js";
 import { promptTaskId } from "../src/core/taskReportHook.js";
 import { reportSourceSnapshot } from "../src/core/taskReportEvidence.js";
+import { tsxLoaderUrl } from "./helpers.js";
 
 const cli = resolve("src/cli/index.ts");
 function fixture(t: { after: (f: () => void) => void }): string {
@@ -20,7 +21,7 @@ function fixture(t: { after: (f: () => void) => void }): string {
   return root;
 }
 function run(root: string, args: string[], input = ""): string {
-  return execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), cli, ...args], { cwd: root, encoding: "utf8", input }).trim();
+  return execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, ...args], { cwd: root, encoding: "utf8", input }).trim();
 }
 function deliver(root: string, taskId: string): void {
   const ctx = { target: "src/config.js", constraints: [{ id: "con_preserve", type: "architecture", statement: "Preserve existing settings", scope: ["src/config.js"], severity: "blocking", enforcement: "advisory_v1", match: null, forbids: null, rationale: "", source_decision: null, violations: [], status: "active", valid_to: null, provenance: { source: "human_confirmed", confidence: 1, evidence: [], last_verified: "2026-01-01T00:00:00.000Z" } }], decisions: [], bugs: [], blast_radius: [], components: [], findings: [], budget_tokens: 1500 } as unknown as AssembledContext;

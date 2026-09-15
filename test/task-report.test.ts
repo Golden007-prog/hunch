@@ -13,7 +13,7 @@ import { recordServed, servedSummary, withServedDatabase } from "../src/core/ser
 import { publicTaskReport, renderPublicTaskReportHtml } from "../src/core/taskReportPublic.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
-import { mkConstraint } from "./helpers.js";
+import { mkConstraint, tsxLoaderUrl } from "./helpers.js";
 import { writeCodexConfig } from "../src/integrations/providers.js";
 
 function fixture(t: { after: (f: () => void) => void }): string {
@@ -205,7 +205,7 @@ test("verification timeout is caller-bounded so a long suite can be retained, wi
   const result = await runReportCheck(root, task.task_id, [process.execPath, "-e", "process.exit(0)"], "Half-hour budget", 30 * 60_000);
   assert.equal(result.exit_code, 0);
   assert.equal(result.timed_out, false);
-  const cli = resolve("src/cli/index.ts"), tsx = resolve("node_modules/tsx/dist/loader.mjs");
+  const cli = resolve("src/cli/index.ts"), tsx = tsxLoaderUrl();
   const env = { ...process.env, HUNCH_PIPELINE: "0" };
   delete env.HUNCH_PRIVATE_DIR;
   mkdirSync(join(root, ".hunch"));
@@ -247,7 +247,7 @@ test("SIGTERM to the verification CLI stops its command and retains cancellation
   const root = fixture(t), task = startReportTask(root, "Cancel verification");
   mkdirSync(join(root, ".hunch"));
   const script = "console.log('CHILD_PID='+process.pid);setInterval(()=>{},1000)";
-  const runner = spawn(process.execPath, ["--import", resolve("node_modules/tsx/dist/loader.mjs"), resolve("src/cli/index.ts"), "task", "verify", task.task_id, "--", process.execPath, "-e", script], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  const runner = spawn(process.execPath, ["--import", tsxLoaderUrl(), resolve("src/cli/index.ts"), "task", "verify", task.task_id, "--", process.execPath, "-e", script], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   let childPid: number | undefined;
   t.after(() => {
     runner.kill("SIGKILL");
@@ -320,7 +320,7 @@ test("public export reconstructs public records and omits private task, action a
 test("CLI start, verify, finish and HTML share the persisted task report", t => {
   const root = fixture(t);
   mkdirSync(join(root, ".hunch"));
-  const cli = resolve("src/cli/index.ts"), tsx = resolve("node_modules/tsx/dist/loader.mjs");
+  const cli = resolve("src/cli/index.ts"), tsx = tsxLoaderUrl();
   const env = { ...process.env, HUNCH_PIPELINE: "0", HUNCH_SYNTH_PROVIDER: "deterministic" };
   delete env.HUNCH_PRIVATE_DIR;
   const run = (...args: string[]) => execFileSync(process.execPath, ["--import", tsx, cli, ...args], { cwd: root, env, encoding: "utf8", timeout: 30_000 });
@@ -371,7 +371,7 @@ test("upgrade repair refreshes existing instructions and preserves user settings
   const file = join(root, "AGENTS.md");
   writeFileSync(file, "# User instructions\nKeep this paragraph.\n\n<!-- HUNCH:START — auto-generated, do not edit by hand -->\nOld Hunch instructions\n<!-- HUNCH:END -->\n\nKeep the ending.\n");
   writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ customKey: "preserve", reportPresentation: true }));
-  const cli = resolve("src/cli/index.ts"), tsx = resolve("node_modules/tsx/dist/loader.mjs");
+  const cli = resolve("src/cli/index.ts"), tsx = tsxLoaderUrl();
   const run = (...args: string[]) => execFileSync(process.execPath, ["--import", tsx, cli, ...args], { cwd: root, encoding: "utf8", timeout: 30_000 });
   run("integrations", "repair-pins");
   const upgraded = readFileSync(file, "utf8");

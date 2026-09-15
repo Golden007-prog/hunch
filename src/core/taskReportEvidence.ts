@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { canonicalReportRoot } from "./taskReportPaths.js";
+import { resolveSpawnCommand } from "./spawnCommand.js";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { analyzeDiff } from "../extractors/diff.js";
@@ -156,7 +157,11 @@ export async function runReportCheck(root: string, taskId: string, command: stri
   ReportCheckSchema.parse({ label, command, exit_code: null, output_hash: reportHash(""), before_snapshot: before.hash, after_snapshot: null, snapshot_limitations: before.limitations, timed_out: false, source: "local-command-runner" });
   const checkId = beginReportCheck(root, taskId, label);
   const result = await new Promise<{ code: number | null; timedOut: boolean; cancelled: boolean; hash: string }>((resolveResult) => {
-    const child = spawn(command[0]!, command.slice(1), { cwd: root, shell: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
+    // Windows launchers (npx.cmd, npm.cmd, other .cmd/.bat shims) cannot be spawned
+    // without a shell; resolve them first so a check actually runs instead of
+    // silently recording exit_code null (fnd: every Windows card said "no result").
+    const resolved = resolveSpawnCommand(command);
+    const child = spawn(resolved.file, resolved.args, { cwd: root, shell: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32", windowsVerbatimArguments: resolved.windowsVerbatimArguments === true });
     const stdout = createHash("sha256"), stderr = createHash("sha256");
     let timedOut = false, cancelled = false, settled = false;
     let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
@@ -187,7 +192,13 @@ export async function runReportCheck(root: string, taskId: string, command: stri
     // Separate streaming digests are stable across stdout/stderr chunk ordering.
     child.stdout.on("data", chunk => { if (!settled) { stdout.update(chunk); options.onStdout?.(chunk); } });
     child.stderr.on("data", chunk => { if (!settled) { stderr.update(chunk); options.onStderr?.(chunk); } });
-    child.once("error", () => settle(null));
+    child.once("error", (error) => {
+      // A launch failure is a result the user must see (ENOENT is the common
+      // one); it is hashed like any other stderr and streamed to the caller.
+      const message = Buffer.from(`hunch: could not start ${JSON.stringify(command[0])}: ${error.message}\n`);
+      if (!settled) { stderr.update(message); options.onStderr?.(message); }
+      settle(null);
+    });
     child.once("close", code => settle(code));
     options.signal?.addEventListener("abort", cancel, { once: true });
     if (options.signal?.aborted) cancel();

@@ -4,6 +4,7 @@
 
 - Stop writing an HTML evidence file on every finished prompt. The graph record is the durable memory; the local evidence view is rendered on demand by `hunch report <id> --html`, `hunch_report(html: true)` or a click in the VS Code Contribution view. The card's Evidence line names that command.
 - Deliver the three most recent graph tasks that touched a file as a RECENT TASKS supplement in `hunch_context`, the pre-edit hook and `hunch context`, so an agent sees what earlier work did and verified there before touching it.
+- Run `hunch task verify` commands on Windows: `npm`/`npx` start as Node scripts and other `.cmd`/`.bat` launchers go through `cmd.exe`, so a check records a real exit code instead of a silent null; a command that cannot start now says so in the streamed output.
 
 ## 1.35.0 — 2026-09-14
 
