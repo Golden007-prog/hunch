@@ -421,19 +421,27 @@ function deliveredContext(
     const state = armExecutionObligations(loadPipelineState(sessionId), structuredContent.obligations, { replaceOrigin: "memory" });
     savePipelineState(sessionId, state);
   }
-  recordServed(root, structuredContent.delivered.map((item) => ({
-    event: "served",
-    kind: item.kind,
-    record_id: item.record_id,
-    target,
-    session_id: sessionId,
-    rank: item.rank,
-    delivery_reason: item.delivery_reason,
-    provenance_status: item.provenance_status,
-    token_cost: item.token_cost,
-    delivery_profile: structuredContent.profile,
-    ranking_policy: structuredContent.ranking_policy,
-  })));
+  recordServed(root, [
+    ...structuredContent.delivered.map((item) => ({
+      event: "served" as const,
+      kind: item.kind,
+      record_id: item.record_id,
+      target,
+      session_id: sessionId,
+      rank: item.rank,
+      delivery_reason: item.delivery_reason,
+      provenance_status: item.provenance_status,
+      token_cost: item.token_cost,
+      delivery_profile: structuredContent.profile,
+      ranking_policy: structuredContent.ranking_policy,
+    })),
+    // Delivered task lines are receipts too: they feed access-based recency.
+    ...envelope.supplements.filter((s) => s.kind === "recent-task" && s.delivered).map((s) => ({
+      event: "served" as const, kind: "tasks", record_id: s.id, target, session_id: sessionId,
+      rank: s.rank, delivery_reason: "supplemental", token_cost: s.token_cost,
+      delivery_profile: structuredContent.profile, ranking_policy: structuredContent.ranking_policy,
+    })),
+  ]);
   return {
     content: [{ type: "text", text: structuredContent.text }],
     structuredContent,

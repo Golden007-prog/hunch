@@ -103,6 +103,28 @@ export function taskRecordHome(store: HunchStore, record: TaskRecord): TaskRecor
   return "public";
 }
 
+/** Older records this one verified over: same file, a shared record, and this
+ * task's last check passed with no rule violated. Superseded records stay in
+ * the graph (append-only) but are never delivered; the newer line carries the
+ * verified state. Bounded. */
+export function computeSupersedes(record: TaskRecord, others: readonly TaskRecord[], limit = 20): string[] {
+  const last = record.checks.at(-1);
+  if (!last || last.state !== "passed") return [];
+  if (record.conformance.some((c) => c.outcome === "violated")) return [];
+  const files = new Set(record.files.map((f) => f.replace(/\\/g, "/")));
+  const ids = new Set([...record.lessons.map((l) => l.record_id), ...record.applied.map((a) => a.record_id), ...record.saved.map((s) => s.record_id)]);
+  if (!files.size || !ids.size) return [];
+  const out: string[] = [];
+  for (const o of others) {
+    if (o.id === record.id || o.finished_at >= record.finished_at) continue;
+    if (!o.files.some((f) => files.has(f.replace(/\\/g, "/")))) continue;
+    const oids = [...o.lessons.map((l) => l.record_id), ...o.applied.map((a) => a.record_id), ...o.saved.map((s) => s.record_id)];
+    if (!oids.some((id) => ids.has(id))) continue;
+    out.push(o.id);
+  }
+  return out.sort().slice(0, limit);
+}
+
 export interface PersistedTaskRecord {
   record: TaskRecord;
   home: TaskRecordHome;
@@ -117,8 +139,9 @@ export interface PersistedTaskRecord {
 export function persistTaskRecord(root: string, store: HunchStore, taskId: string, options: { flush?: boolean } = {}): PersistedTaskRecord | null {
   if (!taskRecordsEnabled(root)) return null;
   const report = readTaskReport(root, taskId, reportSourceSnapshot(root).hash);
-  const record = taskRecordFromReport(report);
-  if (!record) return null;
+  const built = taskRecordFromReport(report);
+  if (!built) return null;
+  const record: TaskRecord = { ...built, supersedes: computeSupersedes(built, store.recs("tasks")) };
   const inPrivate = store.hasPrivate ? store.getPrivateRec("tasks", record.id) : undefined;
   const inPublic = store.json.get("tasks", record.id);
   const home: TaskRecordHome = inPrivate ? "private" : inPublic ? "public" : taskRecordHome(store, record);

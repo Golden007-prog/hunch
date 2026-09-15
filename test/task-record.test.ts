@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { buildDeliveryEnvelope } from "../src/core/delivery.js";
 import type { AssembledContext } from "../src/store/hunchStore.js";
 import { finishReportTask, forgetReportTask, listTaskSummaries, readTaskReport, recordReportSave, recordTaskDelivery, reportHash, startReportTask } from "../src/core/taskReport.js";
-import { mergeDurableTaskSummaries, persistTaskRecord, targetLooksLikePath, taskRecordFromReport } from "../src/core/taskRecord.js";
+import { computeSupersedes, mergeDurableTaskSummaries, persistTaskRecord, targetLooksLikePath, taskRecordFromReport } from "../src/core/taskRecord.js";
+import { TaskRecordSchema, type TaskRecord } from "../src/core/types.js";
 import { canonicalReportRoot } from "../src/core/taskReportPaths.js";
 import { promptTaskTitle } from "../src/core/taskReportHook.js";
 import { withServedDatabase } from "../src/core/served.js";
@@ -199,4 +200,21 @@ test("native task titles come from the prompt's first line and never carry crede
   assert.ok(long && !long.includes("  "));
   assert.equal(promptTaskTitle("-----BEGIN PRIVATE KEY-----\nabc"), null);
   assert.equal(promptTaskTitle("check status\n-----BEGIN PRIVATE KEY-----\nabc"), null, "a credential anywhere in the prompt keeps the generic title");
+});
+
+test("supersession: a later task on the same file with a shared record and a passing check supersedes; violations and unchecked work never do", () => {
+  const base = (id: string, over: Partial<TaskRecord>): TaskRecord => TaskRecordSchema.parse({
+    id: `htask_${id.padEnd(24, "0").slice(0, 24)}`, title: id, state: "completed", started_at: "2026-09-01T00:00:00.000Z", finished_at: "2026-09-01T00:00:00.000Z", coverage: "delivered",
+    lessons: [{ kind: "constraints", record_id: "con_a", content_hash: reportHash("a"), title: "A" }], applied: [], saved: [], checks: [], conformance: [], refusals: 0, files: ["src/config.js"],
+    report_hash: reportHash(id), provenance: { source: "task_report", confidence: 1, evidence: [] }, ...over,
+  });
+  const older = base("older", {});
+  const otherFile = base("otherfile", { files: ["src/other.js"] });
+  const otherRule = base("otherrule", { lessons: [{ kind: "constraints", record_id: "con_b", content_hash: reportHash("b"), title: "B" }] });
+  const newer = base("newer", { finished_at: "2026-09-02T00:00:00.000Z", checks: [{ label: "npm test", state: "passed", exit_code: 0 }] });
+  assert.deepEqual(computeSupersedes(newer, [older, otherFile, otherRule, newer]), [older.id]);
+  assert.deepEqual(computeSupersedes(base("nocheck", { finished_at: "2026-09-02T00:00:00.000Z" }), [older]), [], "unverified work supersedes nothing");
+  assert.deepEqual(computeSupersedes(base("failed", { finished_at: "2026-09-02T00:00:00.000Z", checks: [{ label: "t", state: "failed", exit_code: 1 }] }), [older]), []);
+  assert.deepEqual(computeSupersedes(base("violated", { finished_at: "2026-09-02T00:00:00.000Z", checks: [{ label: "t", state: "passed", exit_code: 0 }], conformance: [{ kind: "constraints", record_id: "con_a", content_hash: reportHash("a"), outcome: "violated" }] }), [older]), [], "a task that violated a rule supersedes nothing");
+  assert.deepEqual(computeSupersedes(base("earlier", { finished_at: "2026-08-01T00:00:00.000Z", checks: [{ label: "t", state: "passed", exit_code: 0 }] }), [older]), [], "only older records can be superseded");
 });

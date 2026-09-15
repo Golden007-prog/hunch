@@ -547,6 +547,7 @@ export const TaskRecordSchema = z.object({
   })).default([]).describe("Hunch's deterministic evaluation of each delivered rule against the changed files"),
   refusals: z.number().int().nonnegative().default(0).describe("edits the native gate denied during the task"),
   files: z.array(z.string()).default([]).describe("files the task touched: delivery targets, rule-checked changes, denied edits"),
+  supersedes: z.array(z.string()).default([]).describe("older task records this task verified over: same file, shared record, passing check; superseded records are not delivered"),
   source_snapshot: z.string().nullable().default(null).describe("bounded source snapshot hash at the last check, when one ran"),
   report_hash: z.string().describe("content hash of the full local report this record summarizes"),
   provenance: ProvenanceSchema,
