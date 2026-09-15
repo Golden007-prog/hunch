@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.36.0 — 2026-09-15
 
 - Stop writing an HTML evidence file on every finished prompt. The graph record is the durable memory; the local evidence view is rendered on demand by `hunch report <id> --html`, `hunch_report(html: true)` or a click in the VS Code Contribution view. The card's Evidence line names that command.
 - Deliver the three most recent graph tasks that touched a file as a RECENT TASKS supplement in `hunch_context`, the pre-edit hook and `hunch context`, so an agent sees what earlier work did and verified there before touching it.
