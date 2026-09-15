@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — תיעוד משותף לסוכני AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "כל תור נספר",
       "הדירוג שופט את עצמו",
       "העבודה הנכונה מהעבר, עם הסיבות",
       "סוכנים יורשים את העבודה של קודמיהם",
@@ -74,6 +75,7 @@ export const changelogLocales = {
       footer: "© Hunch — общие записи для ИИ-агентов.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Каждый ход идёт в счёт",
       "Ранжирование оценивает себя само",
       "Нужная прошлая работа, с причинами",
       "Агенты наследуют работу друг друга",
@@ -140,6 +142,7 @@ export const changelogLocales = {
       footer: "© Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "كل دورة تُحتسب",
       "الترتيب يقيّم نفسه بنفسه",
       "العمل السابق المناسب، مع الأسباب",
       "الوكلاء يرثون عمل بعضهم البعض",
@@ -206,6 +209,7 @@ export const changelogLocales = {
       footer: "© Hunch — un registro compartido para agentes de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Cada turno cuenta",
       "El ranking se evalúa a sí mismo",
       "El trabajo previo correcto, con sus razones",
       "Los agentes heredan el trabajo de los demás",

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.38.0 — 2026-09-15
 
 - A verification whose runner died no longer freezes its task: a check-start with no result stops blocking completion after its own timeout plus a minute of grace; no result is invented and the report still discloses that none was retained.
 - One task record per episode: a prompt that follows another of the same session within 30 minutes continues its task, and the chain's graph record is written under the first task's id and refreshed as prompts finish. Follow-up prompts ("status", "next", "go") no longer leave empty rows; `hunch task list` shows what each prompt continues.
