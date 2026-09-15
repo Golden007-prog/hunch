@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — תיעוד משותף לסוכני AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "הדירוג שופט את עצמו",
       "העבודה הנכונה מהעבר, עם הסיבות",
       "סוכנים יורשים את העבודה של קודמיהם",
       "משימות שהסתיימו הופכות לזיכרון בגרף",
@@ -73,6 +74,7 @@ export const changelogLocales = {
       footer: "© Hunch — общие записи для ИИ-агентов.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Ранжирование оценивает себя само",
       "Нужная прошлая работа, с причинами",
       "Агенты наследуют работу друг друга",
       "Завершённые задачи становятся памятью графа",
@@ -138,6 +140,7 @@ export const changelogLocales = {
       footer: "© Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "الترتيب يقيّم نفسه بنفسه",
       "العمل السابق المناسب، مع الأسباب",
       "الوكلاء يرثون عمل بعضهم البعض",
       "المهام المكتملة تصبح ذاكرة في الرسم البياني",
@@ -203,6 +206,7 @@ export const changelogLocales = {
       footer: "© Hunch — un registro compartido para agentes de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "El ranking se evalúa a sí mismo",
       "El trabajo previo correcto, con sus razones",
       "Los agentes heredan el trabajo de los demás",
       "Las tareas terminadas se convierten en memoria del grafo",
