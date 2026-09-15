@@ -3,7 +3,9 @@
   "type": "architecture",
   "statement": "Memory hygiene is the agent's job, done without waiting for the human: accept shipped roadmap proposals, settle provenance-repair escalations (apply the true commit or drop), re-anchor or stale findings, and land the resulting capture commits through a PR. Only decisions that need genuine product judgment are queued for the human.",
   "scope": [
-    "**"
+    ".hunch/**",
+    "ROADMAP.md",
+    "docs/autonomous-development.md"
   ],
   "severity": "warning",
   "enforcement": "advisory_v1",
