@@ -6,7 +6,7 @@ import type { HookProvider, HunchHookInput } from "./agenthook.js";
 import { findRoot } from "./paths.js";
 import { canonicalReportRoot } from "./taskReportPaths.js";
 import { isCredentialFreeText } from "./types.js";
-import { isEmptyTaskReport, readTaskReport, recordReportRefusal, reportHash, reportPresentationEnabled, startReportTask } from "./taskReport.js";
+import { continuationLinks, finishReportTask, isEmptyTaskReport, latestSessionTask, readTaskReport, recordReportRefusal, reportHash, reportPresentationEnabled, startReportTask, type TaskLinks } from "./taskReport.js";
 import { reportSourceSnapshot } from "./taskReportEvidence.js";
 import { renderTaskReport } from "./taskReportRender.js";
 
@@ -89,8 +89,22 @@ export function startHookReport(root: string, provider: HookProvider, event: Hun
   if (!cwd) return null;
   const cwdLiteral = JSON.stringify(cwd);
   const title = (promptTitlesEnabled(root) ? promptTaskTitle(event.prompt) : null) ?? NATIVE_TASK_TITLE;
+  // Continuity: a prompt that follows another of the same session within the
+  // window continues its task ("status", "next", "go" are the same work), and
+  // the episode's graph record is written under the first task's id. The key
+  // is a hash; the host session identifier itself is still never retained.
+  let links: TaskLinks = {};
+  if (event.session_id) {
+    const sessionKey = reportHash([cwd, provider, event.session_id, event.agent_id ?? null]);
+    links = { session_key: sessionKey };
+    try {
+      const previous = latestSessionTask(root, sessionKey);
+      const continued = previous && previous.task_id !== id ? continuationLinks(previous) : null;
+      if (continued) links = { ...links, ...continued };
+    } catch { /* no continuity; still a task */ }
+  }
   let task: ReturnType<typeof startReportTask>;
-  try { task = startReportTask(root, title, id); }
+  try { task = startReportTask(root, title, id, links); }
   catch (error) {
     // The same prompt identity may already be open: a release that called every
     // native task "Claude task"/"Assistant task", or a second hook registration
@@ -102,8 +116,31 @@ export function startHookReport(root: string, provider: HookProvider, event: Hun
   return `Hunch has opened this prompt's report: ${task.task_id}. Reuse this exact ID for this prompt. Call hunch_task(action: "start", task_id: "${task.task_id}", title: ${JSON.stringify(task.title)}, cwd: ${cwdLiteral}) to obtain verification_argv; do not create another report. Pass this task_id and cwd: ${cwdLiteral} to hunch_context and decision/correction/finding captures, and pass the same cwd when finishing with hunch_task before responding. A host Stop notice will show the evidence even if no task-linked memory was observed.`;
 }
 
-/** A presentation notice never denies Stop or injects another model turn. Stop
- * can precede another hook's continuation, so it does not close an open task.
+/** Stop ends the turn, so the prompt's task closes here as a HOST close: the
+ * ledger says the task completed even when the agent never called finish, and
+ * a task with observations becomes a graph record without anyone's cooperation.
+ * The close is provisional because Stop can precede another hook's
+ * continuation: the next observation reopens the task and the following Stop
+ * closes it again (the record is refreshed from the report). An explicit agent
+ * finish with any outcome overrides a host close. Pending verification keeps
+ * the task open. Returns the task id when the task is closed after this call,
+ * so the caller can persist its record; null when nothing is closed. */
+export function closeHookTask(root: string, provider: HookProvider, event: HunchHookInput): string | null {
+  let id: string | null;
+  try { id = identity(root, provider, event); } catch { return null; }
+  if (!id || id === "legacy") return null;
+  try {
+    const task = readTaskReport(root, id).task;
+    if (task.state === "interrupted") return null;
+    if (task.state === "open") finishReportTask(root, id, "completed", { by: "host" });
+    return id;
+  } catch {
+    // No task for this prompt, or verification still running: leave it as it is.
+    return null;
+  }
+}
+
+/** A presentation notice never denies Stop or injects another model turn.
  * A prompt with no observation at all prints nothing: the empty task row stays
  * in the ledger (hunch task list, the VS Code Contribution view) so "never
  * touched Hunch" remains countable without a five-line notice per prompt. */

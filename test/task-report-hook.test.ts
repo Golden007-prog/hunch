@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { listReportTasks, listTaskSummaries, readTaskReport, startReportTask } from "../src/core/taskReport.js";
+import { finishReportTask, listReportTasks, listTaskSummaries, readTaskReport, startReportTask } from "../src/core/taskReport.js";
 import { promptTaskId } from "../src/core/taskReportHook.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
@@ -27,7 +27,7 @@ function hook(root: string, event: string, extra: Record<string, unknown> = {}, 
   return output ? JSON.parse(output) : null;
 }
 
-test("native Stop stays silent for a prompt with no observation, while the empty task row remains countable", t => {
+test("native Stop stays silent for a prompt with no observation, closes the task as a host close, and the empty row stays ledger-only", t => {
   const root = fixture(t);
   const prompt = hook(root, "UserPromptSubmit", { prompt: "PRIVATE_PROMPT_SENTINEL" });
   const [task] = listReportTasks(root);
@@ -38,10 +38,82 @@ test("native Stop stays silent for a prompt with no observation, while the empty
   assert.match(prompt.hookSpecificOutput.additionalContext, new RegExp(task.task_id));
   assert.equal(hook(root, "Stop"), null, "no delivery, check, save or denial: nothing to print (dec_77d99014e0's sibling: silence only where there is no evidence to show)");
   assert.equal(readFileSync(join(root, ".hunch-cache", "served.db")).includes(Buffer.from("PRIVATE_PROMPT_SENTINEL")), false);
-  assert.equal(listReportTasks(root)[0]!.state, "open", "Stop alone cannot establish task completion or absence of another hook continuation");
+  const closed = listReportTasks(root)[0]!;
+  assert.equal(closed.state, "completed", "the turn ended: the ledger says so without the agent's cooperation");
+  assert.equal(closed.closed_by, "host");
+  assert.equal(existsSync(join(root, ".hunch", "tasks")), false, "an empty task never becomes a graph record");
   const [summary] = listTaskSummaries(root);
   assert.equal(summary?.task.task_id, task.task_id);
   assert.equal(summary?.empty, true, "the ledger still shows the prompt never touched Hunch");
+});
+
+test("a prompt that follows another in the same session continues its task; the episode's record is written under the first task's id", t => {
+  const root = fixture(t);
+  writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ taskRecordsFlush: "batch" }));
+  hook(root, "UserPromptSubmit", { prompt_id: "p1" });
+  const [first] = listReportTasks(root);
+  assert.ok(first);
+  assert.equal(first.continues, undefined, "the first prompt of a session starts an episode");
+  assert.ok(first.session_key?.startsWith("sha256:"), "the session is kept as a hash, never as the identifier");
+  assert.equal(readFileSync(join(root, ".hunch-cache", "served.db")).includes(Buffer.from("session-a")), false, "the host session identifier is not retained");
+  hook(root, "Stop", { prompt_id: "p1" });
+  // "next": a follow-up prompt within the window in the same session.
+  hook(root, "UserPromptSubmit", { prompt_id: "p2" });
+  const second = listReportTasks(root).find(x => x.task_id !== first.task_id)!;
+  assert.equal(second.continues, first.task_id);
+  assert.equal(second.episode, first.task_id);
+  execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, "task", "verify", second.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
+  hook(root, "Stop", { prompt_id: "p2" });
+  assert.equal(existsSync(join(root, ".hunch", "tasks", `${second.task_id}.json`)), false, "no record per prompt");
+  const episode = JSON.parse(readFileSync(join(root, ".hunch", "tasks", `${first.task_id}.json`), "utf8")) as { id: string; checks: unknown[]; provenance: { evidence: string[] } };
+  assert.equal(episode.id, first.task_id, "the episode's record carries the head's id");
+  assert.equal(episode.checks.length, 1, "the follow-up prompt's check lives in the episode record");
+  assert.deepEqual(episode.provenance.evidence, [`hunch report ${first.task_id}`, `hunch report ${second.task_id}`]);
+  // A third prompt continues the same episode; another session never does.
+  hook(root, "UserPromptSubmit", { prompt_id: "p3" });
+  const third = listReportTasks(root).find(x => ![first.task_id, second.task_id].includes(x.task_id))!;
+  assert.equal(third.continues, second.task_id);
+  assert.equal(third.episode, first.task_id);
+  hook(root, "UserPromptSubmit", { session_id: "session-b", prompt_id: "p1" });
+  const other = listReportTasks(root).find(x => x.session_key !== first.session_key)!;
+  assert.equal(other.continues, undefined);
+  assert.equal(other.episode, undefined);
+  const [row] = listTaskSummaries(root).filter(s => s.task.task_id === second.task_id);
+  assert.equal(row?.task.episode, first.task_id, "summaries expose the episode for host views");
+});
+
+test("Stop keeps the record of a task with observations, a continuation reopens it, and an explicit finish overrides the host close", t => {
+  const root = fixture(t);
+  writeFileSync(join(root, ".hunch", "local.json"), JSON.stringify({ taskRecordsFlush: "batch" }));
+  hook(root, "UserPromptSubmit");
+  const [task] = listReportTasks(root);
+  const verify = () => execFileSync(process.execPath, ["--import", tsxLoaderUrl(), cli, "task", "verify", task!.task_id, "--json", "--", process.execPath, "-e", "process.exit(0)"], { cwd: root, encoding: "utf8" });
+  verify();
+  const stop = hook(root, "Stop");
+  assert.match(stop.systemMessage, /Checked .*passed/);
+  let row = listReportTasks(root)[0]!;
+  assert.equal(row.state, "completed");
+  assert.equal(row.closed_by, "host");
+  const recordPath = join(root, ".hunch", "tasks", `${task!.task_id}.json`);
+  assert.ok(existsSync(recordPath), "the host close persists the graph record; the agent never called finish");
+  const first = JSON.parse(readFileSync(recordPath, "utf8")) as { checks: unknown[]; state: string };
+  assert.equal(first.checks.length, 1);
+  assert.equal(first.state, "completed");
+  // The turn continued (another hook blocked, or the prompt resumed): a new
+  // observation reopens the host-closed task instead of failing.
+  verify();
+  row = listReportTasks(root)[0]!;
+  assert.equal(row.state, "open", "a host close is provisional");
+  assert.equal(row.closed_by, undefined);
+  hook(root, "Stop");
+  row = listReportTasks(root)[0]!;
+  assert.equal(row.state, "completed");
+  assert.equal((JSON.parse(readFileSync(recordPath, "utf8")) as { checks: unknown[] }).checks.length, 2, "the record is refreshed from the report at the next Stop");
+  // The agent's explicit outcome wins over the host's provisional one.
+  const explicit = finishReportTask(root, task!.task_id, "interrupted");
+  assert.equal(explicit.state, "interrupted");
+  assert.equal(explicit.closed_by, "agent");
+  assert.throws(() => finishReportTask(root, task!.task_id, "completed"), /different outcome/, "an agent close is final");
 });
 
 test("native Stop shows the card as soon as a check is observed, even when the agent never called a tool", t => {

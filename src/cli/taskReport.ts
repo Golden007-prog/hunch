@@ -60,7 +60,7 @@ export function registerTaskReportCommands(program: Command, openStore: () => { 
       } catch { /* ledger-only view when the store is unavailable */ }
       if (opts.json) { console.log(JSON.stringify(summaries, null, 2)); return; }
       if (!summaries.length) { console.log("No task activity observed yet."); return; }
-      for (const s of summaries) console.log(`${s.task.started_at.slice(0, 16).replace("T", " ")}  ${s.task.task_id}  ${s.task.state.padEnd(11)} ${renderTaskStatusLine(s) || "nothing observed"}${s.durable ? `  [graph: ${s.durable.home}]` : ""}`);
+      for (const s of summaries) console.log(`${s.task.started_at.slice(0, 16).replace("T", " ")}  ${s.task.task_id}  ${s.task.state.padEnd(11)} ${renderTaskStatusLine(s) || "nothing observed"}${s.durable ? `  [graph: ${s.durable.home}${s.task.episode ? ` as ${s.task.episode}` : ""}]` : ""}${s.task.continues && !s.durable ? `  (continues ${s.task.continues})` : ""}`);
     });
   task.command("stats").description("Adherence over a window: how many prompts Hunch reached (delivery), checked, saved, or guarded — from the ledger, never from agent claims")
     .option("--days <days>", "window in days", "7")
