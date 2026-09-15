@@ -75,7 +75,8 @@ import { scaffoldProviders, regenerateGrounding, refreshExistingGrounding, refre
 import { healClaudeConfigCaseSplit } from "../integrations/claudeConfig.js";
 import { formatContext, formatSearchHit, formatStructure } from "../core/format.js";
 import { isStateKind, renderStateLine, stateSupplements, type StateRecord } from "../core/stateDelivery.js";
-import { taskSupplements } from "../core/taskDelivery.js";
+import { taskSelectionSupplements } from "../core/taskDelivery.js";
+import { buildTaskRankingQuery } from "../core/taskQuery.js";
 import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
 import { compileVerifiedEvidenceMap, formatVerifiedEvidenceMap } from "../core/evidenceMap.js";
 import { collectCorrectionStageSources } from "../extractors/correctionSources.js";
@@ -4026,7 +4027,7 @@ program
       decisionCorpus: store.recs("decisions"),
       historical: !!asOf,
       profile: opts.profile as DeliveryProfile,
-      supplements: [...stateGrounding, ...(asOf ? [] : taskSupplements(store.tasksFor(target, 3), target))],
+      supplements: [...stateGrounding, ...(asOf ? [] : taskSelectionSupplements(store.selectTasksFor(target, buildTaskRankingQuery(root, opts.task ?? null, target)), target))],
     });
     process.stdout.write(envelope.text);
     if (opts.task) {
@@ -4653,7 +4654,7 @@ program
       // from this file. No diff exists yet, so this is context — "don't re-add X" —
       // not a block; the commit-time `hunch check` does the actual gating.
       const retired = store.retiredForFile(target).filter((r) => r.symbols.length || r.deps.length);
-      const recentTasks = taskSupplements(store.tasksFor(target, 3), target);
+      const recentTasks = taskSelectionSupplements(store.selectTasksFor(target, buildTaskRankingQuery(root, hookReportTaskId(root, provider, evt), target)), target);
       const hasContent =
         ctx.constraints.length ||
         ctx.decisions.length ||

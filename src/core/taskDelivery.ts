@@ -7,6 +7,7 @@
  * share the brief's budget and are advisory: a task line is history, never a
  * rule, and never an instruction to repeat or skip anything. */
 import type { DeliverySupplement } from "./delivery.js";
+import type { SlotName, TaskSelection } from "./taskRanking.js";
 import type { TaskRecord } from "./types.js";
 
 export const TASK_SUPPLEMENT_LIMIT = 3;
@@ -31,6 +32,37 @@ export function describeTaskRecord(t: TaskRecord): string {
   const denied = t.refusals ? `${t.refusals} edit(s) denied` : null;
   const files = t.files.length ? `files ${t.files.slice(0, 4).join(", ")}${t.files.length > 4 ? "…" : ""}` : null;
   return `${t.id} · ${when} · ${t.state} · "${clip(t.title, 80)}" — ${[lessons, applied, saved, check, violated, denied, files].filter(Boolean).join(" · ")}`;
+}
+
+function summarizeRecord(t: TaskRecord): string {
+  const lessons = t.lessons.length ? `${t.lessons.length} lesson(s)` : "no memory delivered";
+  const applied = t.applied.length ? `applied ${t.applied.length}` : null;
+  const saved = t.saved.length ? `saved ${t.saved.length}` : null;
+  const last = t.checks.at(-1);
+  const check = last ? `check ${last.state}` : null;
+  return [lessons, applied, saved, check].filter(Boolean).join(", ");
+}
+
+const SLOT_LABEL: Record<SlotName, string> = { latest: "latest  ", violation: "problem ", relevant: "relevant" };
+
+/** Render a ranked, slotted selection (dec_66925aa0ee): one line per pick with
+ * its slot and the two strongest factual reasons. Empty selection → nothing. */
+export function taskSelectionSupplements(selection: TaskSelection, target: string): DeliverySupplement[] {
+  if (!selection.picks.length) return [];
+  const counts: Record<SlotName, number> = { latest: 0, violation: 0, relevant: 0 };
+  for (const p of selection.picks) counts[p.slot]++;
+  const parts = [counts.latest ? "latest" : null, counts.violation ? "problem" : null, counts.relevant ? `relevant ${counts.relevant}` : null].filter(Boolean).join(" · ");
+  return [
+    {
+      id: "recent-tasks", kind: "recent-tasks", priority: 415,
+      text: `RECENT TASKS on ${target} — ${parts} — earlier agent work here, from graph memory (advisory history, not rules): build on what was verified instead of redoing it blind.${selection.more > 0 ? ` ${selection.more} more: hunch task list ${target}.` : ""}`,
+    },
+    ...selection.picks.map((p, i) => {
+      const t = p.ranked.record;
+      const reasons = p.ranked.reasons.slice(0, 2).join(" · ");
+      return { id: t.id, kind: "recent-task", priority: 414 - i, text: `${SLOT_LABEL[p.slot]} ${t.id} · ${t.finished_at.slice(0, 10)} · "${clip(t.title, 80)}" — ${reasons} · ${summarizeRecord(t)}` };
+    }),
+  ];
 }
 
 /** Newest first, bounded. Empty input yields no supplement at all (no header noise). */
