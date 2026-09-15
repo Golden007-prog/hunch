@@ -9,6 +9,8 @@ import { renderTaskReport, writeTaskReportHtml } from "../core/taskReportRender.
 import { assertReportPath } from "../core/taskReportPaths.js";
 import { publicTaskReport } from "../core/taskReportPublic.js";
 import { mergeDurableTaskSummaries, persistTaskRecord } from "../core/taskRecord.js";
+import { evaluateTaskRanking, renderRankEval } from "../core/taskRankEval.js";
+import { taskRecordStats } from "../core/taskRecordStats.js";
 import type { HunchStore } from "../store/hunchStore.js";
 
 export function registerTaskReportCommands(program: Command, openStore: () => { store: HunchStore; root: string }): void {
@@ -73,6 +75,30 @@ export function registerTaskReportCommands(program: Command, openStore: () => { 
       console.log(`  memory saved                  ${stats.with_save}  ${pct(stats.with_save)}`);
       console.log(`  edit denied                   ${stats.with_refusal}  ${pct(stats.with_refusal)}`);
       console.log(`  nothing observed              ${stats.empty}  ${pct(stats.empty)}`);
+      // Graph-record proxies (dec_66925aa0ee): do agents redo verified work, or repeat a violation?
+      try {
+        const opened = openStore();
+        try {
+          const rs = taskRecordStats(opened.store.recs("tasks"));
+          const rate = (r: number | null, n: number) => r === null ? "–" : `${Math.round(r * 100)}% of ${n}`;
+          console.log(`Graph task records: ${rs.records}`);
+          console.log(`  re-verified an earlier check (24h)  ${rate(rs.reverification_rate, rs.reverify_candidates)}`);
+          console.log(`  repeated an earlier violation       ${rate(rs.repeat_violation_rate, rs.violation_candidates)}`);
+        } finally { opened.store.close(); }
+      } catch { /* no store: ledger stats only */ }
+    });
+  task.command("rank-eval").description("Offline leave-one-out check of task-record ranking against 'latest 3 on the file' (Hit@5, MRR, paired bootstrap CI); the pre-registered metric behind dec_66925aa0ee")
+    .option("--since <days>", "only task records finished in the last N days", "365")
+    .option("--split <fraction>", "evaluate the newest fraction of cases (temporal split)", "0.3")
+    .option("--json", "machine-readable report")
+    .action((opts: { since: string; split: string; json?: boolean }) => {
+      const { store } = openStore();
+      try {
+        const cutoff = Date.now() - (Number(opts.since) || 365) * 86_400_000;
+        const records = store.recs("tasks").filter((r) => (Date.parse(r.finished_at) || 0) >= cutoff);
+        const report = evaluateTaskRanking(records, { split: Math.min(1, Math.max(0.05, Number(opts.split) || 0.3)) });
+        console.log(opts.json ? JSON.stringify(report, null, 2) : renderRankEval(report));
+      } finally { store.close(); }
     });
   task.command("status").description("One line for a terminal status line: the current prompt's task when Claude Code's status-line JSON arrives on stdin, otherwise the most recent task here")
     .option("--json", "machine-readable summary")

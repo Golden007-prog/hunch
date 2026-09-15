@@ -36,6 +36,7 @@ test("gate: structure or a shared rule admits; lexical, recency or outcome alone
   assert.equal(rankTaskRecord(rec("co1", { files: ["src/other.js"] }), query(), ctx({ cochange: new Map([["src/other.js", { count: 1, strength: 0.9 }]]) })), null, "a single co-change commit is noise");
   assert.ok(rankTaskRecord(rec("rule", { files: ["src/elsewhere.js"], lessons: [lesson("con_rare")] }), query({ recordIds: new Set(["con_rare"]) }), c), "shared rule admits from another file");
   assert.equal(rankTaskRecord(rec("lex", { files: ["src/elsewhere.js"] }), query({ phrase: "config" }), c), null, "lexical alone never admits");
+  assert.equal(rankTaskRecord(rec("ubiq", { files: ["src/elsewhere.js"], lessons: [lesson("con_common")] }), query({ recordIds: new Set(["con_common"]) }), c), null, "a rule shared by most tasks is not evidence of relatedness");
   assert.equal(rankTaskRecord(rec("viol", { files: ["src/elsewhere.js"], conformance: [{ kind: "constraints", record_id: "con_x", content_hash: reportHash("x"), outcome: "violated" }] }), query(), c), null, "outcome alone never admits");
   assert.equal(rankTaskRecord(rec("gone"), query(), ctx({ anchorsAlive: () => 0 })), null, "a record whose files are all gone is excluded");
 });

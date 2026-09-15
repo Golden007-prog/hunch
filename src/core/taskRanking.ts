@@ -57,6 +57,10 @@ export const DEFAULT_WEIGHTS: Readonly<RankingWeights> = Object.freeze({
 export const RECENCY_HALF_LIFE_DAYS = 30;
 export const RECENCY_FLOOR = 0.1;
 export const COCHANGE_MIN_COUNT = 2;
+/** A shared record admits a candidate only when it is informative: present in
+ * at most half of all task records (idf ≥ ln 2). A rule every task receives
+ * says nothing about relatedness; it still contributes to the score, weakly. */
+export const RULE_GATE_MIN_IDF = Math.log(2);
 
 export type RankingTerm = keyof RankingWeights;
 
@@ -165,8 +169,9 @@ export function rankTaskRecord(record: TaskRecord, query: RankingQuery, ctx: Ran
   }
   const rulesValue = queryMass > 0 ? Math.min(1, shared.reduce((sum, s) => sum + s.idf, 0) / queryMass) : 0;
 
-  // --- gate: structure or shared rule; lexical/recency/outcome alone never admit
-  if (fileValue === 0 && shared.length === 0) return null;
+  // --- gate: structure or an informative shared rule; lexical/recency/outcome alone never admit
+  const informative = shared.some((s) => s.idf >= RULE_GATE_MIN_IDF);
+  if (fileValue === 0 && !informative) return null;
 
   const outcome = outcomeTerm(record);
   const lexicalValue = Math.max(0, Math.min(1, ctx.lexical.get(record.id) ?? 0));
