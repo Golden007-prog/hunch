@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.37.1 — 2026-09-15
 
 - The task-ranking kill rule applies itself: the leave-one-out evaluation is recomputed whenever a task record is written, delivery picks `ranked` or `latest` from it, `hunch now` and `hunch task stats` print the current verdict, and a verdict change is recorded as a finding. No command to run, nothing to configure; `taskRanking` in `.hunch/local.json` pins it if wanted.
 - Fix the `verification_argv` launcher returned by `hunch_task start` from a source checkout on Windows: `--import` now receives a file URL, so `hunch task verify` actually runs and cards show the check.
