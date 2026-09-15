@@ -41,3 +41,23 @@ test("fewer than three identical non-evaluations, and any blocking receipt, are 
   for (const id of ["pol_a", "pol_b", "pol_c", "pol_d", "pol_e"]) assert.match(lines, new RegExp(`‼ ${id} \\[active_advisory\\] error`));
   assert.equal((lines.match(/— BLOCK/g) ?? []).length, 3);
 });
+
+test("compact rendering: one line per grouped cause and one line for satisfied receipts; violations stay full", () => {
+  const cause = "no dependency snapshot cache exists on this machine (.hunch-cache/behavior-deps); executable behavior is unevaluated here, not failed — provision the policy's snapshots";
+  const results = [
+    receipt("pol_ok1", "satisfied", "symbol:a does not reach symbol:b"),
+    receipt("pol_ok2", "satisfied", "symbol:c does not reach symbol:d"),
+    ...Array.from({ length: 10 }, (_, i) => receipt(`pol_e${i}`, "error", cause)),
+    receipt("pol_bad", "violated", "symbol:x reaches symbol:y", { blocks: true }),
+  ];
+  const lines = renderPolicyEvaluations(results, { compact: true });
+  assert.equal(lines.length, 1 + 1 + 1 + 3, "header, one satisfied line, one grouped line, one full violation (3 lines)");
+  assert.match(lines[1]!, /^  ✅ 2 policies satisfied: pol_ok1, pol_ok2$/);
+  assert.match(lines[2]!, /^  ‼ 10 policies \[active_advisory\] error — no dependency snapshot cache exists on this machine · hunch policy evaluate for ids and receipts$/);
+  assert.doesNotMatch(lines.join("\n"), /policies: pol_e0/, "ids move behind the command in compact mode");
+  assert.match(lines.join("\n"), /⛔ pol_bad \[active_advisory\] violated — BLOCK\n     symbol:x reaches symbol:y\n     receipt: sha1:/);
+  // The full form is unchanged.
+  const full = renderPolicyEvaluations(results);
+  assert.match(full.join("\n"), /policies: pol_e0, pol_e1/);
+  assert.match(full.join("\n"), /✅ pol_ok1 \[active_advisory\] satisfied/);
+});

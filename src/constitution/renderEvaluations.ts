@@ -16,9 +16,32 @@ function groupKey(r: PolicyEvaluationSet): string {
   return `${r.policy.state} ${result} ${r.evaluation.explanation}`;
 }
 
-export function renderPolicyEvaluations(results: PolicyEvaluationSet[]): string[] {
+/** The cause of a grouped non-evaluation in a few words: the explanation up to
+ * its first parenthesis, semicolon or dash, so "no dependency snapshot cache
+ * exists on this machine (.hunch-cache/behavior-deps); executable behavior …"
+ * reads as its first clause. */
+function shortCause(explanation: string): string {
+  const cut = explanation.split(/[(;]| — /)[0]!.trim();
+  return cut.length > 110 ? `${cut.slice(0, 109).trimEnd()}…` : cut;
+}
+
+export interface RenderPolicyOptions {
+  /** Commit-time rendering: a grouped non-evaluation is one line and satisfied
+   * receipts collapse to one line. Violations, blocks and gate errors always
+   * render in full. `hunch policy evaluate` keeps the complete form. */
+  compact?: boolean;
+}
+
+export function renderPolicyEvaluations(results: PolicyEvaluationSet[], options: RenderPolicyOptions = {}): string[] {
   if (!results.length) return ["No Constitution policies matched."];
   const out = [`Constitution policy evaluation: ${results.length} canonical receipt(s)`];
+  if (options.compact) {
+    const satisfied = results.filter((r) => r.evaluation.result === "satisfied" && !r.blocks && !r.gate_error);
+    if (satisfied.length > 1) {
+      out.push(`  ✅ ${satisfied.length} policies satisfied: ${satisfied.map((r) => r.policy.id).join(", ")}`);
+      results = results.filter((r) => !satisfied.includes(r));
+    }
+  }
   const groups = new Map<string, PolicyEvaluationSet[]>();
   for (const r of results) {
     const key = groupKey(r);
@@ -35,6 +58,11 @@ export function renderPolicyEvaluations(results: PolicyEvaluationSet[]): string[
       for (const member of members) rendered.add(member);
       const ids = members.map((m) => m.policy.id);
       const receipts = members.map((m) => `${m.policy.id}=${m.evaluation.deterministic_hash.slice(0, 17)}`);
+      if (options.compact) {
+        // One line per cause at commit time; the ids and receipts are one command away.
+        out.push(`  ${icon} ${members.length} policies [${r.policy.state}] ${r.evaluation.result} — ${shortCause(r.evaluation.explanation)} · hunch policy evaluate for ids and receipts`);
+        continue;
+      }
       out.push(`  ${icon} ${members.length} policies [${r.policy.state}] ${r.evaluation.result} — same cause`);
       out.push(`     ${r.evaluation.explanation}`);
       out.push(`     policies: ${ids.join(", ")}`);

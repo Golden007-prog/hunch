@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Choose the RECENT TASKS lines by relevance, not recency alone: candidates are gated by structure (same file, dependent, co-change, shared rule), scored by file relation, IDF-weighted shared records, outcome, phrase match, recency and the current task's working set, then slotted as latest / problem / relevant with near-duplicates removed; each line states its reasons.
+- Quieter commit output: Constitution policies that could not be evaluated for one shared reason render as one line at commit time (ids and receipts stay one `hunch policy evaluate` away), satisfied policies collapse to one line, and the repository's memory-hygiene constraint is scoped to the memory tree instead of every file, so it no longer prints on every commit.
 
 ## 1.36.0 — 2026-09-15
 

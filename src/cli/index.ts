@@ -3715,7 +3715,7 @@ program
         }
       } else {
         console.log("");
-        renderPolicyEvaluations(policyResults).forEach((line) => console.log(line));
+        renderPolicyEvaluations(policyResults, { compact: true }).forEach((line) => console.log(line));
       }
     }
 
