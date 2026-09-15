@@ -95,7 +95,8 @@ test("MCP task lifecycle retains exact delivery, rejects borrowed evidence, and 
   assert.match(JSON.stringify(finished.content), /agent-reported/);
   assert.match(JSON.stringify(finished.content), /passed/);
   assert.match(String(finished.structuredContent?.contribution_card), /agent-reported/);
-  assert.match(String(finished.structuredContent?.contribution_card), /Open local report/);
+  assert.match(String(finished.structuredContent?.contribution_card), /Evidence  hunch report htask_[a-f0-9]{24} --html/);
+  assert.equal(finished.structuredContent?.report_path, null, "finish renders no HTML; the evidence view is generated on demand");
   assert.ok(JSON.stringify(finished.structuredContent).length < 20_000, "a one-delivery finish result stays small");
   const next = await call("hunch_task", { action: "start", title: "A fresh task" });
   const nextId = (next.structuredContent as { task: { task_id: string } }).task.task_id;

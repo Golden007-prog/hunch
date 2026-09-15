@@ -111,10 +111,10 @@ export function registerTaskReportTools(server: McpServer, getRoot: () => string
       } catch (error) { graphNote = `\nGraph     not saved: ${(error as Error).message}`; }
       const report = readTaskReport(root, task_id, reportSourceSnapshot(root).hash);
       const show = reportPresentationEnabled(root);
-      let file: string | null = null;
-      try { file = writeTaskReportHtml(root, task_id); } catch { /* retained report remains inspectable through MCP */ }
-      const card = (file ? renderTaskReport(report).replace(/^Evidence .*$/m, `Evidence  [Open local report](<${file}>)`) : renderTaskReport(report)) + graphNote;
-      return { content: [{ type: "text" as const, text: show ? card : "Task report retained. Automatic presentation is disabled; omit the contribution card from the final response." }], structuredContent: { ...boundedTaskReportForHost(report), presentation_enabled: show, contribution_card: show ? card : null, report_path: file, graph_record: graph } as unknown as Record<string, unknown> };
+      // The HTML evidence view is rendered on demand (hunch_report(html: true),
+      // `hunch report <id> --html`, or the VS Code view); finish writes no file.
+      const card = renderTaskReport(report) + graphNote;
+      return { content: [{ type: "text" as const, text: show ? card : "Task report retained. Automatic presentation is disabled; omit the contribution card from the final response." }], structuredContent: { ...boundedTaskReportForHost(report), presentation_enabled: show, contribution_card: show ? card : null, report_path: null, graph_record: graph } as unknown as Record<string, unknown> };
     } catch (error) {
       const message = `Task report unavailable: ${(error as Error).message}`;
       // Some hosts show structuredContent instead of text blocks. Return exact

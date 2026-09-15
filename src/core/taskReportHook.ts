@@ -1,6 +1,5 @@
 /** Native lifecycle coverage is independent of whether a model follows reporting
  * instructions. Only an authoritative prompt identity may join its evidence. */
-import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HookProvider, HunchHookInput } from "./agenthook.js";
@@ -9,7 +8,7 @@ import { canonicalReportRoot } from "./taskReportPaths.js";
 import { isCredentialFreeText } from "./types.js";
 import { isEmptyTaskReport, readTaskReport, recordReportRefusal, reportHash, reportPresentationEnabled, startReportTask } from "./taskReport.js";
 import { reportSourceSnapshot } from "./taskReportEvidence.js";
-import { renderTaskReport, writeTaskReportHtml } from "./taskReportRender.js";
+import { renderTaskReport } from "./taskReportRender.js";
 
 /** The exact task identity a native host prompt maps to. */
 export function promptTaskId(root: string, sessionId: string, promptId: string, agentId: string | null = null, provider: HookProvider = "claude"): string {
@@ -116,12 +115,10 @@ export function stopHookReport(root: string, provider: HookProvider, event: Hunc
   try {
     const report = readTaskReport(root, id, reportSourceSnapshot(root).hash);
     if (isEmptyTaskReport(report)) return null;
-    let card = renderTaskReport(report);
-    try {
-      const file = writeTaskReportHtml(root, id);
-      card = card.replace(/^Evidence .*$/m, `Evidence  ${pathToFileURL(file).href}`);
-    } catch { /* exact CLI evidence link remains available */ }
-    return { systemMessage: card };
+    // The HTML evidence view is a rendering of the local ledger, generated on
+    // demand (`hunch report <id> --html`, or a click in the VS Code view). The
+    // graph record is the durable memory; no file is written per prompt.
+    return { systemMessage: renderTaskReport(report) };
   } catch {
     return { systemMessage: `Hunch report unavailable for ${id}. Contribution is unverified; inspect with hunch report ${id}.` };
   }
