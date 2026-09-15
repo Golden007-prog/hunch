@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Choose the RECENT TASKS lines by relevance, not recency alone: candidates are gated by structure (same file, dependent, co-change, shared rule), scored by file relation, IDF-weighted shared records, outcome, phrase match, recency and the current task's working set, then slotted as latest / problem / relevant with near-duplicates removed; each line states its reasons.
+
 ## 1.36.0 — 2026-09-15
 
 - Stop writing an HTML evidence file on every finished prompt. The graph record is the durable memory; the local evidence view is rendered on demand by `hunch report <id> --html`, `hunch_report(html: true)` or a click in the VS Code Contribution view. The card's Evidence line names that command.

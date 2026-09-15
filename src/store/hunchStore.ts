@@ -26,6 +26,8 @@ import {
   scopedLastChangeDates,
 } from "../extractors/git.js";
 import { pathMatchesGlob, pathsRelated } from "../core/glob.js";
+import { cochangeFor } from "../core/cochange.js";
+import { normalizePath, rankTaskRecords, recordIdsOf, selectTaskSlots, type RankingContext, type RankingQuery, type RankingWeights, type SlotOptions, type TaskSelection } from "../core/taskRanking.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
@@ -1578,6 +1580,71 @@ export class HunchStore {
       .filter((r) => r.files.some((f) => pathMatchesGlob(t, f) || pathMatchesGlob(f, t) || pathsRelated(toPosixTarget(f), t)))
       .sort((a, b) => b.finished_at.localeCompare(a.finished_at) || a.id.localeCompare(b.id))
       .slice(0, Math.max(1, limit));
+  }
+
+  /** Every task record that could matter for `target` under the ranking gate:
+   *  same file (exact or glob), a dependent's file, a co-changed file, or a
+   *  record sharing one of the current task's own record ids. Bounded; the
+   *  ranker does the gating and scoring. */
+  taskCandidates(target: string, query: RankingQuery, ctx: RankingContext): TaskRecord[] {
+    const t = normalizePath(toPosixTarget(target));
+    const out = new Map<string, TaskRecord>();
+    for (const r of this.tasksFor(t, 200)) out.set(r.id, r);
+    if (ctx.dependents.size || ctx.cochange.size || query.recordIds.size) {
+      for (const r of this.recs("tasks")) {
+        if (out.has(r.id)) continue;
+        const files = r.files.map(normalizePath);
+        if (files.some((f) => ctx.dependents.has(f) || ctx.cochange.has(f))) { out.set(r.id, r); continue; }
+        if (query.recordIds.size) {
+          const ids = recordIdsOf(r);
+          for (const id of query.recordIds) if (ids.has(id)) { out.set(r.id, r); break; }
+        }
+      }
+    }
+    return [...out.values()];
+  }
+
+  /** bm25 of a phrase over task titles and lesson titles, normalized to the top hit. */
+  taskLexicalScores(phrase: string | null, limit = 50): Map<string, number> {
+    const scores = new Map<string, number>();
+    if (!phrase || !phrase.trim()) return scores;
+    const hits = this.scopedFts(phrase, "tasks", limit).filter((h) => Number.isFinite(h.score));
+    if (!hits.length) return scores;
+    // bm25 from FTS5 is negative, lower is better; normalize magnitude to the best hit.
+    const best = Math.max(...hits.map((h) => Math.abs(h.score)));
+    if (!(best > 0)) return scores;
+    for (const h of hits) scores.set(h.ref, Math.max(0, Math.min(1, Math.abs(h.score) / best)));
+    return scores;
+  }
+
+  /** Corpus inputs for ranking: dependents' files via the symbol graph, co-change
+   *  from git history (bounded, cached), record-id document frequencies across
+   *  task records, lexical scores, and which anchors still exist. */
+  taskRankingContext(target: string, query: RankingQuery): RankingContext {
+    const t = normalizePath(toPosixTarget(target));
+    const dependents = new Set<string>();
+    try {
+      const symbolFile = new Map(this.recs("symbols").map((s) => [s.id, normalizePath(s.file)]));
+      for (const sym of this.why(t).symbols) {
+        for (const d of this.getDependents(sym.id)) { const f = symbolFile.get(d.id); if (f && f !== t) dependents.add(f); }
+      }
+    } catch { /* no symbol graph: the dependents term is simply absent */ }
+    const cochange = /[./]/.test(t) && !/\s/.test(t) ? cochangeFor(this.paths.root, t) : new Map();
+    const tasks = this.recs("tasks");
+    const df = new Map<string, number>();
+    for (const r of tasks) for (const id of recordIdsOf(r)) df.set(id, (df.get(id) ?? 0) + 1);
+    const n = Math.max(1, tasks.length);
+    const ruleStats = (id: string) => { const d = df.get(id) ?? 0; return { df: d, idf: Math.log((n + 1) / (d + 1)) + 1e-6 }; };
+    const lexical = this.taskLexicalScores(query.phrase);
+    const anchorsAlive = (r: TaskRecord) => r.files.length ? r.files.filter((f) => existsSync(join(this.paths.root, normalizePath(f)))).length / r.files.length : 1;
+    return { dependents, cochange, ruleStats, lexical, anchorsAlive };
+  }
+
+  /** Gate → score → slots for one target and the current task's query (dec_66925aa0ee). */
+  selectTasksFor(target: string, query: RankingQuery, options: SlotOptions & { weights?: Readonly<RankingWeights> } = {}): TaskSelection {
+    const ctx = this.taskRankingContext(target, query);
+    const ranked = rankTaskRecords(this.taskCandidates(target, query, ctx), query, ctx, options.weights);
+    return selectTaskSlots(ranked, options);
   }
 
   /** The causal chain behind a constraint — the WHY a diff-only reviewer can't see.

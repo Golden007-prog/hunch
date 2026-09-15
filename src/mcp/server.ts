@@ -33,7 +33,8 @@ import { withWriteLock } from "../serve/writelock.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, overlayMatchesTeamRemote, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
 import { formatSearchHit, formatStructure } from "../core/format.js";
 import { isStateKind, stateSupplements } from "../core/stateDelivery.js";
-import { taskSupplements } from "../core/taskDelivery.js";
+import { taskSelectionSupplements } from "../core/taskDelivery.js";
+import { buildTaskRankingQuery } from "../core/taskQuery.js";
 import { diagnoseIssueCorrectionStage, formatCorrectionStageDiagnostic } from "../core/correctionStage.js";
 import {
   compileVerifiedEvidenceMap,
@@ -1280,7 +1281,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       const stateGrounding = asOf ? [] : stateSupplements(store.stateSlice(target), target);
       // Recent finished tasks that touched the target: what earlier agent work did
       // here, from graph memory. Advisory history sharing the brief's budget.
-      const recentTasks = asOf ? [] : taskSupplements(store.tasksFor(target, 3), target);
+      const recentTasks = asOf ? [] : taskSelectionSupplements(store.selectTasksFor(target, buildTaskRankingQuery(root, task_id ?? null, target)), target);
       const options = {
         root,
         symbols: store.recs("symbols"),
