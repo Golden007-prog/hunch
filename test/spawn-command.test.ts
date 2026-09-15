@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { resolveSpawnCommand } from "../src/core/spawnCommand.js";
 import { finishReportTask, readTaskReport, startReportTask } from "../src/core/taskReport.js";
 import { runReportCheck } from "../src/core/taskReportEvidence.js";
@@ -28,7 +28,7 @@ test("Windows: npm and npx run as Node scripts, no shim and no shell", () => {
   const r = resolveSpawnCommand(["npx", "tsx", "--test", "test/a.test.ts"], { ...win, exists });
   assert.equal(r.how, "npm-cli");
   assert.equal(r.file, win.execPath);
-  assert.deepEqual(r.args, [join("C:\\Program Files\\nodejs", "node_modules", "npm", "bin", "npx-cli.js"), "tsx", "--test", "test/a.test.ts"]);
+  assert.deepEqual(r.args, [win32.join("C:\\Program Files\\nodejs", "node_modules", "npm", "bin", "npx-cli.js"), "tsx", "--test", "test/a.test.ts"]);
   assert.equal(resolveSpawnCommand(["NPM", "test"], { ...win, exists }).how, "npm-cli");
 });
 

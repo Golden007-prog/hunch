@@ -8,7 +8,7 @@
  * executables and only routes batch launchers through `cmd.exe`, with the
  * npm/npx launchers run as plain Node scripts (no shell at all). */
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { posix, win32 } from "node:path";
 
 export interface ResolvedSpawn {
   file: string;
@@ -42,6 +42,9 @@ export function resolveSpawnCommand(command: readonly string[], options: SpawnRe
   const env = options.env ?? process.env;
   const exists = options.exists ?? existsSync;
   const execPath = options.execPath ?? process.execPath;
+  // Resolve Windows paths with Windows semantics even when the resolution is
+  // exercised (tested) on another platform; the host's default `path` is POSIX there.
+  const { join, dirname } = platform === "win32" ? win32 : posix;
 
   // npm / npx: run the CLI script with this same Node. No shim, no shell.
   if (/^(npm|npx)$/i.test(cmd)) {
