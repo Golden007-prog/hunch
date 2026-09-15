@@ -51,7 +51,9 @@ export function taskSelectionSupplements(selection: TaskSelection, target: strin
   if (!selection.picks.length) return [];
   const counts: Record<SlotName, number> = { latest: 0, violation: 0, relevant: 0 };
   for (const p of selection.picks) counts[p.slot]++;
-  const parts = [counts.latest ? "latest" : null, counts.violation ? "problem" : null, counts.relevant ? `relevant ${counts.relevant}` : null].filter(Boolean).join(" · ");
+  const parts = selection.mode === "latest"
+    ? `latest ${counts.latest} (ranking off: it lost its evaluation; hunch task rank-eval)`
+    : [counts.latest ? "latest" : null, counts.violation ? "problem" : null, counts.relevant ? `relevant ${counts.relevant}` : null].filter(Boolean).join(" · ");
   return [
     {
       id: "recent-tasks", kind: "recent-tasks", priority: 415,

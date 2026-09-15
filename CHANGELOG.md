@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The task-ranking kill rule applies itself: the leave-one-out evaluation is recomputed whenever a task record is written, delivery picks `ranked` or `latest` from it, `hunch now` and `hunch task stats` print the current verdict, and a verdict change is recorded as a finding. No command to run, nothing to configure; `taskRanking` in `.hunch/local.json` pins it if wanted.
+
 ## 1.37.0 — 2026-09-15
 
 - Task records carry `supersedes`: a verified later task on the same file hides the older ones it re-checked; delivered task lines are receipts, so recency follows last delivery rather than finish time alone.

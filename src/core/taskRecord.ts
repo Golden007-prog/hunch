@@ -18,6 +18,7 @@ import { hunchPaths } from "./paths.js";
 import { isEmptyTaskReport, readTaskReport, reportHash, type TaskReport, type TaskSummary } from "./taskReport.js";
 import { reportSourceSnapshot } from "./taskReportEvidence.js";
 import { ENTITY_KINDS, TaskRecordSchema, type EntityKind, type TaskRecord } from "./types.js";
+import { refreshRankEval } from "./taskRankingMode.js";
 
 export type TaskRecordHome = "public" | "private";
 
@@ -151,6 +152,8 @@ export function persistTaskRecord(root: string, store: HunchStore, taskId: strin
   store.reindex();
   const flushNow = options.flush ?? taskRecordFlushMode(root) === "each";
   const flushed = flushNow ? flushCapture(store, hunchPaths(root).hunch, home === "private", `hunch: task ${record.id}`) : null;
+  // The ranking evaluation follows the corpus: recomputed here, read at delivery. Never blocks a finish.
+  refreshRankEval(root, store);
   return { record: stored, home, flushed, changed: true };
 }
 

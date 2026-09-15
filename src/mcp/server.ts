@@ -1289,7 +1289,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       const stateGrounding = asOf ? [] : stateSupplements(store.stateSlice(target), target);
       // Recent finished tasks that touched the target: what earlier agent work did
       // here, from graph memory. Advisory history sharing the brief's budget.
-      const recentTasks = asOf ? [] : taskSelectionSupplements(store.selectTasksFor(target, buildTaskRankingQuery(root, task_id ?? null, target)), target);
+      const recentTasks = asOf ? [] : taskSelectionSupplements(store.selectTasksAuto(target, buildTaskRankingQuery(root, task_id ?? null, target)), target);
       const options = {
         root,
         symbols: store.recs("symbols"),
