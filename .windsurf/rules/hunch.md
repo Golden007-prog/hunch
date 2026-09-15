@@ -6,7 +6,7 @@ description: Hunch engineering memory — consult the hunch_* MCP tools before e
 <!-- HUNCH:START — auto-generated, do not edit by hand -->
 ## 🧠 Hunch (Engineering Memory)
 
-This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **281 decisions, 2 bugs, 30 constraints, 22 components, 3 policies, 2 open findings**.
+This repo has **Hunch** — a curated graph of *why* the code is the way it is (decisions, bug history, invariants). It currently holds **279 decisions, 2 bugs, 30 constraints, 22 components, 3 policies, 3 open findings**.
 
 **Consult Hunch via the `hunch_*` MCP tools — pick by MOMENT, not from memory:**
 
@@ -39,7 +39,7 @@ This repo has **Hunch** — a curated graph of *why* the code is the way it is (
 - When running a relevant check, use the exact verification_argv launcher returned by hunch_task start, followed by the check command and its arguments, from this worktree. It runs `hunch task verify <task_id> -- <command> [arguments]` using the same installation as MCP, avoiding stale global binaries. This retains the actual exit result and source snapshot; raw output is not stored. Do not rerun an expensive check solely for reporting; missing evidence stays unverified.
 - Include the current task_id when calling hunch_record_decision, hunch_record_correction, or hunch_record_finding. The save path records its actual memory home and verifies exact Git revisions when committing or pushing; never infer publication from a successful capture alone.
 - Before claiming an application, call `hunch_report(task_id)` and copy the exact occurrence_id, record_id and content_hash from application_references, adding an action you actually took. Never derive an occurrence ID by replacing a receipt prefix or use the task's scope hash as a record hash. If you did not apply a lesson, omit applications.
-- Call `hunch_task(action: "finish", task_id, applications?)` and include the returned contribution_card in your final response without the user asking. Copy the card verbatim, including its Evidence line (the command that renders the local report on demand) and the agent-reported label; the structured result contains the card even when the host hides text blocks. Do not replace it with a generic claim that Hunch helped. If presentation_enabled is false, omit the card. A delivered lesson or passing command alone does not prove causal impact.
+- Call `hunch_task(action: "finish", task_id, applications?)` and include the returned contribution_card in your final response without the user asking. Render its Markdown evidence link outside any code block so it remains clickable. Copy the card with its evidence link and agent-reported label intact; the structured result contains the card even when the host hides text blocks. Do not replace it with a generic claim that Hunch helped. If presentation_enabled is false, omit the card. A delivered lesson or passing command alone does not prove causal impact.
 - If interrupted, finish with `outcome: "interrupted"` when possible. `hunch_report(task_id, html: true)` opens the evidence trail by generating a local file; it may contain private memory and is not a public export. If report tools are unavailable after an update, say so and reconnect the host rather than inventing a report.
 
 **Build the Constitution review queue:**
