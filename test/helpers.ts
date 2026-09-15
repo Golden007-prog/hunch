@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { hunchPaths } from "../src/core/paths.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { indexRepo } from "../src/extractors/indexer.js";
@@ -104,4 +105,12 @@ export function cleanupDir(dir: string): void {
       while (Date.now() < until) { /* sync wait — node:test has no async cleanup here */ }
     }
   }
+}
+
+/** `--import` needs a URL. Under `node --import tsx` import.meta.resolve returns
+ * one, but under the `tsx --test` runner on Windows it returns a bare path, and
+ * Node then rejects the `c:` scheme; every CLI-spawning test failed locally. */
+export function tsxLoaderUrl(): string {
+  const spec = import.meta.resolve("tsx");
+  return spec.startsWith("file:") ? spec : pathToFileURL(spec).href;
 }

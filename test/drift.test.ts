@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { tempStore, prov } from "./helpers.js";
+import { tempStore, prov, tsxLoaderUrl } from "./helpers.js";
 import { computeDrift } from "../src/core/drift.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { HunchStore } from "../src/store/hunchStore.js";
@@ -238,7 +238,7 @@ test("drift --fail-on turns a reported kind into a gate failure; unknown kinds a
     provenance: prov(),
   } as never);
   store.close();
-  const cli = resolve("src/cli/index.ts"), tsx = resolve("node_modules/tsx/dist/loader.mjs");
+  const cli = resolve("src/cli/index.ts"), tsx = tsxLoaderUrl();
   const env = { ...process.env, HUNCH_PIPELINE: "0", HUNCH_SYNTH_PROVIDER: "deterministic" };
   delete env.HUNCH_PRIVATE_DIR;
   const run = (...args: string[]) => {
