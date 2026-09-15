@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A verification whose runner died no longer freezes its task: a check-start with no result stops blocking completion after its own timeout plus a minute of grace; no result is invented and the report still discloses that none was retained.
+- One task record per episode: a prompt that follows another of the same session within 30 minutes continues its task, and the chain's graph record is written under the first task's id and refreshed as prompts finish. Follow-up prompts ("status", "next", "go") no longer leave empty rows; `hunch task list` shows what each prompt continues.
+- The lifecycle Stop hook closes the prompt's task as a host close and keeps its graph record, so a task with observations becomes memory even when the agent never called finish. A continuation reopens the task and the next Stop refreshes the record; an explicit agent finish overrides the host close. Pending verification keeps the task open.
+- Task records anchor to the files git saw change while the task was open (the user's commits in the window and fresh working-tree edits), so work done from a shell, a rebase or a release commit relates the task to later work on the same files.
+
 ## 1.37.1 — 2026-09-15
 
 - The task-ranking kill rule applies itself: the leave-one-out evaluation is recomputed whenever a task record is written, delivery picks `ranked` or `latest` from it, `hunch now` and `hunch task stats` print the current verdict, and a verdict change is recorded as a finding. No command to run, nothing to configure; `taskRanking` in `.hunch/local.json` pins it if wanted.

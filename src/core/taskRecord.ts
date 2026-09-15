@@ -15,10 +15,11 @@ import { join } from "node:path";
 import { flushCapture } from "../integrations/sync.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { hunchPaths } from "./paths.js";
-import { isEmptyTaskReport, readTaskReport, reportHash, type TaskReport, type TaskSummary } from "./taskReport.js";
+import { episodeTasks, isEmptyTaskReport, readTaskReport, reportHash, type TaskReport, type TaskSummary } from "./taskReport.js";
 import { reportSourceSnapshot } from "./taskReportEvidence.js";
 import { ENTITY_KINDS, TaskRecordSchema, type EntityKind, type TaskRecord } from "./types.js";
 import { refreshRankEval } from "./taskRankingMode.js";
+import { gitTouchedFiles } from "./taskTouched.js";
 
 export type TaskRecordHome = "public" | "private";
 
@@ -49,43 +50,71 @@ export function targetLooksLikePath(target: string): boolean {
   return /[./\\]/.test(t) && !/^\.+$/.test(t);
 }
 
-/** The durable summary of a finished report, or null when there is nothing to keep. */
-export function taskRecordFromReport(report: TaskReport): TaskRecord | null {
-  const { task } = report;
-  if (task.state === "open" || !task.finished_at) return null;
-  if (isEmptyTaskReport(report)) return null;
+/** The durable summary of a finished report, or null when there is nothing to keep.
+ * `touched` adds file anchors the report itself cannot know (git-side work while
+ * the task was open); report-derived files come first under the cap. */
+export function taskRecordFromReport(report: TaskReport, touched: readonly string[] = []): TaskRecord | null {
+  return taskRecordFromReports([report], touched);
+}
+
+const GENERIC_TASK_TITLES: ReadonlySet<string> = new Set(["Assistant task", "Claude task"]);
+const COVERAGE_RANK = { "no-delivery-observed": 0, "no-relevant-memory": 1, delivered: 2 } as const;
+
+/** One record for an EPISODE: a prompt's report and the reports of the prompts
+ * that continued it in the same session (oldest first). Observations are the
+ * union in order, the id and start are the head's, the title is the first
+ * non-generic one, state and finish come from the latest closed member, and
+ * the report hash covers every member so a refresh is idempotent. Members
+ * still open contribute nothing yet. Null when nothing was observed at all. */
+export function taskRecordFromReports(reports: readonly TaskReport[], touched: readonly string[] = []): TaskRecord | null {
+  const closed = reports.filter((r) => r.task.state !== "open" && r.task.finished_at);
+  if (!closed.length || closed.every((r) => isEmptyTaskReport(r))) return null;
+  const head = reports[0]!.task;
+  const last = closed.reduce((a, b) => (b.task.finished_at! >= a.task.finished_at! ? b : a));
+  const title = reports.map((r) => r.task.title).find((t) => !GENERIC_TASK_TITLES.has(t)) ?? head.title;
   const lessons = new Map<string, TaskRecord["lessons"][number]>();
-  for (const delivery of report.deliveries) {
-    for (const r of delivery.records) {
-      lessons.set(`${r.kind}:${r.record_id}:${r.content_hash}`, { kind: r.kind, record_id: r.record_id, content_hash: r.content_hash, title: r.title.slice(0, 200) });
-    }
-  }
   const files = new Set<string>();
-  for (const d of report.deliveries) if (d.target && targetLooksLikePath(d.target)) files.add(d.target.trim().replace(/\\/g, "/"));
-  for (const c of report.conformance) for (const f of c.files) files.add(f);
-  for (const r of report.refusals) files.add(r.target);
   const latestRule = new Map<string, TaskRecord["conformance"][number]>();
-  for (const c of report.conformance) {
-    latestRule.set(`${c.kind}:${c.record_id}:${c.content_hash}`, { kind: c.kind, record_id: c.record_id, content_hash: c.content_hash, outcome: c.outcome });
+  const applied: TaskRecord["applied"] = [], saved: TaskRecord["saved"] = [], checks: TaskRecord["checks"] = [];
+  let refusals = 0, coverage: TaskRecord["coverage"] = "no-delivery-observed", sourceSnapshot: string | null = null;
+  for (const report of closed) {
+    for (const delivery of report.deliveries) {
+      if (delivery.target && targetLooksLikePath(delivery.target)) files.add(delivery.target.trim().replace(/\\/g, "/"));
+      for (const r of delivery.records) lessons.set(`${r.kind}:${r.record_id}:${r.content_hash}`, { kind: r.kind, record_id: r.record_id, content_hash: r.content_hash, title: r.title.slice(0, 200) });
+    }
+    for (const c of report.conformance) {
+      for (const f of c.files) files.add(f);
+      latestRule.set(`${c.kind}:${c.record_id}:${c.content_hash}`, { kind: c.kind, record_id: c.record_id, content_hash: c.content_hash, outcome: c.outcome });
+    }
+    for (const r of report.refusals) files.add(r.target);
+    applied.push(...report.claims.map((c) => ({ record_id: c.record_id, content_hash: c.content_hash, action: c.action.slice(0, 300), supported_by: c.supported_by })));
+    saved.push(...report.saves.map((s) => ({ kind: s.record.kind, record_id: s.record.record_id, content_hash: s.record.content_hash, home: s.home, operation: s.operation, durability: s.durability })));
+    checks.push(...report.checks.map((c) => ({ label: c.label, state: (c.cancelled ? "cancelled" : c.timed_out ? "timed out" : c.exit_code === 0 ? "passed" : "failed") as TaskRecord["checks"][number]["state"], exit_code: c.exit_code })));
+    refusals += report.refusals.length;
+    if (COVERAGE_RANK[report.coverage] > COVERAGE_RANK[coverage]) coverage = report.coverage;
+    const lastCheck = report.checks.at(-1);
+    if (lastCheck) sourceSnapshot = lastCheck.after_snapshot ?? null;
   }
-  const lastCheck = report.checks.at(-1);
+  const fromReport = [...files].sort();
+  const extra = [...new Set(touched.map((f) => f.trim().replace(/\\/g, "/")).filter((f) => f && !files.has(f)))].sort();
   return TaskRecordSchema.parse({
-    id: task.task_id,
-    title: task.title,
-    state: task.state,
-    started_at: task.started_at,
-    finished_at: task.finished_at,
-    coverage: report.coverage,
+    id: head.task_id,
+    title,
+    state: last.task.state,
+    started_at: head.started_at,
+    finished_at: last.task.finished_at,
+    coverage,
     lessons: [...lessons.values()],
-    applied: report.claims.map((c) => ({ record_id: c.record_id, content_hash: c.content_hash, action: c.action.slice(0, 300), supported_by: c.supported_by })),
-    saved: report.saves.map((s) => ({ kind: s.record.kind, record_id: s.record.record_id, content_hash: s.record.content_hash, home: s.home, operation: s.operation, durability: s.durability })),
-    checks: report.checks.map((c) => ({ label: c.label, state: c.cancelled ? "cancelled" : c.timed_out ? "timed out" : c.exit_code === 0 ? "passed" : "failed", exit_code: c.exit_code })),
+    applied,
+    saved,
+    checks: checks.slice(-64),
     conformance: [...latestRule.values()],
-    refusals: report.refusals.length,
-    files: [...files].sort().slice(0, 64),
-    source_snapshot: lastCheck?.after_snapshot ?? null,
-    report_hash: report.content_hash,
-    provenance: { source: "task_report", confidence: 1, evidence: [`hunch report ${task.task_id}`], last_verified: task.finished_at },
+    refusals,
+    files: [...fromReport, ...extra].slice(0, 64),
+    source_snapshot: sourceSnapshot,
+    // One member: its own hash, so records written before episodes existed do not all refresh.
+    report_hash: closed.length === 1 ? closed[0]!.content_hash : reportHash(closed.map((r) => r.content_hash)),
+    provenance: { source: "task_report", confidence: 1, evidence: closed.slice(0, 20).map((r) => `hunch report ${r.task.task_id}`), last_verified: last.task.finished_at },
   });
 }
 
@@ -139,12 +168,32 @@ export interface PersistedTaskRecord {
  * open task, an empty report, or when task records are disabled locally. */
 export function persistTaskRecord(root: string, store: HunchStore, taskId: string, options: { flush?: boolean } = {}): PersistedTaskRecord | null {
   if (!taskRecordsEnabled(root)) return null;
-  const report = readTaskReport(root, taskId, reportSourceSnapshot(root).hash);
-  const built = taskRecordFromReport(report);
+  const snapshot = reportSourceSnapshot(root).hash;
+  const own = readTaskReport(root, taskId, snapshot);
+  if (own.task.state === "open") return null;
+  // The record covers the whole episode: this prompt and the prompts of the
+  // same session it continued. Work done outside an instrumented editor (shell
+  // edits, rebases, release commits) still anchors it: git says what changed
+  // while the episode was open.
+  const headId = own.task.episode ?? own.task.task_id;
+  const members = headId === own.task.task_id && !own.task.episode ? [own.task] : episodeTasks(root, headId);
+  const reports = (members.length ? members : [own.task]).map((t) => (t.task_id === taskId ? own : readTaskReport(root, t.task_id, snapshot)));
+  const window = { from: reports[0]!.task.started_at, to: reports.reduce<string | null>((max, r) => (r.task.finished_at && (!max || r.task.finished_at > max) ? r.task.finished_at : max), null) };
+  let built = taskRecordFromReports(reports, gitTouchedFiles(root, window.from, window.to));
   if (!built) return null;
+  let inPrivate = store.hasPrivate ? store.getPrivateRec("tasks", built.id) : undefined;
+  let inPublic = store.json.get("tasks", built.id);
+  // A record never changes home. If the episode's record already lives in the
+  // public store and this prompt brought private-only memory into it, the
+  // episode splits here: this prompt keeps its own record instead of naming
+  // private memory in a public one.
+  if (inPublic && !inPrivate && taskRecordHome(store, built) === "private" && built.id !== taskId) {
+    built = taskRecordFromReports([own], gitTouchedFiles(root, own.task.started_at, own.task.finished_at));
+    if (!built) return null;
+    inPrivate = store.hasPrivate ? store.getPrivateRec("tasks", built.id) : undefined;
+    inPublic = store.json.get("tasks", built.id);
+  }
   const record: TaskRecord = { ...built, supersedes: computeSupersedes(built, store.recs("tasks")) };
-  const inPrivate = store.hasPrivate ? store.getPrivateRec("tasks", record.id) : undefined;
-  const inPublic = store.json.get("tasks", record.id);
   const home: TaskRecordHome = inPrivate ? "private" : inPublic ? "public" : taskRecordHome(store, record);
   const existing = home === "private" ? inPrivate : inPublic;
   if (existing && existing.report_hash === record.report_hash) return { record: existing, home, flushed: null, changed: false };
@@ -190,7 +239,9 @@ export function mergeDurableTaskSummaries(store: HunchStore, summaries: TaskSumm
   const seen = new Set<string>();
   const merged: TaskSummary[] = summaries.map((s) => {
     seen.add(s.task.task_id);
-    const home = homes.get(s.task.task_id);
+    // A continued prompt's record lives under its episode head.
+    const home = homes.get(s.task.task_id) ?? homes.get(s.task.episode ?? "");
+    if (s.task.episode) seen.add(s.task.episode);
     return { ...s, durable: home ? { home } : null };
   });
   for (const r of records.values()) {

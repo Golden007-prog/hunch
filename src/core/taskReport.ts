@@ -92,6 +92,19 @@ const TaskSchema = z.object({
   task_id: TaskIdSchema, scope: hashSchema, title: safeText(200),
   started_at: z.string().datetime(), finished_at: z.string().datetime().nullable(),
   state: z.enum(["open", "completed", "interrupted"]),
+  /** Who closed the task. "host": the lifecycle hook at Stop, a provisional
+   * close that a continuation reopens and an explicit agent finish overrides.
+   * Absent on rows written before this field existed (agent closes). */
+  closed_by: z.enum(["agent", "host"]).optional(),
+  /** Continuity across the prompts of one host session. `session_key` is a hash
+   * of (root, provider, session, agent), never the identifier itself; `continues`
+   * names the previous prompt's task when this prompt followed it within the
+   * continuation window; `episode` names the first task of that chain, the id
+   * the chain's graph record is written under. Absent on older rows and on
+   * tasks started without a host session (one task, one episode). */
+  session_key: hashSchema.optional(),
+  continues: TaskIdSchema.optional(),
+  episode: TaskIdSchema.optional(),
 }).strict();
 export type ReportTask = z.infer<typeof TaskSchema>;
 export interface TaskDelivery {
@@ -251,9 +264,10 @@ function transaction<T>(db: Database, run: () => T, readOnly = false): T {
   try { const result = run(); db.exec("COMMIT"); return result; }
   catch (error) { db.exec("ROLLBACK"); throw error; }
 }
-export function startReportTask(root: string, title: string, taskId?: string): ReportTask {
+export interface TaskLinks { session_key?: string; continues?: string; episode?: string }
+export function startReportTask(root: string, title: string, taskId?: string, links: TaskLinks = {}): ReportTask {
   const task = TaskSchema.parse({ task_id: taskId ?? `htask_${randomBytes(12).toString("hex")}`,
-    scope: scopeOf(root), title, started_at: new Date().toISOString(), finished_at: null, state: "open" });
+    scope: scopeOf(root), title, started_at: new Date().toISOString(), finished_at: null, state: "open", ...links });
   // Local observations have a bounded lifetime; durable project memory is untouched.
   pruneReportHistory(root);
   return taskDb(root, db => transaction(db, () => {
@@ -266,6 +280,30 @@ export function startReportTask(root: string, title: string, taskId?: string): R
     db.prepare("INSERT INTO report_tasks VALUES (?, ?, ?)").run(task.task_id, task.scope, JSON.stringify(task));
     return task;
   }));
+}
+
+/** A prompt that follows another in the same session within this window is the
+ * same work: its task continues the previous one and shares its episode. */
+export const CONTINUATION_WINDOW_MS = 30 * 60_000;
+/** The links a new prompt's task takes from the latest task of its session, or
+ * null when that task is too old (measured from its close, or its start when it
+ * was never closed) to be the same work. */
+export function continuationLinks(previous: ReportTask | null, nowMs = Date.now()): { continues: string; episode: string } | null {
+  if (!previous) return null;
+  const reference = Date.parse(previous.finished_at ?? previous.started_at);
+  if (!Number.isFinite(reference) || nowMs - reference > CONTINUATION_WINDOW_MS) return null;
+  return { continues: previous.task_id, episode: previous.episode ?? previous.task_id };
+}
+/** The most recent task of a session in this worktree, or null. */
+export function latestSessionTask(root: string, sessionKey: string): ReportTask | null {
+  return taskDb(root, db => {
+    const row = db.prepare("SELECT body FROM report_tasks WHERE scope IN (?, ?, ?) AND json_extract(body, '$.session_key') = ? ORDER BY rowid DESC LIMIT 1").get(...scopePair(root), sessionKey) as { body: string } | undefined;
+    return row ? TaskSchema.parse(JSON.parse(row.body)) : null;
+  });
+}
+/** Every task of an episode, oldest first: the head and the prompts that continued it. */
+export function episodeTasks(root: string, headId: string): ReportTask[] {
+  return taskDb(root, db => (db.prepare("SELECT body FROM report_tasks WHERE task_id = ? OR json_extract(body, '$.episode') = ? ORDER BY rowid").all(headId, headId) as Array<{ body: string }>).map(r => TaskSchema.parse(JSON.parse(r.body))));
 }
 
 function appendEvent(root: string, taskId: string, kind: string, body: unknown, eventId?: string): string {
@@ -281,14 +319,20 @@ function appendEvent(root: string, taskId: string, kind: string, body: unknown, 
       if (prior.task_id !== taskId || prior.kind !== kind || prior.content_hash !== contentHash) throw new Error("report event identity conflicts with existing evidence");
       return id;
     }
-    if (task.state !== "open" && !(kind === "check" && task.state === "interrupted")) throw new Error("task is already closed; start a new task for new work");
+    if (task.state !== "open" && !(kind === "check" && task.state === "interrupted")) {
+      if (task.closed_by !== "host") throw new Error("task is already closed; start a new task for new work");
+      // The host closed this task at Stop, but the turn went on (another hook's
+      // block, a resumed prompt). Reopen it for the new observation; the next
+      // Stop closes it again and the graph record is refreshed from the report.
+      db.prepare("UPDATE report_tasks SET body = ? WHERE task_id = ?").run(JSON.stringify(TaskSchema.parse({ ...task, state: "open", finished_at: null, closed_by: undefined })), taskId);
+    }
     if (kind === "check") {
       const check = ReportCheckSchema.parse(body);
       if (!check.check_id || !db.prepare("SELECT event_id FROM report_events WHERE event_id = ? AND task_id = ? AND kind = 'check-start'").get(check.check_id, taskId)) throw new Error("verification result has no matching start in this task");
     }
     const { total, bytes, pending } = db.prepare(`SELECT COUNT(*) AS total,
       COALESCE(SUM(length(CAST(body AS BLOB))), 0) AS bytes,
-      SUM(CASE WHEN kind = 'check-start' THEN 1 WHEN kind = 'check' AND json_extract(body, '$.check_id') IS NOT NULL THEN -1 ELSE 0 END) AS pending
+      SUM(CASE WHEN kind = 'check-start' AND (julianday('now') - julianday(at)) * 86400000 < COALESCE(json_extract(body, '$.timeout_ms'), ${MAX_PENDING_CHECK_MS}) + ${CHECK_RESULT_GRACE_MS} THEN 1 WHEN kind = 'check' AND json_extract(body, '$.check_id') IS NOT NULL THEN -1 ELSE 0 END) AS pending
       FROM report_events WHERE task_id = ?`).get(taskId) as { total: number; bytes: number; pending: number | null };
     const reserved = Math.max(0, (pending ?? 0) + (kind === "check-start" ? 1 : kind === "check" ? -1 : 0));
     if (total + 1 + reserved > MAX_EVENTS || bytes + Buffer.byteLength(encoded) + reserved * MAX_EVENT_BYTES > MAX_TASK_BYTES) throw new Error("task observation limit reached; start a new task");
@@ -373,21 +417,39 @@ export function recordReportCheck(root: string, taskId: string, check: ReportChe
   if (!value.check_id) throw new Error("verification result requires a reserved check identity");
   return appendEvent(root, taskId, "check", value, `hev_${reportHash({ taskId, check: value.check_id }).slice(7, 31)}`);
 }
-export function beginReportCheck(root: string, taskId: string, label: string): string {
-  return appendEvent(root, taskId, "check-start", { label: safeText(200).parse(label) });
+/** A start without a result blocks completion only while the runner could still
+ * deliver one: its own timeout plus a minute of grace. After that the runner is
+ * gone (a killed process, a closed laptop) and the report's unknowns already say
+ * the result was not retained; freezing the task forever would add nothing.
+ * Starts recorded before the timeout was retained use the verification ceiling. */
+export const CHECK_RESULT_GRACE_MS = 60_000;
+export const MAX_PENDING_CHECK_MS = 6 * 60 * 60_000;
+export function beginReportCheck(root: string, taskId: string, label: string, timeoutMs?: number): string {
+  const timeout = Number.isInteger(timeoutMs) && (timeoutMs as number) > 0 ? { timeout_ms: timeoutMs } : {};
+  return appendEvent(root, taskId, "check-start", { label: safeText(200).parse(label), ...timeout });
 }
-export function finishReportTask(root: string, taskId: string, state: "completed" | "interrupted" = "completed"): ReportTask {
+/** `by: "host"` is the lifecycle hook closing the prompt's task at Stop. It is
+ * provisional: a later observation reopens the task (see appendEvent) and an
+ * explicit agent finish, with any outcome, replaces it. Pending verification
+ * keeps the task open for either closer. */
+export function finishReportTask(root: string, taskId: string, state: "completed" | "interrupted" = "completed", options: { by?: "agent" | "host" } = {}): ReportTask {
+  const by = options.by ?? "agent";
   return taskDb(root, db => transaction(db, () => {
     const task = readTask(db, root, taskId);
     if (task.state !== "open") {
+      if (task.closed_by === "host" && by === "agent") {
+        const confirmed = TaskSchema.parse({ ...task, state, finished_at: task.state === state ? task.finished_at : new Date().toISOString(), closed_by: "agent" });
+        db.prepare("UPDATE report_tasks SET body = ? WHERE task_id = ?").run(JSON.stringify(confirmed), taskId);
+        return confirmed;
+      }
       if (task.state !== state) throw new Error("task already closed with a different outcome");
       return task;
     }
     if (state === "completed") {
-      const { pending } = db.prepare(`SELECT SUM(CASE WHEN kind = 'check-start' THEN 1 WHEN kind = 'check' AND json_extract(body, '$.check_id') IS NOT NULL THEN -1 ELSE 0 END) AS pending FROM report_events WHERE task_id = ?`).get(taskId) as { pending: number | null };
+      const { pending } = db.prepare(`SELECT SUM(CASE WHEN kind = 'check-start' AND (julianday('now') - julianday(at)) * 86400000 < COALESCE(json_extract(body, '$.timeout_ms'), ${MAX_PENDING_CHECK_MS}) + ${CHECK_RESULT_GRACE_MS} THEN 1 WHEN kind = 'check' AND json_extract(body, '$.check_id') IS NOT NULL THEN -1 ELSE 0 END) AS pending FROM report_events WHERE task_id = ?`).get(taskId) as { pending: number | null };
       if ((pending ?? 0) > 0) throw new Error("verification is still running or was interrupted; wait for its result or close the task as interrupted");
     }
-    const finished = TaskSchema.parse({ ...task, state, finished_at: new Date().toISOString() });
+    const finished = TaskSchema.parse({ ...task, state, finished_at: new Date().toISOString(), closed_by: by });
     db.prepare("UPDATE report_tasks SET body = ? WHERE task_id = ?").run(JSON.stringify(finished), taskId);
     return finished;
   }));

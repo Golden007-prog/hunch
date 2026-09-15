@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildDeliveryEnvelope } from "../src/core/delivery.js";
 import type { AssembledContext } from "../src/store/hunchStore.js";
-import { finishReportTask, forgetReportTask, listTaskSummaries, readTaskReport, recordReportSave, recordTaskDelivery, reportHash, startReportTask } from "../src/core/taskReport.js";
+import { CONTINUATION_WINDOW_MS, continuationLinks, finishReportTask, forgetReportTask, listTaskSummaries, readTaskReport, recordReportSave, recordTaskDelivery, reportHash, startReportTask } from "../src/core/taskReport.js";
 import { computeSupersedes, mergeDurableTaskSummaries, persistTaskRecord, targetLooksLikePath, taskRecordFromReport } from "../src/core/taskRecord.js";
+import { gitTouchedFiles } from "../src/core/taskTouched.js";
 import { TaskRecordSchema, type TaskRecord } from "../src/core/types.js";
 import { canonicalReportRoot } from "../src/core/taskReportPaths.js";
 import { promptTaskTitle } from "../src/core/taskReportHook.js";
@@ -44,6 +45,87 @@ function envelope() {
   return buildDeliveryEnvelope(ctx);
 }
 const record = { record_id: "con_preserve", kind: "constraints", title: "Preserve existing settings", lesson: "Merge settings; preserve values outside the update.", content_hash: reportHash("fixture record revision"), recorded_at: "2026-09-11T00:00:00.000Z" };
+
+test("an episode is one record: the head's id and start, the union of observations, the latest close; the window rule and the ledger view follow", t => {
+  const root = fixture(t), store = openStore(root, t);
+  const key = reportHash(["session"]);
+  const head = startReportTask(root, "Assistant task", undefined, { session_key: key });
+  recordTaskDelivery(root, head.task_id, envelope(), [record], undefined, "src/config.js");
+  finishReportTask(root, head.task_id, "completed", { by: "host" });
+  const first = persistTaskRecord(root, store, head.task_id, { flush: false });
+  assert.ok(first);
+  assert.equal(first.record.id, head.task_id);
+  assert.equal(first.record.lessons.length, 1);
+
+  const links = continuationLinks(readTaskReport(root, head.task_id).task);
+  assert.deepEqual(links, { continues: head.task_id, episode: head.task_id });
+  const next = startReportTask(root, "Fix settings merge", undefined, { session_key: key, ...links! });
+  // A later revision of the same lesson: the episode keeps both exact revisions.
+  recordTaskDelivery(root, next.task_id, envelope(), [{ ...record, content_hash: reportHash("second revision") }], undefined, "src/other.js");
+  finishReportTask(root, next.task_id);
+  const merged = persistTaskRecord(root, store, next.task_id, { flush: false });
+  assert.ok(merged);
+  assert.equal(merged.record.id, head.task_id, "the follow-up prompt refreshes the head's record instead of adding one");
+  assert.equal(merged.changed, true);
+  assert.equal(merged.record.title, "Fix settings merge", "the first non-generic title names the episode");
+  assert.equal(merged.record.started_at, head.started_at);
+  assert.equal(merged.record.finished_at, readTaskReport(root, next.task_id).task.finished_at);
+  assert.equal(merged.record.lessons.length, 2, "both delivered revisions, across both prompts");
+  assert.ok(merged.record.lessons.every(l => l.record_id === "con_preserve"));
+  assert.deepEqual(merged.record.files, ["src/config.js", "src/other.js"]);
+  assert.equal(store.recs("tasks").length, 1, "one record for the episode");
+  assert.equal(existsSync(join(root, ".hunch", "tasks", `${next.task_id}.json`)), false);
+  const again = persistTaskRecord(root, store, next.task_id, { flush: false });
+  assert.equal(again?.changed, false, "idempotent on the episode's combined report hash");
+
+  // The window: a task closed long ago is not the same work; an open one is measured from its start.
+  const stale = { ...readTaskReport(root, head.task_id).task, finished_at: new Date(Date.now() - CONTINUATION_WINDOW_MS - 60_000).toISOString() };
+  assert.equal(continuationLinks(stale), null);
+  const openOld = { ...stale, state: "open" as const, finished_at: null, started_at: stale.finished_at! };
+  assert.equal(continuationLinks(openOld), null);
+  assert.equal(continuationLinks(null), null);
+
+  // The ledger view shows the continued prompt as durable under its episode.
+  const view = mergeDurableTaskSummaries(store, listTaskSummaries(root));
+  assert.deepEqual(view.map(s => [s.task.task_id, s.durable?.home ?? null, s.task.episode ?? null]).sort(), [[head.task_id, "public", null], [next.task_id, "public", head.task_id]].sort());
+});
+
+test("git-side work while the task was open anchors the record: the user's commits and fresh working-tree edits, never memory paths, old files or deletions", t => {
+  const root = fixture(t), store = openStore(root, t);
+  const git = (...args: string[]) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env: { ...process.env, GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" } });
+  git("config", "user.email", "dev@example.com");
+  git("config", "user.name", "Dev");
+  writeFileSync(join(root, "src", "old.js"), "old\n");
+  writeFileSync(join(root, "src", "gone.js"), "gone\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");   // committed long before the task: not work of this task
+  const old = new Date("2026-01-01T00:00:00Z");
+  utimesSync(join(root, "src", "old.js"), old, old);
+
+  const task = startReportTask(root, "Release chores from the shell");
+  const started = Date.parse(task.started_at);
+  // Work done while the task is open, none of it through an instrumented editor.
+  writeFileSync(join(root, "src", "committed.js"), "export const a = 1;\n");
+  execFileSync("git", ["-C", root, "add", "src/committed.js"]);
+  execFileSync("git", ["-C", root, "commit", "-q", "-m", "feat: shell work"]);
+  writeFileSync(join(root, "src", "fresh.js"), "untracked but fresh\n");
+  writeFileSync(join(root, "src", "old.js"), "modified, then dated back\n");
+  utimesSync(join(root, "src", "old.js"), old, old);
+  rmSync(join(root, "src", "gone.js"));
+  mkdirSync(join(root, ".hunch"), { recursive: true });
+  writeFileSync(join(root, ".hunch", "scratch.txt"), "memory paths never count as work\n");
+  // The base commit sits outside the window even for a very early start.
+  const touched = gitTouchedFiles(root, new Date(started - 5_000).toISOString(), null);
+  assert.deepEqual(touched, ["src/committed.js", "src/fresh.js"], "commit in the window + fresh untracked file; not the backdated file, the deletion, the old commit or the memory path");
+  assert.deepEqual(gitTouchedFiles(root, "2030-01-01T00:00:00.000Z", "2030-01-02T00:00:00.000Z"), [], "an empty window yields nothing");
+  assert.deepEqual(gitTouchedFiles(root, "not a date", null), []);
+
+  recordTaskDelivery(root, task.task_id, envelope(), [record], undefined, "src/config.js");
+  finishReportTask(root, task.task_id);
+  const saved = persistTaskRecord(root, store, task.task_id, { flush: false });
+  assert.ok(saved);
+  assert.deepEqual(saved.record.files, ["src/config.js", "src/committed.js", "src/fresh.js"], "report-derived files first, then what git saw");
+});
 
 test("a finished task with observations becomes a graph record; an empty task stays ledger-only", t => {
   const root = fixture(t), store = openStore(root, t);

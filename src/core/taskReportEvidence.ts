@@ -79,7 +79,7 @@ export function reportSourceSnapshot(root: string): ReportSnapshot {
  * `not-exercised` or `unavailable` — never "satisfied" by file overlap. */
 export function runReportConformance(root: string, store: HunchStore, taskId: string): ReportConformance[] {
   const report = readTaskReport(root, taskId);
-  if (report.task.state !== "open") throw new Error("cannot evaluate rules for a closed task");
+  if (report.task.state !== "open" && report.task.closed_by !== "host") throw new Error("cannot evaluate rules for a closed task");
   const delivered = [...new Map(report.deliveries.flatMap(d => d.records).filter(r => r.kind === "constraints" || r.kind === "decisions").map(r => [`${r.kind}:${r.record_id}:${r.content_hash}`, r])).values()];
   if (!delivered.length) return [];
   const before = reportSourceSnapshot(root).hash;
@@ -151,11 +151,11 @@ export async function runReportCheck(root: string, taskId: string, command: stri
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_CHECK_TIMEOUT_MS) throw new Error(`verification timeout must be between 1 and ${MAX_CHECK_TIMEOUT_MS} ms`);
   options.signal?.throwIfAborted();
   const task = readTaskReport(root, taskId).task;
-  if (task.state !== "open") throw new Error("cannot verify a closed task");
+  if (task.state !== "open" && task.closed_by !== "host") throw new Error("cannot verify a closed task");
   const before = reportSourceSnapshot(root);
   // Validate sensitive arguments before executing or writing anything.
   ReportCheckSchema.parse({ label, command, exit_code: null, output_hash: reportHash(""), before_snapshot: before.hash, after_snapshot: null, snapshot_limitations: before.limitations, timed_out: false, source: "local-command-runner" });
-  const checkId = beginReportCheck(root, taskId, label);
+  const checkId = beginReportCheck(root, taskId, label, timeoutMs);
   const result = await new Promise<{ code: number | null; timedOut: boolean; cancelled: boolean; hash: string }>((resolveResult) => {
     // Windows launchers (npx.cmd, npm.cmd, other .cmd/.bat shims) cannot be spawned
     // without a shell; resolve them first so a check actually runs instead of

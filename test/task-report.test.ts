@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildDeliveryEnvelope } from "../src/core/delivery.js";
 import type { AssembledContext } from "../src/store/hunchStore.js";
-import { finishReportTask, listReportTasks, pruneReportHistory, readTaskReport, readLessonHistory, recordReportClaim, recordTaskDelivery, reportHash, startReportTask } from "../src/core/taskReport.js";
+import { beginReportCheck, CHECK_RESULT_GRACE_MS, finishReportTask, listReportTasks, pruneReportHistory, readLessonHistory, readTaskReport, recordReportClaim, recordTaskDelivery, reportHash, startReportTask } from "../src/core/taskReport.js";
 import { reportSourceSnapshot, runReportCheck, snapshotDeliveredRecords } from "../src/core/taskReportEvidence.js";
 import { renderTaskReport, renderTaskReportHtml, writeTaskReportHtml } from "../src/core/taskReportRender.js";
 import { recordServed, servedSummary, withServedDatabase } from "../src/core/served.js";
@@ -216,6 +216,19 @@ test("verification timeout is caller-bounded so a long suite can be retained, wi
   assert.equal(quick.exit_code, 0);
   const report = readTaskReport(root, task.task_id);
   assert.deepEqual(report.checks.map(c => c.timed_out), [false, true, false]);
+});
+
+test("a verification whose runner died stops blocking completion after its own timeout; the report still says the result was not retained", t => {
+  const root = fixture(t), task = startReportTask(root, "Killed verification");
+  const checkId = beginReportCheck(root, task.task_id, "Full suite", 1_000);
+  assert.throws(() => finishReportTask(root, task.task_id), /verification is still running/, "within the timeout the runner may still report");
+  // The runner never came back. Age the start past its timeout and the grace.
+  withServedDatabase(root, db => { db.prepare("UPDATE report_events SET at = ? WHERE event_id = ?").run(new Date(Date.now() - 1_000 - CHECK_RESULT_GRACE_MS - 5_000).toISOString(), checkId); });
+  const finished = finishReportTask(root, task.task_id);
+  assert.equal(finished.state, "completed");
+  const report = readTaskReport(root, task.task_id);
+  assert.equal(report.checks.length, 0, "no result is ever invented for a dead runner");
+  assert.match(report.unknowns.join(" "), /not retained/);
 });
 
 test("completion cannot discard an in-flight command result", async t => {
