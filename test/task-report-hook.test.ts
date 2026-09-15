@@ -52,7 +52,7 @@ test("native Stop shows the card as soon as a check is observed, even when the a
   const stop = hook(root, "Stop");
   assert.match(stop.systemMessage, /No task-linked delivery observed/);
   assert.match(stop.systemMessage, /Checked .*passed/);
-  assert.match(stop.systemMessage, /file:\/\//);
+  assert.match(stop.systemMessage, /Evidence  hunch report htask_[a-f0-9]{24} --html/, "the evidence view is rendered on demand, not written per prompt");
   assert.equal(stop.decision, undefined, "report presentation never blocks Stop");
   assert.equal(stop.hookSpecificOutput, undefined, "report does not ask the model to continue");
 });
