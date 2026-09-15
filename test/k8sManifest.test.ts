@@ -629,3 +629,117 @@ metadata:
   assert.equal((quotedName as { sourceText: string }).sourceText, (unquotedName as { sourceText: string }).sourceText,
     "quoted and unquoted forms of the identical expression must produce identical sourceText, so they share the same nameKeyText and can match");
 });
+
+// A block-scalar header (`|`, `>`, plus chomping/indent indicators) is not a
+// value -- the real scalar is on the FOLLOWING indented lines (found on
+// sixth review pass). Reading the header token itself as the value is
+// silently, confidently WRONG (not merely incomplete): two resources with
+// nothing in common both key on the literal string "|-" and collide.
+
+test("a resource whose name is a block scalar is unidentifiable (null resource), not literally named the header token", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: |-`, `    real-config`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.resource, null, "a block-scalar name must not produce a resource literally named \"|-\"");
+});
+
+test("a block-scalar Secret/ConfigMap reference name is not extracted as the literal header token", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`, `      - name: app`,
+    `        envFrom:`, `        - configMapRef:`, `            name: |-`, `              real-config`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.references.length, 0, "a block-scalar reference name must not silently resolve to the literal header token");
+});
+
+test("a block-scalar label VALUE taints the whole selector map (parentPath, not the leaf's own path)", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-svc`,
+    `spec:`, `  selector:`, `    app: |-`, `      web`, `    tier: api`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "the block-scalar app value must taint the whole map, not leave {tier: api} as a partial one");
+});
+
+test("every block-scalar header spelling (|, |-, |+, |2, >, >-) is recognized", () => {
+  for (const header of ["|", "|-", "|+", "|2", "|2-", "|-2", ">", ">-", ">+"]) {
+    const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: ${header}`, `    x`, ``].join("\n");
+    const [doc] = extractK8sManifest(src);
+    assert.equal(doc!.resource, null, `header "${header}" must be recognized as a block scalar, not a literal name`);
+  }
+});
+
+test("a genuinely quoted single-pipe value is NOT mistaken for a block scalar header", () => {
+  const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: "|"`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.resource?.kind, "ConfigMap");
+  assert.equal((doc!.resource!.name as { value: string }).value, "|", "a quoted literal pipe must stay a literal, not be treated as an unterminated block scalar");
+});
+
+// A nested map under a selector/labels key silently vanished, making the map
+// more permissive (found on sixth review pass, invalid k8s but not rejected
+// by this scanner -- same "dropped key" risk as every other unresolved case).
+
+test("a nested map under a selector key (invalid k8s, but not rejected by this scanner) taints the whole map instead of silently dropping the nested key", () => {
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-svc`,
+    `spec:`, `  selector:`, `    app: web`, `    team:`, `      owner: p`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "a nested map under the selector must taint the whole map, not leave {app: web} as a partial one");
+});
+
+// __proto__ as a label key (found on sixth review pass): a plain object
+// literal silently swallows an assignment to "__proto__" (it sets the
+// prototype, not an own property), which would make Object.entries() see an
+// empty map that vacuously matches every workload -- unreachable via a
+// syntactically valid k8s label key, but the blast radius (every workload,
+// not just a wrong one) warranted a one-line hardening anyway.
+
+test("a __proto__ label key round-trips as a real own property, not silently swallowed into the object's prototype", () => {
+  const src = [`apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-svc`, `spec:`, `  selector:`, `    __proto__: web`, ``].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.ok(Object.prototype.hasOwnProperty.call(doc!.selector, "__proto__"), "__proto__ must be a real own property of the returned map");
+  assert.equal(doc!.selector!["__proto__"], "web");
+});
+
+// A bare `-` list marker with nothing else on its line (found on rounds four
+// and six): the item's content is entirely on later, more-indented lines.
+// Previously fell to the unrecognized-line branch, which used ordinary
+// (non-list) popping and lost the item's own frame, silently reparenting
+// everything under it one level up and dropping every reference inside.
+
+test("a bare dash list marker (item body entirely on following lines) still extracts references from inside it", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`,
+    `      -`,
+    `        name: app`,
+    `        envFrom:`,
+    `          - configMapRef:`,
+    `              name: app-config`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  const ref = doc!.references.find((r) => r.refKind === "ConfigMap");
+  assert.ok(ref, "a reference nested under a bare-dash list item must still be extracted");
+  assert.equal((ref!.name as { value: string }).value, "app-config");
+});
+
+test("a bare dash list marker followed by a second real inline item both get distinct sequence indices", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    spec:`, `      containers:`,
+    `      -`,
+    `        name: app`,
+    `        envFrom:`,
+    `          - configMapRef:`,
+    `              name: config-a`,
+    `      - name: sidecar`,
+    `        envFrom:`,
+    `        - configMapRef:`,
+    `            name: config-b`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  const names = doc!.references.filter((r) => r.refKind === "ConfigMap").map((r) => (r.name as { value: string }).value).sort();
+  assert.deepEqual(names, ["config-a", "config-b"]);
+});

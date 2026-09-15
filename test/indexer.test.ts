@@ -1223,6 +1223,56 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("two resources whose names are both block-scalar headers do not collide into a false-positive edge (regression, found on sixth review pass)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8sref-blockscalar-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  // Both this ConfigMap's name and the Deployment's reference to a
+  // COMPLETELY DIFFERENT ConfigMap use a block-scalar header -- if the
+  // header token itself were read as the value, both would collapse to the
+  // same garbage key ("|-") and collide, even though nothing about them
+  // actually matches.
+  writeFileSync(join(root, "manifests/configmap.yaml"), `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: |-
+    real-config
+`);
+  writeFileSync(join(root, "manifests/deployment.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        envFrom:
+        - configMapRef:
+            name: |-
+              totally-different-config
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  // Neither block-scalar-named resource should produce a real symbol at all
+  // (unidentifiable), let alone a symbol literally named "ConfigMap/|-".
+  assert.equal(syms.some((s) => s.name.includes("|-")), false, "no symbol should be literally named using the block-scalar header token");
+  const deployment = syms.find((s) => s.name === "Deployment/web");
+  assert.ok(deployment);
+  const edges = store.json.loadAll("edges");
+  assert.equal(edges.filter((e) => e.from === deployment!.id && e.type === "references").length, 0,
+    "two unrelated block-scalar-named resources must not collide into a references edge");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a Helm-templated block-form selector/labels pair produces no Phase 2 edge and does not crash indexing", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-tpl-"));
   mkdirSync(join(root, "templates"), { recursive: true });

@@ -111,6 +111,22 @@ const KEY_LINE = /^(\s*)(-\s+)?([A-Za-z0-9_.\/-]+):[ \t]*(.*?)\r?$/;
 // indentation is deliberately never inspected -- see
 // markAllOpenContainersUnresolved's comment for why.
 const BARE_TEMPLATE_LINE = /^\s*(?:-\s+)?\{\{[\s\S]*$/;
+// A list-item marker with NOTHING after it on the same line -- the item's
+// content is entirely on the following, more-indented lines
+// (`containers:\n  -\n    name: app`). Legal YAML, distinct from the inline
+// `- name: app` form KEY_LINE already handles: this line has no key of its
+// own at all, so without explicit handling it fell to the unrecognized-line
+// branch, which used ORDINARY popping and lost the list-item frame entirely
+// -- reparenting the item's real children one level up (`containers.name`
+// instead of `containers[0].name`), silently dropping every reference under it.
+const BARE_LIST_MARKER = /^(\s*)-[ \t]*\r?$/;
+// A YAML block-scalar header (`|`, `>`, plus an optional chomping indicator
+// `+`/`-` and/or an explicit indent digit, in either order: `|`, `|-`, `>+`,
+// `|2`, `|2-`, `|-2`). When a key's value is JUST this header, the real
+// scalar is on the FOLLOWING indented lines, not this one -- treating the
+// header token itself as the value (e.g. a resource literally named "|-")
+// would be silently, confidently wrong, not merely incomplete.
+const BLOCK_SCALAR_HEADER = /^[|>](?:[+-]\d*|\d+[+-]?)?$/;
 
 /** Strip a trailing YAML comment: `#` only opens one at the start of the
  *  value or after whitespace, and never inside a quoted scalar -- so
@@ -181,6 +197,25 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
   const popOrdinary = (indent: number): void => {
     while (stack.length && stack[stack.length - 1]!.indent >= indent) stack.pop();
   };
+  // Shared by KEY_LINE's inline `- key: value` form and the bare `-`-alone
+  // form: converts/reuses the enclosing sequence frame, then pushes this
+  // item's own `[idx]` frame at `itemFrameIndent` -- the caller picks that
+  // value so it sits strictly between the sequence frame's own indent and
+  // whatever the item's real children will be indented at (itemIndent - 1
+  // for the inline form; dashIndent + 1 for the bare form, since a bare
+  // marker's children are entirely on later lines with no itemIndent to
+  // derive from).
+  const enterListItem = (dashIndent: number, itemFrameIndent: number): void => {
+    popToForListItem(dashIndent);
+    let top = stack[stack.length - 1];
+    if (!top || !top.isSeq) {
+      top = { indent: dashIndent, key: "", isSeq: true, hasValue: false, nextIndex: 0 };
+      stack.push(top);
+    }
+    const idx = top.nextIndex ?? 0;
+    top.nextIndex = idx + 1;
+    stack.push({ indent: itemFrameIndent, key: `[${idx}]`, isSeq: false, hasValue: false });
+  };
   // Pops to a line's context (same rule an ordinary/list-item key line would
   // use) WITHOUT pushing a frame -- the line has no key of its own -- then
   // marks whatever container it now sits inside as unresolved. Used ONLY for
@@ -219,6 +254,13 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
       continue;
     }
 
+    const bareListMarker = BARE_LIST_MARKER.exec(line);
+    if (bareListMarker) {
+      const dashIndent = bareListMarker[1]!.length;
+      enterListItem(dashIndent, dashIndent + 1);
+      continue;
+    }
+
     const m = KEY_LINE.exec(line);
     if (!m) {
       // Any other non-blank, non-comment line is a shape this scanner can't
@@ -236,18 +278,10 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
     const itemIndent = dashIndent + (listMarker?.length ?? 0);
 
     if (listMarker) {
-      popToForListItem(dashIndent);
-      let top = stack[stack.length - 1];
-      if (!top || !top.isSeq) {
-        top = { indent: dashIndent, key: "", isSeq: true, hasValue: false, nextIndex: 0 };
-        stack.push(top);
-      }
-      const idx = top.nextIndex ?? 0;
-      top.nextIndex = idx + 1;
-      // Pushed at itemIndent - 1 (strictly between the seq frame's indent and
-      // its children's indent) so a sibling key within this item pops back to
+      // itemIndent - 1: strictly between the seq frame's own indent and its
+      // children's indent, so a sibling key within this item pops back to
       // (but never past) this frame.
-      stack.push({ indent: itemIndent - 1, key: `[${idx}]`, isSeq: false, hasValue: false });
+      enterListItem(dashIndent, itemIndent - 1);
     } else {
       popOrdinary(dashIndent);
     }
@@ -268,6 +302,16 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
     // already returned null via "no children found", this just makes the
     // reason explicit instead of incidental.
     if ((value.startsWith("{") && !value.startsWith("{{")) || value.startsWith("[")) unresolvedContainers.add(path);
+    // A block-scalar header taints the PARENT container, not this entry's own
+    // path: the header is a LEAF value's header (e.g. `app: |-` under
+    // `spec.selector`), and extractLiteralLabelMap only ever checks a
+    // container's own path (spec.selector) for taint, never a leaf's --
+    // tainting the leaf's path here would silently leave the map resolving
+    // MINUS this one key, which is the same over-permissive risk as not
+    // tainting at all. Checked on the raw (pre-quote-strip) value, same as
+    // the flow-collection check above, so a genuine quoted `name: "|"` stays
+    // a literal and isn't mistaken for an unterminated block scalar.
+    if (BLOCK_SCALAR_HEADER.test(value)) { unresolvedContainers.add(parentPath); continue; }
 
     if (value.length > 0) {
       const colonIdx = line.indexOf(":", dashIndent);
@@ -427,8 +471,28 @@ const LABELS_PATH_BY_KIND: Record<string, string> = {
  *  half, so the whole map is treated as unresolved. */
 function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], unresolvedContainers: Set<string>): ManifestLabelMap | null {
   if (unresolvedContainers.has(prefix)) return null;
-  const map: ManifestLabelMap = {};
-  let found = false;
+  // A real Kubernetes label/selector map is always flat (string -> string) --
+  // any entry whose parentPath is a DEEPER descendant of prefix (not prefix
+  // itself) means some direct child of prefix was itself a nested container
+  // (block-form `team: {owner: p}`, invalid k8s but not rejected by this
+  // scanner), which would otherwise just be silently absent from the flat
+  // map returned below -- the same "dropped key makes the map more
+  // permissive" risk as every other unresolved-container case here.
+  if (entries.some((e) => e.parentPath !== prefix && e.parentPath.startsWith(`${prefix}.`))) return null;
+  // Built via entries + Object.fromEntries, not plain `map[key] = value`
+  // assignment: a label key of "__proto__" assigned that way is silently
+  // swallowed by a plain object literal (it sets the prototype, not an own
+  // property) while `found` still gets set true -- the result is an
+  // empty-looking map that Object.entries() treats as vacuously satisfied by
+  // every workload, i.e. a Service selecting everything. Not reachable via a
+  // syntactically valid Kubernetes label key, but the blast radius (matches
+  // EVERY workload, not just a wrong one) is disproportionate to how cheap
+  // this guard is. Object.fromEntries's own key-setting is NOT the special
+  // __proto__ accessor (verified: it creates a real own property, and the
+  // result still has the normal Object.prototype -- unlike Object.create(null),
+  // which fixed the same bug but changed every map's prototype, breaking
+  // plain-object equality checks throughout the test suite).
+  const pairs: Array<[string, string]> = [];
   for (const e of entries) {
     // Match on parentPath, never by slicing e.path on the prefix length: a
     // Kubernetes label key legitimately contains dots (app.kubernetes.io/
@@ -437,10 +501,10 @@ function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], unres
     // is computed structurally from the frame stack, so it's exact -- no
     // guessing by counting dots in what's left after the prefix.
     if (e.parentPath !== prefix) continue;
-    if (e.value.form !== "template") { map[e.key] = e.value.value; found = true; }
+    if (e.value.form !== "template") pairs.push([e.key, e.value.value]);
     else return null; // any templated label value makes the whole map unusable for subset matching
   }
-  return found ? map : null;
+  return pairs.length > 0 ? Object.fromEntries(pairs) : null;
 }
 
 function buildDocument(text: string, docStartByte: number, entries: FieldPathEntry[], unresolvedContainers: Set<string>): K8sManifestDocument {
