@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — תיעוד משותף לסוכני AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "העבודה הנכונה מהעבר, עם הסיבות",
       "סוכנים יורשים את העבודה של קודמיהם",
       "משימות שהסתיימו הופכות לזיכרון בגרף",
       "הודעת עדכון שקטה ומשימות בעץ העבודה הנכון",
@@ -72,6 +73,7 @@ export const changelogLocales = {
       footer: "© Hunch — общие записи для ИИ-агентов.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Нужная прошлая работа, с причинами",
       "Агенты наследуют работу друг друга",
       "Завершённые задачи становятся памятью графа",
       "Тихое уведомление об обновлении и задачи в нужном рабочем дереве",
@@ -136,6 +138,7 @@ export const changelogLocales = {
       footer: "© Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "العمل السابق المناسب، مع الأسباب",
       "الوكلاء يرثون عمل بعضهم البعض",
       "المهام المكتملة تصبح ذاكرة في الرسم البياني",
       "إشعار تحديث هادئ ومهام في شجرة العمل الصحيحة",
@@ -200,6 +203,7 @@ export const changelogLocales = {
       footer: "© Hunch — un registro compartido para agentes de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "El trabajo previo correcto, con sus razones",
       "Los agentes heredan el trabajo de los demás",
       "Las tareas terminadas se convierten en memoria del grafo",
       "Aviso de actualización silencioso y tareas en el árbol de trabajo correcto",
