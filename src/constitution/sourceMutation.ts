@@ -119,19 +119,22 @@ function parsedSymbolFor(graphSymbol: Symbol, parsed: ParsedFile): ParsedSymbol 
   return matches.find((_symbol, index) => (index === 0 ? base : `${base}_${index}`) === graphSymbol.id) ?? null;
 }
 
-/** `start`/`end` are JS string (UTF-16 code unit) indices, matching
- *  parse.ts's ParsedSymbol/ParsedCall offsets (startByte/endByte/atByte are
- *  themselves char offsets in practice, not true UTF-8 bytes — see issue
- *  #84/#85). Splicing via plain string slicing keeps that consistent; the
- *  previous Buffer-based implementation silently corrupted output whenever
- *  non-ASCII source preceded a mutation target, since UTF-8 byte length
- *  diverges from UTF-16 code-unit count for any character outside ASCII. */
+/** `start`/`end` are JS string (UTF-16 code unit) indices. Despite their
+ *  names, parse.ts's startByte/endByte/atByte carry the same units — native
+ *  tree-sitter indexes the JS string it was handed, not its UTF-8 encoding —
+ *  so every scan and splice against them must be string-based, never Buffer-
+ *  based. */
 function spliceChars(source: string, replacements: Array<{ start: number; end: number; text: string }>): string {
   let result = source;
   for (const replacement of [...replacements].sort((a, b) => b.start - a.start)) {
     result = result.slice(0, replacement.start) + replacement.text + result.slice(replacement.end);
   }
   return result;
+}
+
+/** Where a new top-level statement (an import) can be inserted without splitting a shebang line. */
+function insertionPoint(source: string): number {
+  return source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
 }
 
 function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: string, source: string): { file: string; source: string } | { error: string } {
@@ -166,7 +169,7 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
     }
     const specifier = relativeSpecifier(sourceFile, targetFile);
     if (parsed.imports.some((candidate) => candidate === specifier)) return { error: "mutation-component-import-already-present" };
-    const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
+    const insertion = insertionPoint(source);
     return {
       file: sourceFile,
       source: spliceChars(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(specifier)}; // hunch deterministic component mutation\n` }]),
@@ -192,7 +195,7 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
     if (parsed.imports.some((specifier) => externalPackage(specifier) === dependency)) {
       return { error: "mutation-forbidden-import-already-present" };
     }
-    const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
+    const insertion = insertionPoint(source);
     return {
       file: subject.file,
       source: spliceChars(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(dependency)}; // hunch deterministic source mutation\n` }]),
@@ -215,16 +218,14 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
   }
 
   if (!assertion.relation.edges.includes("calls")) return { error: "mutation-call-edge-not-supported" };
-  // Char-index search (source.indexOf, not a Buffer scan), matching
-  // definition.startByte/endByte's actual units -- see spliceChars' doc
-  // comment (issue #84/#85).
+  // String search, matching definition.startByte/endByte's actual units -- see spliceChars' doc comment.
   const open = source.indexOf("{", definition.startByte);
   if (open < 0 || open >= definition.endByte) return { error: "mutation-subject-body-unsupported" };
   const replacements = [{ start: open + 1, end: open + 1, text: `\n  ${object.name}(); // hunch deterministic source mutation\n` }];
   if (object.file !== subject.file) {
     const specifier = relativeSpecifier(subject.file, object.file);
     if (!parsed.imports.includes(specifier)) {
-      const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
+      const insertion = insertionPoint(source);
       replacements.push({
         start: insertion,
         end: insertion,

@@ -629,6 +629,42 @@ test("an exists mutation on a file with multi-byte UTF-8 content before the targ
   }
 });
 
+test("a forbidden-edge mutation on a file with multi-byte UTF-8 content before the target injects the call inside the right braces (issue #85)", () => {
+  // Exercises the OTHER byte-sensitive path in sourceMutation.ts (the
+  // open-brace search that locates where to inject a call), not the
+  // spliceChars delete path the sibling "exists mutation" test above covers.
+  // Needs enough UTF-8/UTF-16 delta (20 em dashes, 2 extra bytes each = 40
+  // bytes) to exceed the short function body's own length -- with only a
+  // couple of multi-byte characters the old Buffer-based search still finds
+  // the right brace by scanning forward from a too-early start position; at
+  // this size the byte-vs-char gap corrupts the boundary check that follows.
+  const apiBody = `// ${"—".repeat(20)} multi-byte comment, deliberately before the target\nimport { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n`;
+  const { root, store, cleanup } = layeredRepo(apiBody);
+  try {
+    store.json.put("decisions", decision("dec_forbidden_edge_source_mutation_utf8"));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const policy = service.compile("dec_forbidden_edge_source_mutation_utf8", { now: NOW });
+    const proved = service.prove(policy.id, { now: "2026-07-10T10:01:00.000Z" });
+    const primary = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "add-forbidden-edge");
+    assert.equal(primary.result, "violated");
+    assert.equal(primary.passed, true);
+    assert.equal(primary.parseability, "parseable");
+    const diff = primary.source_patch?.diff ?? "";
+    // Each unified-diff added line is separately "+"-prefixed, even within
+    // the same logical statement -- assert each line rather than one
+    // multi-line pattern, to keep the expectation legible.
+    assert.match(diff, /^\+export function listOrders\(u\)\{$/m, "the opening brace line is unchanged, not byte-shifted");
+    assert.match(diff, /^\+ {2}dbQuery\(\); \/\/ hunch deterministic source mutation$/m, "the call is injected right after listOrders' opening brace");
+    assert.match(diff, /^\+ return fetchOrders\(u\); \}$/m, "the original body content survives after the injected call");
+    assert.match(diff, /^ \/\/ —+ multi-byte comment/m, "the preceding multi-byte comment survives untouched as diff context");
+    assert.doesNotMatch(diff, /^-.*—/m, "the multi-byte comment is never removed");
+  } finally {
+    cleanup();
+  }
+});
+
 test("Phase 3F imports immutable known-good/bad fixtures and hash-binds them into replay", () => {
   const { root, store, cleanup } = layeredRepo();
   try {
