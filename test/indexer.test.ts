@@ -747,6 +747,48 @@ metadata:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a parent chart including a define that exists ONLY in a subchart produces no edge (conservative miss, issue #42)", () => {
+  // Real Helm's template namespace is release-global, so this include WOULD
+  // resolve in an actual `helm template` run -- nearest-ancestor scoping
+  // deliberately doesn't model that (see nearestChartRoot's doc comment) and
+  // misses this edge rather than guessing which chart's define was meant.
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-helm-subchart-miss-"));
+  mkdirSync(join(root, "templates"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: parent\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "templates/deployment.yaml"), `
+metadata:
+  labels:
+    {{- include "sub.labels" . | nindent 4 }}
+`);
+
+  mkdirSync(join(root, "charts/sub/templates"), { recursive: true });
+  writeFileSync(join(root, "charts/sub/Chart.yaml"), `apiVersion: v2\nname: sub\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "charts/sub/templates/_helpers.tpl"), `
+{{- define "sub.labels" -}}
+app: sub
+{{- end -}}
+`);
+
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const subDefine = syms.find((s) => s.name === "sub.labels" && s.kind === "variable")!;
+  assert.ok(subDefine, "the subchart's define is still indexed as a symbol");
+
+  const edges = store.json.loadAll("edges");
+  assert.equal(
+    edges.filter((e) => e.to === subDefine.id && e.type === "references").length,
+    0,
+    "nearest-ancestor scoping misses the release-global resolution rather than fabricating an edge",
+  );
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a plain .yaml file with no ancestor Chart.yaml is unaffected by Helm-shaped text", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-helm-nochart-"));
   mkdirSync(join(root, "config"), { recursive: true });
@@ -1016,6 +1058,52 @@ spec:
   const service = syms.find((s) => s.name === "Service/my-service");
   const edges = store.json.loadAll("edges");
   assert.equal(edges.filter((e) => e.from === service!.id && e.type === "references").length, 0, "non-matching selector produces no edge");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a Service's selector with ONE same-line templated key among literal siblings produces no edge, not a false-positive on the literal keys alone (issue #82 review)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-partial-template-"));
+  mkdirSync(join(root, "manifests"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "manifests/service.yaml"), `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: {{ .Values.name }}
+    tier: web
+`);
+  writeFileSync(join(root, "manifests/deployment.yaml"), `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  template:
+    metadata:
+      labels:
+        tier: web
+    spec:
+      containers:
+      - name: app
+`);
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const service = syms.find((s) => s.name === "Service/my-service");
+  const edges = store.json.loadAll("edges");
+  assert.equal(
+    edges.filter((e) => e.from === service!.id && e.type === "references").length,
+    0,
+    "a partially-templated selector must resolve to no map at all, not a subset map that happens to match on the untemplated keys",
+  );
 
   store.close();
   rmSync(root, { recursive: true, force: true });

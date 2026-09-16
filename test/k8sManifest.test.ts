@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractK8sManifest } from "../src/extractors/k8sManifest.js";
+import { extractK8sManifest, POD_SPEC_PATH_BY_KIND, LABELS_PATH_BY_KIND } from "../src/extractors/k8sManifest.js";
 
 test("a literal Deployment's kind and metadata.name are detected as its resource identity", () => {
   const src = `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: my-app\n`;
@@ -247,6 +247,40 @@ test("a Deployment's block-form templated pod-template labels is left null", () 
   ].join("\n");
   const [doc] = extractK8sManifest(src);
   assert.equal(doc!.labels, null);
+});
+
+test("every pod-spec-bearing kind also has a pod-template labels path (Phase 2 can't silently skip a workload)", () => {
+  // POD_SPEC_PATH_BY_KIND and LABELS_PATH_BY_KIND are two independently
+  // maintained tables keyed by the same workload kinds -- adding a kind to
+  // one and forgetting the other would silently drop that kind from Phase 2
+  // label matching, with no error anywhere.
+  assert.deepEqual(Object.keys(POD_SPEC_PATH_BY_KIND).sort(), Object.keys(LABELS_PATH_BY_KIND).sort());
+});
+
+test("a Service's same-line templated selector value voids the WHOLE map, not just its own key", () => {
+  // Unlike the block-form case above (caught by unresolvedContainers before
+  // extractLiteralLabelMap even runs), a same-line template on one key among
+  // otherwise-literal siblings only trips extractLiteralLabelMap's own
+  // `e.value.form === "template"` guard -- dropping just that guard's entry
+  // instead of the whole map would leave `tier: web` looking like the
+  // complete selector, which is strictly MORE permissive than the real one
+  // (matches any workload with tier: web, regardless of app).
+  const src = [
+    `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
+    `spec:`, `  selector:`, `    app: {{ .Values.name }}`, `    tier: web`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.selector, null, "a partially-templated selector must not resolve to a subset map");
+});
+
+test("a Deployment's same-line templated pod-template label value voids the WHOLE labels map", () => {
+  const src = [
+    `apiVersion: apps/v1`, `kind: Deployment`, `metadata:`, `  name: my-app`,
+    `spec:`, `  template:`, `    metadata:`, `      labels:`,
+    `        app: {{ .Values.name }}`, `        tier: web`, ``,
+  ].join("\n");
+  const [doc] = extractK8sManifest(src);
+  assert.equal(doc!.labels, null, "a partially-templated labels map must not resolve to a subset map");
 });
 
 test("a Pod's own metadata.labels (not wrapped in a template spec) is extracted directly", () => {

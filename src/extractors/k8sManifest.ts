@@ -22,12 +22,12 @@
  */
 
 // Offsets below are JS string (UTF-16 code unit) indices, not UTF-8 byte
-// offsets — named *Char, not *Byte, to say so honestly (issue #84).
+// offsets, named *Char rather than *Byte to say so honestly.
 export type ManifestNameRef =
   | { form: "literal"; value: string; atChar: number; endChar: number }
   | { form: "template"; sourceText: string; atChar: number; endChar: number };
 
-export interface K8sReferenceCandidate {
+interface K8sReferenceCandidate {
   /** Fixed literal for most kinds ("ConfigMap", "Secret", "PersistentVolumeClaim",
    *  "Service"); for an ownerReferences entry, the reference's OWN `kind` field
    *  value (data-dependent, not statically known). */
@@ -35,9 +35,9 @@ export interface K8sReferenceCandidate {
   name: ManifestNameRef;
 }
 
-export type ManifestLabelMap = Record<string, string>;
+type ManifestLabelMap = Record<string, string>;
 
-export interface K8sResourceDoc {
+interface K8sResourceDoc {
   kind: string;
   name: ManifestNameRef;
   startChar: number;
@@ -81,7 +81,7 @@ interface FieldPathEntry {
 }
 
 /** Normalize a concrete path's sequence indices to "[]" for table matching. */
-export function wildcardPath(path: string): string {
+function wildcardPath(path: string): string {
   return path.replace(/\[\d+\]/g, "[]");
 }
 
@@ -91,6 +91,14 @@ interface StackFrame {
   isSeq: boolean;
   hasValue: boolean;
   nextIndex?: number;
+}
+
+/** Dot-joined field path for a frame stack (or a prefix of one), e.g.
+ *  `spec.template.spec.containers[0].env` -- `\.\[` collapses to `[` since a
+ *  sequence-item frame's own key is already `[N]`, and joining it after a
+ *  `.` would double the separator. */
+function framePath(frames: readonly StackFrame[]): string {
+  return frames.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
 }
 
 // `\r?` before `$`: without it, a CRLF-terminated line (the Git-for-Windows
@@ -229,7 +237,7 @@ function scanFieldPaths(text: string, baseChar: number): { entries: FieldPathEnt
   // not something this function is meant to special-case).
   const markUnresolvedContainer = (indent: number): void => {
     popOrdinary(indent);
-    unresolvedContainers.add(stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "["));
+    unresolvedContainers.add(framePath(stack));
   };
   // A `{{ }}` action line's OWN indentation carries NO structural meaning:
   // `{{-` chomps it away entirely, and the extremely common `| indent N`
@@ -243,7 +251,7 @@ function scanFieldPaths(text: string, baseChar: number): { entries: FieldPathEnt
   // could be targeting any of them and there is no way to tell which.
   const markAllOpenContainersUnresolved = (): void => {
     for (let depth = 0; depth <= stack.length; depth++) {
-      unresolvedContainers.add(stack.slice(0, depth).map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "["));
+      unresolvedContainers.add(framePath(stack.slice(0, depth)));
     }
   };
 
@@ -289,9 +297,9 @@ function scanFieldPaths(text: string, baseChar: number): { entries: FieldPathEnt
     }
 
     const value = stripTrailingComment(rawValue!).trim();
-    const parentPath = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
+    const parentPath = framePath(stack);
     stack.push({ indent: itemIndent, key: key!, isSeq: false, hasValue: value.length > 0 });
-    const path = stack.map((f) => f.key).filter(Boolean).join(".").replace(/\.\[/g, "[");
+    const path = framePath(stack);
 
     // A value that OPENS a flow collection (`{`/`[`, never a `{{` template
     // action) means this key's real content is flow syntax, possibly spread
@@ -354,8 +362,7 @@ function scanFieldPaths(text: string, baseChar: number): { entries: FieldPathEnt
     // injection, or an unrecognized line) is handled uniformly by the
     // BARE_TEMPLATE_LINE / "unrecognized line" branches above on ITS OWN
     // line, since that line's own popToForListItem/popOrdinary call pops
-    // back to (but never past) this key's frame -- verified equivalent to a
-    // prior explicit next-line lookahead by mutation testing before removal.
+    // back to (but never past) this key's frame.
   }
   return { entries, unresolvedContainers };
 }
@@ -372,7 +379,7 @@ interface FieldPathSpec {
 
 /** Where a kind's pod spec lives -- factored once so container/volume field
  *  paths below aren't hand-duplicated per kind. */
-const POD_SPEC_PATH_BY_KIND: Record<string, string> = {
+export const POD_SPEC_PATH_BY_KIND: Record<string, string> = {
   Pod: "spec",
   Deployment: "spec.template.spec",
   StatefulSet: "spec.template.spec",
@@ -404,10 +411,9 @@ const VOLUME_REF_SUFFIXES: Array<{ suffix: string; refKind: string }> = [
   { suffix: "volumes[].persistentVolumeClaim.claimName", refKind: "PersistentVolumeClaim" },
 ];
 
-// Pod-spec-level (not container- or volume-scoped) references. Found missing
-// while verifying this design against real production charts: a registry
-// pull secret is an extremely common, legitimate Secret reference that the
-// original field-path table simply never enumerated.
+// Pod-spec-level (not container- or volume-scoped) references: a registry
+// pull secret is a legitimate Secret reference, distinct from the
+// container/volume-scoped ones above.
 const POD_SPEC_REF_SUFFIXES: Array<{ suffix: string; refKind: string }> = [
   { suffix: "imagePullSecrets[].name", refKind: "Secret" },
 ];
@@ -464,7 +470,7 @@ function extractOwnerReferenceCandidates(entries: FieldPathEntry[]): K8sReferenc
   return out;
 }
 
-const LABELS_PATH_BY_KIND: Record<string, string> = {
+export const LABELS_PATH_BY_KIND: Record<string, string> = {
   Deployment: "spec.template.metadata.labels",
   StatefulSet: "spec.template.metadata.labels",
   DaemonSet: "spec.template.metadata.labels",
@@ -500,9 +506,9 @@ function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], unres
   // EVERY workload, not just a wrong one) is disproportionate to how cheap
   // this guard is. Object.fromEntries's own key-setting is NOT the special
   // __proto__ accessor (verified: it creates a real own property, and the
-  // result still has the normal Object.prototype -- unlike Object.create(null),
-  // which fixed the same bug but changed every map's prototype, breaking
-  // plain-object equality checks throughout the test suite).
+  // result still has the normal Object.prototype -- Object.create(null)
+  // would also close the hole but changes every map's prototype, which
+  // breaks plain-object equality elsewhere).
   const pairs: Array<[string, string]> = [];
   for (const e of entries) {
     // Match on parentPath, never by slicing e.path on the prefix length: a

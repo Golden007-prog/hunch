@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
-import { parseSource, attributeCalls, attributeRelations, type ParsedRelation } from "./parse.js";
+import { parseSource, attributeCalls, attributeRelations, MAX_BODY_TEXT_CHARS, type ParsedRelation } from "./parse.js";
 import { extractHelmDirectives } from "./helm.js";
 import { extractK8sManifest, type K8sManifestDocument, type ManifestNameRef } from "./k8sManifest.js";
 import { symbolId, componentId, edgeId, sha1 } from "../core/ids.js";
@@ -228,10 +228,10 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     if (chartRoot !== null) {
       const helm = extractHelmDirectives(src);
       // helm.ts's own offsets are named *Char (they're JS char indices, not
-      // UTF-8 bytes -- see its module doc comment, issue #84); mapped here
-      // into parsed.symbols/calls's startByte/endByte/atByte fields, which
-      // carry the same char-index values under the shared ParsedSymbol/
-      // ParsedCall naming this merge target already uses.
+      // UTF-8 bytes -- see its module doc comment); mapped here into
+      // parsed.symbols/calls's startByte/endByte/atByte fields, which carry
+      // the same char-index values under the shared ParsedSymbol/ParsedCall
+      // naming this merge target already uses.
       const helmSymbols = helm.symbols.map((s) => ({
         name: s.name, kind: s.kind, startByte: s.startChar, endByte: s.endChar, loc: s.loc, bodyText: s.bodyText,
       }));
@@ -258,16 +258,15 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       k8sDocs = extractK8sManifest(src);
       const k8sSymbols = k8sDocs
         .filter((d): d is K8sManifestDocument & { resource: NonNullable<K8sManifestDocument["resource"]> } => d.resource !== null)
-        // k8sManifest.ts's own offsets are named *Char (issue #84); mapped
-        // here into the shared startByte/endByte fields, same as the Helm
-        // merge above.
+        // k8sManifest.ts's own offsets are named *Char; mapped here into the
+        // shared startByte/endByte fields, same as the Helm merge above.
         .map((d) => ({
           name: `${d.resource.kind}/${displayNameText(d.resource.name)}`,
           kind: "variable" as const,
           startByte: d.resource.startChar,
           endByte: d.resource.endChar,
           loc: src.slice(d.resource.startChar, d.resource.endChar).split("\n").length,
-          bodyText: src.slice(d.resource.startChar, d.resource.endChar).slice(0, 4000),
+          bodyText: src.slice(d.resource.startChar, d.resource.endChar).slice(0, MAX_BODY_TEXT_CHARS),
         }));
       for (const s of k8sSymbols) k8sSymbolObjects.add(s);
       parsed.symbols = [...parsed.symbols, ...k8sSymbols].sort((a, b) => a.startByte - b.startByte);
@@ -308,7 +307,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       for (const ref of doc.references) {
         k8sReferenceCandidates.push({
           fromSymbolId: fromId, scope, refKind: ref.refKind, nameKey: nameKeyText(ref.name),
-          reason: `${doc.resource.kind}/${displayNameText(doc.resource.name)} references ${ref.refKind}`,
+          reason: `${doc.resource.kind}/${displayNameText(doc.resource.name)} references ${ref.refKind}/${displayNameText(ref.name)}`,
         });
       }
       if (doc.selector) k8sSelectors.push({ symbolId: fromId, scope, selector: doc.selector });
@@ -463,6 +462,10 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     const workloads = labelsByScope.get(scope) ?? [];
     for (const svc of selectors) {
       for (const wl of workloads) {
+        // Defensive, not currently reachable: k8sSelectors only ever holds
+        // Service symbols and k8sWorkloadLabels only ever holds symbols for
+        // kinds in LABELS_PATH_BY_KIND, which excludes Service -- so the two
+        // ids can never collide today.
         if (svc.symbolId === wl.symbolId) continue;
         const isSubset = Object.entries(svc.selector).every(([k, v]) => wl.labels[k] === v);
         if (!isSubset) continue;
@@ -655,7 +658,8 @@ function pushInto<K, V>(map: Map<K, V[]>, key: K, value: V): void {
  *  actually release-global, so a parent chart can legitimately include a
  *  subchart's define — nearest-ancestor scoping will miss that edge rather
  *  than fabricate a wrong one (test coverage: indexer.test.ts's nested-subchart
- *  case). Modeling the release-global namespace itself remains open — issue #42. */
+ *  and subchart-miss cases). Modeling the release-global namespace itself
+ *  remains open — issue #42. */
 function nearestChartRoot(rels: string[]): (file: string) => string | null {
   const tracked = new Set(rels);
   const cache = new Map<string, string | null>();

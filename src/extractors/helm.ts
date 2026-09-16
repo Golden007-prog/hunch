@@ -27,11 +27,10 @@ import { MAX_BODY_TEXT_CHARS } from "./parse.js";
 import type { ParsedSymbolKind } from "./languages.js";
 
 // Offsets below are JS string (UTF-16 code unit) indices, not UTF-8 byte
-// offsets — named *Char, not *Byte, to say so honestly (issue #84). Callers
-// that merge these into a ParsedSymbol/ParsedCall-shaped array (indexer.ts)
-// carry them into that array's startByte/endByte/atByte fields unchanged in
-// value; those shared fields are themselves char offsets in practice (also
-// #84), so this is not a behavior change, only a locally-honest name.
+// offsets, named *Char rather than *Byte to say so honestly. Callers that
+// merge these into a ParsedSymbol/ParsedCall-shaped array (indexer.ts) carry
+// them into that array's startByte/endByte/atByte fields unchanged in value --
+// those shared fields are themselves char offsets in practice too.
 export interface HelmSymbol {
   name: string;
   kind: ParsedSymbolKind;
