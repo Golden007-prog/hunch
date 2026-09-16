@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `hunch serve` speaks MCP over streamable HTTP at `POST /nuryel/v1/mcp`: the `nuryel_*` tools behind the same bearer/DPoP credential, grants, write lock and refusals as the REST routes, so an agent gateway or remote orchestrator adds the state layer as an MCP tool target without a stdio process. Stateless JSON responses; a refusal is a tool error carrying the REST problem body. REST and MCP share one dispatcher (`src/serve/app.ts`), so the two transports cannot diverge.
+- ROADMAP: "Agent-gateway readiness" — two phases (reachable from a managed runtime; acceptable to a regulated organization), each item with named acceptance evidence.
+
 ## 1.38.0 — 2026-09-15
 
 - A verification whose runner died no longer freezes its task: a check-start with no result stops blocking completion after its own timeout plus a minute of grace; no result is invented and the report still discloses that none was retained.

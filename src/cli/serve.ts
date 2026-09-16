@@ -36,6 +36,7 @@ export function registerServeCommands(program: Command): void {
       app.listen(port, "127.0.0.1", () => {
         console.log(`hunch ${HUNCH_VERSION} serving nuryel.state/1 on http://127.0.0.1:${port} — ${config.partitions.map((p) => scopePath(p.scope)).join(", ")} (${config.principals.length} principal(s))`);
         console.log(`Shared state view: http://127.0.0.1:${port}/operator`);
+        console.log(`MCP (streamable HTTP): http://127.0.0.1:${port}/nuryel/v1/mcp`);
       });
       const stop = (): void => { app.close(() => { app.closeStores(); process.exit(0); }); };
       process.on("SIGINT", stop);
