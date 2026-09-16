@@ -690,6 +690,63 @@ metadata:
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a nested subchart (charts/<sub>/Chart.yaml) resolves to its OWN chart root, not the parent's (issue #42)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-idx-helm-subchart-"));
+  mkdirSync(join(root, "templates"), { recursive: true });
+  writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: parent\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "templates/_helpers.tpl"), `
+{{- define "labels" -}}
+app: parent
+{{- end -}}
+`);
+  writeFileSync(join(root, "templates/deployment.yaml"), `
+metadata:
+  labels:
+    {{- include "labels" . | nindent 4 }}
+`);
+
+  mkdirSync(join(root, "charts/sub/templates"), { recursive: true });
+  writeFileSync(join(root, "charts/sub/Chart.yaml"), `apiVersion: v2\nname: sub\nversion: 0.1.0\n`);
+  writeFileSync(join(root, "charts/sub/templates/_helpers.tpl"), `
+{{- define "labels" -}}
+app: sub
+{{- end -}}
+`);
+  writeFileSync(join(root, "charts/sub/templates/deployment.yaml"), `
+metadata:
+  labels:
+    {{- include "labels" . | nindent 4 }}
+`);
+
+  const store = new HunchStore(hunchPaths(root));
+  store.json.ensureDirs();
+  indexRepo(store, root, { churn: false });
+  store.reindex();
+
+  const syms = store.json.loadAll("symbols");
+  const parentDefine = syms.find((s) => s.file === "templates/_helpers.tpl" && s.kind === "variable")!;
+  const subDefine = syms.find((s) => s.file === "charts/sub/templates/_helpers.tpl" && s.kind === "variable")!;
+  assert.ok(parentDefine && subDefine, "both the parent chart's and the subchart's define blocks indexed");
+
+  const edges = store.json.loadAll("edges");
+  // the subchart's own include resolves within the subchart's own scope, not the parent's
+  assert.ok(edges.some((e) => e.to === subDefine.id && e.type === "references"), "subchart's include resolves within its own chart scope");
+  assert.ok(edges.some((e) => e.to === parentDefine.id && e.type === "references"), "parent chart's include resolves within its own chart scope");
+  // no edge crosses the nested-chart boundary in either direction (nearest-ancestor
+  // scoping is a deliberate conservative approximation -- see nearestChartRoot's doc
+  // comment: it misses a legitimate parent-includes-subchart-define edge rather than
+  // ever fabricating a wrong one)
+  const fileOf = new Map(syms.map((s) => [s.id, s.file] as const));
+  const crossChart = edges.filter((e) => e.type === "references" && (
+    (e.to === subDefine.id && !(fileOf.get(e.from) ?? "").startsWith("charts/sub/")) ||
+    (e.to === parentDefine.id && (fileOf.get(e.from) ?? "").startsWith("charts/sub/"))
+  ));
+  assert.equal(crossChart.length, 0, "no edge crosses the nested subchart boundary in either direction");
+
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a plain .yaml file with no ancestor Chart.yaml is unaffected by Helm-shaped text", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-helm-nochart-"));
   mkdirSync(join(root, "config"), { recursive: true });

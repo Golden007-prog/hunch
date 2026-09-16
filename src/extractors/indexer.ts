@@ -227,8 +227,19 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     // JS-falsy — `if (chartRoot)` would silently skip every repo-root chart.
     if (chartRoot !== null) {
       const helm = extractHelmDirectives(src);
-      parsed.symbols = [...parsed.symbols, ...helm.symbols].sort((a, b) => a.startByte - b.startByte);
-      parsed.calls = [...parsed.calls, ...helm.calls];
+      // helm.ts's own offsets are named *Char (they're JS char indices, not
+      // UTF-8 bytes -- see its module doc comment, issue #84); mapped here
+      // into parsed.symbols/calls's startByte/endByte/atByte fields, which
+      // carry the same char-index values under the shared ParsedSymbol/
+      // ParsedCall naming this merge target already uses.
+      const helmSymbols = helm.symbols.map((s) => ({
+        name: s.name, kind: s.kind, startByte: s.startChar, endByte: s.endChar, loc: s.loc, bodyText: s.bodyText,
+      }));
+      const helmCalls = helm.calls.map((c) => ({
+        callee: c.callee, atByte: c.atChar, endByte: c.endChar, member: c.member,
+      }));
+      parsed.symbols = [...parsed.symbols, ...helmSymbols].sort((a, b) => a.startByte - b.startByte);
+      parsed.calls = [...parsed.calls, ...helmCalls];
     }
     // Runs for EVERY yaml file, chart or not (unlike the Helm merge above) --
     // raw manifests with no Chart.yaml are still in scope; what varies below is
@@ -247,13 +258,16 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
       k8sDocs = extractK8sManifest(src);
       const k8sSymbols = k8sDocs
         .filter((d): d is K8sManifestDocument & { resource: NonNullable<K8sManifestDocument["resource"]> } => d.resource !== null)
+        // k8sManifest.ts's own offsets are named *Char (issue #84); mapped
+        // here into the shared startByte/endByte fields, same as the Helm
+        // merge above.
         .map((d) => ({
           name: `${d.resource.kind}/${displayNameText(d.resource.name)}`,
           kind: "variable" as const,
-          startByte: d.resource.startByte,
-          endByte: d.resource.endByte,
-          loc: src.slice(d.resource.startByte, d.resource.endByte).split("\n").length,
-          bodyText: src.slice(d.resource.startByte, d.resource.endByte).slice(0, 4000),
+          startByte: d.resource.startChar,
+          endByte: d.resource.endChar,
+          loc: src.slice(d.resource.startChar, d.resource.endChar).split("\n").length,
+          bodyText: src.slice(d.resource.startChar, d.resource.endChar).slice(0, 4000),
         }));
       for (const s of k8sSymbols) k8sSymbolObjects.add(s);
       parsed.symbols = [...parsed.symbols, ...k8sSymbols].sort((a, b) => a.startByte - b.startByte);
@@ -287,7 +301,7 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     }
     for (const doc of k8sDocs) {
       if (!doc.resource) continue;
-      const fromId = k8sSymbolIdByStartByte.get(doc.resource.startByte);
+      const fromId = k8sSymbolIdByStartByte.get(doc.resource.startChar);
       if (!fromId) continue;
       const scope = chartRoot ?? rel;
       k8sResourceIndex.push({ symbolId: fromId, scope, kind: doc.resource.kind, nameKey: nameKeyText(doc.resource.name) });
@@ -640,8 +654,8 @@ function pushInto<K, V>(map: Map<K, V[]>, key: K, value: V): void {
  *  approximation, not full Helm semantics: Helm's template namespace is
  *  actually release-global, so a parent chart can legitimately include a
  *  subchart's define — nearest-ancestor scoping will miss that edge rather
- *  than fabricate a wrong one. No test currently covers the nested
- *  charts/<sub>/Chart.yaml case — tracked as issue #42. */
+ *  than fabricate a wrong one (test coverage: indexer.test.ts's nested-subchart
+ *  case). Modeling the release-global namespace itself remains open — issue #42. */
 function nearestChartRoot(rels: string[]): (file: string) => string | null {
   const tracked = new Set(rels);
   const cache = new Map<string, string | null>();

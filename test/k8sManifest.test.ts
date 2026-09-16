@@ -7,7 +7,7 @@ test("a literal Deployment's kind and metadata.name are detected as its resource
   const [doc] = extractK8sManifest(src);
   assert.ok(doc);
   assert.equal(doc!.resource?.kind, "Deployment");
-  assert.deepEqual(doc!.resource?.name, { form: "literal", value: "my-app", atByte: src.indexOf("my-app"), endByte: src.indexOf("my-app") + "my-app".length });
+  assert.deepEqual(doc!.resource?.name, { form: "literal", value: "my-app", atChar: src.indexOf("my-app"), endChar: src.indexOf("my-app") + "my-app".length });
 });
 
 test("a same-line templated metadata.name is classified as a template form with the raw source text", () => {
@@ -24,13 +24,13 @@ test("a kind outside the fixed allowlist produces no resource and no candidates"
   assert.deepEqual(doc!.references, []);
 });
 
-test("multi-document files (--- separated) produce one entry per document with correct byte offsets", () => {
+test("multi-document files (--- separated) produce one entry per document with correct char offsets", () => {
   const src = `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-one\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: sec-one\n`;
   const docs = extractK8sManifest(src);
   assert.equal(docs.length, 2);
   assert.equal(docs[0]!.resource?.kind, "ConfigMap");
   assert.equal(docs[1]!.resource?.kind, "Secret");
-  assert.ok(docs[1]!.resource!.startByte >= src.indexOf("---"));
+  assert.ok(docs[1]!.resource!.startChar >= src.indexOf("---"));
 });
 
 test("quoted literal names have their quotes stripped", () => {

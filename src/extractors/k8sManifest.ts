@@ -21,9 +21,11 @@
  * mode that broke tree-sitter.
  */
 
+// Offsets below are JS string (UTF-16 code unit) indices, not UTF-8 byte
+// offsets — named *Char, not *Byte, to say so honestly (issue #84).
 export type ManifestNameRef =
-  | { form: "literal"; value: string; atByte: number; endByte: number }
-  | { form: "template"; sourceText: string; atByte: number; endByte: number };
+  | { form: "literal"; value: string; atChar: number; endChar: number }
+  | { form: "template"; sourceText: string; atChar: number; endChar: number };
 
 export interface K8sReferenceCandidate {
   /** Fixed literal for most kinds ("ConfigMap", "Secret", "PersistentVolumeClaim",
@@ -38,8 +40,8 @@ export type ManifestLabelMap = Record<string, string>;
 export interface K8sResourceDoc {
   kind: string;
   name: ManifestNameRef;
-  startByte: number;
-  endByte: number;
+  startChar: number;
+  endChar: number;
 }
 
 export interface K8sManifestDocument {
@@ -170,7 +172,7 @@ function stripQuotes(value: string): string {
  *  below its own indent; a sequence frame is only ever closed by a
  *  shallower-indent line, never by an equal-indent one (equal-indent means
  *  "next item"). */
-function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEntry[]; unresolvedContainers: Set<string> } {
+function scanFieldPaths(text: string, baseChar: number): { entries: FieldPathEntry[]; unresolvedContainers: Set<string> } {
   const entries: FieldPathEntry[] = [];
   // A container (mapping) this scanner could not fully account for -- either
   // an explicit {{ }} template injection, OR a line shape KEY_LINE doesn't
@@ -182,7 +184,7 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
   // "I can't tell" must read as "unresolved," the same as a real template.
   const unresolvedContainers = new Set<string>();
   const stack: StackFrame[] = [];
-  let byteOffset = baseByte;
+  let charOffset = baseChar;
 
   const popToForListItem = (dashIndent: number): void => {
     while (stack.length) {
@@ -246,8 +248,8 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
   };
 
   for (const line of text.split("\n")) {
-    const lineStartByte = byteOffset;
-    byteOffset += line.length + 1; // +1 for the \n split() consumed
+    const lineStartChar = charOffset;
+    charOffset += line.length + 1; // +1 for the \n split() consumed
 
     if (BARE_TEMPLATE_LINE.test(line)) {
       markAllOpenContainersUnresolved();
@@ -316,8 +318,8 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
     if (value.length > 0) {
       const colonIdx = line.indexOf(":", dashIndent);
       const valueStartInLine = line.indexOf(value, colonIdx);
-      const atByte = lineStartByte + valueStartInLine;
-      const endByte = atByte + value.length;
+      const atChar = lineStartChar + valueStartInLine;
+      const endChar = atChar + value.length;
       // Classify on the QUOTE-STRIPPED text, not the raw value: idiomatic
       // Helm text is pre-render, not valid YAML yet, so a template expression
       // routinely appears both bare (`name: {{ include "c.fullname" . }}`)
@@ -343,8 +345,8 @@ function scanFieldPaths(text: string, baseByte: number): { entries: FieldPathEnt
         parentPath,
         key: key!,
         value: unquoted.startsWith("{{")
-          ? { form: "template", sourceText: unquoted, atByte, endByte }
-          : { form: "literal", value: unquoted, atByte, endByte },
+          ? { form: "template", sourceText: unquoted, atChar, endChar }
+          : { form: "literal", value: unquoted, atChar, endChar },
       });
     }
     // A value-less key (e.g. `selector:`) needs no bookkeeping of its own
@@ -516,14 +518,14 @@ function extractLiteralLabelMap(prefix: string, entries: FieldPathEntry[], unres
   return pairs.length > 0 ? Object.fromEntries(pairs) : null;
 }
 
-function buildDocument(text: string, docStartByte: number, entries: FieldPathEntry[], unresolvedContainers: Set<string>): K8sManifestDocument {
+function buildDocument(text: string, docStartChar: number, entries: FieldPathEntry[], unresolvedContainers: Set<string>): K8sManifestDocument {
   const kindEntry = findEntry(entries, "kind");
   const kind = kindEntry?.value.form === "literal" ? kindEntry.value.value : null;
   if (!kind || !ALLOWED_KINDS.has(kind)) return { resource: null, references: [], selector: null, labels: null };
 
   const nameEntry = findEntry(entries, "metadata.name");
   const resource: K8sResourceDoc | null = nameEntry
-    ? { kind, name: nameEntry.value, startByte: docStartByte, endByte: docStartByte + text.length }
+    ? { kind, name: nameEntry.value, startChar: docStartChar, endChar: docStartChar + text.length }
     : null;
 
   const references = [...extractFieldReferences(kind, entries), ...extractOwnerReferenceCandidates(entries)];
