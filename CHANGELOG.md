@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.38.1 — unreleased
+## 1.38.1 — 2026-09-16
 
 - A prompt that ends without a Stop (the user interrupted it) no longer leaves its task open forever: the next prompt of the session, or its Stop, closes it as a host close and its evidence reaches the episode record (#263). A task still open counts as the session's current work whatever its age, so the next prompt continues it.
 - An observation that names an older, host-closed task (the grounding says to reuse ids) lands on the session's newest task instead of reopening one no Stop would close again; verification keeps its own task and a task the agent closed stays closed (#266).
