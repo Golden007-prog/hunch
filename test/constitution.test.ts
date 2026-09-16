@@ -64,7 +64,10 @@ function decision(id: string, opts: { private?: boolean } = {}): Decision {
   };
 }
 
-function layeredRepo(apiBody = 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n') {
+function layeredRepo(
+  apiBody = 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n',
+  servicesBody = 'import { dbQuery } from "../db/client.js";\nexport function fetchOrders(u){ return dbQuery(u); }\n',
+) {
   const root = mkdtempSync(join(tmpdir(), "hunch-constitution-"));
   const git = (...args: string[]): void => { execFileSync("git", args, { cwd: root, stdio: "ignore" }); };
   git("init", "-q");
@@ -78,7 +81,7 @@ function layeredRepo(apiBody = 'import { fetchOrders } from "../services/orders.
   mkdirSync(join(root, "src/services"), { recursive: true });
   mkdirSync(join(root, "src/db"), { recursive: true });
   writeFileSync(join(root, "src/db/client.ts"), "export function dbQuery(sql){ return sql; }\n");
-  writeFileSync(join(root, "src/services/orders.ts"), 'import { dbQuery } from "../db/client.js";\nexport function fetchOrders(u){ return dbQuery(u); }\n');
+  writeFileSync(join(root, "src/services/orders.ts"), servicesBody);
   writeFileSync(join(root, "src/api/orders.ts"), apiBody);
   git("add", "-A");
   git("commit", "-qm", "fixture: layered orders");
@@ -591,6 +594,36 @@ test("Phase 3E applies an exists mutation to isolated source and persists a pars
     assert.equal(primary.graph_diff.removed_symbols.length, 1);
     assert.equal(readFileSync(sourceFile, "utf8"), before, "source mutation never changes the active checkout");
     assert.deepEqual(readdirSync(join(root, ".hunch-cache/mutations")), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an exists mutation on a file with multi-byte UTF-8 content before the target deletes exactly the right span (issue #85)", () => {
+  // "café — über" is 11 JS chars but 15 UTF-8 bytes (é, —, ü each cost more
+  // bytes than code units) -- placed before fetchOrders so a byte-vs-char
+  // offset bug would misalign the deletion, corrupting or mis-targeting it.
+  const servicesBody = '// café — über multi-byte comment, deliberately before the target\nimport { dbQuery } from "../db/client.js";\nexport function fetchOrders(u){ return dbQuery(u); }\n';
+  const { root, store, cleanup } = layeredRepo(undefined, servicesBody);
+  try {
+    store.json.put("decisions", {
+      ...decision("dec_exists_source_mutation_utf8"),
+      title: "The order service entrypoint must exist",
+      conformance: [{ assert: "exists", subject: "fetchOrders", transitive: false }],
+    });
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const policy = service.compile("dec_exists_source_mutation_utf8", { now: NOW });
+    const proved = service.prove(policy.id, { now: "2026-07-10T10:01:00.000Z" });
+    const primary = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "delete-required-symbol");
+    assert.equal(primary.result, "violated");
+    assert.equal(primary.passed, true);
+    assert.equal(primary.parseability, "parseable");
+    const diff = primary.source_patch?.diff ?? "";
+    assert.match(diff, /^-export function fetchOrders\(u\)\{ return dbQuery\(u\); \}$/m, "deletes exactly the target line, not a byte-shifted span");
+    assert.match(diff, /^ \/\/ café — über multi-byte comment/m, "the preceding multi-byte comment survives untouched as diff context");
+    assert.doesNotMatch(diff, /^[-+].*(café|über)/m, "the multi-byte comment is never itself added or removed");
   } finally {
     cleanup();
   }

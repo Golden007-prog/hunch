@@ -119,16 +119,19 @@ function parsedSymbolFor(graphSymbol: Symbol, parsed: ParsedFile): ParsedSymbol 
   return matches.find((_symbol, index) => (index === 0 ? base : `${base}_${index}`) === graphSymbol.id) ?? null;
 }
 
-function spliceBytes(source: string, replacements: Array<{ start: number; end: number; text: string }>): string {
-  let bytes = Buffer.from(source, "utf8");
+/** `start`/`end` are JS string (UTF-16 code unit) indices, matching
+ *  parse.ts's ParsedSymbol/ParsedCall offsets (startByte/endByte/atByte are
+ *  themselves char offsets in practice, not true UTF-8 bytes — see issue
+ *  #84/#85). Splicing via plain string slicing keeps that consistent; the
+ *  previous Buffer-based implementation silently corrupted output whenever
+ *  non-ASCII source preceded a mutation target, since UTF-8 byte length
+ *  diverges from UTF-16 code-unit count for any character outside ASCII. */
+function spliceChars(source: string, replacements: Array<{ start: number; end: number; text: string }>): string {
+  let result = source;
   for (const replacement of [...replacements].sort((a, b) => b.start - a.start)) {
-    bytes = Buffer.concat([
-      bytes.subarray(0, replacement.start),
-      Buffer.from(replacement.text, "utf8"),
-      bytes.subarray(replacement.end),
-    ]);
+    result = result.slice(0, replacement.start) + replacement.text + result.slice(replacement.end);
   }
-  return bytes.toString("utf8");
+  return result;
 }
 
 function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: string, source: string): { file: string; source: string } | { error: string } {
@@ -166,7 +169,7 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
     const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
     return {
       file: sourceFile,
-      source: spliceBytes(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(specifier)}; // hunch deterministic component mutation\n` }]),
+      source: spliceChars(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(specifier)}; // hunch deterministic component mutation\n` }]),
     };
   }
   const subject = symbolForSelector(base, assertion.subject);
@@ -177,7 +180,7 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
   if (!definition) return { error: "mutation-subject-definition-unresolved" };
 
   if (assertion.kind === "exists") {
-    return { file: subject.file, source: spliceBytes(source, [{ start: definition.startByte, end: definition.endByte, text: "" }]) };
+    return { file: subject.file, source: spliceChars(source, [{ start: definition.startByte, end: definition.endByte, text: "" }]) };
   }
 
   if (assertion.kind === "not-reaches"
@@ -192,7 +195,7 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
     const insertion = source.startsWith("#!") ? Math.max(0, source.indexOf("\n") + 1) : 0;
     return {
       file: subject.file,
-      source: spliceBytes(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(dependency)}; // hunch deterministic source mutation\n` }]),
+      source: spliceChars(source, [{ start: insertion, end: insertion, text: `import ${JSON.stringify(dependency)}; // hunch deterministic source mutation\n` }]),
     };
   }
 
@@ -208,12 +211,14 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
       .filter((call) => call.atByte >= definition.startByte && call.atByte < definition.endByte && targetNames.has(call.callee))
       .map((call) => ({ start: call.atByte, end: call.endByte, text: "hunchMutationRemovedCall" }));
     if (!replacements.length) return { error: "mutation-required-call-unresolved" };
-    return { file: subject.file, source: spliceBytes(source, replacements) };
+    return { file: subject.file, source: spliceChars(source, replacements) };
   }
 
   if (!assertion.relation.edges.includes("calls")) return { error: "mutation-call-edge-not-supported" };
-  const bytes = Buffer.from(source, "utf8");
-  const open = bytes.indexOf("{".charCodeAt(0), definition.startByte);
+  // Char-index search (source.indexOf, not a Buffer scan), matching
+  // definition.startByte/endByte's actual units -- see spliceChars' doc
+  // comment (issue #84/#85).
+  const open = source.indexOf("{", definition.startByte);
   if (open < 0 || open >= definition.endByte) return { error: "mutation-subject-body-unsupported" };
   const replacements = [{ start: open + 1, end: open + 1, text: `\n  ${object.name}(); // hunch deterministic source mutation\n` }];
   if (object.file !== subject.file) {
@@ -229,7 +234,7 @@ function mutateSource(policy: PolicySpec, base: GraphSnapshot, sourceFile: strin
   }
   return {
     file: subject.file,
-    source: spliceBytes(source, replacements),
+    source: spliceChars(source, replacements),
   };
 }
 
