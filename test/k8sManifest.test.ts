@@ -335,11 +335,11 @@ test("a ConfigMap's data: block scalar containing manifest-looking YAML text doe
   assert.equal((docs[0]!.resource!.name as { value: string }).value, "my-config");
 });
 
-// Dotted label keys (found on re-review): a Kubernetes label key legitimately
-// contains dots (app.kubernetes.io/instance is the `helm create` default),
-// which is indistinguishable from path nesting once folded into one
-// dot-joined string -- FieldPathEntry.parentPath/key must be tracked
-// structurally, never re-derived by slicing/counting dots in the joined path.
+// Dotted label keys: a Kubernetes label key legitimately contains dots
+// (app.kubernetes.io/instance is the `helm create` default), which is
+// indistinguishable from path nesting once folded into one dot-joined
+// string -- FieldPathEntry.parentPath/key must be tracked structurally,
+// never re-derived by slicing/counting dots in the joined path.
 
 test("an all-dotted selector (the helm create default convention) is extracted, not silently dropped", () => {
   const src = [
@@ -353,9 +353,9 @@ test("an all-dotted selector (the helm create default convention) is extracted, 
 });
 
 test("a mixed selector whose dotted key differs from the workload's does NOT subset-match on the plain-key remainder alone", () => {
-  // Regression for the exact false positive found on re-review: both sides
-  // used to collapse to {app: my-app} (the dotted key silently dropped),
-  // which made a real mismatch (prod vs staging) look like a match.
+  // Without structural parentPath/key tracking, both sides collapse to
+  // {app: my-app} (the dotted key silently dropped), which makes a real
+  // mismatch (prod vs staging) look like a match.
   const selectorSrc = [
     `apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-service`,
     `spec:`, `  selector:`, `    app: my-app`, `    app.kubernetes.io/instance: prod`, ``,
@@ -397,7 +397,7 @@ test("a block-form template injection appearing as a LATER sibling after literal
   assert.equal(doc!.selector, null, "partially-templated map (literal siblings + a later injection) must not read as fully literal");
 });
 
-// Comment-stripping quote hardening (found on re-review)
+// Comment-stripping quote hardening
 
 test("an apostrophe mid-word does not open a phantom quote that swallows a real trailing comment", () => {
   const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: it's-fine  # a real comment`, ``].join("\n");
@@ -405,11 +405,10 @@ test("an apostrophe mid-word does not open a phantom quote that swallows a real 
   assert.equal((doc!.resource!.name as { value: string }).value, "it's-fine");
 });
 
-// CRLF line endings (found on third review pass): `core.autocrlf=true` is the
-// Git-for-Windows default, so every .yaml file in a Windows checkout is
-// CRLF-terminated -- confirmed this silently zeroed out the whole module's
-// output before the KEY_LINE regex fix (JS `.` never matches `\r`, and `$`
-// without /m only matches at true end-of-string).
+// CRLF line endings: `core.autocrlf=true` is the Git-for-Windows default, so
+// every .yaml file in a Windows checkout is CRLF-terminated -- without the
+// `\r?` in KEY_LINE, this silently zeroes out the whole module's output (JS
+// `.` never matches `\r`, and `$` without /m only matches at true end-of-string).
 
 test("a CRLF-terminated manifest is scanned identically to its LF equivalent", () => {
   const lf = `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: my-app\nspec:\n  template:\n    spec:\n      containers:\n      - name: app\n        envFrom:\n        - configMapRef:\n            name: my-config\n`;
@@ -429,11 +428,10 @@ test("a CRLF-terminated Service selector and workload labels are extracted the s
   assert.deepEqual(doc!.selector, { app: "my-app" });
 });
 
-// Unrecognized line shapes (found on third review pass): a line the scanner
-// can't parse at all (a quoted key, a YAML merge key) must taint its
-// container as unresolved, not silently vanish -- a dropped key makes a
-// selector/labels map strictly MORE permissive, which risks a false-positive
-// edge on real, untemplated YAML.
+// Unrecognized line shapes: a line the scanner can't parse at all (a quoted
+// key, a YAML merge key) must taint its container as unresolved, not
+// silently vanish -- a dropped key makes a selector/labels map strictly MORE
+// permissive, which risks a false-positive edge on real, untemplated YAML.
 
 test("a quoted label key is left unresolved (null), not silently dropped from the map", () => {
   const src = [
@@ -464,10 +462,10 @@ test("an unresolved-line taint at one nesting level does not affect an unrelated
   assert.deepEqual(doc!.selector, { app: "my-app" }, "an unresolved line under metadata must not taint spec.selector");
 });
 
-// ReplicaSet full wiring (found on third review pass): ReplicaSet was
-// allowlisted only for its role as the dominant ownerReferences bearer, but
-// left out of the pod-spec/labels tables, silently dropping its OWN
-// container references and pod-template labels.
+// ReplicaSet full wiring: ReplicaSet was allowlisted only for its role as the
+// dominant ownerReferences bearer, but left out of the pod-spec/labels
+// tables, silently dropping its OWN container references and pod-template
+// labels.
 
 test("a hand-written ReplicaSet's own envFrom/volumes references are extracted, not silently dropped", () => {
   const src = [
@@ -490,12 +488,12 @@ test("a ReplicaSet's pod-template labels are extracted for Phase 2 matching", ()
   assert.deepEqual(doc!.labels, { app: "my-app" });
 });
 
-// A {{ }} action line's own indentation is meaningless (found on fourth review
-// pass): `{{-` chomps it away, and the `| indent N` idiom REQUIRES the action
-// at column 0 while injecting content at depth N. The same manifest at three
-// different (semantically irrelevant) action indents must produce identical
-// output -- and, critically, a column-0 action must NOT destroy tracking of
-// every field-path that follows it in the document.
+// A {{ }} action line's own indentation is meaningless: `{{-` chomps it away,
+// and the `| indent N` idiom REQUIRES the action at column 0 while injecting
+// content at depth N. The same manifest at three different (semantically
+// irrelevant) action indents must produce identical output -- and,
+// critically, a column-0 action must NOT destroy tracking of every
+// field-path that follows it in the document.
 
 function refsOf(src: string): Array<[string, string]> {
   return extractK8sManifest(src)[0]!.references.map((r): [string, string] => [r.refKind, r.name.form === "literal" ? r.name.value : r.name.sourceText]);
@@ -546,9 +544,9 @@ test("a template action inside a Service's selector, at column 0, leaves the sel
   assert.equal(doc!.selector, null, "a column-0 conditional inside the selector must taint the whole map, not leave a partial literal one");
 });
 
-// Document separators (found on fourth review pass): `--- # comment` is legal
-// YAML and must still split documents; `...` is a document-end marker.
-// Missing either silently merges two documents into one.
+// Document separators: `--- # comment` is legal YAML and must still split
+// documents; `...` is a document-end marker. Missing either silently merges
+// two documents into one.
 
 test("a document separator with a trailing comment (--- # note) still splits documents", () => {
   const src = [
@@ -575,11 +573,11 @@ test("four or more dashes at column 0 (----) is NOT mistaken for a document sepa
   assert.equal(docs[0]!.resource?.kind, "ConfigMap");
 });
 
-// A flow collection value is a shape a line-oriented scan can't fully see
-// (found on fifth review pass): keys written on the OPENING line of a
-// multi-line `{ ... }`/`[ ... ]` value are invisible to the scanner, which
-// silently drops them instead of the whole map reading as unresolved -- for
-// a selector, a dropped key makes the match strictly MORE permissive.
+// A flow collection value is a shape a line-oriented scan can't fully see:
+// keys written on the OPENING line of a multi-line `{ ... }`/`[ ... ]` value
+// are invisible to the scanner, which silently drops them instead of the
+// whole map reading as unresolved -- for a selector, a dropped key makes the
+// match strictly MORE permissive.
 
 test("a multi-line flow-style selector is left unresolved (null), not a partial map missing the key written on its opening line", () => {
   const src = [
@@ -605,13 +603,13 @@ test("a single-line flow-style selector is still left unresolved, same as before
   assert.equal(doc!.selector, null);
 });
 
-// Quoted vs. unquoted template text (found on fifth review pass): idiomatic
-// Helm text is pre-render, not valid YAML yet, so the SAME template
-// expression routinely appears both bare and quoted in one chart (helm
-// create's own test-connection.yaml quotes it). Classifying on the raw value
-// instead of the quote-stripped text tagged one "literal" and the other
-// "template", giving them different nameKeyText prefixes and silently
-// breaking the match between a resource's own name and a quoted reference.
+// Quoted vs. unquoted template text: idiomatic Helm text is pre-render, not
+// valid YAML yet, so the SAME template expression routinely appears both
+// bare and quoted in one chart (helm create's own test-connection.yaml
+// quotes it). Classifying on the raw value instead of the quote-stripped
+// text would tag one "literal" and the other "template", giving them
+// different nameKeyText prefixes and silently breaking the match between a
+// resource's own name and a quoted reference.
 
 test("a quoted template expression classifies as the SAME template form as its unquoted equivalent", () => {
   const unquotedSrc = [`apiVersion: v1`, `kind: Secret`, `metadata:`, `  name: {{ include "mychart.fullname" . }}`, ``].join("\n");
@@ -631,10 +629,10 @@ metadata:
 });
 
 // A block-scalar header (`|`, `>`, plus chomping/indent indicators) is not a
-// value -- the real scalar is on the FOLLOWING indented lines (found on
-// sixth review pass). Reading the header token itself as the value is
-// silently, confidently WRONG (not merely incomplete): two resources with
-// nothing in common both key on the literal string "|-" and collide.
+// value -- the real scalar is on the FOLLOWING indented lines. Reading the
+// header token itself as the value is silently, confidently WRONG (not
+// merely incomplete): two resources with nothing in common both key on the
+// literal string "|-" and collide.
 
 test("a resource whose name is a block scalar is unidentifiable (null resource), not literally named the header token", () => {
   const src = [`apiVersion: v1`, `kind: ConfigMap`, `metadata:`, `  name: |-`, `    real-config`, ``].join("\n");
@@ -676,9 +674,9 @@ test("a genuinely quoted single-pipe value is NOT mistaken for a block scalar he
   assert.equal((doc!.resource!.name as { value: string }).value, "|", "a quoted literal pipe must stay a literal, not be treated as an unterminated block scalar");
 });
 
-// A nested map under a selector/labels key silently vanished, making the map
-// more permissive (found on sixth review pass, invalid k8s but not rejected
-// by this scanner -- same "dropped key" risk as every other unresolved case).
+// A nested map under a selector/labels key silently vanishes, making the map
+// more permissive (invalid k8s, but not rejected by this scanner -- same
+// "dropped key" risk as every other unresolved case).
 
 test("a nested map under a selector key (invalid k8s, but not rejected by this scanner) taints the whole map instead of silently dropping the nested key", () => {
   const src = [
@@ -689,12 +687,12 @@ test("a nested map under a selector key (invalid k8s, but not rejected by this s
   assert.equal(doc!.selector, null, "a nested map under the selector must taint the whole map, not leave {app: web} as a partial one");
 });
 
-// __proto__ as a label key (found on sixth review pass): a plain object
-// literal silently swallows an assignment to "__proto__" (it sets the
-// prototype, not an own property), which would make Object.entries() see an
-// empty map that vacuously matches every workload -- unreachable via a
-// syntactically valid k8s label key, but the blast radius (every workload,
-// not just a wrong one) warranted a one-line hardening anyway.
+// __proto__ as a label key: a plain object literal silently swallows an
+// assignment to "__proto__" (it sets the prototype, not an own property),
+// which would make Object.entries() see an empty map that vacuously matches
+// every workload -- unreachable via a syntactically valid k8s label key, but
+// the blast radius (every workload, not just a wrong one) warranted a
+// one-line hardening anyway.
 
 test("a __proto__ label key round-trips as a real own property, not silently swallowed into the object's prototype", () => {
   const src = [`apiVersion: v1`, `kind: Service`, `metadata:`, `  name: my-svc`, `spec:`, `  selector:`, `    __proto__: web`, ``].join("\n");
@@ -703,11 +701,11 @@ test("a __proto__ label key round-trips as a real own property, not silently swa
   assert.equal(doc!.selector!["__proto__"], "web");
 });
 
-// A bare `-` list marker with nothing else on its line (found on rounds four
-// and six): the item's content is entirely on later, more-indented lines.
-// Previously fell to the unrecognized-line branch, which used ordinary
-// (non-list) popping and lost the item's own frame, silently reparenting
-// everything under it one level up and dropping every reference inside.
+// A bare `-` list marker with nothing else on its line: the item's content
+// is entirely on later, more-indented lines. Without explicit handling this
+// falls to the unrecognized-line branch, which uses ordinary (non-list)
+// popping and loses the item's own frame, silently reparenting everything
+// under it one level up and dropping every reference inside.
 
 test("a bare dash list marker (item body entirely on following lines) still extracts references from inside it", () => {
   const src = [

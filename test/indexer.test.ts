@@ -1071,7 +1071,7 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
-test("a quoted selector key the scanner can't parse produces NO edge, not an over-permissive false-positive one (regression, found on third review pass)", () => {
+test("a quoted selector key the scanner can't parse produces NO edge, not an over-permissive false-positive one (regression)", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-quoted-"));
   mkdirSync(join(root, "manifests"), { recursive: true });
   writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
@@ -1120,7 +1120,7 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
-test("a column-0 template conditional inside a Service's selector does not produce a false-positive edge to the wrong workload (regression, found on fourth review pass)", () => {
+test("a column-0 template conditional inside a Service's selector does not produce a false-positive edge to the wrong workload (regression)", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-col0-"));
   mkdirSync(join(root, "manifests"), { recursive: true });
   writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
@@ -1173,7 +1173,7 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
-test("a multi-line flow-style selector does not produce a false-positive edge from a dropped key (regression, found on fifth review pass)", () => {
+test("a multi-line flow-style selector does not produce a false-positive edge from a dropped key (regression)", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8ssel-flow-"));
   mkdirSync(join(root, "manifests"), { recursive: true });
   writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
@@ -1223,7 +1223,7 @@ spec:
   rmSync(root, { recursive: true, force: true });
 });
 
-test("two resources whose names are both block-scalar headers do not collide into a false-positive edge (regression, found on sixth review pass)", () => {
+test("two resources whose names are both block-scalar headers do not collide into a false-positive edge (regression)", () => {
   const root = mkdtempSync(join(tmpdir(), "hunch-idx-k8sref-blockscalar-"));
   mkdirSync(join(root, "manifests"), { recursive: true });
   writeFileSync(join(root, "Chart.yaml"), `apiVersion: v2\nname: mychart\nversion: 0.1.0\n`);
