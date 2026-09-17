@@ -1615,6 +1615,26 @@ test("Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, 
     service.classifyShadow(proved.policy.id, queue.items[0]!.shadow_id, "true_positive_actionable", "human:reviewer", "Real bypass in the changed graph.", { now: "2026-07-11T11:05:00.000Z" });
     assert.equal(service.g2ShadowQueue(5).total_unclassified, 0, "a current human disposition removes the item immediately");
 
+    const beforeRetire = service.repository.listShadowEvaluations({ privateOnly: true }).length;
+    const live = service.get(proved.policy.id);
+    service.repository.putPolicy(PolicySpecSchema.parse({
+      ...live,
+      revision: live.revision + 1,
+      state: "retired",
+      authority: null,
+      valid_to: "2026-07-11T11:06:00.000Z",
+      updated_at: "2026-07-11T11:06:00.000Z",
+    }), { private: true });
+    writeFileSync(join(root, "src/api/orders.ts"), `${readFileSync(join(root, "src/api/orders.ts"), "utf8")}
+// change after retirement
+`);
+    commitFiles(root, ["src/api/orders.ts"], "fixture: new HEAD after retirement");
+    const afterRetire = service.g2ShadowSweep({ now: "2026-07-11T11:07:00.000Z" });
+    assert.deepEqual(afterRetire.retired, [proved.policy.id]);
+    assert.equal(afterRetire.recorded.length, 0, "a retired policy is never observed again, even at a new HEAD");
+    assert.equal(afterRetire.failures.length, 9);
+    assert.equal(service.repository.listShadowEvaluations({ privateOnly: true }).length, beforeRetire, "retired history is kept, nothing new is written");
+
     const planFile = join(privateRoot, "gates", `${g2Plan.id}.json`);
     const tampered = JSON.parse(readFileSync(planFile, "utf8"));
     tampered.reason = "tampered plan";
