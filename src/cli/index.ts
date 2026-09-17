@@ -734,7 +734,7 @@ program
         const sweep = constitution.g2ShadowSweep();
         g2Recorded = sweep.recorded.length;
         if (!opts.quiet) {
-          console.log(`  ↳ G2 shadow: ${sweep.recorded.length} recorded · ${sweep.existing.length} existing · ${sweep.failures.length} failed; authority none`);
+          console.log(`  ↳ G2 shadow: ${sweep.recorded.length} recorded · ${sweep.existing.length} existing · ${sweep.failures.length} failed${sweep.retired.length ? ` · ${sweep.retired.length} retired (skipped)` : ""}; authority none`);
         }
       }
     } catch (e) {
