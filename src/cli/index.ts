@@ -61,7 +61,7 @@ import type { Runbook } from "../core/types.js";
 import { extractInlineIntent } from "../extractors/comments.js";
 import { renderText, renderMarkdown, renderSarif, renderImpact, reportFailsStrict, type CheckReport, type SarifExtras } from "../core/checkreport.js";
 import { partitionReview, isReviewDraft, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
-import { installPostCommitHook, installPreCommitHook, installPostMergeHook, installPostCheckoutHook, hookStatus } from "../integrations/hooks.js";
+import { installPostCommitHook, installPreCommitHook, installPostMergeHook, installPostCheckoutHook, hookStatus, hookReport, formatHookInstall } from "../integrations/hooks.js";
 import { ensureSharedOverlayPointer } from "../integrations/worktree.js";
 import { flushCapture, flushMemoryHome, flushMemoryHomes, pinSharedRemote, sharedRemoteFor, type MemoryHome } from "../integrations/sync.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
@@ -424,11 +424,11 @@ program
     if (isGitRepo(root)) {
       const syncToOverlay = !!(opts.privateSync || opts.sharedSync);
       const h = installPostCommitHook(root, inv.shell, { private: syncToOverlay, commit: opts.autoCommit, localOnly: syncToOverlay });
-      console.log(`  ✓ post-commit hook ${h.action} (learning loop)${syncToOverlay ? " — syncs to the shared overlay" : ""}${opts.autoCommit ? " — auto-commit on" : ""}`);
+      for (const line of formatHookInstall(root, "post-commit hook", h, ` (learning loop)${syncToOverlay ? " — syncs to the shared overlay" : ""}${opts.autoCommit ? " — auto-commit on" : ""}`)) console.log(line);
       const pm = installPostMergeHook(root, inv.shell);
-      console.log(`  ✓ post-merge hook ${pm.action} (squash-merge provenance repair + re-syncs grounding docs after a merge that brought memory in)`);
+      for (const line of formatHookInstall(root, "post-merge hook", pm, " (squash-merge provenance repair + re-syncs grounding docs after a merge that brought memory in)")) console.log(line);
       const pc = installPostCheckoutHook(root, inv.shell);
-      console.log(`  ✓ post-checkout hook ${pc.action} (workspace ledger: records this machine's branches + worktrees on checkout)`);
+      for (const line of formatHookInstall(root, "post-checkout hook", pc, " (workspace ledger: records this machine's branches + worktrees on checkout)")) console.log(line);
       const m = installMergeDriver(root, inv.shell);
       console.log(`  ✓ team merge driver ${m.action}`);
       // Auto-install the pre-commit guard by default (advisory: flags invariants
@@ -437,7 +437,7 @@ program
       if (opts.enforce !== false || opts.enforceStrict) {
         const strict = !!opts.enforceStrict;
         const p = installPreCommitHook(root, inv.shell, strict);
-        console.log(`  ✓ pre-commit constraint guard ${p.action} (${strict ? "strict — fails only on direct, high-confidence, non-stale blocking invariants" : "advisory — flags invariants in scope or blast radius"})`);
+        for (const line of formatHookInstall(root, "pre-commit constraint guard", p, ` (${strict ? "strict — fails only on direct, high-confidence, non-stale blocking invariants" : "advisory — flags invariants in scope or blast radius"})`)) console.log(line);
       }
     } else {
       console.log("  ⚠ not a git repo — skipped hooks (run `git init` to enable the learning loop)");
@@ -1274,11 +1274,12 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
   if (opts.hook && isGitRepo(root)) {
     freshSetup?.markHookWrite();
     const h = installPostCommitHook(root, inv.shell, { private: true, commit: opts.autoCommit, localOnly: mode === "private" });
-    hookNote = `  ✓ post-commit hook ${h.action} — captured decisions route here${opts.autoCommit ? " (auto-commit+push on)" : ""}\n`;
+    const note = (lines: string[]): string => lines.map((l) => `${l}\n`).join("");
+    hookNote = note(formatHookInstall(root, "post-commit hook", h, ` — captured decisions route here${opts.autoCommit ? " (auto-commit+push on)" : ""}`));
     const pm = installPostMergeHook(root, inv.shell);
-    hookNote += `  ✓ post-merge hook ${pm.action} (squash-merge provenance repair + re-syncs grounding docs after a merge that brought memory in)\n`;
+    hookNote += note(formatHookInstall(root, "post-merge hook", pm, " (squash-merge provenance repair + re-syncs grounding docs after a merge that brought memory in)"));
     const pc = installPostCheckoutHook(root, inv.shell);
-    hookNote += `  ✓ post-checkout hook ${pc.action} (workspace ledger: this machine's branches + worktrees sync through the overlay)\n`;
+    hookNote += note(formatHookInstall(root, "post-checkout hook", pc, " (workspace ledger: this machine's branches + worktrees sync through the overlay)"));
   }
 
   // 5) one-time migration: MOVE existing public memory INTO the overlay, then make
@@ -6573,16 +6574,32 @@ program
     // squash-merge went unrepaired. pre-commit is opt-out (`--no-enforce`),
     // so its absence is informational only, never a warning.
     if (isGitRepo(root)) {
+      const report = hookReport(root);
       const hooks = hookStatus(root);
-      const missing = [!hooks.postCommit && "post-commit", !hooks.postMerge && "post-merge"].filter((h): h is string => !!h);
+      const missing = [report.postCommit.state === "missing" && "post-commit", report.postMerge.state === "missing" && "post-merge"].filter((h): h is string => !!h);
+      // A block that is present but never runs (after an exec/exit, or inside a
+      // hook manager's regenerated file — issue #311) is NOT installed.
+      const unreachable = ([["post-commit", report.postCommit], ["post-merge", report.postMerge], ["pre-commit", report.preCommit], ["post-checkout", report.postCheckout]] as const)
+        .filter(([, e]) => e.state === "unreachable");
       // `hunch index` only ever installs post-merge onto an existing
       // post-commit install (it never hooks an un-hooked repo — see
-      // isGitRepo(root) && hookStatus(root).postCommit above) — so the fix
-      // hint must not point there when post-commit itself is missing.
-      const fix = !hooks.postCommit ? "run `hunch init` for the full setup" : "run `hunch index` to install it";
-      console.log(`hooks:      ${missing.length
-        ? `⚠ missing ${missing.join(", ")} — ${fix}`
+      // isGitRepo(root) && hookStatus(root).postCommit above) and never writes
+      // into a manager-owned hook — so the fix hint must not point there when
+      // post-commit itself is missing or a hook manager is in play.
+      const managedMissing = [report.postCommit, report.postMerge].find((e) => e.state === "missing" && e.manager !== "none");
+      const fix = managedMissing
+        ? `${managedMissing.manager === "exec-exit" ? "the existing hook exits before an appended block would run" : `a hook manager (${managedMissing.manager}) owns these hooks`}; run \`hunch init\` to print the snippet to add to ${rel(root, managedMissing.path)}`
+        : !hooks.postCommit ? "run `hunch init` for the full setup" : "run `hunch index` to install it";
+      const problems = [
+        missing.length ? `⚠ missing ${missing.join(", ")} — ${fix}` : "",
+        unreachable.length ? `⚠ installed but unreachable: ${unreachable.map(([n]) => n).join(", ")} — never runs; run \`hunch init\` to print the snippet for your hook manager` : "",
+      ].filter(Boolean);
+      console.log(`hooks:      ${problems.length
+        ? problems.join("\n            ")
         : `post-commit, post-merge installed${hooks.preCommit ? " (+ pre-commit)" : ""}`}`);
+      for (const [name, e] of unreachable) {
+        console.log(dim(`            ↳ ${name}: ${e.reason ?? "the block sits where git never reaches it"} (${rel(root, e.path)})`));
+      }
       // Workspace ledger: what this machine is called, whether its record is in memory,
       // and whether the checkout hook that keeps it fresh is installed.
       try {
@@ -6591,7 +6608,7 @@ program
         const others = store.recs("workspaces").filter((r) => r.machine.id !== machine.id).length;
         const leak = labelLeaksIdentity(machine.label);
         console.log(`workspaces: this machine is ${machine.label}${leak ? ` (⚠ label equals the ${leak})` : ""} · record in memory: ${stored ? `yes (${stored.observed_at})` : "no"} · ${others} other machine(s)` +
-          `${hooks.postCheckout ? " · post-checkout hook installed" : hooks.postCommit ? " · post-checkout hook not installed (`hunch index` adds it)" : ""}`);
+          `${hooks.postCheckout ? " · post-checkout hook installed" : report.postCheckout.state === "unreachable" ? " · ⚠ post-checkout hook unreachable" : hooks.postCommit ? " · post-checkout hook not installed (`hunch index` adds it)" : ""}`);
       } catch { /* no machine file writable: nothing to report */ }
     }
     // In unified mode the public .hunch directory is only a routing shell.
