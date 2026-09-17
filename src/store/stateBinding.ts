@@ -254,11 +254,14 @@ export function readState(store: HunchStore, input: unknown, options: StateAcces
       else if (c.status === "done" && c.closed_by) done.push(keep("commitments", c, scope));
     }
     if (facets.has("derived")) for (const d of store.recs("derived")) {
+      // Match the subject BEFORE admit, as every other facet does: admit names an ungranted
+      // partition in denied_scopes, and only a record that matches may name its partition.
+      // A linked observation must sit in the request's (granted) partition, so it never names one.
+      const direct = isSubject(d.subject) || d.id === subject;
+      const linked = scopePath(recordScope(d, repo)) === scopePath(request.scope) && linkedObservations.get(d.id)?.has(stateHash(d));
+      if (!direct && !linked) continue;
       const scope = admit("derived", d); if (!scope) continue;
       if (request.observed_page && scopePath(scope) !== scopePath(request.scope)) continue;
-      const direct = isSubject(d.subject) || d.id === subject;
-      const linked = scopePath(scope) === scopePath(request.scope) && linkedObservations.get(d.id)?.has(stateHash(d));
-      if (!direct && !linked) continue;
       if (!direct) { if (d.state === "unknown" && d.valid_to == null) observations.push(d); continue; }
       if (d.state === "current" && d.valid_to == null) { current.push(keep("derived", d, scope)); dependsOn.push(...d.dependencies); }
       else if (d.state === "unknown" && d.valid_to == null) observations.push(d);
@@ -636,7 +639,17 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
   try { assertWriteWellFormed(request); } catch (e) {
     throw new StateRefusal(/grants/.test((e as Error).message) ? "outside-grants" : "malformed", (e as Error).message);
   }
+  const repo = partitionOf(store);
+  // Legacy kinds carry no partition scope: whatever home they land in, every reader (and the
+  // repository's edit gate) treats them as the store's OWN partition. Written under any other
+  // scope they would silently become that partition's records, so they are refused instead.
+  if (LEGACY_FACETS.has(request.facet) && scopePath(request.scope) !== scopePath(repo)) {
+    throw new StateRefusal("unsupported", `${request.facet} records belong to this store's own partition ${scopePath(repo)}; they cannot be written under ${scopePath(request.scope)} — use a partition-scoped facet (conventions, receipts, commitments, derived, entities, relationships) there`);
+  }
   const { home, hunchDir, isPrivate } = stateHomeFor(store, request.scope);
+  /** Several partitions share one overlay home: a record counts for this write only when it is
+   *  in the write's own partition. */
+  const inScope = (r: unknown): boolean => scopePath(recordScope(r, repo)) === scopePath(request.scope);
   const now = (opts.now ?? (() => new Date()))().toISOString();
   const facet = request.facet;
   const getHere = (id: string) => facet === "derived" || facet === "receipts" || facet === "commitments"
@@ -673,6 +686,9 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
 
   const incumbent = getHere(String(record.id)) as Record<string, unknown> | undefined;
   if (incumbent && !access.canWrite(incumbent)) deny();
+  // An id not derived from its scope (an entity, a relationship) can collide with another
+  // partition's record in a shared home: that record is never rewritten from this partition.
+  if (incumbent && !inScope(incumbent)) throw new StateRefusal("conflict", `${id} is on record in ${scopePath(recordScope(incumbent, repo))}, not ${scopePath(request.scope)}: a write never moves or rewrites another partition's record`, { incumbent_id: id, reason: "record id held by another partition" });
   const previousVisibility = incumbent?.visibility as RecordVisibility | undefined;
   const nextVisibility = (record as { visibility?: RecordVisibility }).visibility;
   if (nextVisibility && home === 'private') throw new StateRefusal('unsupported', 'record visibility requires a dedicated partition home; shared/private overlays cannot safely gate every older reader');
@@ -680,6 +696,9 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
   const supersededVisibility = supersededRecord?.visibility as RecordVisibility | undefined;
   if (supersededRecord) {
     if (!access.canWrite(supersededRecord)) deny();
+    // Supersession stays inside one partition: closing another partition's record from here would
+    // land its `superseded` event in THIS ledger, invisible to that partition's subscribers.
+    if (!inScope(supersededRecord)) throw new StateRefusal("conflict", `supersedes ${request.supersedes} is on record in ${scopePath(recordScope(supersededRecord, repo))}, not ${scopePath(request.scope)}: a write supersedes only a record in its own partition`, { incumbent_id: String(supersededRecord.id), reason: "supersede target in another partition" });
     if (stateHash(supersededVisibility ?? null) !== stateHash(nextVisibility ?? null)) {
       if (supersededVisibility ? supersededVisibility.owner !== request.principal.id : request.principal.kind !== 'human') deny();
       const matches = typeof request.expected_version === 'number'
@@ -805,7 +824,7 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
       }
     }
   }
-  if (supersedes && !store.recsInHome(facet as EntityKind, home).some((r) => (r as { id: string }).id === supersedes)) {
+  if (supersedes && !store.recsInHome(facet as EntityKind, home).some((r) => (r as { id: string }).id === supersedes && inScope(r))) {
     throw new StateRefusal("conflict", `supersedes ${supersedes} is not a ${facet} record in this partition`, { incumbent_id: supersedes, reason: "supersede target absent" });
   }
   if (supersedes === id) supersedes = null;
@@ -818,7 +837,7 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
     if (incumbent && "valid_to" in incumbent && incumbent.valid_to !== null) {
       const subject = subjectOf(facet, incumbent);
       const open = store.recsInHome(facet as EntityKind, home)
-        .filter((r) => subjectOf(facet, r) === subject && (r as { valid_to?: string | null }).valid_to === null)
+        .filter((r) => inScope(r) && subjectOf(facet, r) === subject && (r as { valid_to?: string | null }).valid_to === null)
         .map((r) => (r as { id: string }).id).sort();
       if (!open.includes(id)) {
         const current = open.length ? `the current ${facet} record for ${subject ?? "that subject"} is ${open.join(", ")}` : `no ${facet} record for ${subject ?? "that subject"} is open now`;
@@ -838,7 +857,7 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
     const d = record as EntityFor["derived"];
     const incumbent = store.recsInHome("derived", home).find((r) => {
       const x = r as EntityFor["derived"];
-      return x.id !== id && x.id !== supersedes && x.subject === d.subject && x.transform_version === d.transform_version && x.state === "current" && x.valid_to === null;
+      return x.id !== id && x.id !== supersedes && inScope(x) && x.subject === d.subject && x.transform_version === d.transform_version && x.state === "current" && x.valid_to === null;
     }) as EntityFor["derived"] | undefined;
     if (incumbent) {
       throw new StateRefusal("conflict", `${d.subject} already has a current ${d.transform_version} statement ${incumbent.id}; pass supersedes: "${incumbent.id}" to replace it, or write that identity to update it`, { incumbent_id: incumbent.id, reason: "one-current-derived-per-subject-transform" });
