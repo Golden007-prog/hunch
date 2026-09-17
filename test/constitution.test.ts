@@ -25,6 +25,7 @@ import { shortHash } from "../src/core/ids.js";
 import { externalImportNodeId, externalPackage } from "../src/core/externalImports.js";
 import { buildProofCard, renderProofCard } from "../src/constitution/card.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { nodeTestInfrastructureError } from "../src/constitution/g2BehaviorCandidates.js";
 import { policyEscalations } from "../src/core/escalations.js";
@@ -4416,10 +4417,13 @@ test("MD-1a capture survives a dirty baseline and ordinary index retries it afte
     fixture.store.close();
     const env = { ...process.env, HUNCH_PRIVATE_DIR: "", HUNCH_SYNTH_PROVIDER: "deterministic" };
     const transport = new StdioClientTransport({ command: process.execPath, args: [tsx, cli, "mcp"], cwd: fixture.root, env });
-    client = new Client({ name: "automatic-correction-upgrade-test", version: "1.0.0" });
+    // The human answers the client confirmation prompt (MCP elicitation): a capture token
+    // alone never grants human_confirmed authority.
+    client = new Client({ name: "automatic-correction-upgrade-test", version: "1.0.0" }, { capabilities: { elicitation: {} } });
+    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: "accept", content: { confirm: true } }));
     await client.connect(transport);
 
-    // Countersigned on purpose. This correction is later upgraded into a Constitution
+    // Countersigned on purpose (interview + the human's in-client confirmation). This correction is later upgraded into a Constitution
     // policy candidate ("correction reviews: 1 proved" below), and candidate eligibility
     // has always required human_confirmed provenance (bootstrap.ts) — testimony must not
     // become policy evidence. Since the authorship stamp, an un-token'd correction lands
