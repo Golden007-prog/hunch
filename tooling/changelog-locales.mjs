@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — תיעוד משותף לסוכני AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "בדיקות וניקוי בטוחים יותר",
       "גישה, שימוש חוזר, סדר",
       "שום דבר לא נשאר פתוח",
       "כל תור נספר",
@@ -77,6 +78,7 @@ export const changelogLocales = {
       footer: "© Hunch — общие записи для ИИ-агентов.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Надёжнее проверки и очистка",
       "Доступ, повторное использование, порядок",
       "Ничего не остаётся открытым",
       "Каждый ход идёт в счёт",
@@ -146,6 +148,7 @@ export const changelogLocales = {
       footer: "© Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "فحوصات وتنظيف أكثر أمانًا",
       "الوصول، إعادة الاستخدام، الترتيب",
       "لا شيء يبقى مفتوحًا",
       "كل دورة تُحتسب",
@@ -215,6 +218,7 @@ export const changelogLocales = {
       footer: "© Hunch — un registro compartido para agentes de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Controles y limpieza más seguros",
       "Alcance, reutilización, orden",
       "Nada queda abierto",
       "Cada turno cuenta",
