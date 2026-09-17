@@ -867,6 +867,7 @@ export class ConstitutionService {
     const recorded: string[] = [];
     const existing: string[] = [];
     const failures: Array<{ policy_id: string; error: string }> = [];
+    const retired: string[] = [];
     if (manifest) {
       const before = new Set(this.repository.listShadowEvaluations({ privateOnly: true }).map((record) => record.id));
       for (const policyId of manifest.policy_ids) {
@@ -875,6 +876,12 @@ export class ConstitutionService {
           const publicDuplicate = this.repository.getPolicy(policyId, { publicOnly: true });
           if (!policy || publicDuplicate || this.repository.homeOfPolicy(policyId) !== "private" || policy.data_class === "public") {
             throw new Error("selected policy is not in one exact private-only home");
+          }
+          // A retired policy has closed its valid-time window: observing it again is
+          // not evidence, only growth. Its recorded history stays untouched.
+          if (policy.state === "retired") {
+            retired.push(policyId);
+            continue;
           }
           const record = this.recordShadow(policyId, { now: opts.now });
           if (before.has(record.id)) existing.push(record.id);
@@ -893,6 +900,7 @@ export class ConstitutionService {
       recorded: recorded.sort(),
       existing: existing.sort(),
       failures: failures.sort((left, right) => left.policy_id.localeCompare(right.policy_id)),
+      retired: retired.sort(),
       skipped_reason: manifest ? null : "No current private G2 plan; shadow sweep wrote nothing.",
       authority: "none" as const,
       effects: "shadow_only" as const,

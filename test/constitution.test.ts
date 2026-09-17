@@ -64,7 +64,10 @@ function decision(id: string, opts: { private?: boolean } = {}): Decision {
   };
 }
 
-function layeredRepo(apiBody = 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n') {
+function layeredRepo(
+  apiBody = 'import { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n',
+  servicesBody = 'import { dbQuery } from "../db/client.js";\nexport function fetchOrders(u){ return dbQuery(u); }\n',
+) {
   const root = mkdtempSync(join(tmpdir(), "hunch-constitution-"));
   const git = (...args: string[]): void => { execFileSync("git", args, { cwd: root, stdio: "ignore" }); };
   git("init", "-q");
@@ -78,7 +81,7 @@ function layeredRepo(apiBody = 'import { fetchOrders } from "../services/orders.
   mkdirSync(join(root, "src/services"), { recursive: true });
   mkdirSync(join(root, "src/db"), { recursive: true });
   writeFileSync(join(root, "src/db/client.ts"), "export function dbQuery(sql){ return sql; }\n");
-  writeFileSync(join(root, "src/services/orders.ts"), 'import { dbQuery } from "../db/client.js";\nexport function fetchOrders(u){ return dbQuery(u); }\n');
+  writeFileSync(join(root, "src/services/orders.ts"), servicesBody);
   writeFileSync(join(root, "src/api/orders.ts"), apiBody);
   git("add", "-A");
   git("commit", "-qm", "fixture: layered orders");
@@ -591,6 +594,72 @@ test("Phase 3E applies an exists mutation to isolated source and persists a pars
     assert.equal(primary.graph_diff.removed_symbols.length, 1);
     assert.equal(readFileSync(sourceFile, "utf8"), before, "source mutation never changes the active checkout");
     assert.deepEqual(readdirSync(join(root, ".hunch-cache/mutations")), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an exists mutation on a file with multi-byte UTF-8 content before the target deletes exactly the right span (issue #85)", () => {
+  // "café — über" is 11 JS chars but 15 UTF-8 bytes (é, —, ü each cost more
+  // bytes than code units) -- placed before fetchOrders so a byte-vs-char
+  // offset bug would misalign the deletion, corrupting or mis-targeting it.
+  const servicesBody = '// café — über multi-byte comment, deliberately before the target\nimport { dbQuery } from "../db/client.js";\nexport function fetchOrders(u){ return dbQuery(u); }\n';
+  const { root, store, cleanup } = layeredRepo(undefined, servicesBody);
+  try {
+    store.json.put("decisions", {
+      ...decision("dec_exists_source_mutation_utf8"),
+      title: "The order service entrypoint must exist",
+      conformance: [{ assert: "exists", subject: "fetchOrders", transitive: false }],
+    });
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const policy = service.compile("dec_exists_source_mutation_utf8", { now: NOW });
+    const proved = service.prove(policy.id, { now: "2026-07-10T10:01:00.000Z" });
+    const primary = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "delete-required-symbol");
+    assert.equal(primary.result, "violated");
+    assert.equal(primary.passed, true);
+    assert.equal(primary.parseability, "parseable");
+    const diff = primary.source_patch?.diff ?? "";
+    assert.match(diff, /^-export function fetchOrders\(u\)\{ return dbQuery\(u\); \}$/m, "deletes exactly the target line, not a byte-shifted span");
+    assert.match(diff, /^ \/\/ café — über multi-byte comment/m, "the preceding multi-byte comment survives untouched as diff context");
+    assert.doesNotMatch(diff, /^[-+].*(café|über)/m, "the multi-byte comment is never itself added or removed");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a forbidden-edge mutation on a file with multi-byte UTF-8 content before the target injects the call inside the right braces (issue #85)", () => {
+  // Exercises the OTHER byte-sensitive path in sourceMutation.ts (the
+  // open-brace search that locates where to inject a call), not the
+  // spliceChars delete path the sibling "exists mutation" test above covers.
+  // Needs enough UTF-8/UTF-16 delta (20 em dashes, 2 extra bytes each = 40
+  // bytes) to exceed the short function body's own length -- with only a
+  // couple of multi-byte characters the old Buffer-based search still finds
+  // the right brace by scanning forward from a too-early start position; at
+  // this size the byte-vs-char gap corrupts the boundary check that follows.
+  const apiBody = `// ${"—".repeat(20)} multi-byte comment, deliberately before the target\nimport { fetchOrders } from "../services/orders.js";\nexport function listOrders(u){ return fetchOrders(u); }\n`;
+  const { root, store, cleanup } = layeredRepo(apiBody);
+  try {
+    store.json.put("decisions", decision("dec_forbidden_edge_source_mutation_utf8"));
+    store.reindex();
+    const service = new ConstitutionService(store, root);
+    const policy = service.compile("dec_forbidden_edge_source_mutation_utf8", { now: NOW });
+    const proved = service.prove(policy.id, { now: "2026-07-10T10:01:00.000Z" });
+    const primary = proved.proof.mutation_receipts.find((receipt) => receipt.kind === "primary")!;
+    assert.equal(primary.operator, "add-forbidden-edge");
+    assert.equal(primary.result, "violated");
+    assert.equal(primary.passed, true);
+    assert.equal(primary.parseability, "parseable");
+    const diff = primary.source_patch?.diff ?? "";
+    // Each unified-diff added line is separately "+"-prefixed, even within
+    // the same logical statement -- assert each line rather than one
+    // multi-line pattern, to keep the expectation legible.
+    assert.match(diff, /^\+export function listOrders\(u\)\{$/m, "the opening brace line is unchanged, not byte-shifted");
+    assert.match(diff, /^\+ {2}dbQuery\(\); \/\/ hunch deterministic source mutation$/m, "the call is injected right after listOrders' opening brace");
+    assert.match(diff, /^\+ return fetchOrders\(u\); \}$/m, "the original body content survives after the injected call");
+    assert.match(diff, /^ \/\/ —+ multi-byte comment/m, "the preceding multi-byte comment survives untouched as diff context");
+    assert.doesNotMatch(diff, /^-.*—/m, "the multi-byte comment is never removed");
   } finally {
     cleanup();
   }
@@ -1545,6 +1614,26 @@ test("Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, 
 
     service.classifyShadow(proved.policy.id, queue.items[0]!.shadow_id, "true_positive_actionable", "human:reviewer", "Real bypass in the changed graph.", { now: "2026-07-11T11:05:00.000Z" });
     assert.equal(service.g2ShadowQueue(5).total_unclassified, 0, "a current human disposition removes the item immediately");
+
+    const beforeRetire = service.repository.listShadowEvaluations({ privateOnly: true }).length;
+    const live = service.get(proved.policy.id);
+    service.repository.putPolicy(PolicySpecSchema.parse({
+      ...live,
+      revision: live.revision + 1,
+      state: "retired",
+      authority: null,
+      valid_to: "2026-07-11T11:06:00.000Z",
+      updated_at: "2026-07-11T11:06:00.000Z",
+    }), { private: true });
+    writeFileSync(join(root, "src/api/orders.ts"), `${readFileSync(join(root, "src/api/orders.ts"), "utf8")}
+// change after retirement
+`);
+    commitFiles(root, ["src/api/orders.ts"], "fixture: new HEAD after retirement");
+    const afterRetire = service.g2ShadowSweep({ now: "2026-07-11T11:07:00.000Z" });
+    assert.deepEqual(afterRetire.retired, [proved.policy.id]);
+    assert.equal(afterRetire.recorded.length, 0, "a retired policy is never observed again, even at a new HEAD");
+    assert.equal(afterRetire.failures.length, 9);
+    assert.equal(service.repository.listShadowEvaluations({ privateOnly: true }).length, beforeRetire, "retired history is kept, nothing new is written");
 
     const planFile = join(privateRoot, "gates", `${g2Plan.id}.json`);
     const tampered = JSON.parse(readFileSync(planFile, "utf8"));
