@@ -69,6 +69,64 @@ test("operator view serves a public shell with no partition data and keeps reads
   } finally { await cleanup(); }
 });
 
+test("health answers liveness to anyone but names the served partitions only to an authenticated caller", async () => {
+  const { app, sofiaToken, cleanup } = served();
+  try {
+    const base = await listen(app);
+    const anonymous = await fetch(`${base}/nuryel/v1/health`);
+    assert.equal(anonymous.status, 200);
+    const text = await anonymous.text();
+    assert.deepEqual(JSON.parse(text), { ok: true, version: "test", protocol: "nuryel.state/1" });
+    for (const name of ["david", "acme", "partitions"]) assert.ok(!text.includes(name), `unauthenticated health must not mention ${name}`);
+
+    const sofia = createStateClient({ baseUrl: base, token: sofiaToken });
+    assert.deepEqual((await sofia.health()).partitions, ["user/david", "organization/acme"], "a token holder still discovers the served partitions");
+    const wrong = await fetch(`${base}/nuryel/v1/health`, { headers: { authorization: "Bearer nyt_wrong" } });
+    assert.equal(wrong.status, 401, "a presented credential is checked, never silently downgraded to anonymous");
+  } finally { await cleanup(); }
+});
+
+test("5xx problems carry a generic detail; the specifics go to the server log only", async () => {
+  const { dir, file, sofiaToken, cleanup } = served();
+  const logged: string[] = [];
+  const log = (line: string) => { logged.push(line); };
+  const lockDir = join(dir, "david", ".hunch");
+  const hostName = hostname();
+  // A lock held by this live process is never stolen, so the write times out.
+  writeFileSync(writeLockPath(lockDir), JSON.stringify({ pid: process.pid, host: hostName, nonce: "held", at: new Date().toISOString() }));
+  const locked = createServeApp(readServeConfig(file), { version: "test", log, writeLockTimeoutMs: 30 });
+  const secretPath = join(dir, "private-internal-path");
+  const broken = createServeApp(readServeConfig(file), { version: "test", log, openStore: () => { throw new Error(`EACCES: permission denied, open '${secretPath}'`); } });
+  try {
+    const lockedClient = createStateClient({ baseUrl: await listen(locked), token: sofiaToken });
+    const commitment = { schema: "nuryel.commitment/1", scope: david, subject: "customer:c1", title: "locked", owner: "david", due: "2026-09-30", status: "open", valid_from: "2026-09-08T10:00:00Z", valid_to: null, provenance: prov };
+    await assert.rejects(lockedClient.write({ scope: david, facet: "commitments", record: commitment, idempotency_key: "locked-1" }), (e: StateClientError) => {
+      assert.equal(e.status, 503);
+      assert.equal(e.code, "write-lock-timeout");
+      const body = JSON.stringify(e.problem);
+      for (const leak of [lockDir, "write.lock", String(process.pid), hostName]) assert.ok(!body.includes(leak), `problem body must not include ${leak}: ${body}`);
+      return true;
+    });
+    assert.ok(logged.some((line) => line.includes("write-lock-timeout") && line.includes(String(process.pid))), "the operator still sees who holds the lock");
+
+    const brokenClient = createStateClient({ baseUrl: await listen(broken), token: sofiaToken });
+    await assert.rejects(brokenClient.read({ scope: david, subject: "customer:c1" }), (e: StateClientError) => {
+      assert.equal(e.status, 500);
+      assert.equal(e.code, "internal");
+      assert.ok(!JSON.stringify(e.problem).includes(secretPath), "an internal error message never reaches the caller");
+      return true;
+    });
+    assert.ok(logged.some((line) => line.includes(secretPath)), "the internal error is logged server-side");
+
+    // Contract refusals stay as informative as before.
+    await assert.rejects(lockedClient.write({ scope: acme, facet: "commitments", record: commitment, idempotency_key: "outside-1" }), (e: StateClientError) => e.status === 403 && /user\/david|organization\/acme/.test(e.problem.detail));
+  } finally {
+    for (const app of [locked, broken]) { await new Promise<void>((r) => app.close(() => r())); app.closeStores(); }
+    rmSync(writeLockPath(lockDir), { force: true });
+    await cleanup();
+  }
+});
+
 test("serve init declares the partition, mints a token once, stores only its hash, and refuses grants the server does not serve", () => {
   const { dir, file, config, sofiaToken, cleanup } = served();
   try {
