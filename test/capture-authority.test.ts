@@ -5,8 +5,9 @@
  * so a token minted and consumed entirely inside the agent's MCP channel is agent
  * testimony. Human authority (`human_confirmed`, the thing the strict gate and the
  * edit hook trust) requires a human act outside that channel:
- *   - an MCP elicitation answered in the client UI (when the client supports it), or
- *   - `hunch review --confirm <id>` run by a human.
+ *   - for a DECISION: an MCP elicitation answered in the client UI (when the client
+ *     supports it), or `hunch review --confirm <id>` run by a human;
+ *   - for a CORRECTION (which can deny edits): only `hunch review --confirm <id> --severity <s>`.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -108,38 +109,49 @@ test("an unconfirmed tokened write cannot displace another agent's testimony fro
   } finally { s.cleanup(); }
 });
 
-test("a human who DECLINES (or does not check the box) in the client UI leaves the record as testimony", async () => {
+test("a human who DECLINES (or does not check the box) in the client UI leaves a decision as testimony", async () => {
   for (const answer of [{ action: "decline" }, { action: "cancel" }, { action: "accept", content: { confirm: false } }] as ElicitResult[]) {
     const s = await setup(answer);
     try {
-      await s.call("hunch_record_correction", { ...REPO_WIDE_BLOCK, capture_token: await s.token() });
+      await s.call("hunch_record_decision", {
+        decision: { title: "sessions are JWT", topic: "auth.session", decision: "JWT only" },
+        capture_token: await s.token(),
+      });
       assert.equal(s.elicited.length, 1, "the human was asked");
-      const [c] = readAll<Constraint>(s.root, "constraints");
-      assert.equal(c!.provenance.source, "agent_recorded", `answer ${JSON.stringify(answer)} must not confirm`);
-      assert.equal(c!.severity, "warning");
+      const [d] = readAll<Decision>(s.root, "decisions");
+      assert.equal(d!.provenance.source, "agent_recorded", `answer ${JSON.stringify(answer)} must not confirm`);
     } finally { s.cleanup(); }
   }
 });
 
-test("a human confirmation answered in the client UI (elicitation) earns human_confirmed", async () => {
+test("a human confirmation answered in the client UI (elicitation) earns human_confirmed for a decision", async () => {
   const s = await setup({ action: "accept", content: { confirm: true } });
   try {
-    await s.call("hunch_record_correction", { rule: "never call the metered API from here", scope_hint_file: "src/pay.ts", severity: "blocking", capture_token: await s.token() });
-    assert.equal(s.elicited.length, 1);
-    assert.match(s.elicited[0]!, /never call the metered API from here/, "the human sees exactly what they are confirming");
-    const [c] = readAll<Constraint>(s.root, "constraints");
-    assert.equal(c!.provenance.source, "human_confirmed");
-    assert.equal(c!.severity, "blocking");
-    assert.equal(isStrictBlocker(c!, false), true);
-
     await s.call("hunch_record_decision", {
       decision: { title: "sessions are JWT", topic: "auth.session", decision: "JWT only" },
       capture_token: await s.token(),
     });
-    assert.equal(s.elicited.length, 2);
+    assert.equal(s.elicited.length, 1);
+    assert.match(s.elicited[0]!, /sessions are JWT/, "the human sees exactly what they are confirming");
     const [d] = readAll<Decision>(s.root, "decisions");
     assert.equal(d!.provenance.source, "human_confirmed");
     assert.equal(d!.provenance.confidence, 0.95);
+  } finally { s.cleanup(); }
+});
+
+test("an in-client confirmation never grants a correction blocking authority: only `hunch review --confirm` does", async () => {
+  // Hosts can auto-answer elicitation (hooks, SDK handlers), and a blocking rule denies
+  // every matching edit — so corrections are never elicited, even on a client that
+  // supports it and would accept.
+  const s = await setup({ action: "accept", content: { confirm: true } });
+  try {
+    const out = await s.call("hunch_record_correction", { rule: "never call the metered API from here", scope_hint_file: "src/pay.ts", severity: "blocking", capture_token: await s.token() });
+    assert.equal(s.elicited.length, 0, "no prompt the human's answer could not act on");
+    const [c] = readAll<Constraint>(s.root, "constraints");
+    assert.equal(c!.provenance.source, "agent_recorded");
+    assert.equal(c!.severity, "warning");
+    assert.equal(isStrictBlocker(c!, false), false);
+    assert.match(out, new RegExp(`hunch review --confirm ${c!.id} --severity blocking`));
   } finally { s.cleanup(); }
 });
 

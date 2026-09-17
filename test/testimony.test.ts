@@ -18,7 +18,8 @@ import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { buildServer } from "../src/mcp/server.js";
 import { renderGrounding } from "../src/core/topics.js";
 import { isHumanConfirmed, isStrictBlocker } from "../src/core/strictgate.js";
-import type { Decision } from "../src/core/types.js";
+import { countersignConstraint } from "../src/core/countersign.js";
+import type { Constraint, Decision } from "../src/core/types.js";
 
 /** `humanConfirms`: the client supports MCP elicitation and the human confirms the prompt.
  *  Without it a tokened write is testimony (a token proves a tool call, not a human). */
@@ -308,6 +309,8 @@ test("an un-token'd correction is still RECORDED and enforced — Never Twice ho
 });
 
 test("a countersigned correction keeps full blocking authority (#correction-tier)", async () => {
+  // The human's in-client "yes" is not enough for a rule that can deny edits; the
+  // countersign (`hunch review --confirm <id> --severity blocking`) is.
   const s = await setup(true);
   try {
     mkdirSync(join(s.root, ".hunch", "constraints"), { recursive: true });
@@ -321,8 +324,10 @@ test("a countersigned correction keeps full blocking authority (#correction-tier
       capture_token: token,
     });
     const [c] = readConstraints(s.root);
-    assert.equal(c!.provenance.source, "human_confirmed", "an interviewed write the human confirmed earns the signature");
-    assert.equal(c!.severity, "blocking");
-    assert.equal(isStrictBlocker({ severity: c!.severity, provenance: c!.provenance }, false), true, "and may deny");
+    assert.equal(c!.provenance.source, "agent_recorded", "an interviewed, client-confirmed write is still testimony");
+    const signed = countersignConstraint(c as unknown as Constraint, new Date().toISOString(), "blocking");
+    assert.equal(signed.provenance.source, "human_confirmed");
+    assert.equal(signed.severity, "blocking");
+    assert.equal(isStrictBlocker({ severity: signed.severity, provenance: signed.provenance }, false), true, "the countersign may deny");
   } finally { s.cleanup(); }
 });

@@ -9,6 +9,19 @@
 import type { Constraint, Decision } from "./types.js";
 import { TESTIMONY_CORRECTION_RATIONALE, VOUCHED_CORRECTION_RATIONALE } from "./correction.js";
 
+/** Is this record agent testimony awaiting a human countersign? Token-aware ("+"-joined
+ *  sources), and a record carrying a human signature is never testimony. */
+export function isAgentTestimony(source: string | undefined): boolean {
+  const tokens = (source ?? "").split("+");
+  return tokens.includes("agent_recorded") && !tokens.includes("human_confirmed");
+}
+
+/** The exact command a HUMAN runs to countersign agent testimony (outside the agent
+ *  channel). `private` targets the overlay home; `severity` grants a correction's authority. */
+export function confirmCommand(id: string, opts: { private?: boolean; severity?: string } = {}): string {
+  return `hunch review --confirm ${id}${opts.severity ? ` --severity ${opts.severity}` : ""}${opts.private ? " --private" : ""}`;
+}
+
 /** Replace the agent testimony tier with the human signature, keeping every other
  *  "+"-joined source token ("llm_draft+agent_recorded" → "llm_draft+human_confirmed"). */
 export function withHumanSignature(source: string): string {

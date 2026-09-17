@@ -131,7 +131,7 @@ import { loadGoldenSet, evaluateRetrieval, evaluateTraversalLift } from "../eval
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { DRIFT_KINDS, computeDrift } from "../core/drift.js";
 import { renderCompilerScorecard, scoreCompilerCaseBank } from "../constitution/scorecard.js";
-import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
+import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, unconfirmedRoadmapMarker, type WikiPack } from "../wiki/wiki.js";
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, isInForce, liveForTopic } from "../core/topics.js";
 import { ADR_DIR_CANDIDATES, ADR_FILE_RE, mapAdrCorpus } from "../extractors/adrImport.js";
@@ -4768,7 +4768,9 @@ program
             for (const r of recent) L.push(`  ${r.date} [${r.status}] ${r.title} (${r.id})`);
           }
           if (roadmap.length) {
-            L.push(`Roadmap (${roadmap.length} live proposed): ${roadmap.slice(0, 3).map((r) => r.title).join(" · ")}${roadmap.length > 3 ? " · …" : ""}`);
+            L.push(`Roadmap (${roadmap.length} live proposed): ${roadmap.slice(0, 3).map((r) => (r.unconfirmed ? `${r.title} [unconfirmed, ${r.id}]` : r.title)).join(" · ")}${roadmap.length > 3 ? " · …" : ""}`);
+            const unconfirmed = roadmap.filter((r) => r.unconfirmed).length;
+            if (unconfirmed) L.push(`${unconfirmed} roadmap item(s) are unconfirmed agent testimony — the human confirms each with \`hunch review --confirm <id>${s.unified ? " --private" : ""}\`.`);
           }
           if (pendingReview > 0) L.push(`${pendingReview} legacy un-vouched draft(s) — adopt as advisory memory with \`hunch adopt-drafts\` (new captures auto-trust).`);
           if (actionableEsc.length) {
@@ -6380,7 +6382,7 @@ program
       for (const r of recent) console.log(`  ${r.date}  [${r.status}] ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""})`);
       console.log(`\n🗺 Roadmap — live proposed decisions (${roadmap.length}):`);
       if (!roadmap.length) console.log("  (empty — record what's next as a PROPOSED decision via /capture and it appears here)");
-      for (const r of roadmap) console.log(`  • ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
+      for (const r of roadmap) console.log(`  • ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})${r.unconfirmed ? `\n      ${unconfirmedRoadmapMarker(r, { private: !!opts.private })}` : ""}\n      ${r.note}`);
       if (pendingReview > 0) console.log(`\n  (${pendingReview} legacy un-vouched draft(s) — \`hunch adopt-drafts\` to auto-trust them as advisory)`);
       // Task-record ranking: evaluated automatically on every task write; the kill rule applies itself.
       try { console.log(`\n📊 ${rankingStatusLine(resolveTaskRankingMode(store.publicRoot, store))}`); } catch { /* no task records or no cache dir: nothing to say */ }

@@ -25,6 +25,7 @@ import { ReadRequestSchema, ReadResponseSchema, WriteRequestSchema, WriteResultS
 import { selectEmbedder } from "../store/embedder.js";
 import { decisionId, findingId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
+import { confirmCommand } from "../core/countersign.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
 import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, recordWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
@@ -470,11 +471,6 @@ async function askHumanToConfirm(server: McpServer, message: string): Promise<Hu
   } catch {
     return "unavailable";
   }
-}
-
-/** The exact human command that countersigns agent testimony (outside the agent channel). */
-function confirmCommand(id: string, home: "public" | "private", severity?: string): string {
-  return `hunch review --confirm ${id}${severity ? ` --severity ${severity}` : ""}${home === "private" ? " --private" : ""}`;
 }
 
 function unconfirmedReason(c: HumanConfirmation): string {
@@ -1952,7 +1948,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         // above. No token still writes (non-breaking) but lands as agent_recorded with a
         // nudge toward /capture. A token — verified or not — is never a signature: only
         // the human's confirmation (client prompt or `hunch review --confirm`) is.
-        const confirmCmd = confirmCommand(id, home);
+        const confirmCmd = confirmCommand(id, { private: home === "private" });
         const captureNote = humanSigned
           ? " [via capture front door — confirmed by the human in the client]"
           : existingIsHuman
@@ -2000,7 +1996,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         rationale: z.string().optional().describe("Why it must hold."),
         source_decision: z.string().optional().describe("id of a decision this correction derives from."),
         private: z.boolean().optional().describe("write into the PRIVATE overlay store (HUNCH_PRIVATE_DIR) instead of the committed repo — a sensitive rule enforced locally (pre-edit hook + local check) but never exposed in a public PR comment. Errors if no private store is configured."),
-        capture_token: z.string().optional().describe("token from hunch_capture_decision. The rule is recorded and enforced either way. A token alone never lets it DENY: with one, Hunch asks the human to confirm in the client (when supported); unconfirmed, it lands as advisory testimony capped at severity 'warning' until a human runs the printed `hunch review --confirm` command."),
+        capture_token: z.string().optional().describe("token from hunch_capture_decision. The rule is recorded and enforced either way, as agent testimony capped at severity 'warning'. A token never lets it DENY: blocking authority comes only from a human running the printed `hunch review --confirm <id> --severity <s>` command."),
         task_id: TaskIdSchema.optional().describe("Exact task ID for observing this successful save; reporting never changes capture authority."),
         cwd: cwdHintField,
       },
@@ -2012,36 +2008,28 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         // paths (edit-tool payloads and MCP roots are absolute) and every consumer matches
         // repo-relative — without this the rule would be blocking-but-inert and would leak
         // the local filesystem path into the committed graph.
-        // Same authorship tier as hunch_record_decision: only a HUMAN confirmation mints
-        // the signature; a token (callable and consumable by any agent) only licenses
-        // asking for one. Here the stakes are HIGHER — a blocking constraint DENIES edits
-        // (the edit hook keys on severity alone), so an un-vouched write is capped at
-        // "warning" rather than being refused. Never Twice still lands immediately.
+        // AUTHORSHIP TIER. A correction recorded through MCP is ALWAYS agent testimony: a
+        // capture token (callable and consumable by any agent) proves only that the
+        // interview tool was called, and an in-client confirmation is not used here either.
+        // The stakes are higher than for a decision — a blocking constraint DENIES edits
+        // (the edit hook keys on severity alone) and fails strict checks — so blocking
+        // authority comes only from a human running `hunch review --confirm <id> --severity <s>`
+        // outside the agent channel. The write is capped below blocking rather than refused:
+        // Never Twice still lands immediately and is surfaced at edit time and in CI.
         const gated = consumeCaptureToken(input.capture_token);
         const now = new Date().toISOString();
         const knownDeps = knownRepoDeps(root);
-        // What the human would be granting: the record exactly as it lands if confirmed.
-        const asConfirmed = buildCorrectionConstraint({ ...input, knownDeps, root, vouched: true }, now);
+        // What a human confirmation would grant: the severity the caller requested, after
+        // the repo-wide scope guard.
+        const requested = buildCorrectionConstraint({ ...input, knownDeps, root, vouched: true }, now);
         // Private corrections go to the overlay (enforced locally via the merged read,
         // never rendered into the public CI comment, which is public-only by construction).
         const home = store.captureHome(!!input.private);
-        if (home === "public" && asConfirmed.source_decision && !store.json.get("decisions", asConfirmed.source_decision)) {
-          const location = store.getPrivateRec("decisions", asConfirmed.source_decision) ? "exists only in the private overlay" : "does not exist in the public home";
-          return refused(`source decision ${asConfirmed.source_decision} ${location}; refusing to record public correction ${asConfirmed.id}.`);
+        if (home === "public" && requested.source_decision && !store.json.get("decisions", requested.source_decision)) {
+          const location = store.getPrivateRec("decisions", requested.source_decision) ? "exists only in the private overlay" : "does not exist in the public home";
+          return refused(`source decision ${requested.source_decision} ${location}; refusing to record public correction ${requested.id}.`);
         }
-        const confirmation: HumanConfirmation | null = gated
-          ? await askHumanToConfirm(server, [
-            "Hunch: an agent is recording this rule on your behalf. Confirm only if YOU stated it.",
-            "",
-            `Rule: ${clipForPrompt(asConfirmed.statement)}`,
-            `Scope: ${asConfirmed.scope.join(", ")}${asConfirmed.scope.length === 1 && asConfirmed.scope[0] === "**" ? " (the whole repository)" : ""}`,
-            `Severity: ${asConfirmed.severity}${asConfirmed.severity === "blocking" ? " — denies matching edits and fails strict checks" : ""}`,
-            "",
-            "Confirmed, it carries your authority (human_confirmed). Unconfirmed, it is kept as agent testimony that cannot block.",
-          ].join("\n"))
-          : null;
-        const vouched = confirmation === "confirmed";
-        const rec = vouched ? asConfirmed : buildCorrectionConstraint({ ...input, knownDeps, root, vouched: false }, now);
+        const rec = buildCorrectionConstraint({ ...input, knownDeps, root, vouched: false }, now);
         const existing = home === "private" ? store.getPrivateRec("constraints", rec.id) : store.json.get("constraints", rec.id);
         // Same cross-home twin guard as the decision path above.
         const stored = store.putCapture("constraints", rec, !!input.private);
@@ -2069,15 +2057,13 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         const reviewNote = "\n\nREVIEW PENDING: After the fix is committed, run hunch index; an installed post-commit hook retries this automatically on the fixing commit. Only the supported static ESM import-declaration package projection is eligible, and it remains activation-blocked; the immediate guard is already durable.";
         // Say plainly which tier this landed in. A silent downgrade would be its own
         // dishonesty: the caller asked for "blocking" and must be told it is not.
-        const grant = asConfirmed.severity !== rec.severity ? asConfirmed.severity : undefined;
+        const capped = requested.severity !== rec.severity;
         const why = gated
-          ? `Recorded after a capture interview, but a capture token is not a human signature and ${unconfirmedReason(confirmation!)}`
+          ? "Recorded after a capture interview, but a capture token is not a human signature"
           : "Recorded WITHOUT a capture interview or a human confirmation";
-        const tierNote = vouched
-          ? " Confirmed by the human in the client."
-          : `
+        const tierNote = `
 
-⚠ ${why} — this rule is agent_recorded TESTIMONY${grant ? ` and was capped from "${grant}" to "${rec.severity}"` : ""}. It IS enforced: the pre-edit hook and CI surface it on every matching edit from now on. What it cannot do is DENY an edit — only a rule a human confirmed may block. The human confirms it by running: ${confirmCommand(rec.id, home, grant)}`;
+⚠ ${why} — this rule is agent_recorded TESTIMONY${capped ? ` and was capped from "${requested.severity}" to "${rec.severity}"` : ""}. It IS enforced: the pre-edit hook and CI surface it on every matching edit from now on. What it cannot do is DENY an edit — only a rule a human confirmed outside the agent channel may block. The human confirms it by running: ${confirmCommand(rec.id, { private: home === "private", severity: requested.severity })}`;
         const dest = destinationNote(resolveDestRoot(home, store, root));
         return ok(`${existing ? "Updated" : "Recorded"} ${rec.severity} constraint ${rec.id}: "${rec.statement}" (scope: ${rec.scope.join(", ")}).${where}${dest} It now ${enforce}.${reviewNote}${tierNote}`);
       } catch (e) {
