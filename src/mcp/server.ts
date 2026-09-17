@@ -27,6 +27,8 @@ import { decisionId, findingId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
+import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, recordWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
+import { workspacesConfig } from "../core/config.js";
 import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, workingFiles, workingDiff, pullHunchStatus, sameRemoteUrl, currentBranch, type HunchPullStatus } from "../extractors/git.js";
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { withWriteLock } from "../serve/writelock.js";
@@ -727,7 +729,6 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   let pendingRoot: string | null = null;
   let pendingScheduled = false;
   let closed = false;
-
   const activateRoot = (next: string): void => {
     // canonicalRootPath: a case/8.3 spelling difference must not read as a
     // DIFFERENT repo — that closed the live store and re-prepared everything
@@ -1420,6 +1421,11 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       if (!roadmap.length) L.push("  (empty — record intent as a PROPOSED decision and it appears here)");
       for (const r of roadmap) L.push(`  • ${r.title} (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
       if (pendingReview > 0) L.push("", `${pendingReview} legacy un-vouched draft(s) — \`hunch adopt-drafts\` auto-trusts them as advisory (new captures land trusted automatically).`);
+      // Workspace ledger, from stored PUBLIC records only (same jurisdiction rule as the rest
+      // of this view; no git, so the hot view stays fast). Machine labels are user-chosen
+      // and the default is anonymous, so the line is publishable by construction.
+      const ws = workspaceSummaryLine(store.json.loadAll("workspaces"), workspacesConfig(readConfig(hunchPaths(root))));
+      if (ws) L.push("", ws);
       const escalations = pendingEscalations(store.advisoryRecs("decisions"));
       escalations.push(...premiseEscalations(store.advisoryRecs("decisions"), { now: new Date().toISOString(), exists: (p) => existsSync(join(root, p)) }));
       // liveness checked against the full store (repair-provenance reads the
@@ -1436,6 +1442,50 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         L.push("", `⚖ ${actionableNow.length} decision(s) need the human's call — ASK inline (never queue): ${actionableNow.map((e) => e.question).join(" · ")}`);
       }
       return ok(L.join("\n"));
+    },
+  );
+
+  // -- hunch_workspaces (the workspace ledger: worktrees + branches across machines) --
+  // READ-ONLY by design (docs/workspace-ledger.md): an agent can see what is prunable but
+  // can only act through the CLI, where a human confirms. This machine is read live from
+  // git; other machines come from stored records, which are display-only.
+  server.registerTool(
+    "hunch_workspaces",
+    {
+      title: "Worktrees and branches across machines",
+      description:
+        "The workspace ledger: which git worktrees are open on which machine, and every local branch with a deterministic verdict — merged (ancestry / squash / rebase), never pushed, upstream gone, dirty worktree — plus a recommended action per branch. Call this INSTEAD of running git branch / git worktree list / git log to answer 'what is open, what is stale, what can be deleted'. This machine is read live; other machines from memory (a machine older than the staleness window is marked unverified). Read-only: it never deletes anything. Not for design rationale (hunch_why) or code structure (hunch_structure).",
+      inputSchema: {
+        view: z.enum(["inventory", "branches"]).optional().describe("inventory = one row per worktree (default); branches = one row per branch with its verdict and action."),
+        machine: z.string().optional().describe("Only this machine label."),
+        branch: z.string().optional().describe("Only this branch name."),
+        merged_only: z.boolean().optional().describe("branches view: only branches proven merged."),
+      },
+    },
+    async ({ view, machine, branch, merged_only }): Promise<ToolResult> => {
+      const ledger = workspaceLedgerView(store, root);
+      // Publish the observation this read just took, so the machines that ask about the
+      // ledger are also the machines visible IN it — the one moment the data provably
+      // matters, with no timer and no child process (a detached snapshot child held a
+      // Windows clone directory open and broke an unrelated test's teardown). The git
+      // hooks remain the normal path; this covers a host that has none yet. Best effort:
+      // the read never fails because memory could not be written.
+      // HUNCH_WORKSPACE_REFRESH=0 opts out entirely.
+      if (process.env.HUNCH_WORKSPACE_REFRESH !== "0" && snapshotHasHome(store, root)) {
+        try { recordWorkspaceSnapshot(store, root, { live: ledger.live }); } catch { /* the ledger is a side effect of the read, never its blocker */ }
+      }
+      const opts = { staleAfterDays: ledger.config.stale_after_days };
+      if (view === "branches") {
+        let rows = branchRows(ledger.records, opts);
+        if (machine) rows = rows.filter((r) => r.machines.includes(machine));
+        if (branch) rows = rows.filter((r) => r.name === branch);
+        if (merged_only) rows = rows.filter((r) => r.merged.status === "merged");
+        return { content: [{ type: "text", text: renderBranchTable(ledger, rows) }], structuredContent: { machine: ledger.machine.label, branches: rows } };
+      }
+      let rows = worktreeRows(ledger.records, opts);
+      if (machine) rows = rows.filter((r) => r.machine === machine);
+      if (branch) rows = rows.filter((r) => r.branch === branch);
+      return { content: [{ type: "text", text: renderWorktreeTable(ledger, rows) }], structuredContent: { machine: ledger.machine.label, worktrees: rows } };
     },
   );
 

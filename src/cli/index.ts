@@ -61,7 +61,7 @@ import type { Runbook } from "../core/types.js";
 import { extractInlineIntent } from "../extractors/comments.js";
 import { renderText, renderMarkdown, renderSarif, renderImpact, reportFailsStrict, type CheckReport, type SarifExtras } from "../core/checkreport.js";
 import { partitionReview, isReviewDraft, READY_MIN_GROUNDED, type ReviewItem } from "../core/reviewqueue.js";
-import { installPostCommitHook, installPreCommitHook, installPostMergeHook, hookStatus } from "../integrations/hooks.js";
+import { installPostCommitHook, installPreCommitHook, installPostMergeHook, installPostCheckoutHook, hookStatus } from "../integrations/hooks.js";
 import { ensureSharedOverlayPointer } from "../integrations/worktree.js";
 import { flushCapture, flushMemoryHome, flushMemoryHomes, pinSharedRemote, sharedRemoteFor, type MemoryHome } from "../integrations/sync.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
@@ -87,7 +87,10 @@ import { deriveChangeProof } from "../core/changeProof.js";
 import { discoverProjectDna, evaluateProjectDnaMatch, type ProjectDnaArtifact } from "../core/projectDna.js";
 import { diffProjectDna } from "../core/projectDnaDelta.js";
 import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
-import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
+import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness, workspacesConfig } from "../core/config.js";
+import { loadOrCreateMachine, setMachineLabel, machineFile, labelLeaksIdentity } from "../core/machine.js";
+import { worktreeRows, branchRows } from "../core/workspace.js";
+import { workspaceLedgerView, recordWorkspaceSnapshot, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, prunePlanFor, renderPrunePlan, applyPrune, confirmPrune } from "../integrations/workspaceLedger.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
@@ -424,6 +427,8 @@ program
       console.log(`  ✓ post-commit hook ${h.action} (learning loop)${syncToOverlay ? " — syncs to the shared overlay" : ""}${opts.autoCommit ? " — auto-commit on" : ""}`);
       const pm = installPostMergeHook(root, inv.shell);
       console.log(`  ✓ post-merge hook ${pm.action} (squash-merge provenance repair + re-syncs grounding docs after a merge that brought memory in)`);
+      const pc = installPostCheckoutHook(root, inv.shell);
+      console.log(`  ✓ post-checkout hook ${pc.action} (workspace ledger: records this machine's branches + worktrees on checkout)`);
       const m = installMergeDriver(root, inv.shell);
       console.log(`  ✓ team merge driver ${m.action}`);
       // Auto-install the pre-commit guard by default (advisory: flags invariants
@@ -516,7 +521,11 @@ program
     // re-running init by hand. Gated on already having post-commit: `index`
     // is not a setup command (it runs in CI, on any git repo), so it must
     // never be what FIRST hooks a repo that never ran init at all.
-    if (isGitRepo(root) && hookStatus(root).postCommit) installPostMergeHook(root, resolveInvocation().shell);
+    if (isGitRepo(root) && hookStatus(root).postCommit) {
+      const inv = resolveInvocation().shell;
+      installPostMergeHook(root, inv);
+      installPostCheckoutHook(root, inv); // same upgrade path for the workspace-ledger hook
+    }
     const res = indexRepo(store, root, { requireClean: true });
     const { counts } = store.reindex();
     const correctionSweep = new ConstitutionService(store, root).upgradeCorrections();
@@ -1268,6 +1277,8 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
     hookNote = `  ✓ post-commit hook ${h.action} — captured decisions route here${opts.autoCommit ? " (auto-commit+push on)" : ""}\n`;
     const pm = installPostMergeHook(root, inv.shell);
     hookNote += `  ✓ post-merge hook ${pm.action} (squash-merge provenance repair + re-syncs grounding docs after a merge that brought memory in)\n`;
+    const pc = installPostCheckoutHook(root, inv.shell);
+    hookNote += `  ✓ post-checkout hook ${pc.action} (workspace ledger: this machine's branches + worktrees sync through the overlay)\n`;
   }
 
   // 5) one-time migration: MOVE existing public memory INTO the overlay, then make
@@ -1420,12 +1431,188 @@ program
         openStore = null;
       }
     }
+    // 4) the workspace ledger: the new worktree is exactly what other machines want to know about.
+    let ledgerNote = "";
+    try {
+      const lstore = openTeamStore(root).store;
+      try {
+        const out = recordWorkspaceSnapshot(lstore, root);
+        if (out.status === "written") ledgerNote = `\n  ✓ workspace ledger updated (${out.record.worktrees.length} worktree(s) on this machine → ${out.home === "private" ? "overlay" : "public .hunch/"})`;
+      } finally { lstore.close(); openStore = null; }
+    } catch { /* the ledger is a side effect; the worktree itself is what this command promised */ }
     console.log(
       `✓ worktree created → ${dest}${opts.branch ? ` (new branch ${opts.branch})` : ""}\n` +
-      `${shareNote}${indexNote}\n` +
+      `${shareNote}${indexNote}${ledgerNote}\n` +
       `  hooks + MCP server are shared (worktree-aware) — open your assistant in the new worktree to start.\n` +
       `  (needs \`hunch\` installed globally; a worktree has no node_modules of its own)`,
     );
+  });
+
+// ---- workspaces / branches (workspace ledger — docs/workspace-ledger.md) ---------------
+// One shared code path (src/integrations/workspaceLedger.ts): this machine is always read
+// LIVE from git, other machines from the store, and stored records are display-only.
+const workspacesCmd = program
+  .command("workspaces")
+  .description("Workspace ledger: which worktrees are open on which machine (this machine live, other machines from memory). Read-only unless you run `snapshot`.");
+
+workspacesCmd
+  .command("list", { isDefault: true })
+  .description("Every worktree across machines: branch, dirty, last commit, when the machine last reported.")
+  .option("--machine <label>", "only this machine")
+  .option("--branch <name>", "only worktrees on this branch")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--json", "emit the rows as JSON")
+  .action((opts: { machine?: string; branch?: string; fetch?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch workspaces` needs a git repo");
+      const view = workspaceLedgerView(store, root, { fetch: opts.fetch });
+      let rows = worktreeRows(view.records, { staleAfterDays: view.config.stale_after_days });
+      if (opts.machine) rows = rows.filter((r) => r.machine === opts.machine);
+      if (opts.branch) rows = rows.filter((r) => r.branch === opts.branch);
+      if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, worktrees: rows }, null, 2));
+      console.log(renderWorktreeTable(view, rows));
+    } finally {
+      store.close();
+    }
+  });
+
+workspacesCmd
+  .command("snapshot")
+  .description("Record this machine's worktrees and branches into memory (the overlay when one is configured). Offline unless --fetch. Also run by the post-checkout / post-commit hooks and at MCP session start.")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--dry-run", "print the record that WOULD be written and write nothing")
+  .option("--json", "print the record as JSON")
+  .option("--quiet", "no output on success (for hooks)")
+  .action((opts: { fetch?: boolean; dryRun?: boolean; json?: boolean; quiet?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch workspaces snapshot` needs a git repo");
+      const out = recordWorkspaceSnapshot(store, root, { fetch: opts.fetch, dryRun: opts.dryRun });
+      if (out.status !== "off" && (opts.dryRun || opts.json)) console.log(JSON.stringify(out.record, null, 2));
+      if (opts.quiet || out.status === "dry-run") return;
+      switch (out.status) {
+        case "off":
+          return console.log("workspaces.publish is \"off\" in .hunch/config.json — nothing recorded.");
+        case "no-home":
+          console.log("No memory overlay is configured, so this machine's record is not written (queries read this machine live).");
+          console.log("  · run `hunch private` or `hunch shared --repo <url>` to sync workspaces across machines");
+          return console.log("  · or set .hunch/config.json {\"workspaces\":{\"publish_public\":true}} to commit it into this repo's .hunch/");
+        case "unchanged":
+          return console.log(`✓ unchanged since ${out.previous.observed_at} (${out.record.id}) — nothing written`);
+        case "collision":
+          return fail(`not written: ${out.reason}\n  · \`hunch workspaces forget ${out.record.id}\` removes the stale copy (a normal, revertable memory move), then snapshot again`);
+        case "written":
+          return console.log(`✓ recorded ${out.record.worktrees.length} worktree(s), ${out.record.branches.length} branch(es) as ${out.record.machine.label} (${out.record.id}, publish=${out.record.publish}) → ${out.home === "private" ? "overlay" : "public .hunch/"}${out.flushed ? `, ${out.flushed}` : ""}`);
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+workspacesCmd
+  .command("prune")
+  .description("Branches and worktrees that are provably merged and safe to delete. Prints the exact git commands per machine (dry run). --apply runs them on THIS machine only — never a remote, never another machine — from a live snapshot, with `git branch -d` / `git worktree remove` (no force flags), after confirmation.")
+  .option("--apply", "execute this machine's commands (asks for confirmation; --yes in a non-interactive shell)")
+  .option("--yes", "skip the confirmation prompt (required with --apply when stdin is not a terminal)")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--json", "emit the plan (and results) as JSON")
+  .action(async (opts: { apply?: boolean; yes?: boolean; fetch?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch workspaces prune` needs a git repo");
+      const view = workspaceLedgerView(store, root, { fetch: opts.fetch });
+      const plan = prunePlanFor(view);
+      if (!opts.apply) {
+        if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan }, null, 2));
+        console.log(renderPrunePlan(view, plan));
+        return console.log(plan.local.length ? "\n(dry run — `hunch workspaces prune --apply` runs this machine's commands after confirmation)" : "\n(dry run — nothing to apply on this machine)");
+      }
+      if (!plan.local.length) {
+        if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan, results: [] }, null, 2));
+        console.log(renderPrunePlan(view, plan));
+        return console.log("\nnothing to apply on this machine");
+      }
+      if (!opts.json) console.log(renderPrunePlan(view, plan));
+      if (!opts.yes) {
+        const worktrees = plan.local.filter((s) => s.worktree).length;
+        const ok = await confirmPrune(`Delete ${plan.local.length} branch(es)${worktrees ? ` and remove ${worktrees} worktree(s)` : ""} on ${view.machine.label}?`);
+        if (!ok) return fail(process.stdin.isTTY ? "not confirmed — nothing was deleted" : "refusing to apply without confirmation: stdin is not a terminal; pass --yes to confirm explicitly");
+      }
+      const results = applyPrune(root, plan.local);
+      // Memory follows what actually happened: re-snapshot so other machines see the change.
+      // Best effort — the deletions above are real whatever the ledger write says.
+      let recorded: string;
+      try { recorded = recordWorkspaceSnapshot(store, root).status; } catch (error) { recorded = `failed: ${(error as Error).message}`; }
+      if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan, results, recorded }, null, 2));
+      console.log("");
+      for (const r of results) console.log(`  ${r.outcome === "deleted" ? "✓" : "✗"} ${r.step.branch}: ${r.detail}`);
+      const failed = results.filter((r) => r.outcome === "failed").length;
+      const ledger = recorded === "written" ? " · ledger updated" : recorded === "unchanged" || recorded === "no-home" || recorded === "off" ? "" : ` · ledger not updated (${recorded})`;
+      console.log(`\n${results.length - failed} deleted, ${failed} refused by git${ledger}`);
+      if (failed) process.exitCode = 1;
+    } finally {
+      store.close();
+    }
+  });
+
+workspacesCmd
+  .command("label [label]")
+  .description("Show or set this machine's label (what other machines see). Defaults to machine-<id>; never the hostname.")
+  .action((label?: string) => {
+    const identity = label ? setMachineLabel(label) : loadOrCreateMachine();
+    console.log(`${identity.label}  (${identity.id}, ${machineFile()})`);
+    const leak = labelLeaksIdentity(identity.label);
+    if (leak) console.log(`  ⚠ the label equals this machine's ${leak}; in a shared store every teammate sees it`);
+  });
+
+workspacesCmd
+  .command("forget <machine>")
+  .description("Remove a machine's stored workspace record (by label or id) — e.g. a retired laptop. A memory move like any other: revertable via `hunch log`.")
+  .action((machine: string) => {
+    const { store, root } = storeFor();
+    try {
+      const victims = store.recs("workspaces").filter((r) => r.machine.label === machine || r.machine.id === machine || r.id === machine);
+      if (!victims.length) return fail(`no workspace record for "${machine}" — \`hunch workspaces\` lists the machines in memory`);
+      // Decide each record's home BEFORE deleting it, then flush exactly those homes.
+      const homes: MemoryHome[] = victims.map((v) => store.getPrivateRec("workspaces", v.id) ? "private" : "public");
+      for (const v of victims) store.deleteWhereItLives("workspaces", v.id);
+      pumpMemoryHomes(store, root, homes, `hunch: forget workspace ${machine}`);
+      console.log(`✓ forgot ${victims.length} record(s) for ${machine}`);
+    } finally {
+      store.close();
+    }
+  });
+
+program
+  .command("branches")
+  .description("Every local branch across machines with a deterministic verdict: merged (ancestry / squash / rebase), pushed, dirty worktree, and a recommended action. Read-only; never deletes anything.")
+  .option("--merged", "only branches proven merged")
+  .option("--unpushed", "only branches with no upstream")
+  .option("--stale <days>", "only branches whose last commit is older than N days")
+  .option("--machine <label>", "only branches present on this machine")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--json", "emit the rows as JSON")
+  .action((opts: { merged?: boolean; unpushed?: boolean; stale?: string; machine?: string; fetch?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch branches` needs a git repo");
+      const view = workspaceLedgerView(store, root, { fetch: opts.fetch });
+      const now = new Date();
+      let rows = branchRows(view.records, { staleAfterDays: view.config.stale_after_days, now });
+      if (opts.merged) rows = rows.filter((r) => r.merged.status === "merged");
+      if (opts.unpushed) rows = rows.filter((r) => r.upstream === null);
+      if (opts.machine) rows = rows.filter((r) => r.machines.includes(opts.machine!));
+      if (opts.stale) {
+        const days = Number(opts.stale);
+        if (!Number.isFinite(days) || days < 0) return fail("--stale takes a number of days");
+        rows = rows.filter((r) => !r.last_commit_at || now.getTime() - Date.parse(r.last_commit_at) > days * 86_400_000);
+      }
+      if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, branches: rows }, null, 2));
+      console.log(renderBranchTable(view, rows));
+    } finally {
+      store.close();
+    }
   });
 
 // ---- query ----------------------------------------------------------------
@@ -6142,6 +6329,9 @@ program
       if (pendingReview > 0) console.log(`\n  (${pendingReview} legacy un-vouched draft(s) — \`hunch adopt-drafts\` to auto-trust them as advisory)`);
       // Task-record ranking: evaluated automatically on every task write; the kill rule applies itself.
       try { console.log(`\n📊 ${rankingStatusLine(resolveTaskRankingMode(store.publicRoot, store))}`); } catch { /* no task records or no cache dir: nothing to say */ }
+      // Workspace ledger, from stored records only (no git) so the hot view stays fast.
+      const ws = workspaceSummaryLine(opts.private ? store.recs("workspaces") : store.json.loadAll("workspaces"), workspacesConfig(readConfig(hunchPaths(store.publicRoot))));
+      if (ws) console.log(`\n${ws}`);
     } finally {
       store.close();
     }
@@ -6393,6 +6583,16 @@ program
       console.log(`hooks:      ${missing.length
         ? `⚠ missing ${missing.join(", ")} — ${fix}`
         : `post-commit, post-merge installed${hooks.preCommit ? " (+ pre-commit)" : ""}`}`);
+      // Workspace ledger: what this machine is called, whether its record is in memory,
+      // and whether the checkout hook that keeps it fresh is installed.
+      try {
+        const machine = loadOrCreateMachine();
+        const stored = store.recs("workspaces").find((r) => r.machine.id === machine.id);
+        const others = store.recs("workspaces").filter((r) => r.machine.id !== machine.id).length;
+        const leak = labelLeaksIdentity(machine.label);
+        console.log(`workspaces: this machine is ${machine.label}${leak ? ` (⚠ label equals the ${leak})` : ""} · record in memory: ${stored ? `yes (${stored.observed_at})` : "no"} · ${others} other machine(s)` +
+          `${hooks.postCheckout ? " · post-checkout hook installed" : hooks.postCommit ? " · post-checkout hook not installed (`hunch index` adds it)" : ""}`);
+      } catch { /* no machine file writable: nothing to report */ }
     }
     // In unified mode the public .hunch directory is only a routing shell.
     // Report the same effective manifest that `hunch migrate` reads and stamps,
