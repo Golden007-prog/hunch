@@ -91,7 +91,7 @@ import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness, wo
 import { loadOrCreateMachine, setMachineLabel, machineFile, labelLeaksIdentity } from "../core/machine.js";
 import { worktreeRows, branchRows } from "../core/workspace.js";
 import { workspaceLedgerView, recordWorkspaceSnapshot, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, prunePlanFor, renderPrunePlan, applyPrune, confirmPrune } from "../integrations/workspaceLedger.js";
-import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
+import { blockingInScope, vetoInScope, proposedEditLines, type BlockingHit } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { computeStats, formatStats } from "../core/stats.js";
@@ -103,7 +103,7 @@ import { renderRecalledLine } from "../core/taskReportRender.js";
 import { closeHookTask, hookReportTaskId, nativeHookCwd, settleHookSession, startHookReport, stopHookReport, observeHookDenial } from "../core/taskReportHook.js";
 import { persistTaskRecord } from "../core/taskRecord.js";
 import { recordHookObservation } from "../core/hookObservations.js";
-import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent } from "../core/agenthook.js";
+import { contextHookOutput, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchToolInput } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
   armExecutionObligations,
@@ -4504,11 +4504,12 @@ program
         const before = st;
         let activity: Parameters<typeof proofCheckpoint>[2] | null = null;
         if (/^(Edit|Write|MultiEdit)$/.test(evt.tool_name ?? "")) {
-          const p = evt.tool_input?.file_path;
-          if (p) {
-            st = onEdit(st, toRepoRel(root, p));
-            activity = { kind: "edit" };
-          }
+          // A Codex apply_patch touches every file it lists (and each Move-to
+          // destination); the Stop gate must see all of them, not only the first.
+          const patchPaths = evt.tool_input?.patch_files?.flatMap((f) => f.moved_to ? [f.path, f.moved_to] : [f.path]);
+          const edited = patchPaths?.length ? patchPaths : evt.tool_input?.file_path ? [evt.tool_input.file_path] : [];
+          for (const p of edited) st = onEdit(st, toRepoRel(root, p));
+          if (edited.length) activity = { kind: "edit" };
         } else if (evt.tool_name === "Bash" || evt.tool_name === "PowerShell") {
           const command = String(evt.tool_input?.command ?? "");
           st = onCommand(st, command, evt.tool_outcome);
@@ -4778,17 +4779,16 @@ program
       }
       if (evt.hook_event_name !== "PreToolUse") return;
 
-      const abs = evt.tool_input?.file_path;
-      if (!abs) return;
-      const target = toRepoRel(root, abs);
-      // Outside the repo (".." prefix) or on another drive (absolute, e.g. "D:/…")
-      // → nothing for Hunch to say.
-      if (!target || target.startsWith("..") || /^[a-zA-Z]:/.test(target)) return;
+      const targets = editTargets(root, evt.tool_input);
+      // Nothing inside the repo → nothing for Hunch to say.
+      if (!targets.length) return;
+      // Grounding below stays about the first in-repo file; the strict gate checks every target.
+      const { abs, target } = targets[0]!;
 
       // A compiled red→green probe is only meaningful if its red receipt exists
       // before implementation. Firm/strict may deny two edits per prompt, then
       // fail open so a malformed or unavailable probe can never deadlock work.
-      if ((firmness === "firm" || firmness === "strict") && evt.session_id && pipelineEnabled() && isProductPath(target)) {
+      if ((firmness === "firm" || firmness === "strict") && evt.session_id && pipelineEnabled() && targets.some((t) => isProductPath(t.target))) {
         const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id));
         if (baseline.block) {
           savePipelineState(evt.session_id, baseline.state);
@@ -4822,23 +4822,25 @@ program
         store.reindex();
         // The lines this edit would ADD — so a content-matched invariant denies only
         // when the edit actually trips it (not on every edit in scope), and the Veto
-        // Guard can test the proposed text. Covers Edit/Write/MultiEdit.
-        const proposedLines = proposedEditLines(evt.tool_input);
-        const deny = blockingInScope(store, target, proposedLines);
-        if (deny) {
-          appendEvent(paths, { at: new Date().toISOString(), file: target, ...deny.event });
-          emitDeny(provider, deny.reason);
-          observeHookDenial(root, provider, evt, target, deny);
-          return;
+        // Guard can test the proposed text. Covers Edit/Write/MultiEdit, and each
+        // file of a Codex apply_patch with that file's own added lines.
+        const denials: Array<{ target: string; hit: BlockingHit }> = [];
+        for (const t of targets) {
+          // Veto Guard (live): the proposed edit text re-introduces an approach an
+          // in-force decision REJECTED. The agent self-corrects before staging;
+          // only human-confirmed tripwires deny.
+          const hit = blockingInScope(store, t.target, t.lines) ?? (t.lines.length ? vetoInScope(store, t.target, t.lines) : null);
+          if (hit) denials.push({ target: t.target, hit });
         }
-        // Veto Guard (live): the proposed edit text re-introduces an approach an
-        // in-force decision REJECTED. The agent self-corrects before staging;
-        // only human-confirmed tripwires deny.
-        const vetoDeny = proposedLines.length ? vetoInScope(store, target, proposedLines) : null;
-        if (vetoDeny) {
-          appendEvent(paths, { at: new Date().toISOString(), file: target, ...vetoDeny.event });
-          emitDeny(provider, vetoDeny.reason);
-          observeHookDenial(root, provider, evt, target, vetoDeny);
+        if (denials.length) {
+          for (const d of denials) appendEvent(paths, { at: new Date().toISOString(), file: d.target, ...d.hit.event });
+          // One denied file keeps the single-file reason verbatim; several are
+          // listed so the agent knows every file it must reconsider.
+          const reason = denials.length === 1
+            ? denials[0]!.hit.reason
+            : `Hunch: this patch is denied for ${denials.length} files (${denials.map((d) => d.target).join(", ")}).\n${denials.map((d) => d.hit.reason).join("\n")}`;
+          emitDeny(provider, reason);
+          for (const d of denials) observeHookDenial(root, provider, evt, d.target, d.hit);
           return;
         }
       }
@@ -6754,6 +6756,26 @@ function realpathNorm(p: string): string {
  *  file as outside the repo, silently dropping all context (dec_e0a36efbf5). */
 function toRepoRel(root: string, abs: string): string {
   return relative(realpathNorm(root), realpathNorm(abs)).split("\\").join("/");
+}
+
+/** The in-repo files a pre-edit event would change, each with the lines the edit
+ *  ADDS to that file. A Codex apply_patch yields one entry per touched path (a
+ *  Move-to destination is its own entry, carrying the section's added lines);
+ *  every other edit tool yields its single `file_path`. Paths outside the repo
+ *  ("..") or on another drive ("D:/…") are skipped. */
+function editTargets(root: string, input: HunchToolInput | undefined): Array<{ abs: string; target: string; lines: string[] }> {
+  const raw = input?.patch_files?.length
+    ? input.patch_files.flatMap((f) => (f.moved_to ? [f.path, f.moved_to] : [f.path]).map((abs) => ({ abs, lines: f.added_lines })))
+    : input?.file_path ? [{ abs: input.file_path, lines: proposedEditLines(input) }] : [];
+  const byTarget = new Map<string, { abs: string; target: string; lines: string[] }>();
+  for (const { abs, lines } of raw) {
+    const target = toRepoRel(root, abs);
+    if (!target || target.startsWith("..") || /^[a-zA-Z]:/.test(target)) continue;
+    const seen = byTarget.get(target);
+    if (seen) seen.lines = [...seen.lines, ...lines];
+    else byTarget.set(target, { abs, target, lines });
+  }
+  return [...byTarget.values()];
 }
 
 function emitContext(
