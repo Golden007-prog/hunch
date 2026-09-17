@@ -15,6 +15,10 @@ import { shortHash } from "./ids.js";
 import { ProvenanceSchema, isCredentialFreeValue } from "./provenance.js";
 
 export const WORKSPACE_SCHEMA_VERSION = "hunch.workspace/1" as const;
+/** Record bounds. The extractor keeps the most recently committed entries and says so in
+ *  provenance, so a huge repository degrades to a truncated record, never to a crash. */
+export const MAX_WORKTREES = 512;
+export const MAX_BRANCHES = 4096;
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -64,7 +68,7 @@ export const MERGED_METHODS = ["ancestry", "squash", "rebase"] as const;
 export const MergedVerdictSchema = z.object({
   status: z.enum(MERGED_STATUSES),
   method: z.enum(MERGED_METHODS).nullable(),
-  evidence: z.array(z.string().max(256)).max(8),
+  evidence: z.array(z.string().max(256).refine(isCredentialFreeValue, { message: "verdict evidence must not carry credential material" })).max(8),
 }).strict().superRefine((v, ctx) => {
   if ((v.status === "merged") !== (v.method !== null)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "a merged verdict names its method; any other verdict has none" });
@@ -102,8 +106,8 @@ export const WorkspaceSchema = z.object({
   observed_at: z.string().regex(ISO),
   fetched_at: z.string().regex(ISO).nullable(),
   default_branch: z.object({ name: BranchName, ref: UpstreamName.or(BranchName), head: z.string().regex(SHA) }).strict().nullable(),
-  worktrees: z.array(WorkspaceWorktreeSchema).max(512),
-  branches: z.array(WorkspaceBranchSchema).max(4096),
+  worktrees: z.array(WorkspaceWorktreeSchema).max(MAX_WORKTREES),
+  branches: z.array(WorkspaceBranchSchema).max(MAX_BRANCHES),
   provenance: ProvenanceSchema,
 }).strict().superRefine((record, ctx) => {
   if (record.id !== workspaceId(record.machine.id)) {

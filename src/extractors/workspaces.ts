@@ -9,12 +9,12 @@
  * `git worktree list` on this machine only — never from a stored record.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { foreignRepoEnv, gitCommonDir, mainWorktreeRoot, stableRepositoryName } from "./git.js";
 import { extracted } from "../core/types.js";
 import {
-  WORKSPACE_SCHEMA_VERSION, WorkspaceSchema, isSafeBranchName, workspaceId, worktreeId,
+  MAX_BRANCHES, MAX_WORKTREES, WORKSPACE_SCHEMA_VERSION, WorkspaceSchema, isSafeBranchName, workspaceId, worktreeId,
   type MergedVerdict, type Workspace, type WorkspaceBranch, type WorkspaceWorktree,
 } from "../core/workspace.js";
 import type { MachineIdentity } from "../core/machine.js";
@@ -31,6 +31,8 @@ export interface SnapshotOptions {
   fetch?: boolean;
   now?: Date;
   squashSearchCommits?: number;
+  /** Record bound override (tests). Never above the schema's MAX_BRANCHES. */
+  maxBranches?: number;
 }
 
 function env(): NodeJS.ProcessEnv {
@@ -123,21 +125,33 @@ function isDirty(path: string): boolean | null {
 
 interface RawBranch { name: string; head: string; upstream: string | null; track: string; date: string | null; worktreePath: string | null }
 
-function listBranches(root: string): RawBranch[] {
+function listBranches(root: string): { branches: RawBranch[]; skipped: number } {
   const format = ["%(refname)", "%(objectname)", "%(upstream)", "%(upstream:track,nobracket)", "%(committerdate:iso-strict)", "%(worktreepath)"].join("%00");
   const out = run(root, ["for-each-ref", `--format=${format}`, "refs/heads/"]) ?? "";
   const items: RawBranch[] = [];
+  let skipped = 0;
   for (const line of out.split("\n")) {
     if (!line) continue;
     const [refname = "", objectname = "", upstream = "", track = "", date = "", worktreePath = ""] = line.split("\0");
     if (!refname.startsWith("refs/heads/")) continue;
     const name = refname.slice("refs/heads/".length);
     const head = sha(objectname);
-    if (!head || !isSafeBranchName(name)) continue;
+    if (!head) continue;
+    // git will create `refs/heads/-x` through update-ref even though check-ref-format
+    // --branch refuses it; such a name is never recorded, and the omission is stated.
+    if (!isSafeBranchName(name)) { skipped++; continue; }
     const up = upstream.startsWith("refs/remotes/") ? upstream.slice("refs/remotes/".length) : null;
     items.push({ name, head, upstream: up, track, date: iso(date), worktreePath: worktreePath || null });
   }
-  return items;
+  return { branches: items, skipped };
+}
+
+/** Newest first (by commit date, then name), so a truncated record keeps the branches
+ *  someone is most likely to ask about. */
+function newestFirst<T extends { date?: string | null; last_commit_at?: string | null; name?: string; path?: string }>(items: T[]): T[] {
+  const stamp = (x: T) => x.date ?? x.last_commit_at ?? "";
+  const key = (x: T) => x.name ?? x.path ?? "";
+  return [...items].sort((a, b) => stamp(b).localeCompare(stamp(a)) || key(a).localeCompare(key(b)));
 }
 
 function parseTrack(track: string): { gone: boolean; ahead: number | null; behind: number | null } {
@@ -161,45 +175,56 @@ function combinedPatchId(root: string, base: string, head: string): string | nul
   return SHA.test(id) ? id : null;
 }
 
-/** patch-id → commit for the last N non-merge commits of the default branch, computed
- *  ONCE per snapshot (one `git log -p | git patch-id` pipeline). */
-function defaultBranchPatchIds(root: string, ref: string, limit: number): Map<string, string> {
+/** patch-id → commit for a range, via one `git log -p | git patch-id` pipeline. `ok: false`
+ *  means the pipeline failed or overflowed — the caller says so instead of pretending the
+ *  search happened. */
+function patchIdsOf(root: string, range: string[], limit: number | null, timeout: number): { map: Map<string, string>; ok: boolean } {
   const map = new Map<string, string>();
   let log: Buffer;
   try {
-    log = execFileSync("git", ["log", "--format=%H", "-p", "--no-merges", "--binary", "--full-index", "--no-renames", "--no-ext-diff", "--no-textconv", `-n${limit}`, ref, "--"],
-      { cwd: root, env: env(), maxBuffer: MAX_OUTPUT, timeout: 60_000, stdio: ["ignore", "pipe", "ignore"] });
-  } catch { return map; }
-  if (!log.byteLength) return map;
-  const r = spawnSync("git", ["patch-id", "--stable"], { cwd: root, env: env(), input: log, encoding: "utf8", maxBuffer: MAX_OUTPUT, timeout: 60_000 });
-  if (r.error || r.status !== 0) return map;
+    log = execFileSync("git", ["log", "--format=%H", "-p", "--no-merges", "--binary", "--full-index", "--no-renames", "--no-ext-diff", "--no-textconv", ...(limit ? [`-n${limit}`] : []), ...range, "--"],
+      { cwd: root, env: env(), maxBuffer: MAX_OUTPUT, timeout, stdio: ["ignore", "pipe", "ignore"] });
+  } catch { return { map, ok: false }; }
+  if (!log.byteLength) return { map, ok: true };
+  const r = spawnSync("git", ["patch-id", "--stable"], { cwd: root, env: env(), input: log, encoding: "utf8", maxBuffer: MAX_OUTPUT, timeout });
+  if (r.error || r.status !== 0) return { map, ok: false };
   for (const line of r.stdout.split("\n")) {
     const [patchId = "", commit = ""] = line.trim().split(/\s+/);
     if (SHA.test(patchId) && SHA.test(commit) && !map.has(patchId)) map.set(patchId, commit);
   }
-  return map;
+  return { map, ok: true };
 }
 
-function mergedVerdict(root: string, head: string, def: DefaultBranch | null, patchIds: () => Map<string, string>, searched: number): MergedVerdict {
+type DefaultPatchIds = () => { map: Map<string, string>; ok: boolean };
+
+function mergedVerdict(root: string, head: string, def: DefaultBranch | null, patchIds: DefaultPatchIds, searched: number): MergedVerdict {
   if (!def) return { status: "unknown", method: null, evidence: ["no default branch resolved (origin/HEAD, origin/main, origin/master, main, master)"] };
   const ancestor = predicate(root, ["merge-base", "--is-ancestor", head, def.head]);
   if (ancestor === null) return { status: "unknown", method: null, evidence: ["git merge-base failed"] };
   if (ancestor) return { status: "merged", method: "ancestry", evidence: [`${head.slice(0, 12)} is an ancestor of ${def.ref}@${def.head.slice(0, 12)}`] };
   const base = sha(run(root, ["merge-base", head, def.head]));
   if (!base) return { status: "unknown", method: null, evidence: [`no merge base with ${def.ref}`] };
+  const known = patchIds();
+  if (!known.ok) {
+    return { status: "unmerged", method: null, evidence: [`not an ancestor of ${def.ref}@${def.head.slice(0, 12)}; squash/rebase search unavailable (default-branch history too large or git failed)`] };
+  }
   const combined = combinedPatchId(root, base, head);
   if (combined) {
-    const commit = patchIds().get(combined);
+    const commit = known.map.get(combined);
     if (commit) return { status: "merged", method: "squash", evidence: [`patch-id of ${base.slice(0, 12)}..${head.slice(0, 12)} equals ${def.ref} commit ${commit.slice(0, 12)}`] };
   }
-  const cherry = run(root, ["cherry", def.head, head]);
-  if (cherry !== null) {
-    const lines = cherry.split("\n").filter(Boolean);
-    if (lines.length && lines.every((l) => l.startsWith("-"))) {
-      return { status: "merged", method: "rebase", evidence: [`all ${lines.length} commit(s) have an equivalent patch in ${def.ref} (git cherry)`] };
-    }
+  // Rebase / cherry-pick: every commit of the branch has a patch-equivalent commit in the
+  // default branch. Uses the one-time map instead of `git cherry`, whose cost grows with
+  // the default branch's history for EVERY branch checked.
+  const own = patchIdsOf(root, [`${base}..${head}`], null, 30_000);
+  if (own.ok && own.map.size && [...own.map.keys()].every((id) => known.map.has(id))) {
+    return { status: "merged", method: "rebase", evidence: [`all ${own.map.size} commit(s) have a patch-equivalent commit in ${def.ref} (last ${searched} searched)`] };
   }
-  return { status: "unmerged", method: null, evidence: [`not in ${def.ref}@${def.head.slice(0, 12)}; squash searched last ${searched} commits`] };
+  return { status: "unmerged", method: null, evidence: [`not in ${def.ref}@${def.head.slice(0, 12)}; squash/rebase searched last ${searched} commits`] };
+}
+
+function realpath(path: string): string {
+  try { return realpathSync(path); } catch { return path; }
 }
 
 function fetchedAt(root: string): string | null {
@@ -217,24 +242,33 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
   if (opts.fetch) run(main, ["fetch", "--prune", "--quiet"], 120_000);
   const def = defaultBranch(main);
   const searched = opts.squashSearchCommits ?? DEFAULT_SQUASH_SEARCH_COMMITS;
-  let patchIds: Map<string, string> | null = null;
-  const lazyPatchIds = () => (patchIds ??= def ? defaultBranchPatchIds(main, def.head, searched) : new Map());
+  let patchIds: ReturnType<typeof patchIdsOf> | null = null;
+  const lazyPatchIds: DefaultPatchIds = () => (patchIds ??= def ? patchIdsOf(main, [def.head], searched, 60_000) : { map: new Map(), ok: true });
+  const notes: string[] = [];
 
-  const rawWorktrees = listWorktrees(main);
+  const allWorktrees = listWorktrees(main).map((w) => ({ ...w, date: iso(run(main, ["log", "-1", "--format=%cI", "--end-of-options", w.head, "--"])) }));
+  const rawWorktrees = allWorktrees.length > MAX_WORKTREES ? newestFirst(allWorktrees).slice(0, MAX_WORKTREES) : allWorktrees;
+  if (rawWorktrees.length < allWorktrees.length) notes.push(`truncated: ${allWorktrees.length - rawWorktrees.length} older worktree(s) omitted (record holds ${MAX_WORKTREES})`);
+  const mainReal = realpath(main);
   const worktrees: WorkspaceWorktree[] = rawWorktrees.map((w) => ({
     id: worktreeId(w.path),
     path: opts.publish === "full" ? w.path : null,
     branch: w.branch,
     head: w.head,
-    is_main: w.path === main,
+    is_main: realpath(w.path) === mainReal,
     dirty: w.prunable ? null : isDirty(w.path),
     locked: w.locked,
     prunable: w.prunable,
-    last_commit_at: iso(run(main, ["log", "-1", "--format=%cI", "--end-of-options", w.head, "--"])),
+    last_commit_at: w.date,
   }));
   const worktreeByPath = new Map(rawWorktrees.map((w) => [w.path, worktreeId(w.path)]));
 
-  const branches: WorkspaceBranch[] = listBranches(main).map((b) => {
+  const listed = listBranches(main);
+  if (listed.skipped) notes.push(`skipped: ${listed.skipped} branch name(s) git would refuse as a branch argument`);
+  const maxBranches = Math.min(MAX_BRANCHES, Math.max(1, opts.maxBranches ?? MAX_BRANCHES));
+  const rawBranches = listed.branches.length > maxBranches ? newestFirst(listed.branches).slice(0, maxBranches) : listed.branches;
+  if (rawBranches.length < listed.branches.length) notes.push(`truncated: ${listed.branches.length - rawBranches.length} older branch(es) omitted (record holds ${maxBranches})`);
+  const branches: WorkspaceBranch[] = rawBranches.map((b) => {
     const track = b.upstream ? parseTrack(b.track) : { gone: false, ahead: null, behind: null };
     return {
       name: b.name,
@@ -265,7 +299,8 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
     branches,
     provenance: extracted(1, [
       "git worktree list --porcelain", "git for-each-ref refs/heads/", "git status --porcelain",
-      "git merge-base --is-ancestor", "git diff | git patch-id --stable", "git cherry",
+      "git merge-base --is-ancestor", "git diff | git patch-id --stable", "git log -p | git patch-id --stable",
+      ...notes,
     ]),
   };
   return WorkspaceSchema.parse(record);

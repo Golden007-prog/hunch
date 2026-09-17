@@ -156,6 +156,23 @@ test("snapshot reports every worktree with dirty / detached / locked state and l
   } finally { cleanup(); }
 });
 
+test("a huge repository degrades to a truncated record that says so; a branch name git would refuse as an argument is skipped and counted", () => {
+  const { repo, cleanup } = fixture();
+  try {
+    const head = g(repo, "rev-parse", "HEAD");
+    // `git update-ref` accepts names `check-ref-format --branch` rejects; they must never be recorded.
+    execFileSync("git", ["update-ref", "--stdin"], { cwd: repo, input: `create refs/heads/-dash ${head}\ncreate refs/heads/old/one ${head}\ncreate refs/heads/old/two ${head}\n` });
+    g(repo, "checkout", "-q", "-b", "feat/newest"); commitFile(repo, "n.ts", "export const n = 1;\n", "newest"); g(repo, "checkout", "-q", "main");
+    const record = snapshotWorkspace(repo, { machine: MACHINE, publish: "branches", maxBranches: 2 });
+    assert.equal(record.branches.length, 2);
+    assert.ok(record.branches.some((b) => b.name === "feat/newest"), "the newest branch survives truncation");
+    assert.equal(record.branches.some((b) => b.name === "-dash"), false);
+    assert.ok(record.provenance.evidence.includes("truncated: 2 older branch(es) omitted (record holds 2)"), record.provenance.evidence.join(" | "));
+    assert.ok(record.provenance.evidence.includes("skipped: 1 branch name(s) git would refuse as a branch argument"), record.provenance.evidence.join(" | "));
+    assert.ok(!JSON.stringify(record).includes("-dash"), "the refused name appears nowhere in the record");
+  } finally { cleanup(); }
+});
+
 test("without a resolvable default branch every verdict is unknown — never unmerged, never merged", () => {
   const base = mkdtempSync(join(tmpdir(), "hunch-ws-nodefault-"));
   try {
@@ -226,6 +243,7 @@ test("the record schema is strict, bounded, credential-free and self-consistent"
   refuse((r) => ({ ...r, observed_at: "yesterday" }), "non-ISO timestamp");
   refuse((r) => ({ ...r, worktrees: Array.from({ length: 513 }, (_, i) => ({ ...r.worktrees[0]!, id: `wt_${i.toString(16).padStart(8, "0")}` })), branches: [] }), "unbounded worktree list");
   refuse((r) => ({ ...r, provenance: { ...r.provenance, evidence: ["Bearer " + "x".repeat(40)] } }), "credential in provenance");
+  refuse((r) => ({ ...r, branches: [{ ...r.branches[0]!, merged: { status: "unmerged", method: null, evidence: ["see ghp_" + "a".repeat(30)] } }] }), "credential in verdict evidence");
   assert.equal(WorkspaceSchema.safeParse(rec).success, true);
 });
 
