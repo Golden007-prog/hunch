@@ -222,8 +222,19 @@ export function scanRepo(store: HunchStore, root: string, opts: ScanRepoOptions 
     // JS-falsy — `if (chartRoot)` would silently skip every repo-root chart.
     if (chartRoot !== null) {
       const helm = extractHelmDirectives(src);
-      parsed.symbols = [...parsed.symbols, ...helm.symbols].sort((a, b) => a.startByte - b.startByte);
-      parsed.calls = [...parsed.calls, ...helm.calls];
+      // helm.ts's own offsets are named *Char (they're JS char indices, not
+      // UTF-8 bytes -- see its module doc comment); mapped here into
+      // parsed.symbols/calls's startByte/endByte/atByte fields, which carry
+      // the same char-index values under the shared ParsedSymbol/ParsedCall
+      // naming this merge target already uses.
+      const helmSymbols = helm.symbols.map((s) => ({
+        name: s.name, kind: s.kind, startByte: s.startChar, endByte: s.endChar, loc: s.loc, bodyText: s.bodyText,
+      }));
+      const helmCalls = helm.calls.map((c) => ({
+        callee: c.callee, atByte: c.atChar, endByte: c.endChar, member: c.member,
+      }));
+      parsed.symbols = [...parsed.symbols, ...helmSymbols].sort((a, b) => a.startByte - b.startByte);
+      parsed.calls = [...parsed.calls, ...helmCalls];
     }
 
     const m = gitMeta?.get(rel);
