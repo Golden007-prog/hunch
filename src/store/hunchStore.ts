@@ -34,7 +34,7 @@ import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
-import { analyzeDiff, type DiffAnalysis } from "../extractors/diff.js";
+import { analyzeDiff, diffContentGaps, type DiffAnalysis, type DiffStatus } from "../extractors/diff.js";
 import type { CheckReport, CheckDirect, CausalWhy, ImpactReport } from "../core/checkreport.js";
 import {
   selectReviewedLandscape,
@@ -1448,7 +1448,7 @@ export class HunchStore {
   /** PR impact (read-only, ADVISORY — never gates): the dependency + memory surface
    *  of a change. Composes the SAME primitives as buildCheckReport (blast radius,
    *  scope-matched constraints, why) so impact and gating can never disagree. */
-  prImpact(files: string[], diff: string): ImpactReport {
+  prImpact(files: string[], diff: string, diffStatus?: DiffStatus): ImpactReport {
     const changed = new Set(files.map(toPosixTarget));
     const blast = new Map<string, { file: string; via: string; depth: number }>();
     for (const f of changed) {
@@ -1458,7 +1458,7 @@ export class HunchStore {
         if (!prev || b.depth < prev.depth) blast.set(b.file, b);
       }
     }
-    const report = this.buildCheckReport([...changed], diff, { strict: false });
+    const report = this.buildCheckReport([...changed], diff, { strict: false, diffStatus });
     const decisions = new Map<string, { id: string; title: string; status: string }>();
     for (const f of changed) {
       for (const d of this.why(f).decisions) decisions.set(d.id, { id: d.id, title: d.title, status: d.status });
@@ -1707,7 +1707,13 @@ export class HunchStore {
    *  radius), and regressions (re-added retired code), with the hardened strict
    *  gate and a causal `why` citation per direct hit. Read-only — shared by
    *  `hunch check`, the CI guard, and hunch_merge_verdict so they never drift. */
-  buildCheckReport(files: string[], diff: string, opts: { strict: boolean; lastChange?: (f: string) => string; publicOnly?: boolean }): CheckReport {
+  buildCheckReport(files: string[], diff: string, opts: {
+    strict: boolean;
+    lastChange?: (f: string) => string;
+    publicOnly?: boolean;
+    /** Completeness of `diff` as produced for a gate (a GateDiff fits). */
+    diffStatus?: DiffStatus;
+  }): CheckReport {
     // publicOnly excludes the private overlay from THIS report — required for any output
     // that may be posted publicly (the CI PR comment), since a posted comment is a leak
     // surface equal to a committed file. Local `hunch check` / the pre-edit hook omit it
@@ -1740,6 +1746,7 @@ export class HunchStore {
     });
     const directReport: CheckDirect[] = [];
     const addedDepSet = new Set(an.addedDeps);
+    const missingContent = diffContentGaps(diff, opts.diffStatus);
     for (const { c, files: fs } of direct.values()) {
       const forbids = effectiveForbids(c);
       if (forbids) {
@@ -1747,10 +1754,26 @@ export class HunchStore {
         // dep imported / symbol added / pattern matched in scoped code) — not by bare
         // scope-touch. A commit that touches the scope but doesn't trip it COMPLIES → drop it
         // (no noise). A real hit blocks WITHOUT the staleness gate: content is verified per
-        // commit, so file churn can't retract the teeth (dec_e0a36efbf5). Empty diff ⇒ can't
-        // prove a violation ⇒ treat as clean.
+        // commit, so file churn can't retract the teeth (dec_e0a36efbf5). A COMPLETE diff with
+        // no added lines for a file proves nothing was added there ⇒ clean.
         const scopedAdded = fs.flatMap((f) => an.addedLinesByFile.get(f) ?? []);
-        if (!matchForbids(forbids, addedDepSet, scopedAdded)) continue;
+        if (!matchForbids(forbids, addedDepSet, scopedAdded)) {
+          // …but when the diff is truncated, git could not produce it, or a file's content
+          // could not be read, "no added lines" is not evidence of compliance. A blocking
+          // rule over such a file is UNEVALUABLE and fails closed under the same strict gate
+          // a proven hit would face (dec_20db57c576). Advisory/warning rules stay quiet.
+          const unseen = missingContent ? fs.filter((f) => missingContent.missing(f)) : [];
+          if (c.severity !== "blocking" || !unseen.length) continue;
+          const strictBlocks = isStrictBlocker(c, false);
+          directReport.push({
+            id: c.id, severity: c.severity, statement: c.statement, rationale: c.rationale ?? "",
+            files: fs, strictBlocks,
+            downgrade: strictBlocks ? undefined : "low-confidence",
+            unevaluable: { reason: missingContent!.reason(unseen), files: unseen },
+            why: this.causalChain(c.id),
+          });
+          continue;
+        }
         const strictBlocks = isStrictBlocker(c, false);
         directReport.push({
           id: c.id, severity: c.severity ?? "advisory", statement: c.statement, rationale: c.rationale ?? "",

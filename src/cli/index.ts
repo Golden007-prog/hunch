@@ -48,7 +48,7 @@ import {
   normalizeProviderName,
   type SynthPreference,
 } from "../synthesis/provider.js";
-import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedDiff, workingDiff, commitDiff, rangeFiles, rangeDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunchStatus, syncExistingHunch, gitUntrackCached, gitCommonDir, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, commitRepairStatus, mergeRangeChanges, commitsExist, type HunchPullStatus } from "../extractors/git.js";
+import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedGateDiff, workingGateDiff, commitGateDiff, rangeFiles, rangeGateDiff, rangeSubjects, revExists, revParse, commitAndPushHunch, pullHunchStatus, syncExistingHunch, gitUntrackCached, gitCommonDir, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, commitRepairStatus, mergeRangeChanges, commitsExist, type HunchPullStatus } from "../extractors/git.js";
 import { parseMemoryLog, type MemoryMove } from "../core/memorylog.js";
 import { renamesOf, planRepair, repairDecision, repairConstraint, type RepairPlan } from "../core/repair.js";
 import { orphanedCommitDecisions, planCommitRepair, repairDecisionCommit, pickRewrite, commitRepairReviewHash, mergeRewrites, firstFor, deadRewrites, resolvedRewriteIds, withoutDropped, addDropped, withheldForUnresolvableTo, type CommitRewrite, type DroppedRewrite } from "../core/commitrepair.js";
@@ -3824,14 +3824,17 @@ program
     // vacuous green (deletions are excluded by the enumerators' --diff-filter=ACMR, so
     // such a PR enumerates zero files) — including a deletion of the very symbol a
     // blocking conformance predicate or an active policy guards.
-    const diff = files.length
-      ? (exactCommit ? commitDiff(exactCommit, root) : opts.base ? rangeDiff(opts.base, root) : opts.working ? workingDiff(root) : stagedDiff(root))
-      : "";
+    // The COMPLETE diff (no synthesis byte budget); an incomplete one is flagged so
+    // content-matched blocking invariants fail closed instead of passing unseen.
+    const gate = files.length
+      ? (exactCommit ? commitGateDiff(exactCommit, root) : opts.base ? rangeGateDiff(opts.base, root) : opts.working ? workingGateDiff(root) : stagedGateDiff(root))
+      : { diff: "" };
     const report: CheckReport = files.length
-      ? store.buildCheckReport(files, diff, {
+      ? store.buildCheckReport(files, gate.diff, {
         strict: !!opts.strict,
         lastChange: (f) => lastChangeDate(f, root),
         publicOnly: !!opts.publicOnly,
+        diffStatus: gate,
       })
       : emptyReport;
     if (opts.blast && !markdown && !sarif && files.length) {
@@ -3967,8 +3970,8 @@ const vetoCmd = program
       store.close();
       return;
     }
-    const diff = opts.commit ? commitDiff(opts.commit, root) : opts.base ? rangeDiff(opts.base, root) : stagedDiff(root);
-    const full = store.buildCheckReport(files, diff, { strict: !!opts.strict, lastChange: (f) => lastChangeDate(f, root) });
+    const gate = opts.commit ? commitGateDiff(opts.commit, root) : opts.base ? rangeGateDiff(opts.base, root) : stagedGateDiff(root);
+    const full = store.buildCheckReport(files, gate.diff, { strict: !!opts.strict, lastChange: (f) => lastChangeDate(f, root), diffStatus: gate });
     if (!full.vetoes.length) {
       console.log(`✓ ${files.length} changed file(s) reverse no decision you rejected.`);
       store.close();
@@ -6184,8 +6187,8 @@ program
         console.log(`No changed files in ${scope}.`);
         return;
       }
-      const diff = opts.commit ? commitDiff(opts.commit, root) : base ? rangeDiff(base, root) : opts.working ? workingDiff(root) : stagedDiff(root);
-      console.log(renderImpact(store.prImpact(files, diff), scope));
+      const gate = opts.commit ? commitGateDiff(opts.commit, root) : base ? rangeGateDiff(base, root) : opts.working ? workingGateDiff(root) : stagedGateDiff(root);
+      console.log(renderImpact(store.prImpact(files, gate.diff, gate), scope));
     } finally {
       store.close();
     }
