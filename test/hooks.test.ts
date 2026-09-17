@@ -112,7 +112,7 @@ test("post-merge hook: unchanged action when re-installed identically", () => {
 test("hookStatus: read-only, reports nothing installed on a fresh repo and never creates a managed hook file", () => {
   const r = repo();
   try {
-    assert.deepEqual(hookStatus(r), { postCommit: false, preCommit: false, postMerge: false });
+    assert.deepEqual(hookStatus(r), { postCommit: false, preCommit: false, postMerge: false, postCheckout: false });
     // git itself pre-populates .git/hooks/ with *.sample files on init — that's
     // not this function's concern. What matters is it never creates any of the
     // three REAL hook files it's merely checking for.
@@ -127,7 +127,7 @@ test("hookStatus: reports exactly which of the three managed hooks are present",
   try {
     installPostCommitHook(r, "hunch");
     installPostMergeHook(r, "hunch");
-    assert.deepEqual(hookStatus(r), { postCommit: true, preCommit: false, postMerge: true });
+    assert.deepEqual(hookStatus(r), { postCommit: true, preCommit: false, postMerge: true, postCheckout: false });
   } finally { rmSync(r, { recursive: true, force: true }); }
 });
 

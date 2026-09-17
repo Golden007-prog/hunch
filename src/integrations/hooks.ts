@@ -27,6 +27,9 @@ function block(invocation: string, opts: { private?: boolean; commit?: boolean; 
     // team policy, so only the explicit local-only mode forces deterministic.
     ...(opts.localOnly ? ["  export HUNCH_SYNTH_PROVIDER=deterministic"] : []),
     `  ( ${invocation} sync --from-hook --quiet${priv}${commit} >/dev/null 2>&1 || true ) &`,
+    // Workspace ledger (docs/workspace-ledger.md): refresh this machine's branch/worktree
+    // record. Constant argv, offline, backgrounded, no-op when nothing changed.
+    `  ( ${invocation} workspaces snapshot --quiet >/dev/null 2>&1 || true ) &`,
     "fi",
     ENDMARK,
   ].join("\n");
@@ -161,13 +164,34 @@ export function installPostMergeHook(root: string, invocation: string): HookInst
   return ACTION_RANK[repair.action] >= ACTION_RANK[grounding.action] ? repair : grounding;
 }
 
+const CHECKOUT_MARK = "# >>> hunch post-checkout (workspace ledger) >>>";
+const CHECKOUT_END = "# <<< hunch post-checkout (workspace ledger) <<<";
+
+/** post-checkout is where branches and worktrees actually change (`git checkout`,
+ *  `git switch`, `git worktree add`). git passes `$3 = 1` for a branch checkout and `0`
+ *  for a file checkout; only the former can change the ledger. Constant argv (nothing
+ *  from repository content), HUNCH_SYNC-guarded, backgrounded, offline. */
+function checkoutBlock(invocation: string): string {
+  return [
+    CHECKOUT_MARK,
+    'if [ -z "$HUNCH_SYNC" ] && [ "$3" = "1" ]; then',
+    `  ( HUNCH_SYNC=1 ${invocation} workspaces snapshot --quiet >/dev/null 2>&1 || true ) &`,
+    "fi",
+    CHECKOUT_END,
+  ].join("\n");
+}
+
+export function installPostCheckoutHook(root: string, invocation: string): HookInstall {
+  return installManagedBlock(root, "post-checkout", CHECKOUT_MARK, CHECKOUT_END, checkoutBlock(invocation));
+}
+
 /** Read-only diagnostic (used by `hunch doctor`): which of the three managed
  *  hooks are currently present. Never writes anything — a hook counts as
  *  installed if its managed marker is present, regardless of whether the
  *  invocation inside it happens to be stale. postMerge requires BOTH halves
  *  (grounding-refresh and repair-provenance) present — a repo carrying only
  *  one is a partial install, same as `installPostMergeHook` self-healing it. */
-export function hookStatus(root: string): { postCommit: boolean; preCommit: boolean; postMerge: boolean } {
+export function hookStatus(root: string): { postCommit: boolean; preCommit: boolean; postMerge: boolean; postCheckout: boolean } {
   const dir = hooksDir(root);
   const abs = isAbsolute(dir) ? dir : join(root, dir);
   const has = (name: string, mark: string): boolean => {
@@ -177,5 +201,6 @@ export function hookStatus(root: string): { postCommit: boolean; preCommit: bool
     postCommit: has("post-commit", MARK),
     preCommit: has("pre-commit", PRE_MARK),
     postMerge: has("post-merge", GROUNDING_MERGE_MARK) && has("post-merge", REPAIR_MERGE_MARK),
+    postCheckout: has("post-checkout", CHECKOUT_MARK),
   };
 }

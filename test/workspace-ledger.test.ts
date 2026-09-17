@@ -1,0 +1,345 @@
+/**
+ * Workspace ledger, Phase 2 (docs/workspace-ledger.md): the git hooks that keep a machine's
+ * record fresh, the shared record/read path, the read-only `hunch_workspaces` MCP tool, the
+ * MCP-start background refresh, the `/worktrees` scaffold, `hunch worktree`, and the
+ * `now` / `doctor` lines.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildServer, buildServerWithRootControl } from "../src/mcp/server.js";
+import { HunchStore } from "../src/store/hunchStore.js";
+import { hunchPaths } from "../src/core/paths.js";
+import { installPostCheckoutHook, installPostCommitHook, hookStatus } from "../src/integrations/hooks.js";
+import { writeSlashCommands } from "../src/integrations/scaffold.js";
+import { recordWorkspaceSnapshot, snapshotHasHome, spawnWorkspaceSnapshot, workspaceSummaryLine, workspaceLedgerView } from "../src/integrations/workspaceLedger.js";
+import { WorkspaceSchema, workspaceId, type Workspace } from "../src/core/workspace.js";
+
+const PROJECT_ROOT = process.cwd();
+const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
+const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
+
+const g = (cwd: string, ...a: string[]): string =>
+  execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } }).trim();
+const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
+const commitFile = (repo: string, file: string, content: string, message: string): string => {
+  writeFileSync(join(repo, file), content);
+  g(repo, "add", "-A"); g(repo, "commit", "-q", "-m", message);
+  return g(repo, "rev-parse", "HEAD");
+};
+
+const MACHINE = { id: "mac_0123456789abcdef0123456789abcdef", label: "test-box", created_at: "2026-09-01T00:00:00.000Z" };
+const OTHER = { id: "mac_fedcba9876543210fedcba9876543210", label: "other-box", created_at: "2026-09-01T00:00:00.000Z" };
+
+/** A repo (with committed .hunch/) plus a private overlay repo wired through local.json, and
+ *  a machine identity under a private XDG root — the shape of a developer's real setup. */
+function fixture(): { base: string; repo: string; overlayRoot: string; env: Record<string, string>; cleanup: () => void } {
+  const base = mkdtempSync(join(tmpdir(), "hunch-ledger-"));
+  const repo = join(base, "repo");
+  g(base, "init", "-q", "-b", "main", repo); cfg(repo);
+  mkdirSync(join(repo, ".hunch"), { recursive: true });
+  writeFileSync(join(repo, ".gitignore"), ".hunch/hunch.sqlite*\n.hunch/local.json\n"); // what `hunch init` writes (ensureGitignore)
+  commitFile(repo, ".hunch/manifest.json", '{"schema_version":3}\n', "hunch: init");
+  commitFile(repo, "app.ts", "export const x = 1;\n", "code");
+  const overlayRoot = join(base, "overlay");
+  g(base, "init", "-q", "-b", "main", overlayRoot); cfg(overlayRoot);
+  mkdirSync(join(overlayRoot, ".hunch"), { recursive: true });
+  writeFileSync(join(overlayRoot, ".gitignore"), ".hunch/hunch.sqlite*\n");
+  g(overlayRoot, "add", "-A"); g(overlayRoot, "commit", "-q", "-m", "overlay");
+  writeFileSync(join(repo, ".hunch", "local.json"), JSON.stringify({ privateDir: join(overlayRoot, ".hunch"), autoCommit: true, mode: "private" }) + "\n");
+  const cfgHome = join(base, "xdg");
+  mkdirSync(join(cfgHome, "hunch"), { recursive: true });
+  writeFileSync(join(cfgHome, "hunch", "machine.json"), JSON.stringify(MACHINE));
+  return { base, repo, overlayRoot, env: { XDG_CONFIG_HOME: cfgHome }, cleanup: () => rmSync(base, { recursive: true, force: true }) };
+}
+
+/** Apply an env patch; the returned function restores it (call from `finally` / `t.after`). */
+function setEnv(patch: Record<string, string | undefined>): () => void {
+  const saved = Object.fromEntries(Object.keys(patch).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  return () => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+}
+function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
+  const restore = setEnv(patch);
+  try { return fn(); } finally { restore(); }
+}
+
+function cli(cwd: string, env: Record<string, string>, ...args: string[]): { stdout: string; stderr: string; status: number } {
+  const res = spawnSync(process.execPath, [TSX, CLI, ...args], {
+    cwd, encoding: "utf8", timeout: 180_000,
+    env: { ...process.env, HUNCH_PRIVATE_DIR: "", HUNCH_SYNTH_PROVIDER: "deterministic", NO_COLOR: "1", GIT_CONFIG_NOSYSTEM: "1", ...env },
+  });
+  return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", status: res.status ?? -1 };
+}
+
+function otherRecord(observed: string, branches: Array<{ name: string; merged?: Workspace["branches"][number]["merged"] }>): Workspace {
+  const head = "b".repeat(40);
+  return WorkspaceSchema.parse({
+    schema: "hunch.workspace/1", id: workspaceId(OTHER.id), machine: { id: OTHER.id, label: OTHER.label, platform: "linux" },
+    repository: "git-remote:sha256:" + "0".repeat(64), publish: "branches", observed_at: observed, fetched_at: null,
+    default_branch: { name: "main", ref: "origin/main", head },
+    worktrees: [{ id: "wt_0000000b", path: null, branch: branches[0]?.name ?? null, head, is_main: false, dirty: true, locked: false, prunable: false, last_commit_at: null }],
+    branches: branches.map((b, i) => ({ name: b.name, head, is_default: false, upstream: null, upstream_gone: false, ahead: null, behind: null, last_commit_at: "2026-09-01T00:00:00.000Z", worktree: i === 0 ? "wt_0000000b" : null, merged: b.merged ?? { status: "unmerged", method: null, evidence: [] } })),
+    provenance: { source: "extracted", confidence: 1, evidence: [] },
+  });
+}
+
+// ---- hooks --------------------------------------------------------------------------------
+
+test("post-checkout hook: constant argv, HUNCH_SYNC-guarded, branch checkouts only ($3 = 1), backgrounded, idempotent; post-commit gains the snapshot line", () => {
+  const r = mkdtempSync(join(tmpdir(), "hunch-ledger-hook-"));
+  try {
+    g(r, "init", "-q");
+    assert.equal(hookStatus(r).postCheckout, false);
+    const first = installPostCheckoutHook(r, "hunch");
+    assert.equal(first.action, "created");
+    const text = readFileSync(join(r, ".git", "hooks", "post-checkout"), "utf8");
+    assert.match(text, /^#!\/bin\/sh\n/);
+    assert.match(text, /if \[ -z "\$HUNCH_SYNC" \] && \[ "\$3" = "1" \]; then/);
+    assert.match(text, /\( HUNCH_SYNC=1 hunch workspaces snapshot --quiet >\/dev\/null 2>&1 \|\| true \) &/);
+    assert.equal(hookStatus(r).postCheckout, true);
+    assert.equal(installPostCheckoutHook(r, "hunch").action, "unchanged");
+    assert.equal(installPostCheckoutHook(r, "/opt/hunch/bin/hunch").action, "updated");
+    assert.equal(readFileSync(join(r, ".git", "hooks", "post-checkout"), "utf8").match(/workspace ledger/g)?.length, 2, "one managed block, replaced in place");
+
+    // A pre-existing user hook is preserved, ours appended after it.
+    writeFileSync(join(r, ".git", "hooks", "post-checkout"), "#!/bin/sh\necho user-hook\n");
+    assert.equal(installPostCheckoutHook(r, "hunch").action, "appended");
+    assert.match(readFileSync(join(r, ".git", "hooks", "post-checkout"), "utf8"), /^#!\/bin\/sh\necho user-hook\n# >>> hunch post-checkout/);
+
+    installPostCommitHook(r, "hunch");
+    const commit = readFileSync(join(r, ".git", "hooks", "post-commit"), "utf8");
+    assert.match(commit, /hunch sync --from-hook --quiet >/);
+    assert.match(commit, /\( hunch workspaces snapshot --quiet >\/dev\/null 2>&1 \|\| true \) &/);
+    assert.ok(commit.indexOf("sync --from-hook") < commit.indexOf("workspaces snapshot"), "snapshot runs after the capture, inside the same HUNCH_SYNC guard");
+  } finally { rmSync(r, { recursive: true, force: true }); }
+});
+
+test("the installed post-checkout hook really records a snapshot on a branch checkout, and not on a file checkout", { skip: process.platform === "win32" ? "sh hook" : false }, () => {
+  const { repo, overlayRoot, env, cleanup } = fixture();
+  try {
+    // The hook must run THIS checkout's CLI: a tiny launcher script stands in for the `hunch` binary.
+    const launcher = join(repo, "..", "hunch-launcher.sh");
+    writeFileSync(launcher, `#!/bin/sh\nexec "${process.execPath}" "${TSX}" "${CLI}" "$@"\n`);
+    chmodSync(launcher, 0o755);
+    installPostCheckoutHook(repo, launcher);
+    const file = join(overlayRoot, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`);
+    const hookEnv = { ...process.env, ...env, HUNCH_PRIVATE_DIR: "", HUNCH_SYNTH_PROVIDER: "deterministic", GIT_CONFIG_NOSYSTEM: "1" };
+
+    execFileSync("git", ["checkout", "-q", "--", "app.ts"], { cwd: repo, env: hookEnv }); // file checkout: $3 = 0
+    const deadline0 = Date.now() + 3_000;
+    while (Date.now() < deadline0 && !existsSync(file)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    assert.equal(existsSync(file), false, "a file checkout does not touch the ledger");
+
+    execFileSync("git", ["checkout", "-q", "-b", "feat/hooked"], { cwd: repo, env: hookEnv }); // branch checkout: $3 = 1
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline && !existsSync(file)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    assert.ok(existsSync(file), "the backgrounded hook wrote this machine's record into the overlay");
+    const record = WorkspaceSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    assert.ok(record.branches.some((b) => b.name === "feat/hooked"));
+    assert.equal(record.publish, "branches");
+    const logDeadline = Date.now() + 30_000;
+    while (Date.now() < logDeadline && !/workspace snapshot/.test(g(overlayRoot, "log", "-1", "--format=%s"))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    assert.match(g(overlayRoot, "log", "-1", "--format=%s"), /workspace snapshot test-box/);
+  } finally { cleanup(); }
+});
+
+// ---- the shared record/read path ----------------------------------------------------------
+
+test("recordWorkspaceSnapshot: off / no-home / written / unchanged / dry-run, one commit per real change", () => {
+  const { repo, overlayRoot, env, cleanup } = fixture();
+  try {
+    withEnv({ ...env, HUNCH_PRIVATE_DIR: undefined }, () => {
+      const open = () => new HunchStore(hunchPaths(repo));
+      let store = open();
+      try {
+        assert.equal(snapshotHasHome(store, repo), true);
+        const dry = recordWorkspaceSnapshot(store, repo, { dryRun: true });
+        assert.equal(dry.status, "dry-run");
+        assert.equal(store.recs("workspaces").length, 0);
+        const first = recordWorkspaceSnapshot(store, repo);
+        assert.equal(first.status, "written");
+        assert.equal(first.status === "written" && first.home, "private");
+        assert.equal(first.status === "written" && first.flushed, "committed");
+        const second = recordWorkspaceSnapshot(store, repo);
+        assert.equal(second.status, "unchanged");
+        assert.equal(g(overlayRoot, "rev-list", "--count", "HEAD"), "2");
+        commitFile(repo, "b.ts", "export const b = 1;\n", "b");
+        assert.equal(recordWorkspaceSnapshot(store, repo).status, "written");
+        assert.equal(g(overlayRoot, "rev-list", "--count", "HEAD"), "3");
+      } finally { store.close(); }
+
+      writeFileSync(join(repo, ".hunch", "config.json"), JSON.stringify({ workspaces: { publish: "off" } }));
+      store = open();
+      try {
+        assert.equal(recordWorkspaceSnapshot(store, repo).status, "off");
+        assert.equal(snapshotHasHome(store, repo), false);
+      } finally { store.close(); }
+
+      writeFileSync(join(repo, ".hunch", "config.json"), "{}");
+      rmSync(join(repo, ".hunch", "local.json"));
+      store = open();
+      try {
+        assert.equal(store.hasPrivate, false);
+        assert.equal(recordWorkspaceSnapshot(store, repo).status, "no-home");
+        assert.equal(snapshotHasHome(store, repo), false);
+        assert.equal(existsSync(join(repo, ".hunch", "workspaces")) && readFileSync(join(repo, ".hunch", "manifest.json"), "utf8").length > 0 && (existsSync(join(repo, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`))), false);
+      } finally { store.close(); }
+
+      writeFileSync(join(repo, ".hunch", "config.json"), JSON.stringify({ workspaces: { publish_public: true } }));
+      store = open();
+      try {
+        const pub = recordWorkspaceSnapshot(store, repo);
+        assert.equal(pub.status, "written");
+        assert.equal(pub.status === "written" && pub.home, "public");
+        assert.equal(pub.status === "written" && pub.flushed, "committed");
+        assert.ok(existsSync(join(repo, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`)), "opt-in public record");
+        assert.match(g(repo, "log", "-1", "--format=%s"), /workspace snapshot test-box/, "committed into the code repo, not pushed");
+      } finally { store.close(); }
+    });
+  } finally { cleanup(); }
+});
+
+test("workspaceSummaryLine reads stored records only and counts machines, dirty worktrees and deletable branches", () => {
+  const now = new Date("2026-09-17T12:00:00Z");
+  const config = { publish: "branches" as const, stale_after_days: 7, publish_public: false };
+  assert.equal(workspaceSummaryLine([], config, now), null);
+  const fresh = otherRecord("2026-09-17T10:00:00Z", [{ name: "feat/x" }, { name: "fix/old", merged: { status: "merged", method: "squash", evidence: ["p"] } }]);
+  const line = workspaceSummaryLine([fresh], config, now)!;
+  assert.equal(line, "🗂 Workspaces in memory: 1 machine(s) · 1 worktree(s) (1 dirty) · 2 branch(es), 1 deletable — `hunch branches` for the verdicts");
+  const stale = { ...fresh, observed_at: "2026-09-01T10:00:00Z" };
+  assert.match(workspaceSummaryLine([stale], config, now)!, /1 machine\(s\) \(1 unverified\)/);
+});
+
+// ---- MCP ----------------------------------------------------------------------------------
+
+test("hunch_workspaces is a read-only everyday tool: this machine live, other machines from memory, both views, filters; hunch_now carries the ledger line", async (t) => {
+  const { repo, env, cleanup } = fixture();
+  const restore = setEnv({ ...env, HUNCH_PRIVATE_DIR: undefined });
+  const seed = new HunchStore(hunchPaths(repo));
+  try {
+    seed.json.ensureDirs();
+    // A forged record for THIS machine and a genuine one for another machine, both public.
+    seed.json.put("workspaces", { ...otherRecord(new Date().toISOString(), [{ name: "main", merged: { status: "merged", method: "ancestry", evidence: ["forged"] } }]), id: workspaceId(MACHINE.id), machine: { id: MACHINE.id, label: MACHINE.label, platform: "linux" } });
+    seed.json.put("workspaces", otherRecord(new Date().toISOString(), [{ name: "feat/theirs" }]));
+  } finally { seed.close(); }
+  const server = buildServer(repo);
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "ledger-test", version: "1" });
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  t.after(async () => { await client.close().catch(() => {}); await server.close().catch(() => {}); restore(); cleanup(); });
+
+  const tools = (await client.listTools()).tools;
+  const tool = tools.find((x) => x.name === "hunch_workspaces");
+  assert.ok(tool, "registered in the everyday set");
+  assert.match(tool.description ?? "", /Read-only/);
+  assert.match(tool.description ?? "", /Not for /);
+
+  const inventory = await client.callTool({ name: "hunch_workspaces", arguments: {} }) as { content: Array<{ type: string; text: string }>; structuredContent: { machine: string; worktrees: Array<{ machine: string; branch: string | null; path: string | null }> } };
+  assert.equal(inventory.structuredContent.machine, "test-box");
+  const mine = inventory.structuredContent.worktrees.find((w) => w.machine === "test-box")!;
+  assert.equal(mine.branch, "main");
+  assert.equal(mine.path, repo, "this machine is live (its real path), not the forged stored record");
+  assert.ok(inventory.structuredContent.worktrees.some((w) => w.machine === "other-box" && w.path === null));
+  assert.match(inventory.content[0]!.text, /test-box \(this\)/);
+
+  const branches = await client.callTool({ name: "hunch_workspaces", arguments: { view: "branches" } }) as { structuredContent: { branches: Array<{ name: string; merged: { status: string }; machines: string[]; action: string }> } };
+  const main = branches.structuredContent.branches.find((b) => b.name === "main")!;
+  assert.deepEqual(main.machines, ["test-box"], "this machine's forged stored record is never read");
+  assert.equal(main.action, "keep: default branch");
+  assert.ok(branches.structuredContent.branches.some((b) => b.name === "feat/theirs" && b.machines[0] === "other-box"));
+
+  const filtered = await client.callTool({ name: "hunch_workspaces", arguments: { view: "branches", machine: "other-box" } }) as { structuredContent: { branches: Array<{ name: string }> } };
+  assert.deepEqual(filtered.structuredContent.branches.map((b) => b.name), ["feat/theirs"]);
+  const merged = await client.callTool({ name: "hunch_workspaces", arguments: { view: "branches", merged_only: true } }) as { structuredContent: { branches: unknown[] } };
+  assert.equal(merged.structuredContent.branches.length, 0, "live git says nothing is merged; the forged verdict does not count");
+
+  const now = await client.callTool({ name: "hunch_now", arguments: {} }) as { content: Array<{ text: string }> };
+  assert.match(now.content[0]!.text, /🗂 Workspaces in memory: 2 machine\(s\)/);
+});
+
+test("MCP session start refreshes this machine's record only through the real entrypoint's timer, never for an in-process server", async (t) => {
+  const { repo, overlayRoot, env, cleanup } = fixture();
+  const restore = setEnv({ ...env, HUNCH_PRIVATE_DIR: undefined });
+  t.after(() => { restore(); cleanup(); });
+  const file = join(overlayRoot, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`);
+
+  // In-process (what tests and embedders build): nothing is spawned, whatever the config.
+  const plain = buildServerWithRootControl(repo);
+  await plain.server.close().catch(() => {});
+  assert.equal(existsSync(file), false);
+
+  // A launcher stand-in records what it was asked to run; the refresh must call it with a
+  // constant argv and nothing from the repository.
+  const base = join(repo, "..");
+  const marker = join(base, "launched.json");
+  const fake = join(base, "fake-launcher.mjs");
+  writeFileSync(fake, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), sync: process.env.HUNCH_SYNC ?? null }));\n`);
+  assert.equal(spawnWorkspaceSnapshot(repo, [process.execPath, fake]), true);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && !existsSync(marker)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  const launched = JSON.parse(readFileSync(marker, "utf8")) as { argv: string[]; cwd: string; sync: string | null };
+  assert.deepEqual(launched.argv, ["workspaces", "snapshot", "--quiet"]);
+  assert.equal(launched.cwd, repo);
+  assert.equal(launched.sync, "1", "a memory commit it makes never re-triggers the hooks");
+  assert.equal(spawnWorkspaceSnapshot(repo, []), false);
+});
+
+// ---- scaffold, worktree, doctor, now ------------------------------------------------------
+
+test("hunch init scaffolds /worktrees, which routes the agent to hunch_workspaces and never to git or a delete", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-ledger-scaffold-"));
+  try {
+    const { written } = writeSlashCommands(root);
+    assert.ok(written.some((p) => p.endsWith("worktrees.md")));
+    const body = readFileSync(join(root, ".claude", "commands", "worktrees.md"), "utf8");
+    assert.match(body, /hunch_workspaces\(view: "branches"\)/);
+    assert.match(body, /Do NOT run `git branch`/);
+    assert.match(body, /You never delete a branch/);
+    assert.match(body, /hunch:generated/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("CLI: hunch worktree records the new worktree; doctor and now report the ledger", { skip: process.platform === "win32" ? "sh launcher" : false }, () => {
+  const { base, repo, overlayRoot, env, cleanup } = fixture();
+  try {
+    const wt = cli(repo, env, "worktree", join(base, "wt-feat"), "-b", "feat/from-cli", "--no-index");
+    assert.equal(wt.status, 0, wt.stderr);
+    assert.match(wt.stdout, /✓ workspace ledger updated \(2 worktree\(s\) on this machine → overlay\)/);
+    const file = join(overlayRoot, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`);
+    const record = WorkspaceSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    assert.equal(record.worktrees.length, 2);
+    assert.ok(record.branches.some((b) => b.name === "feat/from-cli" && b.worktree !== null));
+
+    const doctor = cli(repo, env, "doctor");
+    assert.match(doctor.stdout, /workspaces: this machine is test-box · record in memory: yes \(\S+\) · 0 other machine\(s\)/);
+    assert.match(doctor.stdout, /post-checkout hook not installed \(`hunch index` adds it\)|hooks:\s+⚠ missing/);
+
+    const now = cli(repo, env, "now", "--private");
+    assert.match(now.stdout, /🗂 Workspaces in memory: 1 machine\(s\) · 2 worktree\(s\)/);
+    const nowPublic = cli(repo, env, "now");
+    assert.doesNotMatch(nowPublic.stdout, /Workspaces in memory/, "the public hot view never reads the overlay");
+  } finally { cleanup(); }
+});
+
+test("workspaceLedgerView never includes this machine's stored record, even when it is the only one", () => {
+  const { repo, env, cleanup } = fixture();
+  try {
+    withEnv({ ...env, HUNCH_PRIVATE_DIR: undefined }, () => {
+      const store = new HunchStore(hunchPaths(repo));
+      try {
+        store.json.ensureDirs();
+        store.json.put("workspaces", { ...otherRecord(new Date().toISOString(), [{ name: "phantom" }]), id: workspaceId(MACHINE.id), machine: { id: MACHINE.id, label: MACHINE.label, platform: "linux" } });
+        const view = workspaceLedgerView(store, repo);
+        assert.equal(view.records.length, 1);
+        assert.equal(view.records[0], view.live);
+        assert.equal(view.live.branches.some((b) => b.name === "phantom"), false);
+      } finally { store.close(); }
+    });
+  } finally { cleanup(); }
+});
