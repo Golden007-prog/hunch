@@ -43,8 +43,13 @@ const UpstreamName = z.string().max(320).refine((v) => {
   const slash = v.indexOf("/");
   return slash > 0 && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v.slice(0, slash)) && isSafeBranchName(v.slice(slash + 1));
 }, { message: "upstream must be <remote>/<branch>" });
+/** C0/C1 control characters, including newline and ESC: a stored string carrying one could
+ *  forge extra lines or terminal escapes in output a human reads (a printed command). */
+export const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/;
 const credentialFree = (label: string, max: number) =>
-  z.string().min(1).max(max).refine(isCredentialFreeValue, { message: `${label} must not carry credential material` });
+  z.string().min(1).max(max)
+    .refine((v) => !CONTROL_CHARS.test(v), { message: `${label} must not contain control characters or newlines` })
+    .refine(isCredentialFreeValue, { message: `${label} must not carry credential material` });
 
 export const WorkspaceWorktreeSchema = z.object({
   /** Stable, path-free handle (hash of the path) so branches can point at a worktree in
@@ -62,13 +67,18 @@ export const WorkspaceWorktreeSchema = z.object({
 }).strict();
 export type WorkspaceWorktree = z.infer<typeof WorkspaceWorktreeSchema>;
 
-export const MERGED_STATUSES = ["merged", "unmerged", "unknown"] as const;
+/** `no-commits`: the branch head lies on the default branch's first-parent history, so the
+ *  branch holds no commits of its own (freshly created, or fast-forwarded into the default
+ *  branch). Ancestry alone would call it merged; it is never offered for deletion. */
+export const MERGED_STATUSES = ["merged", "unmerged", "no-commits", "unknown"] as const;
 export const MERGED_METHODS = ["ancestry", "squash", "rebase"] as const;
 
 export const MergedVerdictSchema = z.object({
   status: z.enum(MERGED_STATUSES),
   method: z.enum(MERGED_METHODS).nullable(),
-  evidence: z.array(z.string().max(256).refine(isCredentialFreeValue, { message: "verdict evidence must not carry credential material" })).max(8),
+  evidence: z.array(z.string().max(256)
+    .refine((v) => !CONTROL_CHARS.test(v), { message: "verdict evidence must not contain control characters or newlines" })
+    .refine(isCredentialFreeValue, { message: "verdict evidence must not carry credential material" })).max(8),
   /** The pull request that landed a merged branch, read from the LOCAL merge / squash commit
    *  subject ("Merge pull request #N from …", "… (#N)") — never fetched from a forge. */
   pr: z.number().int().min(1).max(100_000_000).optional(),
@@ -274,6 +284,7 @@ export function recommendAction(row: Omit<BranchRow, "action">, opts: AggregateO
   // it is what the reader needs to know before touching the branch on that machine.
   const dirty = row.dirty_on.length ? `; dirty worktree on ${row.dirty_on.join(", ")}` : "";
   if (row.merged.status === "unknown") return `review: merge state unknown${dirty}${suffix}`;
+  if (row.merged.status === "no-commits") return `keep: no commits of its own${dirty}${suffix}`;
   if (row.upstream === null || row.upstream_gone) {
     const idle = daysIdle(row.last_commit_at, now);
     const why = row.upstream_gone ? "upstream deleted, unmerged work" : "unpushed";
@@ -289,6 +300,7 @@ export function recommendAction(row: Omit<BranchRow, "action">, opts: AggregateO
 function bestVerdict(verdicts: MergedVerdict[]): MergedVerdict {
   return verdicts.find((v) => v.status === "merged")
     ?? verdicts.find((v) => v.status === "unmerged")
+    ?? verdicts.find((v) => v.status === "no-commits")
     ?? verdicts[0]
     ?? { status: "unknown", method: null, evidence: [] };
 }
@@ -354,6 +366,20 @@ export interface PruneStep {
   worktree: { id: string; path: string | null } | null;
   commands: string[];
   why: string;
+  /** How the merge was proven; squash and rebase merges are invisible to `git branch -d`. */
+  method: MergedVerdict["method"];
+  /** Ignored files in the worktree that `git worktree remove` deletes without asking (local
+   *  plan only, read live; never stored). `shown` is bounded, `total` counts all entries. */
+  ignored?: { shown: string[]; total: number };
+}
+
+/** POSIX shell quoting for one token of a PRINTED command (never executed through a shell
+ *  here: execution uses argv arrays). Tokens made only of characters no shell treats
+ *  specially stay bare; anything else is single-quoted with `'` escaped as `'\''`, which is
+ *  also valid in Git Bash for Windows paths. */
+export function shellQuote(token: string): string {
+  if (/^[A-Za-z0-9_\-./:@+,]+$/.test(token)) return token;
+  return `'${token.replace(/'/g, `'\\''`)}'`;
 }
 
 export interface PrunePlan {
@@ -373,11 +399,12 @@ function pruneStepsFor(record: Workspace, opts: { skip: (branch: WorkspaceBranch
     const reason = opts.skip(b, wt);
     if (reason) { if (b.merged.status === "merged" && !b.is_default) skipped.push({ branch: b.name, reason }); continue; }
     const commands: string[] = [];
-    if (wt) commands.push(`git worktree remove -- ${wt.path ?? "<its worktree>"}`);
-    commands.push(`git branch -d -- ${b.name}`);
+    if (wt) commands.push(`git worktree remove -- ${wt.path === null ? "<its worktree>" : shellQuote(wt.path)}`);
+    commands.push(`git branch -d -- ${shellQuote(b.name)}`);
     steps.push({
       branch: b.name, head: b.head, worktree: wt ? { id: wt.id, path: wt.path } : null, commands,
       why: `${b.merged.method}${b.merged.pr ? ` (PR #${b.merged.pr})` : ""}: ${b.merged.evidence[0] ?? ""}`,
+      method: b.merged.method,
     });
   }
   return { steps, skipped };
@@ -387,7 +414,9 @@ function pruneStepsFor(record: Workspace, opts: { skip: (branch: WorkspaceBranch
  *  proven merged, not the default branch, worktree (if any) clean, unlocked and present. */
 export function pruneRefusal(b: WorkspaceBranch, wt: WorkspaceWorktree | undefined): string | null {
   if (b.is_default) return "default branch";
-  if (b.merged.status !== "merged") return b.merged.status === "unknown" ? "merge state unknown" : "not merged";
+  if (b.merged.status !== "merged") {
+    return b.merged.status === "unknown" ? "merge state unknown" : b.merged.status === "no-commits" ? "no commits of its own" : "not merged";
+  }
   if (wt?.is_main) return "checked out in the main worktree (switch away first)";
   if (wt?.locked) return "worktree is locked";
   if (wt?.prunable) return "worktree path is missing (git worktree prune first)";

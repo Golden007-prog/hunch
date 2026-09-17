@@ -15,7 +15,7 @@ import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { ENTITY_KINDS } from "../src/core/types.js";
 import {
-  WorkspaceSchema, branchRows, isSafeBranchName, isUnverified, latestPerMachine, recommendAction, sameWorkspaceContent,
+  WorkspaceSchema, branchRows, isSafeBranchName, isUnverified, latestPerMachine, planPrune, pruneRefusal, recommendAction, sameWorkspaceContent,
   workspaceId, worktreeRows, type Workspace,
 } from "../src/core/workspace.js";
 import { defaultMachineLabel, loadOrCreateMachine, machineFile, setMachineLabel } from "../src/core/machine.js";
@@ -189,6 +189,90 @@ test("without a resolvable default branch every verdict is unknown — never unm
     assert.equal(record.default_branch, null);
     assert.ok(record.branches.every((b) => b.merged.status === "unknown"));
   } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("a reland (revert of a revert) or a value flipped back is NOT merged: only default-branch commits after the merge base count; a genuine squash still is (#307)", () => {
+  const { repo, cleanup } = fixture();
+  try {
+    commitFile(repo, "flag.ts", "export const flag = false;\n", "add flag");
+    const featureCommit = commitFile(repo, "feature.ts", "export const feature = 1;\n", "Add feature (#10)");
+    commitFile(repo, "flag.ts", "export const flag = true;\n", "Enable flag (#11)");
+    commitFile(repo, "flag.ts", "export const flag = false;\n", "Disable flag (#12)");
+    g(repo, "revert", "--no-edit", featureCommit); // the feature broke production: reverted on main
+    g(repo, "push", "-q", "origin", "main");
+    // The feature is relanded on a branch (revert of the revert), not merged yet.
+    g(repo, "checkout", "-q", "-b", "feat/reland"); g(repo, "revert", "--no-edit", "HEAD");
+    g(repo, "push", "-q", "-u", "origin", "feat/reland");
+    // The flag is flipped back on a branch: its patch equals the OLD "Enable flag (#11)".
+    g(repo, "checkout", "-q", "-b", "feat/flip", "main");
+    commitFile(repo, "flag.ts", "export const flag = true;\n", "enable flag again");
+    g(repo, "checkout", "-q", "main");
+
+    const before = snapshotWorkspace(repo, { machine: MACHINE, publish: "full" });
+    for (const name of ["feat/reland", "feat/flip"]) {
+      const b = branch(before, name);
+      assert.equal(b.merged.status, "unmerged", `${name}: a patch that matches only a commit behind the merge base is not merged — ${b.merged.evidence.join(" | ")}`);
+      assert.equal(b.merged.pr, undefined, `${name} is never credited to the old pull request`);
+      assert.equal(pruneRefusal(b, undefined), "not merged");
+    }
+    assert.deepEqual(planPrune(before, [before]).local.map((s) => s.branch), [], "neither branch is offered for deletion");
+
+    // The reland really lands (squash-merged AFTER the merge base): now it is merged, and
+    // credited to the new pull request, not the original one.
+    g(repo, "merge", "-q", "--squash", "feat/reland"); g(repo, "commit", "-q", "-m", "Reland feature (#20)"); g(repo, "push", "-q", "origin", "main");
+    const after = snapshotWorkspace(repo, { machine: MACHINE, publish: "full" });
+    const landed = branch(after, "feat/reland").merged;
+    assert.deepEqual([landed.status, landed.method, landed.pr], ["merged", "squash", 20]);
+    assert.equal(branch(after, "feat/flip").merged.status, "unmerged");
+  } finally { cleanup(); }
+});
+
+test("a branch with no commits of its own is labeled no-commits, not merged by ancestry, and never offered for deletion", () => {
+  const { base, repo, cleanup } = fixture();
+  try {
+    const old = g(repo, "rev-parse", "HEAD~1");
+    g(repo, "branch", "feat/fresh");               // created at main, nothing committed yet
+    g(repo, "branch", "feat/older", old);          // created at an older main commit
+    const wt = join(base, "wt-fresh");
+    g(repo, "worktree", "add", "-q", wt, "feat/fresh");
+    g(repo, "checkout", "-q", "-b", "feat/merged"); commitFile(repo, "m.ts", "export const m = 1;\n", "m");
+    g(repo, "checkout", "-q", "main"); g(repo, "merge", "-q", "--no-ff", "-m", "merge feat/merged", "feat/merged"); g(repo, "push", "-q", "origin", "main");
+
+    const record = snapshotWorkspace(repo, { machine: MACHINE, publish: "full" });
+    for (const name of ["feat/fresh", "feat/older"]) {
+      const b = branch(record, name);
+      assert.deepEqual([b.merged.status, b.merged.method], ["no-commits", null], `${name}: ${b.merged.evidence.join(" | ")}`);
+      assert.equal(pruneRefusal(b, undefined), "no commits of its own");
+    }
+    assert.deepEqual([branch(record, "feat/merged").merged.status, branch(record, "feat/merged").merged.method], ["merged", "ancestry"], "a real merge is still merged");
+    const plan = planPrune(record, [record]);
+    assert.deepEqual(plan.local.map((s) => s.branch), ["feat/merged"]);
+    assert.equal(plan.skipped.some((s) => s.branch.startsWith("feat/fresh") || s.branch === "feat/older"), false);
+    const rows = branchRows([record]);
+    const fresh = rows.find((r) => r.name === "feat/fresh")!;
+    assert.match(fresh.action, /^keep: no commits of its own/);
+    assert.equal(rows.filter((r) => r.action.startsWith("delete local")).map((r) => r.name).join(), "feat/merged");
+  } finally { cleanup(); }
+});
+
+test("status.showUntrackedFiles=no cannot hide an untracked file: the worktree is dirty and prune refuses it (#308)", () => {
+  const { base, repo, cleanup } = fixture();
+  try {
+    g(repo, "checkout", "-q", "-b", "feat/wt"); commitFile(repo, "w.ts", "export const w = 1;\n", "w");
+    g(repo, "checkout", "-q", "main"); g(repo, "merge", "-q", "--no-ff", "-m", "merge feat/wt", "feat/wt"); g(repo, "push", "-q", "origin", "main");
+    const wt = join(base, "wt-untracked");
+    g(repo, "worktree", "add", "-q", wt, "feat/wt");
+    g(repo, "config", "status.showUntrackedFiles", "no");
+    writeFileSync(join(wt, "new-work.ts"), "export const unsaved = 1;\n");
+    assert.equal(g(wt, "status", "--porcelain"), "", "precondition: plain git status hides the file under this config");
+
+    const record = snapshotWorkspace(repo, { machine: MACHINE, publish: "full" });
+    const w = record.worktrees.find((x) => x.branch === "feat/wt")!;
+    assert.equal(w.dirty, true);
+    const plan = planPrune(record, [record]);
+    assert.deepEqual(plan.local.map((s) => s.branch), []);
+    assert.deepEqual(plan.skipped, [{ branch: "feat/wt", reason: "worktree has uncommitted or untracked changes" }]);
+  } finally { cleanup(); }
 });
 
 test("a snapshot is stable across runs, and the content check ignores only the observation stamps", () => {

@@ -12,8 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
-import { WorkspaceSchema, planPrune, pruneRefusal, workspaceId, type Workspace } from "../src/core/workspace.js";
+import { WorkspaceSchema, planPrune, pruneRefusal, shellQuote, workspaceId, type Workspace } from "../src/core/workspace.js";
 import { snapshotWorkspace } from "../src/extractors/workspaces.js";
+import { applyPrune, prunePlanFor, pruneConfirmQuestion, renderPrunePlan, type LedgerView } from "../src/integrations/workspaceLedger.js";
 
 const PROJECT_ROOT = process.cwd();
 const TSX = join(PROJECT_ROOT, "node_modules/tsx/dist/cli.mjs");
@@ -93,6 +94,35 @@ test("planPrune: only proven-merged branches with a clean, unlocked, present, no
   assert.equal(pruneRefusal(live.branches.find((b) => b.name === "main")!, undefined), "default branch");
 });
 
+test("printed commands are shell-quoted; a stored path or evidence with a newline or control character is refused by the schema", () => {
+  const other = record(OTHER, "full", [{ id: "wt_00000011", branch: "fix/a;b", path: "/home/o/my wt" }, { id: "wt_00000012", branch: "fix/c", path: "C:\\Users\\o\\it's here" }], [
+    { name: "fix/a;b", worktree: "wt_00000011", merged: MERGED },
+    { name: "fix/$(touch`x`)|y&z>w", merged: MERGED },
+    { name: "fix/c", worktree: "wt_00000012", merged: MERGED },
+  ]);
+  const live = record(MACHINE, "full", [], []);
+  const plan = planPrune(live, [live, other]);
+  assert.deepEqual(plan.others["other-box"]!.map((s) => s.commands), [
+    ["git worktree remove -- '/home/o/my wt'", "git branch -d -- 'fix/a;b'"],
+    ["git branch -d -- 'fix/$(touch`x`)|y&z>w'"],
+    ["git worktree remove -- 'C:\\Users\\o\\it'\\''s here'", "git branch -d -- fix/c"],
+  ]);
+  assert.equal(shellQuote("feat/plain-1.2"), "feat/plain-1.2", "a token with nothing special stays bare");
+  // What a POSIX shell does with the quoted tokens: each comes back as ONE literal argument.
+  if (process.platform !== "win32") {
+    for (const token of ["fix/$(touch`x`)|y&z>w", "it's here", "a;b"]) {
+      const echoed = execFileSync("sh", ["-c", `printf %s ${shellQuote(token)}`], { encoding: "utf8" });
+      assert.equal(echoed, token);
+    }
+  }
+
+  for (const bad of ["/home/o/wt\ngit branch -D main", "/home/o/wt\u001b[2K", "/home/o/wt\r", "/home/o/\u0085wt"]) {
+    assert.throws(() => record(OTHER, "full", [{ id: "wt_00000013", path: bad }], []), /control characters/, JSON.stringify(bad));
+  }
+  assert.throws(() => record(OTHER, "branches", [], [{ name: "x", merged: { ...MERGED, evidence: ["ok\nforged line"] } }]), /control characters/);
+  assert.throws(() => record(OTHER, "branches", [], [{ name: "x\ny", merged: MERGED }]), /git-valid/);
+});
+
 test("the schema refuses a pull request on anything but a merged verdict", () => {
   assert.throws(() => record(MACHINE, "branches", [], [{ name: "x", merged: { status: "unmerged", method: null, evidence: [], pr: 7 } }]), /pull request/);
 });
@@ -137,6 +167,70 @@ test("a merged branch carries the pull request its LOCAL merge or squash commit 
     assert.equal(by("feat/no-pr").pr, undefined);
     assert.equal(by("pr-merge").pr, undefined, "owner/other/pr-merge is not the branch pr-merge");
     assert.ok(by("feat/pr-merge").evidence.some((e) => e.includes("pull request #12 (from the local commit subject)")));
+  } finally { cleanup(); }
+});
+
+function liveView(repo: string): LedgerView {
+  const live = snapshotWorkspace(repo, { machine: MACHINE, publish: "full" });
+  return { machine: MACHINE, live, records: [live], config: { publish: "branches", stale_after_days: 7, publish_public: false } };
+}
+
+test("ignored files in a merged worktree are named in the plan and the confirmation — not a refusal (#308)", () => {
+  const { base, repo, cleanup } = originFixture();
+  try {
+    commitFile(repo, ".gitignore", ".hunch/hunch.sqlite*\n.hunch/local.json\n.env\nnode_modules/\n", "ignore env");
+    g(repo, "checkout", "-q", "-b", "feat/env"); commitFile(repo, "e.ts", "export const e = 1;\n", "e");
+    g(repo, "checkout", "-q", "main"); g(repo, "merge", "-q", "--no-ff", "-m", "merge feat/env", "feat/env"); g(repo, "push", "-q", "origin", "main");
+    const wt = join(base, "wt-env");
+    g(repo, "worktree", "add", "-q", wt, "feat/env");
+    writeFileSync(join(wt, ".env"), "SECRET=local-only\n");
+    mkdirSync(join(wt, "node_modules", "pkg"), { recursive: true });
+    writeFileSync(join(wt, "node_modules", "pkg", "index.js"), "module.exports = 1;\n");
+
+    const view = liveView(repo);
+    const plan = prunePlanFor(view, repo);
+    assert.deepEqual(plan.local.map((s) => s.branch), ["feat/env"], "ignored files do not make the worktree dirty");
+    assert.deepEqual(plan.local[0]!.ignored, { shown: [".env", "node_modules/"], total: 2 });
+    const rendered = renderPrunePlan(view, plan);
+    assert.match(rendered, /⚠ also deletes 2 ignored path\(s\) in the worktree: \.env, node_modules\//);
+    const question = pruneConfirmQuestion(view, plan);
+    assert.match(question, /feat\/env: removing its worktree also deletes 2 ignored path\(s\) in the worktree: \.env, node_modules\//);
+    assert.match(question, /Delete 1 branch\(es\) and remove 1 worktree\(s\) on test-box\?$/);
+  } finally { cleanup(); }
+});
+
+test("a squash-merged branch whose upstream is gone is skipped WHOLE: git branch -d would refuse, so the worktree is not removed first (#309)", () => {
+  const { base, repo, cleanup } = originFixture();
+  try {
+    g(repo, "checkout", "-q", "-b", "feat/sq");
+    commitFile(repo, "s1.ts", "export const s1 = 1;\n", "s1"); commitFile(repo, "s2.ts", "export const s2 = 1;\n", "s2");
+    g(repo, "push", "-q", "-u", "origin", "feat/sq");
+    g(repo, "checkout", "-q", "main"); g(repo, "merge", "-q", "--squash", "feat/sq"); g(repo, "commit", "-q", "-m", "Squash feature (#7)");
+    g(repo, "push", "-q", "origin", "main");
+    g(repo, "push", "-q", "origin", "--delete", "feat/sq"); g(repo, "fetch", "-q", "--prune");
+    const wt = join(base, "wt-sq");
+    g(repo, "worktree", "add", "-q", wt, "feat/sq");
+
+    const view = liveView(repo);
+    const sq = view.live.branches.find((b) => b.name === "feat/sq")!;
+    assert.deepEqual([sq.merged.status, sq.merged.method, sq.upstream_gone], ["merged", "squash", true]);
+
+    // The dry run already says so, instead of promising a delete git will refuse.
+    const plan = prunePlanFor(view, repo);
+    assert.deepEqual(plan.local.map((s) => s.branch), []);
+    const skipped = plan.skipped.find((s) => s.branch === "feat/sq");
+    assert.match(skipped?.reason ?? "", /^squash-merged: git branch -d would refuse \(not merged into HEAD\); delete manually after checking$/);
+    assert.match(renderPrunePlan(view, plan), /feat\/sq  — squash-merged: git branch -d would refuse/);
+
+    // applyPrune re-checks on its own, so even a step from a plan without that check is skipped whole.
+    const pure = planPrune(view.live, view.records).local;
+    assert.deepEqual(pure.map((s) => s.branch), ["feat/sq"]);
+    const results = applyPrune(repo, pure);
+    assert.equal(results.length, 1);
+    assert.equal(results[0]!.outcome, "skipped");
+    assert.match(results[0]!.detail, /squash-merged: git branch -d would refuse/);
+    assert.equal(existsSync(join(wt, "s1.ts")), true, "worktree kept");
+    assert.equal(g(repo, "branch", "--list", "feat/sq").replace(/^\+ /, ""), "feat/sq", "branch kept");
   } finally { cleanup(); }
 });
 
