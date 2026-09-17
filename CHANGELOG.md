@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.39.0 — 2026-09-17
 
 - Writers of derived state get `readOrCompute` in `@davesheffer/hunch/state` and `read_or_compute` in the Python client: a current statement whose dependencies are unchanged is reused without computing; otherwise the content is computed once and written with a request-scoped idempotency key (content hash included, so new wording never collides with an old key), superseding its predecessor and keeping its audience. No retries; both clients hash byte for byte with the server.
 - `hunch serve` speaks MCP over streamable HTTP at `POST /nuryel/v1/mcp`: the `nuryel_*` tools behind the same bearer/DPoP credential, grants, write lock and refusals as the REST routes, so an agent gateway or remote orchestrator adds the state layer as an MCP tool target without a stdio process. Stateless JSON responses; a refusal is a tool error carrying the REST problem body. REST and MCP share one dispatcher (`src/serve/app.ts`), so the two transports cannot diverge.
@@ -10,6 +10,9 @@
 - Worktrees and branches sync across machines through the memory overlay you already have: each machine keeps one record, so two machines can never conflict over it. Records refresh on branch checkout, on `hunch worktree`, and whenever an agent reads the ledger; `hunch workspaces snapshot` records on demand. A machine is identified by a random id stored per user, never by its hostname or hardware, and the default `branches` publish mode shares branch verdicts without any local paths.
 - `hunch workspaces prune` prints the exact `git worktree remove` / `git branch -d` commands per machine for branches provably merged with a clean, unlocked worktree, and names every merged branch it leaves alone and why. `--apply` runs only this machine's commands, only from a snapshot taken at that moment, without force flags and after confirmation; it never deletes a remote branch and never acts on another machine.
 - `hunch now` and `hunch doctor` report the ledger (machines, worktrees, deletable branches; this machine's label and whether its record is in memory), and `hunch init` scaffolds a `/worktrees` command.
+- Kubernetes manifests become a graph: a Deployment's ConfigMap/Secret/PVC references, a Service's label selector, Ingress and HTTPRoute backends and `ownerReferences` are indexed as `references` edges between the manifests, including Helm charts whose names go through a shared template helper, so blast radius and dependents answer "what breaks if I change this ConfigMap". Anything the scanner cannot account for emits no edge rather than a guess. Contributed by @MrSampson.
+- Constitution source mutation splices text by string index instead of UTF-8 bytes, so a mutation target after non-ASCII source is no longer corrupted; Helm extractor offsets are named `*Char` to say what they are. Contributed by @MrSampson.
+- The post-commit G2 shadow sweep skips retired policies instead of adding a new shadow receipt for them on every commit.
 
 ## 1.38.1 — 2026-09-16
 
