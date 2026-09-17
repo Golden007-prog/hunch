@@ -2,21 +2,21 @@
  * Workspace ledger wiring (docs/workspace-ledger.md, Phase 2): the ONE code path every
  * surface uses to read the ledger (CLI `workspaces` / `branches`, the `hunch_workspaces`
  * MCP tool, `hunch now`, `doctor`) and to record this machine's snapshot (CLI `snapshot`,
- * `hunch worktree`, the git hooks, MCP session start).
+ * `hunch worktree`, the git hooks, and the MCP server's session-start refresh).
  *
  * This machine is always read LIVE from git and never from a stored record; stored
  * records (other machines) are display-only. A snapshot writes through the same capture
  * funnel as every other record: the overlay when one is configured, the public .hunch/
  * only when `workspaces.publish_public` opts in, nothing otherwise.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { foreignRepoEnv, mainWorktreeRoot } from "../extractors/git.js";
 import { hunchPaths } from "../core/paths.js";
 import { readConfig, workspacesConfig, type WorkspacesConfig } from "../core/config.js";
 import { loadOrCreateMachine, type MachineIdentity } from "../core/machine.js";
 import {
-  ago, branchRows, isSafeBranchName, latestPerMachine, isUnverified, planPrune, sameWorkspaceContent, worktreeRows,
+  ago, branchRows, isSafeBranchName, latestPerMachine, isUnverified, planPrune, sameWorkspaceContent, withPublishMode, worktreeRows,
   type BranchRow, type PrunePlan, type PruneStep, type Workspace, type WorktreeRow,
 } from "../core/workspace.js";
 import { snapshotWorkspace } from "../extractors/workspaces.js";
@@ -54,11 +54,15 @@ export type SnapshotOutcome =
 /** Record this machine's snapshot. Honors `workspaces.publish`, skips a write when the
  *  content is unchanged and the stored record is under a day old (an idle machine's hooks
  *  must not commit a record per checkout), and reports exactly what happened. */
-export function recordWorkspaceSnapshot(store: HunchStore, root: string, opts: { fetch?: boolean; dryRun?: boolean } = {}): SnapshotOutcome {
+export function recordWorkspaceSnapshot(store: HunchStore, root: string, opts: { fetch?: boolean; dryRun?: boolean; live?: Workspace } = {}): SnapshotOutcome {
   const config = workspacesConfig(readConfig(hunchPaths(root)));
   if (config.publish === "off") return { status: "off" };
   const machine = loadOrCreateMachine();
-  const record = snapshotWorkspace(root, { machine, publish: config.publish, fetch: !!opts.fetch });
+  // A caller that already took a live snapshot (a ledger read) publishes THAT observation
+  // rather than paying for a second pass over git.
+  const record = opts.live && !opts.fetch
+    ? withPublishMode(opts.live, config.publish)
+    : snapshotWorkspace(root, { machine, publish: config.publish, fetch: !!opts.fetch });
   if (opts.dryRun) return { status: "dry-run", record };
   const isPrivate = store.hasPrivate;
   if (!isPrivate && !config.publish_public) return { status: "no-home", record };
@@ -77,30 +81,11 @@ export function recordWorkspaceSnapshot(store: HunchStore, root: string, opts: {
   return { status: "written", record, home: isPrivate ? "private" : "public", flushed };
 }
 
-/** Whether a snapshot could land anywhere on this root — used to skip spawning a
- *  background snapshot that would write nothing. */
+/** Whether a snapshot could land anywhere on this root — used to skip work that would
+ *  write nothing. */
 export function snapshotHasHome(store: HunchStore, root: string): boolean {
   const config = workspacesConfig(readConfig(hunchPaths(root)));
   return config.publish !== "off" && (store.hasPrivate || config.publish_public);
-}
-
-/** Fire-and-forget `hunch workspaces snapshot --quiet` with this installation's launcher
- *  (never a global binary), detached so a long-lived host such as the MCP server never
- *  blocks on git. HUNCH_SYNC=1 keeps any memory commit it makes from re-triggering hooks. */
-export function spawnWorkspaceSnapshot(root: string, launcherArgv: readonly string[]): boolean {
-  const [file, ...rest] = launcherArgv;
-  if (!file) return false;
-  try {
-    const child = spawn(file, [...rest, "workspaces", "snapshot", "--quiet"], {
-      cwd: root, detached: true, stdio: "ignore", windowsHide: true,
-      env: { ...process.env, HUNCH_SYNC: "1" },
-    });
-    child.once("error", () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // ---- rendering (shared by the CLI and the MCP tool) -----------------------------------------

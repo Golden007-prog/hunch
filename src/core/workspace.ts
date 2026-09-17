@@ -151,6 +151,18 @@ export function worktreeId(path: string): string {
   return "wt_" + shortHash(path, 8);
 }
 
+/** The same observation, published under `publish`: `branches` drops every worktree path
+ *  (the default), `full` keeps them. Pure, so a caller that already took a live snapshot
+ *  (paths included, for its own display) can publish it without re-running git. */
+export function withPublishMode(record: Workspace, publish: "full" | "branches"): Workspace {
+  if (record.publish === publish) return record;
+  return WorkspaceSchema.parse({
+    ...record,
+    publish,
+    worktrees: record.worktrees.map((w) => ({ ...w, path: publish === "full" ? w.path : null })),
+  });
+}
+
 /** True when two snapshots of the same machine describe the same workspace, ignoring the
  *  observation stamps — so an idle machine's hook does not commit a new record per
  *  checkout. Provenance is constant per build and is compared too. */

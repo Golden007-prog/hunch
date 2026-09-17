@@ -27,9 +27,12 @@ function block(invocation: string, opts: { private?: boolean; commit?: boolean; 
     // team policy, so only the explicit local-only mode forces deterministic.
     ...(opts.localOnly ? ["  export HUNCH_SYNTH_PROVIDER=deterministic"] : []),
     `  ( ${invocation} sync --from-hook --quiet${priv}${commit} >/dev/null 2>&1 || true ) &`,
-    // Workspace ledger (docs/workspace-ledger.md): refresh this machine's branch/worktree
-    // record. Constant argv, offline, backgrounded, no-op when nothing changed.
-    `  ( ${invocation} workspaces snapshot --quiet >/dev/null 2>&1 || true ) &`,
+    // Deliberately NO workspace-ledger snapshot here (docs/workspace-ledger.md): a commit
+    // changes HEAD, not which branches and worktrees exist — post-checkout covers that, and
+    // a ledger read publishes a fresh observation when someone actually asks. Snapshotting
+    // per commit would add git work (up to a patch-id walk) to the most frequent operation
+    // there is, and its backgrounded child outliving `git commit` is what held a Windows
+    // clone directory open and broke team-matrix-e2e's teardown with EBUSY.
     "fi",
     ENDMARK,
   ].join("\n");

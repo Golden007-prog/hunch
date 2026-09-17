@@ -1,7 +1,7 @@
 /**
  * Workspace ledger, Phase 2 (docs/workspace-ledger.md): the git hooks that keep a machine's
  * record fresh, the shared record/read path, the read-only `hunch_workspaces` MCP tool, the
- * MCP-start background refresh, the `/worktrees` scaffold, `hunch worktree`, and the
+ * ledger-read refresh, the `/worktrees` scaffold, `hunch worktree`, and the
  * `now` / `doctor` lines.
  */
 import { test } from "node:test";
@@ -17,7 +17,7 @@ import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { installPostCheckoutHook, installPostCommitHook, hookStatus } from "../src/integrations/hooks.js";
 import { writeSlashCommands } from "../src/integrations/scaffold.js";
-import { recordWorkspaceSnapshot, snapshotHasHome, spawnWorkspaceSnapshot, workspaceSummaryLine, workspaceLedgerView } from "../src/integrations/workspaceLedger.js";
+import { recordWorkspaceSnapshot, snapshotHasHome, workspaceSummaryLine, workspaceLedgerView } from "../src/integrations/workspaceLedger.js";
 import { WorkspaceSchema, workspaceId, type Workspace } from "../src/core/workspace.js";
 
 const PROJECT_ROOT = process.cwd();
@@ -91,7 +91,7 @@ function otherRecord(observed: string, branches: Array<{ name: string; merged?: 
 
 // ---- hooks --------------------------------------------------------------------------------
 
-test("post-checkout hook: constant argv, HUNCH_SYNC-guarded, branch checkouts only ($3 = 1), backgrounded, idempotent; post-commit gains the snapshot line", () => {
+test("post-checkout hook: constant argv, HUNCH_SYNC-guarded, branch checkouts only ($3 = 1), backgrounded, idempotent; post-commit stays out of it", () => {
   const r = mkdtempSync(join(tmpdir(), "hunch-ledger-hook-"));
   try {
     g(r, "init", "-q");
@@ -112,11 +112,13 @@ test("post-checkout hook: constant argv, HUNCH_SYNC-guarded, branch checkouts on
     assert.equal(installPostCheckoutHook(r, "hunch").action, "appended");
     assert.match(readFileSync(join(r, ".git", "hooks", "post-checkout"), "utf8"), /^#!\/bin\/sh\necho user-hook\n# >>> hunch post-checkout/);
 
+    // post-commit deliberately does NOT snapshot: a commit changes HEAD, not which branches
+    // and worktrees exist, and a background child outliving `git commit` is what held a
+    // Windows clone open and broke an unrelated test's teardown (EBUSY).
     installPostCommitHook(r, "hunch");
     const commit = readFileSync(join(r, ".git", "hooks", "post-commit"), "utf8");
     assert.match(commit, /hunch sync --from-hook --quiet >/);
-    assert.match(commit, /\( hunch workspaces snapshot --quiet >\/dev\/null 2>&1 \|\| true \) &/);
-    assert.ok(commit.indexOf("sync --from-hook") < commit.indexOf("workspaces snapshot"), "snapshot runs after the capture, inside the same HUNCH_SYNC guard");
+    assert.doesNotMatch(commit, /workspaces snapshot/);
   } finally { rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -263,31 +265,61 @@ test("hunch_workspaces is a read-only everyday tool: this machine live, other ma
   assert.match(now.content[0]!.text, /🗂 Workspaces in memory: 2 machine\(s\)/);
 });
 
-test("MCP session start refreshes this machine's record only through the real entrypoint's timer, never for an in-process server", async (t) => {
+test("a hunch_workspaces call publishes this machine's record (no timer, no child process); a server nobody asks never writes", async (t) => {
   const { repo, overlayRoot, env, cleanup } = fixture();
   const restore = setEnv({ ...env, HUNCH_PRIVATE_DIR: undefined });
   t.after(() => { restore(); cleanup(); });
   const file = join(overlayRoot, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`);
 
-  // In-process (what tests and embedders build): nothing is spawned, whatever the config.
-  const plain = buildServerWithRootControl(repo);
-  await plain.server.close().catch(() => {});
+  // Merely building and closing a server writes nothing: no session-start timer exists, so a
+  // long-running MCP session in an unrelated test can never have its overlay written under it
+  // (and no detached child can outlive it and hold the clone directory open — the Windows
+  // EBUSY that broke team-matrix-e2e's teardown).
+  const idle = buildServerWithRootControl(repo);
+  await new Promise((r) => setTimeout(r, 500));
+  await idle.server.close().catch(() => {});
   assert.equal(existsSync(file), false);
+  assert.equal(g(overlayRoot, "log", "-1", "--format=%s"), "overlay", "no commit from an unused session");
 
-  // A launcher stand-in records what it was asked to run; the refresh must call it with a
-  // constant argv and nothing from the repository.
-  const base = join(repo, "..");
-  const marker = join(base, "launched.json");
-  const fake = join(base, "fake-launcher.mjs");
-  writeFileSync(fake, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), sync: process.env.HUNCH_SYNC ?? null }));\n`);
-  assert.equal(spawnWorkspaceSnapshot(repo, [process.execPath, fake]), true);
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && !existsSync(marker)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-  const launched = JSON.parse(readFileSync(marker, "utf8")) as { argv: string[]; cwd: string; sync: string | null };
-  assert.deepEqual(launched.argv, ["workspaces", "snapshot", "--quiet"]);
-  assert.equal(launched.cwd, repo);
-  assert.equal(launched.sync, "1", "a memory commit it makes never re-triggers the hooks");
-  assert.equal(spawnWorkspaceSnapshot(repo, []), false);
+  const server = buildServer(repo);
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "ledger-refresh", version: "1" });
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  try {
+    const res = await client.callTool({ name: "hunch_workspaces", arguments: {} }) as { structuredContent: { worktrees: Array<{ path: string | null }> } };
+    assert.ok(res.structuredContent.worktrees.some((w) => w.path === repo), "the READ still shows this machine's real path");
+    assert.ok(existsSync(file), "the call published this machine's record");
+    const record = WorkspaceSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    assert.equal(record.machine.label, "test-box");
+    assert.equal(record.publish, "branches");
+    assert.ok(record.worktrees.every((w) => w.path === null), "published under the configured publish mode, not the read's full paths");
+    assert.match(g(overlayRoot, "log", "-1", "--format=%s"), /workspace snapshot test-box/, "committed through the ordinary capture funnel");
+
+    // A second call is a no-op: unchanged content never commits again.
+    await client.callTool({ name: "hunch_workspaces", arguments: { view: "branches" } });
+    assert.equal(g(overlayRoot, "rev-list", "--count", "HEAD"), "2");
+  } finally {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("HUNCH_WORKSPACE_REFRESH=0 makes a hunch_workspaces call read-only", async (t) => {
+  const { repo, overlayRoot, env, cleanup } = fixture();
+  const restore = setEnv({ ...env, HUNCH_PRIVATE_DIR: undefined, HUNCH_WORKSPACE_REFRESH: "0" });
+  t.after(() => { restore(); cleanup(); });
+  const server = buildServer(repo);
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "ledger-optout", version: "1" });
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  try {
+    const res = await client.callTool({ name: "hunch_workspaces", arguments: {} }) as { structuredContent: { worktrees: unknown[] } };
+    assert.ok(res.structuredContent.worktrees.length >= 1, "the read still works");
+    assert.equal(existsSync(join(overlayRoot, ".hunch", "workspaces", `${workspaceId(MACHINE.id)}.json`)), false);
+  } finally {
+    await client.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
 });
 
 // ---- scaffold, worktree, doctor, now ------------------------------------------------------

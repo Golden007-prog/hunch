@@ -27,9 +27,8 @@ import { decisionId, findingId } from "../core/ids.js";
 import { buildCorrectionConstraint } from "../core/correction.js";
 import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
-import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, spawnWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
+import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, recordWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
 import { workspacesConfig } from "../core/config.js";
-import { verificationLauncherFor } from "./taskReportTools.js";
 import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, workingFiles, workingDiff, pullHunchStatus, sameRemoteUrl, currentBranch, type HunchPullStatus } from "../extractors/git.js";
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { withWriteLock } from "../serve/writelock.js";
@@ -647,10 +646,6 @@ export type RootControlledServer = {
 export interface RootControlOptions {
   /** Serve exactly `initialRoot`; never re-home to client roots or `cwd` hints. */
   pinned?: boolean;
-  /** Refresh this machine's workspace-ledger record in a detached child at session start
-   *  (docs/workspace-ledger.md). Only the real `hunch mcp` entrypoint turns this on; an
-   *  in-process server built by a test or an embedder never spawns anything. */
-  workspaceRefresh?: boolean;
 }
 
 /** Delivered to every MCP client at initialize — the one grounding channel that
@@ -734,19 +729,6 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   let pendingRoot: string | null = null;
   let pendingScheduled = false;
   let closed = false;
-  // Workspace ledger (docs/workspace-ledger.md): a machine that only ever runs an agent
-  // still reports its branches and worktrees. Fires on an unref'd timer after a delay —
-  // i.e. for a session that is actually in use — as a detached, offline child that no-ops
-  // when nothing changed. Only the stdio entrypoint enables it (options.workspaceRefresh);
-  // an in-process server built by a test or an embedder never spawns anything.
-  if (options.workspaceRefresh) {
-    const delay = Math.max(0, Number(process.env.HUNCH_WORKSPACE_REFRESH_DELAY_MS ?? 30_000) || 0);
-    setTimeout(() => {
-      if (closed || !snapshotHasHome(store, root)) return;
-      try { spawnWorkspaceSnapshot(root, verificationLauncherFor(import.meta.url, (spec) => import.meta.resolve(spec)).argv); } catch { /* best effort */ }
-    }, delay).unref();
-  }
-
   const activateRoot = (next: string): void => {
     // canonicalRootPath: a case/8.3 spelling difference must not read as a
     // DIFFERENT repo — that closed the live store and re-prepared everything
@@ -1482,6 +1464,16 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ view, machine, branch, merged_only }): Promise<ToolResult> => {
       const ledger = workspaceLedgerView(store, root);
+      // Publish the observation this read just took, so the machines that ask about the
+      // ledger are also the machines visible IN it — the one moment the data provably
+      // matters, with no timer and no child process (a detached snapshot child held a
+      // Windows clone directory open and broke an unrelated test's teardown). The git
+      // hooks remain the normal path; this covers a host that has none yet. Best effort:
+      // the read never fails because memory could not be written.
+      // HUNCH_WORKSPACE_REFRESH=0 opts out entirely.
+      if (process.env.HUNCH_WORKSPACE_REFRESH !== "0" && snapshotHasHome(store, root)) {
+        try { recordWorkspaceSnapshot(store, root, { live: ledger.live }); } catch { /* the ledger is a side effect of the read, never its blocker */ }
+      }
       const opts = { staleAfterDays: ledger.config.stale_after_days };
       if (view === "branches") {
         let rows = branchRows(ledger.records, opts);
@@ -3006,10 +2998,7 @@ export function wireClientRoots(control: RootControlledServer, fallback: string)
 /** Start the stdio server (called by `hunch mcp`). */
 export async function startServer(cwd: string = process.cwd(), options: RootControlOptions = {}): Promise<void> {
   const fallback = options.pinned ? cwd : findRoot(cwd);
-  // The real stdio entrypoint refreshes the workspace ledger at session start; a git hook
-  // that happens to start a server (HUNCH_SYNC) and HUNCH_WORKSPACE_REFRESH=0 opt out.
-  const workspaceRefresh = options.workspaceRefresh ?? (!process.env.HUNCH_SYNC && process.env.HUNCH_WORKSPACE_REFRESH !== "0");
-  const control = buildServerWithRootControl(fallback, { ...options, workspaceRefresh });
+  const control = buildServerWithRootControl(fallback, options);
   wireClientRoots(control, fallback);
   const transport = new StdioServerTransport();
   await control.server.connect(transport);
