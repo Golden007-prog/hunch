@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `hunch branches` answers "what can I delete?" deterministically: every local branch with the machines that hold it, its upstream state, and a merged verdict that distinguishes a merge commit (`ancestry`) from a squash or a rebase (patch-id equivalence against the default branch), plus the pull request its local merge commit names. A verdict git could not establish reads `unknown` and never `no`, so a branch is never proposed for deletion on a failed check.
+- `hunch workspaces` shows which worktrees are open on which machine — this machine read live from git, other machines from memory with the age of their last report — so the question no longer costs an agent a round of `git worktree list`, `git branch -vv` and `git log` on every machine. `hunch_workspaces` gives an assistant the same rows read-only.
+- Worktrees and branches sync across machines through the memory overlay you already have: each machine keeps one record, so two machines can never conflict over it. Records refresh on branch checkout, on `hunch worktree`, and whenever an agent reads the ledger; `hunch workspaces snapshot` records on demand. A machine is identified by a random id stored per user, never by its hostname or hardware, and the default `branches` publish mode shares branch verdicts without any local paths.
+- `hunch workspaces prune` prints the exact `git worktree remove` / `git branch -d` commands per machine for branches provably merged with a clean, unlocked worktree, and names every merged branch it leaves alone and why. `--apply` runs only this machine's commands, only from a snapshot taken at that moment, without force flags and after confirmation; it never deletes a remote branch and never acts on another machine.
+- `hunch now` and `hunch doctor` report the ledger (machines, worktrees, deletable branches; this machine's label and whether its record is in memory), and `hunch init` scaffolds a `/worktrees` command.
+
 ## 1.38.1 — 2026-09-16
 
 - A prompt that ends without a Stop (the user interrupted it) no longer leaves its task open forever: the next prompt of the session, or its Stop, closes it as a host close and its evidence reaches the episode record (#263). A task still open counts as the session's current work whatever its age, so the next prompt continues it.
