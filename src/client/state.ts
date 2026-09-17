@@ -83,3 +83,5 @@ export function createStateClient(opts: StateClientOptions) {
   };
 }
 export type StateClient = ReturnType<typeof createStateClient>;
+
+export { readOrCompute, type ReadOrComputeClient, type ReadOrComputeRequest, type ReadOrComputeResult, type ComputedContent } from "./readOrCompute.js";
