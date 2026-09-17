@@ -237,6 +237,7 @@ export interface G2ShadowSweepReport {
   recorded: string[];
   existing: string[];
   failures: Array<{ policy_id: string; error: string }>;
+  retired: string[];
   skipped_reason: string | null;
   authority: "none";
   effects: "shadow_only";
