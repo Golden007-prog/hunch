@@ -87,7 +87,10 @@ import { deriveChangeProof } from "../core/changeProof.js";
 import { discoverProjectDna, evaluateProjectDnaMatch, type ProjectDnaArtifact } from "../core/projectDna.js";
 import { diffProjectDna } from "../core/projectDnaDelta.js";
 import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
-import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness } from "../core/config.js";
+import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness, workspacesConfig, type WorkspacesConfig } from "../core/config.js";
+import { loadOrCreateMachine, setMachineLabel, machineFile, labelLeaksIdentity, type MachineIdentity } from "../core/machine.js";
+import { worktreeRows, branchRows, ago, sameWorkspaceContent, type Workspace, type BranchRow } from "../core/workspace.js";
+import { snapshotWorkspace } from "../extractors/workspaces.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
@@ -1426,6 +1429,178 @@ program
       `  hooks + MCP server are shared (worktree-aware) — open your assistant in the new worktree to start.\n` +
       `  (needs \`hunch\` installed globally; a worktree has no node_modules of its own)`,
     );
+  });
+
+// ---- workspaces / branches (workspace ledger — docs/workspace-ledger.md) ---------------
+// This machine is always read LIVE from git (never from a stored record); other machines
+// come from the store. Stored records are display-only: nothing here executes a path or
+// a branch name that came out of a record.
+function padTable(header: string[], rows: string[][]): string {
+  const all = [header, ...rows];
+  const widths = header.map((_, i) => Math.max(...all.map((r) => (r[i] ?? "").length)));
+  return all.map((r) => r.map((c, i) => (i === r.length - 1 ? c ?? "" : (c ?? "").padEnd(widths[i]!))).join("  ").trimEnd()).join("\n");
+}
+
+function workspaceView(root: string, store: HunchStore, opts: { fetch?: boolean } = {}): {
+  machine: MachineIdentity; live: Workspace; records: Workspace[]; config: WorkspacesConfig;
+} {
+  const machine = loadOrCreateMachine();
+  const config = workspacesConfig(readConfig(hunchPaths(root)));
+  const live = snapshotWorkspace(root, { machine, publish: "full", fetch: !!opts.fetch });
+  const others = store.recs("workspaces").filter((r) => r.machine.id !== machine.id);
+  return { machine, live, records: [live, ...others], config };
+}
+
+const workspacesCmd = program
+  .command("workspaces")
+  .description("Workspace ledger: which worktrees are open on which machine (this machine live, other machines from memory). Read-only unless you run `snapshot`.");
+
+workspacesCmd
+  .command("list", { isDefault: true })
+  .description("Every worktree across machines: branch, dirty, last commit, when the machine last reported.")
+  .option("--machine <label>", "only this machine")
+  .option("--branch <name>", "only worktrees on this branch")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--json", "emit the rows as JSON")
+  .action((opts: { machine?: string; branch?: string; fetch?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch workspaces` needs a git repo");
+      const view = workspaceView(root, store, { fetch: opts.fetch });
+      let rows = worktreeRows(view.records, { staleAfterDays: view.config.stale_after_days });
+      if (opts.machine) rows = rows.filter((r) => r.machine === opts.machine);
+      if (opts.branch) rows = rows.filter((r) => r.branch === opts.branch);
+      if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, worktrees: rows }, null, 2));
+      const now = new Date();
+      console.log(padTable(["MACHINE", "WORKTREE", "BRANCH", "DIRTY", "LAST COMMIT", "SEEN"], rows.map((r) => [
+        r.machine + (r.machine === view.machine.label ? " (this)" : ""),
+        r.path ?? "yes",
+        r.branch ?? `(detached ${r.head.slice(0, 10)})`,
+        r.dirty === null ? "?" : r.dirty ? "yes" : "-",
+        r.last_commit_at ? ago(r.last_commit_at, now) : "-",
+        (r.machine === view.machine.label ? "live" : ago(r.seen_at, now)) + (r.unverified ? " (unverified)" : "") + (r.prunable ? " (path missing)" : "") + (r.locked ? " (locked)" : ""),
+      ])));
+      const remembered = view.records.length - 1;
+      console.log(`\n${rows.length} worktree(s) · this machine is ${view.machine.label} · ${remembered} other machine(s) in memory`);
+    } finally {
+      store.close();
+    }
+  });
+
+workspacesCmd
+  .command("snapshot")
+  .description("Record this machine's worktrees and branches into memory (the overlay when one is configured). Offline unless --fetch.")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--dry-run", "print the record that WOULD be written and write nothing")
+  .option("--json", "print the record as JSON")
+  .option("--quiet", "no output on success (for hooks)")
+  .action((opts: { fetch?: boolean; dryRun?: boolean; json?: boolean; quiet?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch workspaces snapshot` needs a git repo");
+      const machine = loadOrCreateMachine();
+      const config = workspacesConfig(readConfig(hunchPaths(root)));
+      if (config.publish === "off") {
+        if (!opts.quiet) console.log("workspaces.publish is \"off\" in .hunch/config.json — nothing recorded.");
+        return;
+      }
+      const record = snapshotWorkspace(root, { machine, publish: config.publish, fetch: !!opts.fetch });
+      if (opts.dryRun || opts.json) console.log(JSON.stringify(record, null, 2));
+      if (opts.dryRun) return;
+      const isPrivate = store.hasPrivate;
+      if (!isPrivate && !config.publish_public) {
+        if (!opts.quiet) {
+          console.log(`No memory overlay is configured, so this machine's record is not written (queries read this machine live).`);
+          console.log(`  · run \`hunch private\` or \`hunch shared --repo <url>\` to sync workspaces across machines`);
+          console.log(`  · or set .hunch/config.json {"workspaces":{"publish_public":true}} to commit it into this repo's .hunch/`);
+        }
+        return;
+      }
+      const previous = store.getRec("workspaces", record.id);
+      const fresh = previous && Date.now() - Date.parse(previous.observed_at) < 86_400_000;
+      if (previous && fresh && sameWorkspaceContent(previous, record)) {
+        if (!opts.quiet) console.log(`✓ unchanged since ${previous.observed_at} (${record.id}) — nothing written`);
+        return;
+      }
+      store.putCapture("workspaces", record, isPrivate);
+      const flushed = flushCapture(store, hunchPaths(root).hunch, isPrivate, `hunch: workspace snapshot ${machine.label}`);
+      if (!opts.quiet) {
+        console.log(`✓ recorded ${record.worktrees.length} worktree(s), ${record.branches.length} branch(es) as ${machine.label} (${record.id}, publish=${record.publish}) → ${isPrivate ? "overlay" : "public .hunch/"}${flushed ? `, ${flushed}` : ""}`);
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+workspacesCmd
+  .command("label [label]")
+  .description("Show or set this machine's label (what other machines see). Defaults to machine-<id>; never the hostname.")
+  .action((label?: string) => {
+    const identity = label ? setMachineLabel(label) : loadOrCreateMachine();
+    console.log(`${identity.label}  (${identity.id}, ${machineFile()})`);
+    const leak = labelLeaksIdentity(identity.label);
+    if (leak) console.log(`  ⚠ the label equals this machine's ${leak}; in a shared store every teammate sees it`);
+  });
+
+workspacesCmd
+  .command("forget <machine>")
+  .description("Remove a machine's stored workspace record (by label or id) — e.g. a retired laptop. A memory move like any other: revertable via `hunch log`.")
+  .action((machine: string) => {
+    const { store, root } = storeFor();
+    try {
+      const victims = store.recs("workspaces").filter((r) => r.machine.label === machine || r.machine.id === machine || r.id === machine);
+      if (!victims.length) return fail(`no workspace record for "${machine}" — \`hunch workspaces\` lists the machines in memory`);
+      // Decide each record's home BEFORE deleting it, then flush exactly those homes.
+      const homes: MemoryHome[] = victims.map((v) => store.getPrivateRec("workspaces", v.id) ? "private" : "public");
+      for (const v of victims) store.deleteWhereItLives("workspaces", v.id);
+      pumpMemoryHomes(store, root, homes, `hunch: forget workspace ${machine}`);
+      console.log(`✓ forgot ${victims.length} record(s) for ${machine}`);
+    } finally {
+      store.close();
+    }
+  });
+
+program
+  .command("branches")
+  .description("Every local branch across machines with a deterministic verdict: merged (ancestry / squash / rebase), pushed, dirty worktree, and a recommended action. Read-only; never deletes anything.")
+  .option("--merged", "only branches proven merged")
+  .option("--unpushed", "only branches with no upstream")
+  .option("--stale <days>", "only branches whose last commit is older than N days")
+  .option("--machine <label>", "only branches present on this machine")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--json", "emit the rows as JSON")
+  .action((opts: { merged?: boolean; unpushed?: boolean; stale?: string; machine?: string; fetch?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch branches` needs a git repo");
+      const view = workspaceView(root, store, { fetch: opts.fetch });
+      const now = new Date();
+      let rows = branchRows(view.records, { staleAfterDays: view.config.stale_after_days, now });
+      if (opts.merged) rows = rows.filter((r) => r.merged.status === "merged");
+      if (opts.unpushed) rows = rows.filter((r) => r.upstream === null);
+      if (opts.machine) rows = rows.filter((r) => r.machines.includes(opts.machine!));
+      if (opts.stale) {
+        const days = Number(opts.stale);
+        if (!Number.isFinite(days) || days < 0) return fail("--stale takes a number of days");
+        rows = rows.filter((r) => !r.last_commit_at || now.getTime() - Date.parse(r.last_commit_at) > days * 86_400_000);
+      }
+      if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, branches: rows }, null, 2));
+      const upstream = (r: BranchRow) => r.upstream === null ? "never pushed" : r.upstream_gone ? "gone"
+        : [r.ahead ? `ahead ${r.ahead}` : "", r.behind ? `behind ${r.behind}` : ""].filter(Boolean).join(", ") || "synced";
+      console.log(padTable(["BRANCH", "MACHINES", "WORKTREE", "UPSTREAM", "MERGED", "ACTION"], rows.map((r) => [
+        r.name,
+        r.machines.join(","),
+        r.worktree_on.length ? r.worktree_on.join(",") + (r.dirty_on.length ? " (dirty)" : "") : "-",
+        upstream(r),
+        r.merged.status === "merged" ? `yes (${r.merged.method})` : r.merged.status === "unmerged" ? "no" : "unknown",
+        r.action,
+      ])));
+      const deletable = rows.filter((r) => r.action.startsWith("delete local")).length;
+      console.log(`\n${rows.length} branch(es) · ${deletable} deletable · this machine is ${view.machine.label}`);
+      if (view.live.default_branch === null) console.log("  ⚠ no default branch resolved (origin/HEAD, origin/main|master, main|master) — merge verdicts are unknown");
+    } finally {
+      store.close();
+    }
   });
 
 // ---- query ----------------------------------------------------------------
