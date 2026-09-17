@@ -22,6 +22,10 @@ const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
 const g = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } }).trim();
 const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
+
+/** git reports worktree paths with forward slashes, including on Windows, so every path
+ *  comparison in this file is made on one normalized form rather than the native one. */
+const slash = (p: string): string => p.replace(/\\/g, "/");
 const commitFile = (repo: string, file: string, content: string, message: string): string => {
   writeFileSync(join(repo, file), content);
   g(repo, "add", "-A"); g(repo, "commit", "-q", "-m", message);
@@ -191,7 +195,7 @@ test("CLI prune: dry run prints per-machine commands and deletes nothing; --appl
     assert.match(dry.stdout, /This machine \(test-box\) — 2 branch\(es\) provably merged and safe to delete:/);
     assert.match(dry.stdout, /feat\/merged  — ancestry \(PR #5\)/);
     assert.match(dry.stdout, /git branch -d -- feat\/merged/);
-    assert.match(dry.stdout, new RegExp(`git worktree remove -- ${wtClean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n\\s+git branch -d -- feat/wt-clean`));
+    assert.match(slash(dry.stdout), new RegExp(`git worktree remove -- ${slash(wtClean).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n\\s+git branch -d -- feat/wt-clean`));
     assert.match(dry.stdout, /feat\/wt-dirty  — worktree has uncommitted or untracked changes/);
     assert.doesNotMatch(dry.stdout, /git branch -d -- feat\/open/, "the forged stored record for this machine is never read");
     assert.match(dry.stdout, /On other-box — run there.*never executed from here.*\n\s+git worktree remove -- <its worktree>\n\s+git branch -d -- fix\/theirs/);

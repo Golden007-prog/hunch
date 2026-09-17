@@ -27,6 +27,10 @@ const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
 const g = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } }).trim();
 const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
+
+/** git reports worktree paths with forward slashes, including on Windows, so every path
+ *  comparison in this file is made on one normalized form rather than the native one. */
+const slash = (p: string): string => p.replace(/\\/g, "/");
 const commitFile = (repo: string, file: string, content: string, message: string): string => {
   writeFileSync(join(repo, file), content);
   g(repo, "add", "-A"); g(repo, "commit", "-q", "-m", message);
@@ -246,7 +250,7 @@ test("hunch_workspaces is a read-only everyday tool: this machine live, other ma
   assert.equal(inventory.structuredContent.machine, "test-box");
   const mine = inventory.structuredContent.worktrees.find((w) => w.machine === "test-box")!;
   assert.equal(mine.branch, "main");
-  assert.equal(mine.path, repo, "this machine is live (its real path), not the forged stored record");
+  assert.equal(slash(mine.path!), slash(repo), "this machine is live (its real path), not the forged stored record");
   assert.ok(inventory.structuredContent.worktrees.some((w) => w.machine === "other-box" && w.path === null));
   assert.match(inventory.content[0]!.text, /test-box \(this\)/);
 
@@ -287,7 +291,7 @@ test("a hunch_workspaces call publishes this machine's record (no timer, no chil
   await Promise.all([server.connect(st), client.connect(ct)]);
   try {
     const res = await client.callTool({ name: "hunch_workspaces", arguments: {} }) as { structuredContent: { worktrees: Array<{ path: string | null }> } };
-    assert.ok(res.structuredContent.worktrees.some((w) => w.path === repo), "the READ still shows this machine's real path");
+    assert.ok(res.structuredContent.worktrees.some((w) => w.path && slash(w.path) === slash(repo)), "the READ still shows this machine's real path");
     assert.ok(existsSync(file), "the call published this machine's record");
     const record = WorkspaceSchema.parse(JSON.parse(readFileSync(file, "utf8")));
     assert.equal(record.machine.label, "test-box");

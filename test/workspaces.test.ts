@@ -28,6 +28,10 @@ const CLI = join(PROJECT_ROOT, "src/cli/index.ts");
 const g = (cwd: string, ...a: string[]): string =>
   execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } }).trim();
 const cfg = (repo: string): void => { g(repo, "config", "user.email", "t@example.com"); g(repo, "config", "user.name", "T"); };
+
+/** git reports worktree paths with forward slashes, including on Windows, so every path
+ *  comparison in this file is made on one normalized form rather than the native one. */
+const slash = (p: string): string => p.replace(/\\/g, "/");
 const commitFile = (repo: string, file: string, content: string, message: string): string => {
   writeFileSync(join(repo, file), content);
   g(repo, "add", "-A"); g(repo, "commit", "-q", "-m", message);
@@ -140,10 +144,10 @@ test("snapshot reports every worktree with dirty / detached / locked state and l
     const full = snapshotWorkspace(repo, { machine: MACHINE, publish: "full" });
     assert.equal(full.worktrees.length, 3);
     const main = full.worktrees.find((w) => w.is_main)!;
-    assert.equal(main.path, repo); assert.equal(main.branch, "main"); assert.equal(main.dirty, false);
+    assert.equal(slash(main.path!), slash(repo)); assert.equal(main.branch, "main"); assert.equal(main.dirty, false);
     const feat = full.worktrees.find((w) => w.branch === "feat/wt")!;
-    assert.equal(feat.path, wt); assert.equal(feat.dirty, true); assert.equal(feat.locked, false);
-    const det = full.worktrees.find((w) => w.path === detached)!;
+    assert.equal(slash(feat.path!), slash(wt)); assert.equal(feat.dirty, true); assert.equal(feat.locked, false);
+    const det = full.worktrees.find((w) => w.path && slash(w.path) === slash(detached))!;
     assert.equal(det.branch, null); assert.equal(det.locked, true); assert.equal(det.dirty, false);
     assert.equal(branch(full, "feat/wt").worktree, feat.id, "branch → worktree link by path-free id");
     assert.equal(branch(full, "main").worktree, main.id);
@@ -152,7 +156,8 @@ test("snapshot reports every worktree with dirty / detached / locked state and l
     assert.ok(branches.worktrees.every((w) => w.path === null), "branches mode carries no path");
     assert.deepEqual(branches.worktrees.map((w) => w.id).sort(), full.worktrees.map((w) => w.id).sort(), "ids are stable across modes");
     assert.equal(branch(branches, "feat/wt").worktree, feat.id);
-    assert.ok(!JSON.stringify(branches).includes(base), "nothing in a branches-mode record mentions a local path");
+    const json = JSON.stringify(branches);
+    assert.ok(!json.includes(slash(base)) && !json.includes(JSON.stringify(base).slice(1, -1)), "nothing in a branches-mode record mentions a local path");
   } finally { cleanup(); }
 });
 
@@ -286,7 +291,9 @@ test("a forged record on disk is skipped by the loader; valid siblings still loa
 test("machine identity is minted once, random, owner-only, and never the hostname; a broken file re-mints", () => {
   const home = mkdtempSync(join(tmpdir(), "hunch-ws-home-"));
   try {
-    const opts = { env: { XDG_CONFIG_HOME: join(home, "cfg") }, home, platform: "linux" as const };
+    // The XDG root here is a real path on the running platform, so `machineFile` must judge
+    // it as that platform does — `platform: "linux"` would call `C:\\…` relative on Windows.
+    const opts = { env: { XDG_CONFIG_HOME: join(home, "cfg") }, home, platform: process.platform };
     const file = machineFile(opts);
     assert.equal(file, join(home, "cfg", "hunch", "machine.json"));
     const a = loadOrCreateMachine(opts);
