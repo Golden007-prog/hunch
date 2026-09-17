@@ -131,10 +131,11 @@ import { loadGoldenSet, evaluateRetrieval, evaluateTraversalLift } from "../eval
 import { loadGuardCases, evalGuards, generateGuardCases } from "../eval/guards.js";
 import { DRIFT_KINDS, computeDrift } from "../core/drift.js";
 import { renderCompilerScorecard, scoreCompilerCaseBank } from "../constitution/scorecard.js";
-import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, type WikiPack } from "../wiki/wiki.js";
+import { generateWiki, wikiStatus, wikiPrompt, publicHome, privateHome, readWikiManifestAt, nowData, unconfirmedRoadmapMarker, type WikiPack } from "../wiki/wiki.js";
 import { adoptProsePrompt } from "../wiki/adopt.js";
 import { topicCollisions, isInForce, liveForTopic } from "../core/topics.js";
 import { ADR_DIR_CANDIDATES, ADR_FILE_RE, mapAdrCorpus } from "../extractors/adrImport.js";
+import { countersignConstraint, countersignDecision } from "../core/countersign.js";
 import { applyImportedAdrReview, carryImportedAdrReview, importedAdrReviewHash, importedAdrSourceHash, isImportedAdrDecision, pendingImportedAdrReviews } from "../core/importReview.js";
 import { exportMadrCorpus, isRegenerableMadr } from "../integrations/madrExport.js";
 import { buildMadrManifest, writeMadrManifest, refreshMadrCorpus } from "../integrations/madrManifest.js";
@@ -4767,7 +4768,9 @@ program
             for (const r of recent) L.push(`  ${r.date} [${r.status}] ${r.title} (${r.id})`);
           }
           if (roadmap.length) {
-            L.push(`Roadmap (${roadmap.length} live proposed): ${roadmap.slice(0, 3).map((r) => r.title).join(" · ")}${roadmap.length > 3 ? " · …" : ""}`);
+            L.push(`Roadmap (${roadmap.length} live proposed): ${roadmap.slice(0, 3).map((r) => (r.unconfirmed ? `${r.title} [unconfirmed, ${r.id}]` : r.title)).join(" · ")}${roadmap.length > 3 ? " · …" : ""}`);
+            const unconfirmed = roadmap.filter((r) => r.unconfirmed).length;
+            if (unconfirmed) L.push(`${unconfirmed} roadmap item(s) are unconfirmed agent testimony — the human confirms each with \`hunch review --confirm <id>${s.unified ? " --private" : ""}\`.`);
           }
           if (pendingReview > 0) L.push(`${pendingReview} legacy un-vouched draft(s) — adopt as advisory memory with \`hunch adopt-drafts\` (new captures auto-trust).`);
           if (actionableEsc.length) {
@@ -5070,6 +5073,8 @@ program
   .description("Answer hash-bound imported-ADR questions, or triage deliberate proposed drafts.")
   .option("--accept <id>", "promote a decision to accepted/human-confirmed (confirms its tripwires)")
   .option("--reject <id>", "reject a draft decision with a durable lifecycle tombstone")
+  .option("--confirm <id>", "countersign an agent-recorded decision (dec_…) or correction (con_…) as human-confirmed WITHOUT changing its status or content — the human act a capture token alone cannot stand in for")
+  .option("--severity <s>", "with --confirm on a correction: the severity you grant (advisory | warning | blocking); default keeps its current severity")
   .option("--approve-import <id>", "approve one exact imported ADR as human-confirmed authority")
   .option("--decline-import <id>", "record that one exact imported ADR was reviewed and must stay advisory")
   .option("--expected-source-hash <hash>", "exact sha256 source hash printed with the imported-ADR question")
@@ -5079,12 +5084,13 @@ program
   .option("--reject-duplicates", "batch-reject drafts that near-duplicate an accepted record (deterministic term+file similarity — hygiene, not judgment)")
   .option("--min-grounded <n>", "grounded-ness threshold for the ready group / --accept-verified", String(READY_MIN_GROUNDED))
   .option("--private", "include local private/shared-overlay drafts; terminal output may contain private memory")
-  .action((opts: { accept?: string; reject?: string; approveImport?: string; declineImport?: string; expectedSourceHash?: string; expectedReviewHash?: string; reviewedBy?: string; acceptVerified?: boolean; rejectDuplicates?: boolean; minGrounded?: string; private?: boolean }) => {
+  .action((opts: { accept?: string; reject?: string; confirm?: string; severity?: string; approveImport?: string; declineImport?: string; expectedSourceHash?: string; expectedReviewHash?: string; reviewedBy?: string; acceptVerified?: boolean; rejectDuplicates?: boolean; minGrounded?: string; private?: boolean }) => {
     const { store, root } = storeFor();
     const minGrounded = Number.isFinite(Number(opts.minGrounded)) ? Number(opts.minGrounded) : READY_MIN_GROUNDED;
     if (opts.private && !store.hasPrivate) { store.close(); return fail("--private needs HUNCH_PRIVATE_DIR set to a private store"); }
-    const actionCount = [opts.accept, opts.reject, opts.approveImport, opts.declineImport, opts.acceptVerified, opts.rejectDuplicates].filter(Boolean).length;
+    const actionCount = [opts.accept, opts.reject, opts.confirm, opts.approveImport, opts.declineImport, opts.acceptVerified, opts.rejectDuplicates].filter(Boolean).length;
     if (actionCount > 1) { store.close(); return fail("choose exactly one review action at a time"); }
+    if (opts.severity && !opts.confirm) { store.close(); return fail("--severity applies only with --confirm on a correction"); }
     const decisions = () => opts.private ? store.recs("decisions") : store.json.loadAll("decisions");
     let publicGroundingChanged = false;
     const touchedHomes = new Set<MemoryHome>();
@@ -5117,6 +5123,40 @@ program
       } catch (error) {
         store.close();
         return fail(error instanceof Error ? error.message : String(error));
+      }
+    } else if (opts.confirm) {
+      // Human countersign of agent testimony. A capture token proves only that the
+      // interview tool was called (inside the agent's channel), so agent-written records
+      // land as agent_recorded; this is the out-of-channel human act that signs them.
+      // Content and status are untouched: confirming a proposed decision is not shipping it.
+      const id = opts.confirm;
+      const SEV = ["advisory", "warning", "blocking"] as const;
+      if (opts.severity && !(SEV as readonly string[]).includes(opts.severity)) { store.close(); return fail(`--severity must be one of: ${SEV.join(", ")}`); }
+      const now = new Date().toISOString();
+      const d = opts.private ? store.getRec("decisions", id) : store.json.get("decisions", id);
+      const c = d ? undefined : opts.private ? store.getRec("constraints", id) : store.json.get("constraints", id);
+      if (!d && !c) { store.close(); return fail(`no decision or constraint ${id} found${opts.private ? "" : " in the public home (add --private for overlay records)"}`); }
+      let home: MemoryHome;
+      if (d) {
+        if (opts.severity) { store.close(); return fail("--severity applies only when confirming a correction (con_…), not a decision"); }
+        if (isImportedAdrDecision(d)) { store.close(); return fail(`imported ADR ${d.id} requires the hash-bound --approve-import flow shown by hunch review`); }
+        home = opts.private ? decisionMemoryHome(store, d.id) : "public";
+        putDecisionInHome(store, countersignDecision(d, now), home);
+        console.log(`✓ confirmed decision ${id} as human_confirmed (status ${d.status} unchanged)`);
+      } else {
+        home = opts.private && store.getPrivateRec("constraints", id) ? "private" : "public";
+        const next = countersignConstraint(c!, now, opts.severity as (typeof SEV)[number] | undefined);
+        if (home === "private") store.putPrivate("constraints", next);
+        else store.json.put("constraints", next);
+        const repoWide = next.scope.length === 1 && next.scope[0] === "**";
+        console.log(`✓ confirmed ${next.severity} constraint ${id} as human_confirmed (scope: ${next.scope.join(", ")})`);
+        if (next.severity === "blocking" && repoWide) console.log("  ⚠ repo-wide blocking rule: it can deny any edit at strict firmness and fail hunch check --strict.");
+      }
+      touchedHomes.add(home);
+      store.reindex();
+      if (home === "public") {
+        publicGroundingChanged = true;
+        if (!store.autoCommit) refreshExistingGrounding(root, store);
       }
     } else if (opts.accept) {
       const d = opts.private ? store.getRec("decisions", opts.accept) : store.json.get("decisions", opts.accept);
@@ -5219,7 +5259,7 @@ program
           }
           if (dupCount) console.log(`\n   Batch-reject the ${dupCount} duplicate(s): hunch review --reject-duplicates`);
         }
-        console.log(`\nAccept: hunch review --accept <id>   Reject: hunch review --reject <id>`);
+        console.log(`\nAccept: hunch review --accept <id>   Reject: hunch review --reject <id>   Confirm (sign, keep status): hunch review --confirm <id>`);
       }
     }
     if (touchedHomes.size) pumpMemoryHomes(store, root, touchedHomes, "hunch: review decision lifecycle");
@@ -6342,7 +6382,7 @@ program
       for (const r of recent) console.log(`  ${r.date}  [${r.status}] ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""})`);
       console.log(`\n🗺 Roadmap — live proposed decisions (${roadmap.length}):`);
       if (!roadmap.length) console.log("  (empty — record what's next as a PROPOSED decision via /capture and it appears here)");
-      for (const r of roadmap) console.log(`  • ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})\n      ${r.note}`);
+      for (const r of roadmap) console.log(`  • ${r.title}  (${r.id}${r.topic ? `, ${r.topic}` : ""}, since ${r.date})${r.unconfirmed ? `\n      ${unconfirmedRoadmapMarker(r, { private: !!opts.private })}` : ""}\n      ${r.note}`);
       if (pendingReview > 0) console.log(`\n  (${pendingReview} legacy un-vouched draft(s) — \`hunch adopt-drafts\` to auto-trust them as advisory)`);
       // Task-record ranking: evaluated automatically on every task write; the kill rule applies itself.
       try { console.log(`\n📊 ${rankingStatusLine(resolveTaskRankingMode(store.publicRoot, store))}`); } catch { /* no task records or no cache dir: nothing to say */ }

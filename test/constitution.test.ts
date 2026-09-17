@@ -4419,7 +4419,8 @@ test("MD-1a capture survives a dirty baseline and ordinary index retries it afte
     client = new Client({ name: "automatic-correction-upgrade-test", version: "1.0.0" });
     await client.connect(transport);
 
-    // Countersigned on purpose. This correction is later upgraded into a Constitution
+    // Countersigned on purpose (interview, then the human runs `hunch review --confirm`
+    // outside the agent channel — MCP alone never grants a correction authority). This correction is later upgraded into a Constitution
     // policy candidate ("correction reviews: 1 proved" below), and candidate eligibility
     // has always required human_confirmed provenance (bootstrap.ts) — testimony must not
     // become policy evidence. Since the authorship stamp, an un-token'd correction lands
@@ -4442,7 +4443,7 @@ test("MD-1a capture survives a dirty baseline and ordinary index retries it afte
       },
     });
     const captureText = (capture.content[0] as { type: "text"; text: string }).text;
-    assert.match(captureText, /Recorded blocking constraint con_/);
+    assert.match(captureText, /Recorded warning constraint con_/);
     assert.match(captureText, /REVIEW PENDING/);
     assert.match(captureText, /After the fix is committed, run hunch index/i);
     assert.match(captureText, /post-commit hook retries this automatically/i);
@@ -4453,6 +4454,8 @@ test("MD-1a capture survives a dirty baseline and ordinary index retries it afte
     assert.ok(correctionId);
     await client.close();
     client = null;
+    const confirmRun = spawnSync(process.execPath, [tsx, cli, "review", "--confirm", correctionId!, "--severity", "blocking"], { cwd: fixture.root, env, encoding: "utf8" });
+    assert.equal(confirmRun.status, 0, `${confirmRun.stdout}${confirmRun.stderr}`);
 
     const pendingStore = new HunchStore(hunchPaths(fixture.root));
     assert.equal(new ConstitutionService(pendingStore, fixture.root).list({ publicOnly: true }).length, 0,
