@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.39.2 — 2026-09-17
+
+- State writes stay inside their partition. In a store shared by several partitions, a statement in one partition no longer blocks or supersedes another partition's current statement; a supersede target or record id that belongs to another partition is refused; decisions, constraints, bugs and findings are accepted only for the repository partition; and derived reads no longer name unrelated partitions in `denied_scopes` (#324).
+- Capture tokens no longer grant human authority on their own. A decision recorded through MCP becomes human-confirmed only when the human accepts the client's confirmation prompt (where the client supports it) or runs `hunch review --confirm <id>`. A correction recorded through MCP stays agent testimony, capped below blocking, until a human runs `hunch review --confirm <id> --severity blocking`. Unconfirmed proposed decisions stay on the `hunch now` roadmap, marked with their confirm command (#325).
+- `hunch serve` keeps lock paths, process ids, host names and internal error messages out of 5xx responses (they go to the server log), and an unauthenticated `/nuryel/v1/health` returns liveness and version only; served partition names need a credential (#326).
+- Codex: a plain-text tool response with no exit status is recorded as unknown instead of success, so a failing command can no longer satisfy a required check (#326).
+- Windows: arguments passed to `.cmd` and `.bat` launchers keep `%`, quotes and backslashes literal, and an argument containing a line break is refused (#326).
 ## 1.39.1 — 2026-09-17
 
 - `hunch check`, the CI Constraint Guard, merge verdicts, veto and impact evaluate the complete diff instead of the first 60 KB, and fail closed when a diff cannot be read: an in-scope blocking content rule is reported as not evaluated and counts toward `--strict`. Files with non-ASCII or quoted names are content-checked, and sources under `build/`, `vendor/` or `out/` folders are no longer skipped. Only synthesis prompts keep the 60 KB cap.
