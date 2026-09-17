@@ -65,7 +65,7 @@ import { installPostCommitHook, installPreCommitHook, installPostMergeHook, inst
 import { ensureSharedOverlayPointer } from "../integrations/worktree.js";
 import { flushCapture, flushMemoryHome, flushMemoryHomes, pinSharedRemote, sharedRemoteFor, type MemoryHome } from "../integrations/sync.js";
 import { installMergeDriver } from "../integrations/mergeDriver.js";
-import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS } from "../integrations/gitignore.js";
+import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS, upgradeManagedGitignore, describeGitignoreUpgrade } from "../integrations/gitignore.js";
 import { writeCiWorkflow } from "../integrations/ciAction.js";
 import { updateClaudeMd, renderHunchSection } from "../integrations/claudemd.js";
 import { classifyGroundingBlock, describeGroundingFreshness } from "../core/groundingLag.js";
@@ -373,6 +373,9 @@ program
     // switches). The .hunch/*.json graph stays tracked.
     const gi = ensureGitignore(root);
     if (gi.action !== "unchanged") console.log(`  ✓ .gitignore ${gi.action} (Hunch runtime index excluded)`);
+    // A repo migrated to a private overlay by an older release: bring its private-only
+    // block up to date (and stop publishing newly ignored memory dirs).
+    for (const line of describeGitignoreUpgrade(upgradeManagedGitignore(root))) console.log(`  ✓ ${line}`);
 
     if (opts.index !== false) {
       if (isGitRepo(root) && revExists("HEAD", root)) {
@@ -513,7 +516,10 @@ program
   .action((opts: { autoCommit: boolean }) => {
     const { store, root } = storeFor();
     store.json.ensureDirs();
-    ensureGitignore(root); // keep the derived SQLite index out of git (idempotent)
+    // Keep the derived SQLite index out of git (idempotent). Adds a missing block but
+    // never rewrites an existing one: `index` runs in CI/release gates on a clean
+    // checkout. Older blocks are upgraded by `hunch update` / init / private setup.
+    ensureGitignore(root, { upgradeExisting: false });
     // The post-merge hook only ever got installed by `hunch init`/`hunch
     // private`/`hunch shared` — a repo that already ran init before this hook
     // existed never receives it. `hunch index` already self-heals gitignore
@@ -1329,6 +1335,11 @@ function configureOverlay(dir: string | undefined, opts: OverlaySetupOpts, mode:
           : "  ⚠ private overlay files remain local; no memory commit was created\n") +
       `  next: review, then commit the PUBLIC repo:\n` +
       `      git add -A && git commit -m "chore: move engineering memory to a private overlay" && git push\n`;
+  } else {
+    // Re-running setup on a repo migrated by an older release upgrades its private-only
+    // block in place and stops publishing memory dirs that block did not yet list.
+    const upgraded = describeGitignoreUpgrade(upgradeManagedGitignore(root));
+    if (upgraded.length) migrateNote = upgraded.map((line) => `  ✓ ${line}\n`).join("");
   }
 
   const lead = mode === "private"

@@ -1728,6 +1728,14 @@ export function gitUntrackCached(cwd: string, paths: string[]): void {
   } catch { /* best-effort: not a repo / nothing tracked */ }
 }
 
+/** Tracked files under the given pathspecs (repo-relative, POSIX). Best-effort:
+ *  `[]` when not a repository or nothing is tracked there. */
+export function gitTrackedPaths(cwd: string, paths: string[]): string[] {
+  if (paths.length === 0) return [];
+  const out = gitSafe(["-c", "core.quotePath=false", "ls-files", "--", ...paths], cwd);
+  return out ? out.split("\n").filter(Boolean) : [];
+}
+
 /** Resolve any commit-ish (short sha / HEAD / branch) to a canonical full sha.
  *  Returns the input unchanged if it can't be resolved (e.g. not a git repo). */
 export function revParse(ref: string, cwd: string): string {
