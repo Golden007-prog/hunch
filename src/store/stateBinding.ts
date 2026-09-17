@@ -26,7 +26,8 @@ import { writeFileAtomic } from "../core/io.js";
 import { join } from "node:path";
 import { z } from "zod";
 import type { HunchStore } from "./hunchStore.js";
-import { appendChanges, latestSeqFor, readLedger, type PendingChange } from "./changeLedger.js";
+import { appendChanges, latestSeqFor, readLedger, type Ledger, type PendingChange } from "./changeLedger.js";
+import { STATE_ONLY_FACETS } from "./replay.js";
 import { hunchPaths } from "../core/paths.js";
 import { decisionId } from "../core/ids.js";
 import { ENTITY_KINDS, SCHEMAS, type EntityFor, type EntityKind } from "../core/types.js";
@@ -408,6 +409,18 @@ function subjectOf(facet: StateFacet, record: unknown): string | undefined {
   }
 }
 
+/** The published `ChangeEvent.subject` bound. Record subjects can be longer (a receipt's
+ *  `object_type:object_key`, an entity id, a relationship endpoint, a decision topic); the record
+ *  limits are never lowered and the event limit is never raised (dec_a9bfb5dd8d). */
+const EVENT_SUBJECT_MAX = 512;
+
+/** The subject an EVENT carries: the record's subject when it fits the event limit, otherwise
+ *  omitted (`subject` is optional). A subscriber still matches the event by `record_id`. */
+function eventSubjectOf(facet: StateFacet, record: unknown): string | undefined {
+  const subject = subjectOf(facet, record);
+  return subject !== undefined && subject.length <= EVENT_SUBJECT_MAX ? subject : undefined;
+}
+
 /** Which facet a record id belongs to, from its prefix; `null` for a kind-qualified entity id
  *  or an unknown shape (those are looked up across every facet). */
 function facetOfId(id: string): StateFacet | null {
@@ -538,6 +551,28 @@ function closeWindow(store: HunchStore, facet: StateFacet, incumbentId: string, 
   return true;
 }
 
+/** Validate pending change events against the published event schema without writing anything,
+ *  so a write whose event could not be appended is refused before its record lands (#283). */
+function assertEventsValid(ledger: Ledger, scope: Scope, at: string, changes: readonly PendingChange[]): void {
+  changes.forEach((change, i) => {
+    const parsed = ChangeEventSchema.safeParse({ schema: STATE_SUBSCRIBE_VERSION, seq: ledger.head_seq + i + 1, at, scope, ...change });
+    if (!parsed.success) throw new StateRefusal("malformed", `change event for ${change.record_id} is malformed: ${parsed.error.issues.map((x) => `${x.path.join(".") || "event"}: ${x.message}`).join("; ")}`);
+  });
+}
+
+/** The event a replayed write owes the ledger (#282): a state-only record on file that the ledger
+ *  has never seen — no event names it and no idempotency entry references it (compaction drops
+ *  events but keeps the table, so an entry means "known") — was written without its event, by a
+ *  crash between put and append or a refusal after the put. The retry appends it with the hash on
+ *  file. A record the ledger already knows gets no new event. */
+function missingEventFor(ledger: Ledger, facet: StateFacet, onFile: Record<string, unknown>, principal: string): PendingChange[] {
+  if (!(STATE_ONLY_FACETS as readonly StateFacet[]).includes(facet)) return [];
+  const id = String(onFile.id);
+  if (latestSeqFor(ledger, id) > 0 || Object.values(ledger.idempotency).some((e) => e.record_id === id)) return [];
+  const invalidates = facet === "receipts" && Array.isArray(onFile.invalidates) ? onFile.invalidates as string[] : [];
+  return [{ ...(onFile.visibility ? { visibility: onFile.visibility as RecordVisibility } : {}), facet, record_id: id, record_hash: stateHash(onFile), change: "created", subject: eventSubjectOf(facet, onFile), invalidates, cause: { kind: "write", principal } }];
+}
+
 /** Normalize + validate the record for its facet; enforce the identity rule (an id, when
  *  given, must be the one the record's facts derive). Returns the canonical record. */
 function normalizeRecord(facet: StateFacet, scope: Scope, raw: Record<string, unknown>, principal: Principal): EntityFor[EntityKind] {
@@ -610,6 +645,32 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
   if (!(ENTITY_KINDS as readonly string[]).includes(facet)) throw new StateRefusal("unsupported", `facet ${facet} is not a store kind`);
   const record = normalizeRecord(facet, request.scope, request.record, request.principal);
   const deny = () => { throw new StateRefusal('outside-grants', 'record unavailable or operation not permitted'); };
+  const id = (record as { id: string }).id;
+  /** The normalized PAYLOAD hash: what idempotency recognizes on a re-send. */
+  const hash = stateHash(record);
+  const ledger = opts.ledgerCache?.ledger ?? readLedger(hunchDir, request.scope);
+  if (opts.ledgerCache) opts.ledgerCache.ledger = ledger;
+  const durability = () => opts.flush?.(isPrivate, `nuryel: write ${id}`) ?? "local";
+  /** The result reports the record ON FILE and its hash — the store may enrich a record on put
+   *  (a private-mode decision gains `valid_from`), and a writer that goes on to rest a receipt
+   *  on this record must hold the hash a reader will verify, never a pre-store one. */
+  const result = (outcome: WriteResult["outcome"], conflict: WriteResult["conflict"] = null, rid = id): WriteResult => {
+    const onFile = getHere(rid) ?? record;
+    return WriteResultSchema.parse({ schema: STATE_WRITE_VERSION, record_id: rid, record_hash: stateHash(onFile), durability: durability(), outcome, conflict, record: onFile });
+  };
+
+  // Idempotency, exact replay FIRST: the same key with the same payload for the same record is
+  // the retry of a request that already succeeded, and returns what it wrote — before any check
+  // that depends on state changed since (an entity now claiming the subject, a visibility or link
+  // change). Otherwise a writer whose response was lost is refused, re-derives, and duplicates
+  // the record it already holds (#284). A differing payload under the key falls through to every
+  // check and the idempotency refusal below.
+  const seen = ledger.idempotency[request.idempotency_key];
+  if (seen && seen.record_id === id && (seen.record_hash === hash || seen.payload_hash === hash)) {
+    const prior = findRecord(store, seen.record_id)?.record; if (prior && !access.canRead(prior)) deny();
+    return result("replayed");
+  }
+
   const incumbent = getHere(String(record.id)) as Record<string, unknown> | undefined;
   if (incumbent && !access.canWrite(incumbent)) deny();
   const previousVisibility = incumbent?.visibility as RecordVisibility | undefined;
@@ -652,27 +713,11 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
       replayLink = prior;
     }
   }
-  const id = (record as { id: string }).id;
   assertExternalIdentity(store, request.principal, request.scope, facet, record);
-  /** The normalized PAYLOAD hash: what idempotency recognizes on a re-send. */
-  const hash = stateHash(record);
-  const ledger = opts.ledgerCache?.ledger ?? readLedger(hunchDir, request.scope);
-  if (opts.ledgerCache) opts.ledgerCache.ledger = ledger;
-  const durability = () => opts.flush?.(isPrivate, `nuryel: write ${id}`) ?? "local";
-  /** The result reports the record ON FILE and its hash — the store may enrich a record on put
-   *  (a private-mode decision gains `valid_from`), and a writer that goes on to rest a receipt
-   *  on this record must hold the hash a reader will verify, never a pre-store one. */
-  const result = (outcome: WriteResult["outcome"], conflict: WriteResult["conflict"] = null, rid = id): WriteResult => {
-    const onFile = getHere(rid) ?? record;
-    return WriteResultSchema.parse({ schema: STATE_WRITE_VERSION, record_id: rid, record_hash: stateHash(onFile), durability: durability(), outcome, conflict, record: onFile });
-  };
 
-  // Idempotency: the same key replays the original; the same key with a different payload
-  // is a refusal, never a second record.
-  const seen = ledger.idempotency[request.idempotency_key];
+  // Idempotency: the same key with a different payload is a refusal, never a second record.
   if (seen) {
     const prior = findRecord(store, seen.record_id)?.record; if (prior && !access.canRead(prior)) deny();
-    if (seen.record_id === id && (seen.record_hash === hash || seen.payload_hash === hash)) return result("replayed");
     // Say WHAT differs and what to do: a stable key with a varying payload (a timestamp, new
     // wording) is the trap every writer falls into once; the refusal must teach the way out.
     const stored = store.getRec(facet as EntityKind, seen.record_id) as Record<string, unknown> | undefined;
@@ -687,7 +732,7 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
     if (review && stateHash(review) !== stateHash(existing?.review ?? null) && review.by !== request.principal.id) throw new StateRefusal('malformed', 'reviewer must be the initiating principal');
   }
   if (existing && stateHash(existing) === hash) {
-    appendChanges(hunchDir, request.scope, [], { key: request.idempotency_key, entry: { record_id: id, record_hash: hash, payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
+    appendChanges(hunchDir, request.scope, missingEventFor(ledger, facet, existing, request.principal.id), { key: request.idempotency_key, entry: { record_id: id, record_hash: hash, payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
     return result("replayed");
   }
   if (existing && request.expected_version !== null) {
@@ -699,7 +744,7 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
 
   if (replayLink) {
     const recordHash = stateHash(replayLink);
-    appendChanges(hunchDir, request.scope, [], { key: request.idempotency_key, entry: { record_id: replayLink.id, record_hash: recordHash, payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
+    appendChanges(hunchDir, request.scope, missingEventFor(ledger, facet, replayLink, request.principal.id), { key: request.idempotency_key, entry: { record_id: replayLink.id, record_hash: recordHash, payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
     return WriteResultSchema.parse({ schema: STATE_WRITE_VERSION, record_id: replayLink.id, record_hash: recordHash, record: replayLink, outcome: "replayed", conflict: null, durability: "local" });
   }
 
@@ -727,7 +772,7 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
     };
     const verdict = guard(existing, "overwrite");
     if (verdict === "replay") {
-      appendChanges(hunchDir, request.scope, [], { key: request.idempotency_key, entry: { record_id: id, record_hash: stateHash(existing!), payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
+      appendChanges(hunchDir, request.scope, missingEventFor(ledger, facet, existing!, request.principal.id), { key: request.idempotency_key, entry: { record_id: id, record_hash: stateHash(existing!), payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
       return result("replayed");
     }
     if (verdict === "keep-provenance") (record as { provenance: unknown }).provenance = existing!.provenance;
@@ -805,6 +850,22 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
   if (facet === "receipts") assertRestsOn(store, request.principal, request.scope, (record as EntityFor["receipts"]).rests_on ?? []);
   const closedBy = facet === "commitments" ? assertClosedBy(store, request.principal, record as EntityFor["commitments"]) : null;
 
+  // Build and validate every change event BEFORE anything is written (#283): a refusal must never
+  // leave a record on file without its event. Only the hashes are filled in after the write (the
+  // store may enrich a record on put), and a sha256 always satisfies the event schema.
+  const cause = closedBy ? { kind: "receipt" as const, receipt_id: closedBy } : request.cause ?? { kind: "write" as const, principal: request.principal.id };
+  // A current derived statement written back as stale is an INVALIDATION, not an update: the
+  // ledger says so, and names the external pointer that moved when the writer gives one.
+  const invalidated = facet === "derived" && !!existing && (existing.state === "current" || existing.state === "unknown") && (record as EntityFor["derived"]).state === "stale";
+  const invalidates = facet === "receipts" ? (record as EntityFor["receipts"]).invalidates : [];
+  // An entity leaving service is a `retired` change (a merge names the survivor in the record).
+  const retired = (facet === "entities" || facet === "relationships") && (record as EntityFor["entities"]).lifecycle === "retired" && (!existing || existing.lifecycle !== "retired");
+  const subject = eventSubjectOf(facet, record);
+  const supersededPrior = supersedes ? store.getRec(facet as EntityKind, supersedes) as Record<string, unknown> | undefined : undefined;
+  const supersededChange = (old: Record<string, unknown>): PendingChange => ({ ...(old.visibility ? { visibility: old.visibility as RecordVisibility } : {}), facet, record_id: String(old.id), record_hash: stateHash(old), change: "superseded", subject: eventSubjectOf(facet, old), invalidates: [], cause });
+  const ownChange = (recordHash: string): PendingChange => ({ ...(nextVisibility ? { visibility: nextVisibility } : {}), facet, record_id: id, record_hash: recordHash, change: invalidated ? "invalidated" : retired ? "retired" : existing ? "updated" : "created", subject, invalidates: invalidated && subject ? [subject] : invalidates, cause });
+  assertEventsValid(ledger, request.scope, now, [...(supersededPrior ? [supersededChange(supersededPrior)] : []), ownChange(hash)]);
+
   if (nextVisibility) {
     // Publish the fail-closed old-reader gate BEFORE protected bytes. An interrupted
     // write can leave a gate without a record, never a record without the gate.
@@ -815,22 +876,11 @@ function writeStateAuthorized(store: HunchStore, input: unknown, opts: WriteOpti
   /** What is on file now — the hash every event, ref and result carries. */
   const onFileHash = stateHash(getHere(id) ?? record);
   const changes: PendingChange[] = [];
-  const cause = closedBy ? { kind: "receipt" as const, receipt_id: closedBy } : request.cause ?? { kind: "write" as const, principal: request.principal.id };
-  // A current derived statement written back as stale is an INVALIDATION, not an update: the
-  // ledger says so, and names the external pointer that moved when the writer gives one.
-  const invalidated = facet === "derived" && !!existing && (existing.state === "current" || existing.state === "unknown") && (record as EntityFor["derived"]).state === "stale";
-  const invalidates = facet === "receipts" ? (record as EntityFor["receipts"]).invalidates : [];
-  // An entity leaving service is a `retired` change (a merge names the survivor in the record).
-  const retired = (facet === "entities" || facet === "relationships") && (record as EntityFor["entities"]).lifecycle === "retired" && (!existing || existing.lifecycle !== "retired");
-  const subject = subjectOf(facet, record);
   if (supersedes) {
     const closed = closeWindow(store, facet, supersedes, id, now, isPrivate);
-    if (closed) {
-      const old = store.getRec(facet as EntityKind, supersedes)!;
-      changes.push({ ...("visibility" in old && old.visibility ? { visibility: old.visibility } : {}), facet, record_id: supersedes, record_hash: stateHash(old), change: "superseded", subject: subjectOf(facet, old), invalidates: [], cause });
-    }
+    if (closed) changes.push(supersededChange(store.getRec(facet as EntityKind, supersedes)! as Record<string, unknown>));
   }
-  changes.push({ ...(nextVisibility ? { visibility: nextVisibility } : {}), facet, record_id: id, record_hash: onFileHash, change: invalidated ? "invalidated" : retired ? "retired" : existing ? "updated" : "created", subject, invalidates: invalidated && subject ? [subject] : invalidates, cause });
+  changes.push(ownChange(onFileHash));
   appendChanges(hunchDir, request.scope, changes, { key: request.idempotency_key, entry: { record_id: id, record_hash: onFileHash, payload_hash: hash, facet } }, now, opts.ledgerCache?.ledger);
   if (!opts.deferReindex) store.reindex();
   return result(supersedes ? "superseded" : existing ? "updated" : "created");
