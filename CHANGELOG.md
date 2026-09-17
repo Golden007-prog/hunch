@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.39.1 — 2026-09-17
+
+- `hunch check`, the CI Constraint Guard, merge verdicts, veto and impact evaluate the complete diff instead of the first 60 KB, and fail closed when a diff cannot be read: an in-scope blocking content rule is reported as not evaluated and counts toward `--strict`. Files with non-ASCII or quoted names are content-checked, and sources under `build/`, `vendor/` or `out/` folders are no longer skipped. Only synthesis prompts keep the 60 KB cap.
+- Codex `apply_patch` edits are evaluated per file, including `Move to` destinations; a patch that only removes a forbidden pattern is no longer denied, and every touched file is tracked for verification.
+- Git hooks are no longer appended where they cannot run (husky, the pre-commit framework, a hook ending in `exec`/`exit`) or written with a machine path into a committed hooks directory. Hunch prints a snippet for the manager's own config instead, and `hunch doctor` reports an existing unreachable block (#311).
+- Managed `.gitignore` blocks are upgraded in place on `hunch update`, `init`, `private` and `shared`: entries added in later releases (`.hunch/local.json`, `.hunch-cache/`, `events.log`, repair queues, and memory directories such as `tasks/`, `resources/`, `workspaces/`) are applied, and in private mode newly ignored memory directories are untracked (files stay on disk) (#312).
+- State writes keep a record and its change event together: events are validated before anything is written (an over-long subject is left off the event), a retry repairs a missing event, and an identical retry replays before identity, visibility and link checks, so it can no longer be refused or create a duplicate commitment (#282, #283, #284).
+- `hunch workspaces prune` is safe on the cases it got wrong: a relanded branch is no longer reported merged, untracked files count as local work even with `status.showUntrackedFiles=no`, ignored files are listed before deletion, a squash- or rebase-merged branch that `git branch -d` would refuse is skipped whole instead of losing only its worktree, a branch with no commits of its own is kept, and printed commands are shell-quoted (#307, #308, #309). A fast-forward-merged branch now shows "no commits" and is kept.
 ## 1.39.0 — 2026-09-17
 
 - Writers of derived state get `readOrCompute` in `@davesheffer/hunch/state` and `read_or_compute` in the Python client: a current statement whose dependencies are unchanged is reused without computing; otherwise the content is computed once and written with a request-scoped idempotency key (content hash included, so new wording never collides with an old key), superseding its predecessor and keeping its audience. No retries; both clients hash byte for byte with the server.

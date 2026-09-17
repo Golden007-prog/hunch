@@ -108,6 +108,7 @@
     <div class="clog">
       <div class="clog-group">
         <div class="clog-date">Sep 17, 2026</div>
+        <div class="clog-row"><span class="rel-tag">v1.39.1</span><span class="clog-t"><b>Safer checks, safer cleanup</b> — constraint checks read the whole change instead of its first 60 KB and fail closed when they cannot, Codex patches are checked file by file, git hooks are no longer installed where husky or pre-commit would never run them, older <span class="mono">.gitignore</span> blocks are brought up to date, shared-state retries replay instead of duplicating, and <span class="mono">hunch workspaces prune</span> no longer deletes relanded branches, untracked work or half a step.</span></div>
         <div class="clog-row"><span class="rel-tag">v1.39.0</span><span class="clog-t"><b>Reach, reuse, clean up</b> — <span class="mono">hunch serve</span> speaks MCP over streamable HTTP, so a remote agent gateway can use shared state as a tool; the TypeScript and Python clients get <span class="mono">readOrCompute</span>, which reuses a statement whose sources did not move and writes a replacement with the right idempotency key when they did; <span class="mono">hunch branches</span> and <span class="mono">hunch workspaces</span> answer "what is open where, and what can I delete" across machines; and Kubernetes manifests are indexed as a graph of references.</span></div>
       </div>
       <div class="clog-group">
