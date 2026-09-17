@@ -69,9 +69,15 @@ export const MergedVerdictSchema = z.object({
   status: z.enum(MERGED_STATUSES),
   method: z.enum(MERGED_METHODS).nullable(),
   evidence: z.array(z.string().max(256).refine(isCredentialFreeValue, { message: "verdict evidence must not carry credential material" })).max(8),
+  /** The pull request that landed a merged branch, read from the LOCAL merge / squash commit
+   *  subject ("Merge pull request #N from …", "… (#N)") — never fetched from a forge. */
+  pr: z.number().int().min(1).max(100_000_000).optional(),
 }).strict().superRefine((v, ctx) => {
   if ((v.status === "merged") !== (v.method !== null)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "a merged verdict names its method; any other verdict has none" });
+  }
+  if (v.pr !== undefined && v.status !== "merged") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pr"], message: "only a merged verdict can name a pull request" });
   }
 });
 export type MergedVerdict = z.infer<typeof MergedVerdictSchema>;
@@ -320,4 +326,69 @@ export function ago(iso: string, now: Date = new Date()): string {
   const h = Math.floor(m / 60);
   if (h < 48) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+// ---- prune planning (pure) -----------------------------------------------------------------
+//
+// The plan for THIS machine is computed from its LIVE record only (never a stored one) and
+// names exactly the commands `prune --apply` would run: `git worktree remove -- <path>` and
+// `git branch -d -- <name>` — never `--force`, never `-D`, never a remote. Other machines get
+// the same commands PRINTED from their stored records; nothing executes them.
+
+export interface PruneStep {
+  branch: string;
+  head: string;
+  /** Worktree checked out on the branch, when one exists and can be removed first. */
+  worktree: { id: string; path: string | null } | null;
+  commands: string[];
+  why: string;
+}
+
+export interface PrunePlan {
+  /** Executable on this machine (live record). */
+  local: PruneStep[];
+  /** Display-only, keyed by machine label (stored records). */
+  others: Record<string, PruneStep[]>;
+  /** Branches this machine holds that were considered and left alone, with the reason. */
+  skipped: Array<{ branch: string; reason: string }>;
+}
+
+function pruneStepsFor(record: Workspace, opts: { skip: (branch: WorkspaceBranch, worktree: WorkspaceWorktree | undefined) => string | null }): { steps: PruneStep[]; skipped: Array<{ branch: string; reason: string }> } {
+  const steps: PruneStep[] = [];
+  const skipped: Array<{ branch: string; reason: string }> = [];
+  for (const b of record.branches) {
+    const wt = b.worktree ? record.worktrees.find((w) => w.id === b.worktree) : undefined;
+    const reason = opts.skip(b, wt);
+    if (reason) { if (b.merged.status === "merged" && !b.is_default) skipped.push({ branch: b.name, reason }); continue; }
+    const commands: string[] = [];
+    if (wt) commands.push(`git worktree remove -- ${wt.path ?? "<its worktree>"}`);
+    commands.push(`git branch -d -- ${b.name}`);
+    steps.push({
+      branch: b.name, head: b.head, worktree: wt ? { id: wt.id, path: wt.path } : null, commands,
+      why: `${b.merged.method}${b.merged.pr ? ` (PR #${b.merged.pr})` : ""}: ${b.merged.evidence[0] ?? ""}`,
+    });
+  }
+  return { steps, skipped };
+}
+
+/** Why a branch must not be pruned, or null when it may. The rules are the documented ones:
+ *  proven merged, not the default branch, worktree (if any) clean, unlocked and present. */
+export function pruneRefusal(b: WorkspaceBranch, wt: WorkspaceWorktree | undefined): string | null {
+  if (b.is_default) return "default branch";
+  if (b.merged.status !== "merged") return b.merged.status === "unknown" ? "merge state unknown" : "not merged";
+  if (wt?.is_main) return "checked out in the main worktree (switch away first)";
+  if (wt?.locked) return "worktree is locked";
+  if (wt?.prunable) return "worktree path is missing (git worktree prune first)";
+  if (wt && wt.dirty !== false) return wt.dirty === null ? "worktree state could not be read" : "worktree has uncommitted or untracked changes";
+  return null;
+}
+
+export function planPrune(live: Workspace, others: readonly Workspace[]): PrunePlan {
+  const mine = pruneStepsFor(live, { skip: pruneRefusal });
+  const plan: PrunePlan = { local: mine.steps, others: {}, skipped: mine.skipped };
+  for (const record of latestPerMachine(others.filter((r) => r.machine.id !== live.machine.id))) {
+    const theirs = pruneStepsFor(record, { skip: pruneRefusal });
+    if (theirs.steps.length) plan.others[record.machine.label] = theirs.steps;
+  }
+  return plan;
 }

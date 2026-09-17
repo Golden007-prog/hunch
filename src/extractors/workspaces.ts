@@ -197,11 +197,37 @@ function patchIdsOf(root: string, range: string[], limit: number | null, timeout
 
 type DefaultPatchIds = () => { map: Map<string, string>; ok: boolean };
 
-function mergedVerdict(root: string, head: string, def: DefaultBranch | null, patchIds: DefaultPatchIds, searched: number): MergedVerdict {
+/** The pull request a MERGE COMMIT names for this branch, from the local commit subject
+ *  GitHub/GitLab write ("Merge pull request #N from owner/branch"). Bounded scan, JS-side
+ *  matching (no branch name reaches git), never a forge request. */
+function prFromMergeCommits(root: string, branch: string, range: string): number | undefined {
+  const out = run(root, ["log", "--merges", "--format=%s", "-n500", range, "--"]) ?? "";
+  for (const subject of out.split("\n")) {
+    const m = /^Merge pull request #(\d{1,9}) from [^/\s]+\/(\S+)$/.exec(subject.trim());
+    if (m && m[2] === branch) return Number(m[1]);
+  }
+  return undefined;
+}
+
+/** The pull request a SQUASH COMMIT names ("Title (#N)"). */
+function prFromSquashCommit(root: string, commit: string): number | undefined {
+  const subject = run(root, ["log", "-1", "--format=%s", "--end-of-options", commit, "--"])?.trim() ?? "";
+  const m = /\(#(\d{1,9})\)$/.exec(subject);
+  return m ? Number(m[1]) : undefined;
+}
+
+function withPr(verdict: MergedVerdict, pr: number | undefined): MergedVerdict {
+  return pr === undefined ? verdict : { ...verdict, pr, evidence: [...verdict.evidence, `pull request #${pr} (from the local commit subject)`] };
+}
+
+function mergedVerdict(root: string, name: string, head: string, def: DefaultBranch | null, patchIds: DefaultPatchIds, searched: number): MergedVerdict {
   if (!def) return { status: "unknown", method: null, evidence: ["no default branch resolved (origin/HEAD, origin/main, origin/master, main, master)"] };
   const ancestor = predicate(root, ["merge-base", "--is-ancestor", head, def.head]);
   if (ancestor === null) return { status: "unknown", method: null, evidence: ["git merge-base failed"] };
-  if (ancestor) return { status: "merged", method: "ancestry", evidence: [`${head.slice(0, 12)} is an ancestor of ${def.ref}@${def.head.slice(0, 12)}`] };
+  if (ancestor) {
+    const verdict: MergedVerdict = { status: "merged", method: "ancestry", evidence: [`${head.slice(0, 12)} is an ancestor of ${def.ref}@${def.head.slice(0, 12)}`] };
+    return withPr(verdict, prFromMergeCommits(root, name, `${head}..${def.head}`));
+  }
   const base = sha(run(root, ["merge-base", head, def.head]));
   if (!base) return { status: "unknown", method: null, evidence: [`no merge base with ${def.ref}`] };
   const known = patchIds();
@@ -211,7 +237,10 @@ function mergedVerdict(root: string, head: string, def: DefaultBranch | null, pa
   const combined = combinedPatchId(root, base, head);
   if (combined) {
     const commit = known.map.get(combined);
-    if (commit) return { status: "merged", method: "squash", evidence: [`patch-id of ${base.slice(0, 12)}..${head.slice(0, 12)} equals ${def.ref} commit ${commit.slice(0, 12)}`] };
+    if (commit) {
+      const verdict: MergedVerdict = { status: "merged", method: "squash", evidence: [`patch-id of ${base.slice(0, 12)}..${head.slice(0, 12)} equals ${def.ref} commit ${commit.slice(0, 12)}`] };
+      return withPr(verdict, prFromSquashCommit(root, commit));
+    }
   }
   // Rebase / cherry-pick: every commit of the branch has a patch-equivalent commit in the
   // default branch. Uses the one-time map instead of `git cherry`, whose cost grows with
@@ -282,7 +311,7 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
       worktree: (b.worktreePath && worktreeByPath.get(b.worktreePath)) || null,
       merged: def?.name === b.name
         ? { status: "unmerged", method: null, evidence: ["default branch"] }
-        : mergedVerdict(main, b.head, def, lazyPatchIds, searched),
+        : mergedVerdict(main, b.name, b.head, def, lazyPatchIds, searched),
     };
   });
 

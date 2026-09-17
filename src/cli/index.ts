@@ -90,7 +90,7 @@ import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness, workspacesConfig } from "../core/config.js";
 import { loadOrCreateMachine, setMachineLabel, machineFile, labelLeaksIdentity } from "../core/machine.js";
 import { worktreeRows, branchRows } from "../core/workspace.js";
-import { workspaceLedgerView, recordWorkspaceSnapshot, renderWorktreeTable, renderBranchTable, workspaceSummaryLine } from "../integrations/workspaceLedger.js";
+import { workspaceLedgerView, recordWorkspaceSnapshot, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, prunePlanFor, renderPrunePlan, applyPrune, confirmPrune } from "../integrations/workspaceLedger.js";
 import { blockingInScope, vetoInScope, proposedEditLines } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
@@ -1500,9 +1500,57 @@ workspacesCmd
           return console.log("  · or set .hunch/config.json {\"workspaces\":{\"publish_public\":true}} to commit it into this repo's .hunch/");
         case "unchanged":
           return console.log(`✓ unchanged since ${out.previous.observed_at} (${out.record.id}) — nothing written`);
+        case "collision":
+          return fail(`not written: ${out.reason}\n  · \`hunch workspaces forget ${out.record.id}\` removes the stale copy (a normal, revertable memory move), then snapshot again`);
         case "written":
           return console.log(`✓ recorded ${out.record.worktrees.length} worktree(s), ${out.record.branches.length} branch(es) as ${out.record.machine.label} (${out.record.id}, publish=${out.record.publish}) → ${out.home === "private" ? "overlay" : "public .hunch/"}${out.flushed ? `, ${out.flushed}` : ""}`);
       }
+    } finally {
+      store.close();
+    }
+  });
+
+workspacesCmd
+  .command("prune")
+  .description("Branches and worktrees that are provably merged and safe to delete. Prints the exact git commands per machine (dry run). --apply runs them on THIS machine only — never a remote, never another machine — from a live snapshot, with `git branch -d` / `git worktree remove` (no force flags), after confirmation.")
+  .option("--apply", "execute this machine's commands (asks for confirmation; --yes in a non-interactive shell)")
+  .option("--yes", "skip the confirmation prompt (required with --apply when stdin is not a terminal)")
+  .option("--fetch", "run `git fetch --prune` first (network; off by default)")
+  .option("--json", "emit the plan (and results) as JSON")
+  .action(async (opts: { apply?: boolean; yes?: boolean; fetch?: boolean; json?: boolean }) => {
+    const { store, root } = storeFor();
+    try {
+      if (!isGitRepo(root)) return fail("`hunch workspaces prune` needs a git repo");
+      const view = workspaceLedgerView(store, root, { fetch: opts.fetch });
+      const plan = prunePlanFor(view);
+      if (!opts.apply) {
+        if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan }, null, 2));
+        console.log(renderPrunePlan(view, plan));
+        return console.log(plan.local.length ? "\n(dry run — `hunch workspaces prune --apply` runs this machine's commands after confirmation)" : "\n(dry run — nothing to apply on this machine)");
+      }
+      if (!plan.local.length) {
+        if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan, results: [] }, null, 2));
+        console.log(renderPrunePlan(view, plan));
+        return console.log("\nnothing to apply on this machine");
+      }
+      if (!opts.json) console.log(renderPrunePlan(view, plan));
+      if (!opts.yes) {
+        const worktrees = plan.local.filter((s) => s.worktree).length;
+        const ok = await confirmPrune(`Delete ${plan.local.length} branch(es)${worktrees ? ` and remove ${worktrees} worktree(s)` : ""} on ${view.machine.label}?`);
+        if (!ok) return fail(process.stdin.isTTY ? "not confirmed — nothing was deleted" : "refusing to apply without confirmation: stdin is not a terminal; pass --yes to confirm explicitly");
+      }
+      const results = applyPrune(root, plan.local);
+      // Memory follows what actually happened: re-snapshot so other machines see the change.
+      // Best effort — the deletions above are real whatever the ledger write says.
+      let recorded: string;
+      try { recorded = recordWorkspaceSnapshot(store, root).status; } catch (error) { recorded = `failed: ${(error as Error).message}`; }
+      if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan, results, recorded }, null, 2));
+      console.log("");
+      for (const r of results) console.log(`  ${r.outcome === "deleted" ? "✓" : "✗"} ${r.step.branch}: ${r.detail}`);
+      const failed = results.filter((r) => r.outcome === "failed").length;
+      const ledger = recorded === "written" ? " · ledger updated" : recorded === "unchanged" || recorded === "no-home" || recorded === "off" ? "" : ` · ledger not updated (${recorded})`;
+      console.log(`\n${results.length - failed} deleted, ${failed} refused by git${ledger}`);
+      if (failed) process.exitCode = 1;
     } finally {
       store.close();
     }
