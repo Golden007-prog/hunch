@@ -6,7 +6,7 @@ import { resolveSpawnCommand } from "./spawnCommand.js";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import { analyzeDiff } from "../extractors/diff.js";
-import { workingDiff, workingFiles } from "../extractors/git.js";
+import { workingGateDiff, workingFiles } from "../extractors/git.js";
 import { assertCompleteRepoScan, scanRepo } from "../extractors/indexer.js";
 import { checkConformance, type ConformanceGraph } from "./conformance.js";
 import { effectiveForbids, matchForbids } from "./constraintmatch.js";
@@ -85,9 +85,9 @@ export function runReportConformance(root: string, store: HunchStore, taskId: st
   const before = reportSourceSnapshot(root).hash;
   const files = workingFiles(root);
   const changed = new Set(files);
-  const diff = workingDiff(root);
-  const analysis = analyzeDiff(diff);
-  const truncated = diff.endsWith("…(diff truncated)…");
+  const gate = workingGateDiff(root);
+  const analysis = analyzeDiff(gate.diff);
+  const unread = new Set(gate.unreadFiles ?? []);
   let graph: ConformanceGraph | null | undefined;
   const workingGraph = (): ConformanceGraph | null => {
     if (graph !== undefined) return graph;
@@ -107,7 +107,7 @@ export function runReportConformance(root: string, store: HunchStore, taskId: st
       if (!forbids) { note("constraint-forbids", "unavailable", "This constraint declares no forbids matcher; a scope-only rule cannot be verified deterministically."); continue; }
       const scoped = files.filter(f => store.checkConstraints(f).some(c => c.id === constraint.id));
       if (!scoped.length) { note("constraint-forbids", "not-exercised", "No changed file falls in this constraint's scope."); continue; }
-      if (truncated) { note("constraint-forbids", "unavailable", "The working diff exceeds the bounded analysis budget; added lines were not fully inspected.", scoped); continue; }
+      if (gate.incomplete || scoped.some(f => unread.has(f))) { note("constraint-forbids", "unavailable", "The complete working diff could not be read; added lines were not fully inspected.", scoped); continue; }
       const match = matchForbids(forbids, new Set(analysis.addedDeps), scoped.flatMap(f => analysis.addedLinesByFile.get(f) ?? []));
       if (match) note("constraint-forbids", "violated", `Added code trips the ${match.tier} rule: ${match.evidence.slice(0, 3).join("; ")}`, scoped);
       else note("constraint-forbids", "satisfied", `Added lines in ${scoped.length} scoped file(s) trip none of the forbidden ${[forbids.deps.length && "dependencies", forbids.symbols.length && "symbols", forbids.patterns.length && "patterns"].filter(Boolean).join("/")}.`, scoped);

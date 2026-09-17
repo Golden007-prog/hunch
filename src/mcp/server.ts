@@ -29,7 +29,7 @@ import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
 import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, recordWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
 import { workspacesConfig } from "../core/config.js";
-import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeDiff, commitFiles, commitDiff, stagedFiles, stagedDiff, workingFiles, workingDiff, pullHunchStatus, sameRemoteUrl, currentBranch, type HunchPullStatus } from "../extractors/git.js";
+import { revParse, asOfDate, revExists, lastChangeDate, rangeFiles, rangeGateDiff, commitFiles, commitGateDiff, stagedFiles, stagedGateDiff, workingFiles, workingGateDiff, pullHunchStatus, sameRemoteUrl, currentBranch, type HunchPullStatus } from "../extractors/git.js";
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { withWriteLock } from "../serve/writelock.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, overlayMatchesTeamRemote, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
@@ -2410,8 +2410,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         const files = commit ? commitFiles(commit, root) : base ? rangeFiles(base, root) : working ? workingFiles(root) : stagedFiles(root);
         const scope = commit ? `commit ${commit}` : base ? `${base}..HEAD` : working ? "working changes" : "staged changes";
         if (!files.length) return ok(`VERDICT: ✅ PASS — no changed files in ${scope}.`);
-        const diff = commit ? commitDiff(commit, root) : base ? rangeDiff(base, root) : working ? workingDiff(root) : stagedDiff(root);
-        const report = store.buildCheckReport(files, diff, { strict: true, lastChange: (f) => lastChangeDate(f, root) });
+        const gate = commit ? commitGateDiff(commit, root) : base ? rangeGateDiff(base, root) : working ? workingGateDiff(root) : stagedGateDiff(root);
+        const report = store.buildCheckReport(files, gate.diff, { strict: true, lastChange: (f) => lastChangeDate(f, root), diffStatus: gate });
         const v = verdict(report);
         const head = v === "block"
           ? "VERDICT: ⛔ BLOCK — a recorded guard requires review; inspect the cited scope and evidence below before merge."
@@ -2460,8 +2460,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         const files = commit ? commitFiles(commit, root) : base ? rangeFiles(base, root) : working ? workingFiles(root) : stagedFiles(root);
         const scope = commit ? `commit ${commit}` : base ? `${base}..HEAD` : working ? "working changes" : "staged changes";
         if (!files.length) return ok(`No changed files in ${scope}.`);
-        const diff = commit ? commitDiff(commit, root) : base ? rangeDiff(base, root) : working ? workingDiff(root) : stagedDiff(root);
-        return ok(renderImpact(store.prImpact(files, diff), scope));
+        const gate = commit ? commitGateDiff(commit, root) : base ? rangeGateDiff(base, root) : working ? workingGateDiff(root) : stagedGateDiff(root);
+        return ok(renderImpact(store.prImpact(files, gate.diff, gate), scope));
       } catch (e) {
         return err(`Failed to compute impact: ${(e as Error).message}`);
       }
