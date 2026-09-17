@@ -16,6 +16,8 @@ import { STATE_PROOF_CAPABILITY } from '../core/stateProof.js';
  *   POST /nuryel/v1/write             → writeState (under the partition's write lock)
  *   POST /nuryel/v1/subscribe         → subscribeState
  *   POST /nuryel/v1/records           → recordsState (by id, grants first)
+ *   POST /nuryel/v1/mcp               → the same verbs as nuryel_* tools over MCP streamable HTTP
+ *                                       (src/serve/mcpHttp.ts), through the same dispatcher
  * Request bodies are the contract's request schemas minus `schema` and `principal`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -30,8 +32,10 @@ import { HUNCH_VERSION } from "../core/version.js";
 import { captureState, captureBatchState } from "../store/stateCapture.js";
 import { STATE_CAPTURE_VERSION, STATE_CAPTURE_BATCH_VERSION } from "../core/stateContract.js";
 import { operatorHtml, operatorCss, operatorJs } from "./operator.js";
+import { MCP_PATH, handleMcpRequest, type ProblemShape, type StateRoute } from "./mcpHttp.js";
 
 export const BODY_LIMIT_BYTES = 1024 * 1024;
+const POST_ROUTES = new Map<string, StateRoute>([["/nuryel/v1/read", "read"], ["/nuryel/v1/write", "write"], ["/nuryel/v1/capture", "capture"], ["/nuryel/v1/capture-batch", "capture-batch"], ["/nuryel/v1/subscribe", "subscribe"], ["/nuryel/v1/records", "records"]]);
 export const PROBLEM_TYPE = "https://www.hunchmemory.com/problems/nuryel.state/1/";
 
 export class HttpProblem extends Error {
@@ -117,8 +121,79 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
     res.writeHead(status, { "content-type": `${type}; charset=utf-8`, "content-length": Buffer.byteLength(text), "cache-control": "no-store", "x-hunch-version": version });
     res.end(text);
   };
-  const sendProblem = (res: ServerResponse, p: HttpProblem): void => {
-    send(res, p.status, { type: `${PROBLEM_TYPE}${p.code}`, title: p.code, status: p.status, detail: p.message, ...p.extra }, "application/problem+json");
+  const problemBody = (p: HttpProblem): ProblemShape => ({ type: `${PROBLEM_TYPE}${p.code}`, title: p.code, status: p.status, detail: p.message, ...p.extra });
+  const sendProblem = (res: ServerResponse, p: HttpProblem): void => { send(res, p.status, problemBody(p), "application/problem+json"); };
+  /** Anything thrown → problem. Shared by REST (problem+json) and MCP (tool error results). */
+  const problemOf = (error: unknown): HttpProblem => {
+    if (error instanceof HttpProblem) return error;
+    if (error instanceof StateRefusal) return problem(REFUSAL_STATUS[error.code], error.code, error.message, error.conflict ? { conflict: error.conflict } : {});
+    if (error instanceof WriteLockTimeout) return problem(503, "write-lock-timeout", error.message, { "retry-after": 1 });
+    if (error && typeof error === "object" && (error as { name?: string }).name === "ZodError") {
+      const issues = ((error as { issues?: Array<{ path: Array<string | number>; message: string }> }).issues ?? []).map((i) => `${i.path.join(".") || "request"}: ${i.message}`);
+      return problem(400, "malformed", `request is malformed: ${issues.join("; ")}`, { issues });
+    }
+    return problem(500, "internal", (error as Error).message);
+  };
+
+  /** One authenticated state verb. The REST routes and the MCP tools both call this, so every
+   *  rule — grants, the write lock, flushes, refusals — is the same whichever transport carried it. */
+  const dispatch = async (route: StateRoute, principal: Principal, body: Record<string, unknown>, activeConfig: ServeConfig): Promise<{ status: number; payload: unknown }> => {
+    const requestStore = (scope: Scope) => storeFor(scope, activeConfig);
+    const isGranted = (s: Scope): boolean => principal.grants.some((g) => scopePath(g) === scopePath(s));
+    if (route === "capabilities") {
+      let scope = principal.grants[0]!;
+      if (body.scope !== undefined) {
+        const parsed = ScopeSchema.safeParse(body.scope);
+        if (!parsed.success) throw problem(400, "invalid-scope", "scope must be { kind, id }");
+        scope = parsed.data;
+      }
+      if (!isGranted(scope)) throw problem(403, "outside-grants", `scope ${scopePath(scope)} is outside the principal's grants`);
+      const offered = capabilities(requestStore(scope).store);
+      return { status: 200, payload: { ...offered, capabilities: [...offered.capabilities, STATE_PROOF_CAPABILITY], principal: { id: principal.id, kind: principal.kind, grants: principal.grants } } };
+    }
+    // The body never names the principal: the credential did.
+    delete body.principal;
+    delete body.schema;
+    const scope = requireScope(principal, body);
+    // Only authenticated grants select stores for cross-partition source visibility.
+    const accessOptions = { additionalStores: principal.grants.map(grant => requestStore(grant).store) };
+    const { store, root } = requestStore(scope);
+    const flush = (isPrivate: boolean, message: string) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message);
+
+    if (route === "read") {
+      if (body.observed_page !== undefined && body.scopes !== undefined) throw problem(400, 'malformed', 'observation pages require a single partition without scopes');
+      if (body.scopes === undefined) {
+        const { response, envelope } = readState(store, { schema: STATE_READ_VERSION, principal, ...body }, accessOptions);
+        return { status: 200, payload: { ...response, envelope } };
+      }
+      // Union read. The primary `scope` was gated above as always; every extra scope is
+      // either granted (read from ITS partition — 404 no-partition if this server lacks it)
+      // or named in denied_scopes. One ungranted extra never refuses the whole call.
+      const requested = ReadScopesSchema.safeParse(body.scopes);
+      if (!requested.success) throw problem(400, "invalid-scope", "scopes must be 1..64 entries of { kind, id }");
+      const { scopes: _scopes, ...rest } = body;
+      const ungranted = requested.data.filter((s) => !isGranted(s));
+      const others = new Map<string, Scope>();
+      for (const s of requested.data) if (isGranted(s) && scopePath(s) !== scopePath(scope) && !others.has(scopePath(s))) others.set(scopePath(s), s);
+      const primary = readState(store, { schema: STATE_READ_VERSION, principal, ...rest, scope }, accessOptions);
+      const merged = mergeReadResponses(primary.response, [...others.values()].map((other) => readState(requestStore(other).store, { schema: STATE_READ_VERSION, principal, ...rest, scope: other }, accessOptions).response), ungranted);
+      return { status: 200, payload: { ...merged, envelope: primary.envelope } };
+    }
+    if (route === "write" || route === "capture" || route === "capture-batch") {
+      const { hunchDir } = stateHomeFor(store, scope);
+      const opts = { ...accessOptions, flush };
+      if (route === "write") {
+        const result = await withWriteLock(hunchDir, () => writeState(store, { schema: STATE_WRITE_VERSION, principal, ...body }, opts));
+        return { status: result.outcome === "created" ? 201 : 200, payload: result };
+      }
+      if (route === "capture") {
+        const result = await withWriteLock(hunchDir, () => captureState(store, { schema: STATE_CAPTURE_VERSION, principal, ...body }, opts));
+        return { status: result.outcome === "created" ? 201 : 200, payload: result };
+      }
+      return { status: 200, payload: await withWriteLock(hunchDir, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, principal, ...body }, opts)) };
+    }
+    if (route === "subscribe") return { status: 200, payload: subscribeState(store, { schema: STATE_SUBSCRIBE_VERSION, principal, ...body }, accessOptions) };
+    return { status: 200, payload: recordsState(store, { schema: STATE_RECORDS_VERSION, principal, ...body }, accessOptions) };
   };
 
   const server = createServer(async (req, res) => {
@@ -126,7 +201,6 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
       let activeConfig: ServeConfig;
       try { activeConfig = configFile ? readServeConfig(configFile) : config; }
       catch { throw problem(503, 'configuration-unavailable', 'server configuration is unavailable; authentication is refused'); }
-      const requestStore = (scope: Scope) => storeFor(scope, activeConfig);
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       // Public shell only: all workspace data still uses the authenticated state routes below.
       const asset = new Map<string, [string, string]>([["/operator", [operatorHtml, "text/html"]], ["/operator/", [operatorHtml, "text/html"]], ["/operator.css", [operatorCss, "text/css"]], ["/operator.js", [operatorJs, "text/javascript"]]]).get(url.pathname);
@@ -159,92 +233,25 @@ export function createServeApp(config: ServeConfig, opts: ServeOptions = {}): Se
       const principal: Principal = { id: credential.id, kind: credential.kind, grants: credential.grants, ...(credential.display ? { display: credential.display } : {}) };
 
       if (url.pathname === "/nuryel/v1/capabilities" && req.method === "GET") {
-        const scope = parseScopeParam(url.searchParams.get("scope")) ?? principal.grants[0]!;
-        if (!principal.grants.some((g) => scopePath(g) === scopePath(scope))) throw problem(403, "outside-grants", `scope ${scopePath(scope)} is outside the principal's grants`);
-        const { store } = requestStore(scope);
-        const offered = capabilities(store);
-        return send(res, 200, { ...offered, capabilities: [...offered.capabilities, STATE_PROOF_CAPABILITY], principal: { id: principal.id, kind: principal.kind, grants: principal.grants } });
+        const scope = parseScopeParam(url.searchParams.get("scope"));
+        const { status, payload } = await dispatch("capabilities", principal, scope ? { scope } : {}, activeConfig);
+        return send(res, status, payload);
+      }
+      if (url.pathname === MCP_PATH) {
+        // Stateless MCP: no server-initiated stream to open (GET) and no session to end (DELETE).
+        if (req.method !== "POST") { res.setHeader("allow", "POST"); throw problem(405, "method-not-allowed", `${req.method} is not allowed on ${url.pathname}; MCP here is stateless POST`); }
+        const message = await readBody(req);
+        return await handleMcpRequest(req, res, message, (route, body) => dispatch(route, principal, body, activeConfig), (error) => problemBody(problemOf(error)), version);
       }
       if (req.method !== "POST") throw problem(405, "method-not-allowed", `${req.method} is not allowed on ${url.pathname}`);
-      const body = await readBody(req);
-      // The body never names the principal: the token did.
-      delete body.principal;
-      delete body.schema;
-      // Only authenticated grants select stores for cross-partition source visibility.
-      const accessOptions = { additionalStores: principal.grants.map(grant => requestStore(grant).store) };
-
-      if (url.pathname === "/nuryel/v1/read") {
-        const scope = requireScope(principal, body);
-        if (body.observed_page !== undefined && body.scopes !== undefined) throw problem(400, 'malformed', 'observation pages require a single partition without scopes');
-        const { store } = requestStore(scope);
-        if (body.scopes === undefined) {
-          const { response, envelope } = readState(store, { schema: STATE_READ_VERSION, principal, ...body }, accessOptions);
-          return send(res, 200, { ...response, envelope });
-        }
-        // Union read. The primary `scope` was gated above as always; every extra scope is
-        // either granted (read from ITS partition — 404 no-partition if this server lacks it)
-        // or named in denied_scopes. One ungranted extra never refuses the whole call.
-        const requested = ReadScopesSchema.safeParse(body.scopes);
-        if (!requested.success) throw problem(400, "invalid-scope", "scopes must be 1..64 entries of { kind, id }");
-        const { scopes: _scopes, ...rest } = body;
-        const isGranted = (s: Scope): boolean => principal.grants.some((g) => scopePath(g) === scopePath(s));
-        const ungranted = requested.data.filter((s) => !isGranted(s));
-        const others = new Map<string, Scope>();
-        for (const s of requested.data) if (isGranted(s) && scopePath(s) !== scopePath(scope) && !others.has(scopePath(s))) others.set(scopePath(s), s);
-        const primary = readState(store, { schema: STATE_READ_VERSION, principal, ...rest, scope }, accessOptions);
-        const merged = mergeReadResponses(primary.response, [...others.values()].map((other) => readState(requestStore(other).store, { schema: STATE_READ_VERSION, principal, ...rest, scope: other }, accessOptions).response), ungranted);
-        return send(res, 200, { ...merged, envelope: primary.envelope });
-      }
-      if (url.pathname === "/nuryel/v1/write") {
-        const scope = requireScope(principal, body);
-        const { store, root } = requestStore(scope);
-        const { hunchDir } = stateHomeFor(store, scope);
-        const result = await withWriteLock(hunchDir, () => writeState(store, { schema: STATE_WRITE_VERSION, principal, ...body }, {
-          ...accessOptions,
-          flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
-        }));
-        return send(res, result.outcome === "created" ? 201 : 200, result);
-      }
-      if (url.pathname === "/nuryel/v1/capture") {
-        const scope = requireScope(principal, body);
-        const { store, root } = requestStore(scope);
-        const { hunchDir } = stateHomeFor(store, scope);
-        const result = await withWriteLock(hunchDir, () => captureState(store, { schema: STATE_CAPTURE_VERSION, principal, ...body }, {
-          ...accessOptions,
-          flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
-        }));
-        return send(res, result.outcome === "created" ? 201 : 200, result);
-      }
-      if (url.pathname === "/nuryel/v1/capture-batch") {
-        const scope = requireScope(principal, body);
-        const { store, root } = requestStore(scope);
-        const { hunchDir } = stateHomeFor(store, scope);
-        const result = await withWriteLock(hunchDir, () => captureBatchState(store, { schema: STATE_CAPTURE_BATCH_VERSION, principal, ...body }, {
-          ...accessOptions,
-          flush: (isPrivate, message) => flushCapture(store, hunchPaths(root).hunch, isPrivate, message),
-        }));
-        return send(res, 200, result);
-      }
-      if (url.pathname === "/nuryel/v1/subscribe") {
-        const scope = requireScope(principal, body);
-        const { store } = requestStore(scope);
-        return send(res, 200, subscribeState(store, { schema: STATE_SUBSCRIBE_VERSION, principal, ...body }, accessOptions));
-      }
-      if (url.pathname === "/nuryel/v1/records") {
-        const scope = requireScope(principal, body);
-        const { store } = requestStore(scope);
-        return send(res, 200, recordsState(store, { schema: STATE_RECORDS_VERSION, principal, ...body }, accessOptions));
-      }
-      throw problem(404, "not-found", `${url.pathname} is not a nuryel.state/1 route`);
+      const route = POST_ROUTES.get(url.pathname);
+      if (!route) throw problem(404, "not-found", `${url.pathname} is not a nuryel.state/1 route`);
+      const { status, payload } = await dispatch(route, principal, await readBody(req), activeConfig);
+      return send(res, status, payload);
     } catch (error) {
-      if (error instanceof HttpProblem) return sendProblem(res, error);
-      if (error instanceof StateRefusal) return sendProblem(res, problem(REFUSAL_STATUS[error.code], error.code, error.message, error.conflict ? { conflict: error.conflict } : {}));
-      if (error instanceof WriteLockTimeout) return sendProblem(res, problem(503, "write-lock-timeout", error.message, { "retry-after": 1 }));
-      if (error && typeof error === "object" && (error as { name?: string }).name === "ZodError") {
-        const issues = ((error as { issues?: Array<{ path: Array<string | number>; message: string }> }).issues ?? []).map((i) => `${i.path.join(".") || "request"}: ${i.message}`);
-        return sendProblem(res, problem(400, "malformed", `request is malformed: ${issues.join("; ")}`, { issues }));
-      }
-      return sendProblem(res, problem(500, "internal", (error as Error).message));
+      // An MCP response may already be on the wire; a second status line would corrupt it.
+      if (res.headersSent) { res.end(); return; }
+      return sendProblem(res, problemOf(error));
     }
   });
   const closeStores = (): void => { for (const store of stores.values()) store.close(); stores.clear(); };

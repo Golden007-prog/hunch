@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `hunch serve` speaks MCP over streamable HTTP at `POST /nuryel/v1/mcp`: the `nuryel_*` tools behind the same bearer/DPoP credential, grants, write lock and refusals as the REST routes, so an agent gateway or remote orchestrator adds the state layer as an MCP tool target without a stdio process. Stateless JSON responses; a refusal is a tool error carrying the REST problem body. REST and MCP share one dispatcher (`src/serve/app.ts`), so the two transports cannot diverge.
+- ROADMAP: "Agent-gateway readiness" — two phases (reachable from a managed runtime; acceptable to a regulated organization), each item with named acceptance evidence.
+
 ## 1.38.1 — 2026-09-16
 
 - A prompt that ends without a Stop (the user interrupted it) no longer leaves its task open forever: the next prompt of the session, or its Stop, closes it as a host close and its evidence reaches the episode record (#263). A task still open counts as the session's current work whatever its age, so the next prompt continues it.

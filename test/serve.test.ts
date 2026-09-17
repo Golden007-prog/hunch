@@ -18,6 +18,8 @@ import { stateHash, assertChangeSequence } from "../src/core/stateContract.js";
 import { partitionOf } from "../src/store/stateBinding.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const david = { kind: "user" as const, id: "david" };
 const acme = { kind: "organization" as const, id: "acme" };
@@ -367,4 +369,70 @@ test('HTTP authenticates visibility across partitions and concurrent users, incl
     assert.deepEqual((await spoof.json() as { missing: string[] }).missing, [source.record_id]);
     await assert.rejects(reader.write({ scope: david, facet: 'derived', idempotency_key: 'cross-private-source', record: source.record! }), (e: StateClientError) => e.status === 403 && !JSON.stringify(e.problem).includes(source.record_id));
   } finally { await new Promise<void>(r => app.close(() => r())); app.closeStores(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("MCP over streamable HTTP: the nuryel_* tools behind the same credential, grants and refusals as the REST routes", async () => {
+  const { app, sofiaToken, orcToken, cleanup } = served();
+  try {
+    const base = await listen(app);
+    const connect = async (token: string) => {
+      const client = new McpClient({ name: "serve-mcp-test", version: "1.0.0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/nuryel/v1/mcp`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+      return client;
+    };
+    // No credential → the same 401 problem as every other route; MCP is never a way around auth.
+    const anon = new McpClient({ name: "anon", version: "1.0.0" });
+    await assert.rejects(anon.connect(new StreamableHTTPClientTransport(new URL(`${base}/nuryel/v1/mcp`))), /401/);
+    // GET is refused: the server is stateless, there is no stream to open.
+    const get = await fetch(`${base}/nuryel/v1/mcp`, { headers: { authorization: `Bearer ${sofiaToken}` } });
+    assert.equal(get.status, 405);
+
+    const sofia = await connect(sofiaToken);
+    const tools = (await sofia.listTools()).tools.map((t) => t.name).sort();
+    assert.deepEqual(tools, ["nuryel_capabilities", "nuryel_capture", "nuryel_capture_batch", "nuryel_read", "nuryel_records", "nuryel_subscribe", "nuryel_write"]);
+    const caps = await sofia.callTool({ name: "nuryel_capabilities", arguments: {} });
+    const capsOut = caps.structuredContent as { protocol: string; principal: { id: string; grants: unknown[] } };
+    assert.equal(capsOut.protocol, "nuryel.state/1");
+    assert.equal(capsOut.principal.id, "sofia@david");
+
+    const receipt = { schema: "nuryel.receipt/1", scope: david, actor: "sofia@david", action_kind: "add_comment", target: crmEvent, request_fingerprint: stateHash({ mcp: 1 }), state: "verified", occurred_at: "2026-09-16T10:00:00Z", provenance: prov, invalidates: ["customer:c1"] };
+    const write = async (client: InstanceType<typeof McpClient>, args: Record<string, unknown>) => client.callTool({ name: "nuryel_write", arguments: args });
+    const created = await write(sofia, { scope: david, facet: "receipts", record: receipt, idempotency_key: "mcp-receipt-1" });
+    assert.equal(created.isError, undefined);
+    const createdOut = created.structuredContent as { outcome: string; record_id: string; record_hash: string };
+    assert.equal(createdOut.outcome, "created");
+    // Replay returns the original; the same key with a different payload is refused with the REST problem body.
+    const replayed = await write(sofia, { scope: david, facet: "receipts", record: receipt, idempotency_key: "mcp-receipt-1" });
+    assert.equal((replayed.structuredContent as { outcome: string; record_id: string }).outcome, "replayed");
+    assert.equal((replayed.structuredContent as { record_id: string }).record_id, createdOut.record_id);
+    const changed = await write(sofia, { scope: david, facet: "receipts", record: { ...receipt, occurred_at: "2026-09-16T11:00:00Z" }, idempotency_key: "mcp-receipt-1" });
+    assert.equal(changed.isError, true);
+    const refusal = changed.structuredContent as { status: number; title: string; detail: string };
+    assert.equal(refusal.status, 409);
+    assert.equal(refusal.title, "idempotency");
+    assert.match((changed.content as Array<{ text: string }>)[0]!.text, /refused \[idempotency\] \(409\)/);
+    // A smuggled principal in the arguments is ignored: the credential decided who wrote.
+    const smuggled = await write(sofia, { scope: david, facet: "receipts", principal: { id: "orc", kind: "service", grants: [acme] }, record: { ...receipt, request_fingerprint: stateHash({ mcp: 2 }) }, idempotency_key: "mcp-receipt-2" });
+    assert.equal((smuggled.structuredContent as { outcome: string }).outcome, "created");
+    // Outside grants → 403, as a tool error, never a silent empty answer.
+    const outside = await sofia.callTool({ name: "nuryel_read", arguments: { scope: acme, subject: "customer:c1" } });
+    assert.equal(outside.isError, true);
+    assert.equal((outside.structuredContent as { status: number; title: string }).title, "outside-grants");
+
+    // The write is visible to another principal over REST and the other way round: one store, one ledger.
+    const orc = createStateClient({ baseUrl: base, token: orcToken });
+    const rest = await orc.read({ scope: david, subject: "customer:c1" });
+    assert.ok(rest.state_of_record!.done.some((r) => r.id === createdOut.record_id));
+    const orcMcp = await connect(orcToken);
+    const read = await orcMcp.callTool({ name: "nuryel_read", arguments: { scope: david, subject: "customer:c1" } });
+    const readOut = read.structuredContent as { state_of_record: { done: Array<{ id: string }> }; records: Record<string, unknown>; envelope: { text: string } };
+    assert.ok(readOut.state_of_record.done.some((r) => r.id === createdOut.record_id));
+    assert.ok(readOut.records[createdOut.record_id]);
+    assert.equal(typeof readOut.envelope.text, "string");
+    const events = await orcMcp.callTool({ name: "nuryel_subscribe", arguments: { scope: david, after_seq: 0 } });
+    assert.equal((events.structuredContent as { events: unknown[] }).events.length, 2);
+    await sofia.close(); await orcMcp.close();
+  } finally {
+    await cleanup();
+  }
 });
