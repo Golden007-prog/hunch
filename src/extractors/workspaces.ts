@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { foreignRepoEnv, gitCommonDir, mainWorktreeRoot, stableRepositoryName } from "./git.js";
 import { extracted } from "../core/types.js";
 import {
-  MAX_BRANCHES, MAX_WORKTREES, WORKSPACE_SCHEMA_VERSION, WorkspaceSchema, isSafeBranchName, workspaceId, worktreeId,
+  CONTROL_CHARS, MAX_BRANCHES, MAX_WORKTREES, WORKSPACE_SCHEMA_VERSION, WorkspaceSchema, isSafeBranchName, workspaceId, worktreeId,
   type MergedVerdict, type Workspace, type WorkspaceBranch, type WorkspaceWorktree,
 } from "../core/workspace.js";
 import type { MachineIdentity } from "../core/machine.js";
@@ -36,7 +36,9 @@ export interface SnapshotOptions {
 }
 
 function env(): NodeJS.ProcessEnv {
-  return foreignRepoEnv(process.env);
+  // GIT_OPTIONAL_LOCKS=0: a read-only snapshot (it runs from hooks, in the background) must
+  // never take the index lock `git status` would otherwise grab to refresh stat data.
+  return { ...foreignRepoEnv(process.env), GIT_OPTIONAL_LOCKS: "0" };
 }
 
 function run(cwd: string, args: string[], timeout = 10_000): string | null {
@@ -116,11 +118,37 @@ function listWorktrees(root: string): RawWorktree[] {
 }
 
 /** `git status --porcelain` is non-empty → uncommitted or untracked work that
- *  `git worktree remove` would refuse to discard. null when the path is gone. */
+ *  `git worktree remove` would refuse to discard. null when the path is gone.
+ *  `--untracked-files=all` is explicit: `status.showUntrackedFiles=no` in the user's config
+ *  would otherwise hide an untracked source file and report the worktree clean. */
 function isDirty(path: string): boolean | null {
   if (!existsSync(path)) return null;
-  const out = run(path, ["status", "--porcelain", "--ignore-submodules"]);
+  const out = run(path, ["status", "--porcelain", "--untracked-files=all"]);
   return out === null ? null : out.trim().length > 0;
+}
+
+/** Bound on the ignored paths NAMED in a prune plan; the total is always reported. */
+export const MAX_IGNORED_SHOWN = 10;
+
+/** Ignored files and directories in a worktree — what `git worktree remove` (without
+ *  `--force`) deletes silently. Not a refusal (every Node worktree has node_modules/), but a
+ *  prune plan and its confirmation name them. An ignored directory is one entry. Read live
+ *  for this machine's plan only; never stored in a record. null when git cannot tell. */
+export function ignoredPaths(path: string, maxShown = MAX_IGNORED_SHOWN): { shown: string[]; total: number } | null {
+  if (!existsSync(path)) return null;
+  // `--untracked-files=normal` is explicit: `--ignored=matching` refuses the `no` a user's
+  // status.showUntrackedFiles would otherwise supply.
+  const out = run(path, ["status", "--porcelain", "-z", "--ignored=matching", "--untracked-files=normal"]);
+  if (out === null) return null;
+  const fields = out.split("\0");
+  const entries: string[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i]!;
+    if (field.startsWith("!! ")) entries.push(field.slice(3));
+    else if (/^(?:[RC].|.[RC]) /.test(field)) i++; // a rename/copy carries its source path as the next field
+  }
+  entries.sort();
+  return { shown: entries.slice(0, maxShown), total: entries.length };
 }
 
 interface RawBranch { name: string; head: string; upstream: string | null; track: string; date: string | null; worktreePath: string | null }
@@ -220,11 +248,29 @@ function withPr(verdict: MergedVerdict, pr: number | undefined): MergedVerdict {
   return pr === undefined ? verdict : { ...verdict, pr, evidence: [...verdict.evidence, `pull request #${pr} (from the local commit subject)`] };
 }
 
-function mergedVerdict(root: string, name: string, head: string, def: DefaultBranch | null, patchIds: DefaultPatchIds, searched: number): MergedVerdict {
+/** The default branch's first-parent history: the commits made (or fast-forwarded) directly
+ *  on it. null when git cannot list it. */
+function firstParentsOf(root: string, head: string): Set<string> | null {
+  const out = run(root, ["rev-list", "--first-parent", "--end-of-options", head, "--"], 60_000);
+  if (out === null) return null;
+  return new Set(out.split("\n").map((l) => l.trim()).filter((l) => SHA.test(l)));
+}
+
+type DefaultFirstParents = () => Set<string> | null;
+
+function mergedVerdict(root: string, name: string, head: string, def: DefaultBranch | null, patchIds: DefaultPatchIds, firstParents: DefaultFirstParents, searched: number): MergedVerdict {
   if (!def) return { status: "unknown", method: null, evidence: ["no default branch resolved (origin/HEAD, origin/main, origin/master, main, master)"] };
   const ancestor = predicate(root, ["merge-base", "--is-ancestor", head, def.head]);
   if (ancestor === null) return { status: "unknown", method: null, evidence: ["git merge-base failed"] };
   if (ancestor) {
+    // A head ON the default branch's first-parent line holds no commits of its own: a branch
+    // created and never committed to (or fast-forwarded in). Ancestry would call it merged
+    // and prune would delete it with its worktree; it is labeled and kept instead.
+    const line = firstParents();
+    if (line === null) return { status: "unknown", method: null, evidence: [`${head.slice(0, 12)} is an ancestor of ${def.ref}; its first-parent history could not be read`] };
+    if (line.has(head)) {
+      return { status: "no-commits", method: null, evidence: [`${head.slice(0, 12)} is on ${def.ref}@${def.head.slice(0, 12)} first-parent history: no commits of its own (or fast-forwarded)`] };
+    }
     const verdict: MergedVerdict = { status: "merged", method: "ancestry", evidence: [`${head.slice(0, 12)} is an ancestor of ${def.ref}@${def.head.slice(0, 12)}`] };
     return withPr(verdict, prFromMergeCommits(root, name, `${head}..${def.head}`));
   }
@@ -234,20 +280,40 @@ function mergedVerdict(root: string, name: string, head: string, def: DefaultBra
   if (!known.ok) {
     return { status: "unmerged", method: null, evidence: [`not an ancestor of ${def.ref}@${def.head.slice(0, 12)}; squash/rebase search unavailable (default-branch history too large or git failed)`] };
   }
+  // Only default-branch commits AFTER the merge base can have landed this branch — the set
+  // `git cherry` compares against. A matching commit already behind the base is the branch's
+  // own history: a reland (revert of a revert) or a value flipped back matches the ORIGINAL
+  // commit and is not merged. The map keeps the newest commit per patch-id, so when that one
+  // is behind the base every older one is too. null → git failed (never "no").
+  const landedAfterBase = (commit: string): boolean | null => {
+    const behind = predicate(root, ["merge-base", "--is-ancestor", commit, base]);
+    return behind === null ? null : !behind;
+  };
   const combined = combinedPatchId(root, base, head);
   if (combined) {
     const commit = known.map.get(combined);
     if (commit) {
-      const verdict: MergedVerdict = { status: "merged", method: "squash", evidence: [`patch-id of ${base.slice(0, 12)}..${head.slice(0, 12)} equals ${def.ref} commit ${commit.slice(0, 12)}`] };
-      return withPr(verdict, prFromSquashCommit(root, commit));
+      const after = landedAfterBase(commit);
+      if (after === null) return { status: "unknown", method: null, evidence: ["git merge-base failed"] };
+      if (after) {
+        const verdict: MergedVerdict = { status: "merged", method: "squash", evidence: [`patch-id of ${base.slice(0, 12)}..${head.slice(0, 12)} equals ${def.ref} commit ${commit.slice(0, 12)}`] };
+        return withPr(verdict, prFromSquashCommit(root, commit));
+      }
     }
   }
   // Rebase / cherry-pick: every commit of the branch has a patch-equivalent commit in the
-  // default branch. Uses the one-time map instead of `git cherry`, whose cost grows with
-  // the default branch's history for EVERY branch checked.
+  // default branch after the merge base. Uses the one-time map instead of `git cherry`, whose
+  // cost grows with the default branch's history for EVERY branch checked.
   const own = patchIdsOf(root, [`${base}..${head}`], null, 30_000);
-  if (own.ok && own.map.size && [...own.map.keys()].every((id) => known.map.has(id))) {
-    return { status: "merged", method: "rebase", evidence: [`all ${own.map.size} commit(s) have a patch-equivalent commit in ${def.ref} (last ${searched} searched)`] };
+  if (own.ok && own.map.size) {
+    let all = true;
+    for (const id of own.map.keys()) {
+      const commit = known.map.get(id);
+      const after = commit ? landedAfterBase(commit) : false;
+      if (after === null) return { status: "unknown", method: null, evidence: ["git merge-base failed"] };
+      if (!after) { all = false; break; }
+    }
+    if (all) return { status: "merged", method: "rebase", evidence: [`all ${own.map.size} commit(s) have a patch-equivalent commit in ${def.ref} after the merge base (last ${searched} searched)`] };
   }
   return { status: "unmerged", method: null, evidence: [`not in ${def.ref}@${def.head.slice(0, 12)}; squash/rebase searched last ${searched} commits`] };
 }
@@ -273,6 +339,8 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
   const searched = opts.squashSearchCommits ?? DEFAULT_SQUASH_SEARCH_COMMITS;
   let patchIds: ReturnType<typeof patchIdsOf> | null = null;
   const lazyPatchIds: DefaultPatchIds = () => (patchIds ??= def ? patchIdsOf(main, [def.head], searched, 60_000) : { map: new Map(), ok: true });
+  let firstParents: Set<string> | null | undefined;
+  const lazyFirstParents: DefaultFirstParents = () => (firstParents === undefined ? (firstParents = def ? firstParentsOf(main, def.head) : null) : firstParents);
   const notes: string[] = [];
 
   const allWorktrees = listWorktrees(main).map((w) => ({ ...w, date: iso(run(main, ["log", "-1", "--format=%cI", "--end-of-options", w.head, "--"])) }));
@@ -281,7 +349,9 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
   const mainReal = realpath(main);
   const worktrees: WorkspaceWorktree[] = rawWorktrees.map((w) => ({
     id: worktreeId(w.path),
-    path: opts.publish === "full" ? w.path : null,
+    // A path with a control character (newline, ESC) is never recorded or printed; without a
+    // path `prune --apply` refuses the worktree instead of guessing.
+    path: opts.publish === "full" && !CONTROL_CHARS.test(w.path) ? w.path : null,
     branch: w.branch,
     head: w.head,
     is_main: realpath(w.path) === mainReal,
@@ -311,7 +381,7 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
       worktree: (b.worktreePath && worktreeByPath.get(b.worktreePath)) || null,
       merged: def?.name === b.name
         ? { status: "unmerged", method: null, evidence: ["default branch"] }
-        : mergedVerdict(main, b.name, b.head, def, lazyPatchIds, searched),
+        : mergedVerdict(main, b.name, b.head, def, lazyPatchIds, lazyFirstParents, searched),
     };
   });
 
@@ -327,8 +397,8 @@ export function snapshotWorkspace(root: string, opts: SnapshotOptions): Workspac
     worktrees,
     branches,
     provenance: extracted(1, [
-      "git worktree list --porcelain", "git for-each-ref refs/heads/", "git status --porcelain",
-      "git merge-base --is-ancestor", "git diff | git patch-id --stable", "git log -p | git patch-id --stable",
+      "git worktree list --porcelain", "git for-each-ref refs/heads/", "git status --porcelain --untracked-files=all",
+      "git merge-base --is-ancestor", "git rev-list --first-parent","git diff | git patch-id --stable", "git log -p | git patch-id --stable",
       ...notes,
     ]),
   };

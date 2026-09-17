@@ -9,17 +9,17 @@
  * funnel as every other record: the overlay when one is configured, the public .hunch/
  * only when `workspaces.publish_public` opts in, nothing otherwise.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { foreignRepoEnv, mainWorktreeRoot } from "../extractors/git.js";
 import { hunchPaths } from "../core/paths.js";
 import { readConfig, workspacesConfig, type WorkspacesConfig } from "../core/config.js";
 import { loadOrCreateMachine, type MachineIdentity } from "../core/machine.js";
 import {
-  ago, branchRows, isSafeBranchName, latestPerMachine, isUnverified, planPrune, sameWorkspaceContent, withPublishMode, worktreeRows,
+  CONTROL_CHARS, ago, branchRows, isSafeBranchName, latestPerMachine, isUnverified, planPrune, sameWorkspaceContent, withPublishMode, worktreeRows,
   type BranchRow, type PrunePlan, type PruneStep, type Workspace, type WorktreeRow,
 } from "../core/workspace.js";
-import { snapshotWorkspace } from "../extractors/workspaces.js";
+import { ignoredPaths, snapshotWorkspace } from "../extractors/workspaces.js";
 import type { HunchStore } from "../store/hunchStore.js";
 import { flushCapture } from "./sync.js";
 
@@ -120,7 +120,7 @@ export function renderBranchTable(view: LedgerView, rows: BranchRow[]): string {
     r.machines.join(","),
     r.worktree_on.length ? r.worktree_on.join(",") + (r.dirty_on.length ? " (dirty)" : "") : "-",
     describeUpstream(r),
-    r.merged.status === "merged" ? `yes (${r.merged.method}${r.merged.pr ? `, PR #${r.merged.pr}` : ""})` : r.merged.status === "unmerged" ? "no" : "unknown",
+    r.merged.status === "merged" ? `yes (${r.merged.method}${r.merged.pr ? `, PR #${r.merged.pr}` : ""})` : r.merged.status === "unmerged" ? "no" : r.merged.status === "no-commits" ? "no commits" : "unknown",
     r.action,
   ]));
   const deletable = rows.filter((r) => r.action.startsWith("delete local")).length;
@@ -151,26 +151,93 @@ export { branchRows, worktreeRows };
 // re-checks "clean" and "merged" as a second line of defense. Nothing here touches a remote
 // or another machine; their commands are printed for a human to run there.
 
-export function prunePlanFor(view: LedgerView): PrunePlan {
-  return planPrune(view.live, view.records);
+/** This machine's plan: the pure plan from the live record, then two live checks per step.
+ *  A step `git branch -d` would refuse is moved to `skipped` BEFORE anything runs (removing
+ *  the worktree and then failing the branch delete would half-apply the step), and a
+ *  worktree's ignored files — which `git worktree remove` deletes without asking — are
+ *  attached so the plan and the confirmation name them. */
+export function prunePlanFor(view: LedgerView, root: string): PrunePlan {
+  const plan = planPrune(view.live, view.records);
+  const local: PruneStep[] = [];
+  for (const step of plan.local) {
+    const refusal = branchDeleteRefusal(root, step);
+    if (refusal) { plan.skipped.push({ branch: step.branch, reason: refusal }); continue; }
+    if (step.worktree?.path) {
+      const ignored = ignoredPaths(step.worktree.path);
+      if (ignored === null) { plan.skipped.push({ branch: step.branch, reason: "the worktree's ignored files could not be listed" }); continue; }
+      if (ignored.total) step.ignored = ignored;
+    }
+    local.push(step);
+  }
+  plan.local = local;
+  return plan;
+}
+
+function gitEnv(): NodeJS.ProcessEnv {
+  return { ...foreignRepoEnv(process.env), GIT_OPTIONAL_LOCKS: "0" };
+}
+
+const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** Why `git branch -d -- <branch>` would refuse right now, or null when it would delete.
+ *  Mirrors git's own rule (builtin/branch.c `branch_merged`): the branch head must be an
+ *  ancestor of its upstream when one is configured AND resolves, otherwise of HEAD of the
+ *  worktree the command runs in (the main worktree). Squash and rebase merges never pass it
+ *  once the upstream is gone or unset, so such a step is reported, not half-applied. The
+ *  branch name is matched in JS; only refs git printed and SHAs reach git as arguments. */
+export function branchDeleteRefusal(root: string, step: Pick<PruneStep, "branch" | "head" | "method">): string | null {
+  const main = mainWorktreeRoot(root);
+  const env = gitEnv();
+  const read = (args: string[]): string | null => {
+    try { return execFileSync("git", args, { cwd: main, env, encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; }
+  };
+  const unchecked = "git branch -d precondition could not be checked; nothing was changed";
+  const refs = read(["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads/"]);
+  if (refs === null) return unchecked;
+  const entry = refs.split("\n").map((line) => line.split("\0")).find(([ref]) => ref === `refs/heads/${step.branch}`);
+  if (!entry) return "branch no longer exists";
+  const [, head = "", upstream = ""] = entry;
+  if (head !== step.head) return `branch moved since the snapshot (now ${head.slice(0, 12)})`;
+  let reference: string | null = null;
+  let referenceName = "HEAD";
+  if (upstream.startsWith("refs/")) {
+    const resolved = read(["rev-parse", "--verify", "-q", "--end-of-options", `${upstream}^{commit}`]);
+    if (resolved && SHA.test(resolved)) { reference = resolved; referenceName = upstream.replace(/^refs\/(?:remotes|heads)\//, ""); }
+  }
+  if (!reference) {
+    const resolved = read(["rev-parse", "--verify", "-q", "--end-of-options", "HEAD^{commit}"]);
+    if (!resolved || !SHA.test(resolved)) return "git branch -d would refuse: the main worktree's HEAD does not resolve; delete manually after checking";
+    reference = resolved;
+  }
+  const r = spawnSync("git", ["merge-base", "--is-ancestor", step.head, reference], { cwd: main, env, timeout: 30_000, stdio: "ignore" });
+  if (r.error || r.status === null || (r.status !== 0 && r.status !== 1)) return unchecked;
+  if (r.status === 0) return null;
+  return step.method === "squash" || step.method === "rebase"
+    ? `${step.method}-merged: git branch -d would refuse (not merged into ${referenceName}); delete manually after checking`
+    : `git branch -d would refuse: not merged into ${referenceName}; update it, or delete manually after checking`;
 }
 
 export interface PruneResult {
   step: PruneStep;
-  outcome: "deleted" | "failed";
+  /** `skipped`: a live precondition failed before anything ran — the step is untouched. */
+  outcome: "deleted" | "skipped" | "failed";
   detail: string;
 }
 
 /** Execute the local steps of a plan. Each command is a fixed argv; the branch name was
  *  validated by the record schema and is passed after `--`; the worktree path comes from
- *  `git worktree list` on this machine. A failure stops that step, never the others. */
+ *  `git worktree list` on this machine. `git branch -d`'s own precondition is re-checked
+ *  BEFORE the worktree is removed, so a step either runs whole or not at all. A failure
+ *  stops that step, never the others. */
 export function applyPrune(root: string, steps: readonly PruneStep[]): PruneResult[] {
   const main = mainWorktreeRoot(root);
-  const env = foreignRepoEnv(process.env);
+  const env = gitEnv();
   const git = (args: string[]): string => execFileSync("git", args, { cwd: main, env, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] }).trim();
   const results: PruneResult[] = [];
   for (const step of steps) {
     if (!isSafeBranchName(step.branch)) { results.push({ step, outcome: "failed", detail: "refused: unsafe branch name" }); continue; }
+    const refusal = branchDeleteRefusal(root, step);
+    if (refusal) { results.push({ step, outcome: "skipped", detail: `skipped (worktree and branch kept): ${refusal}` }); continue; }
     try {
       const detail: string[] = [];
       if (step.worktree?.path) { git(["worktree", "remove", "--", step.worktree.path]); detail.push(`removed worktree ${step.worktree.path}`); }
@@ -184,6 +251,26 @@ export function applyPrune(root: string, steps: readonly PruneStep[]): PruneResu
     }
   }
   return results;
+}
+
+/** A file name is repository content a terminal would interpret: control characters are
+ *  shown escaped, never emitted. */
+function printable(text: string): string {
+  return text.replace(new RegExp(CONTROL_CHARS.source, "g"), (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
+export function describeIgnored(ignored: NonNullable<PruneStep["ignored"]>): string {
+  const more = ignored.total - ignored.shown.length;
+  return `${ignored.total} ignored path(s) in the worktree: ${ignored.shown.map(printable).join(", ")}${more > 0 ? `, … and ${more} more` : ""}`;
+}
+
+/** The confirmation question for `prune --apply`: counts, and — because `git worktree
+ *  remove` deletes ignored files (.env, build output) without asking — every worktree's
+ *  ignored paths by name. */
+export function pruneConfirmQuestion(view: LedgerView, plan: PrunePlan): string {
+  const worktrees = plan.local.filter((s) => s.worktree).length;
+  const details = plan.local.filter((s) => s.ignored).map((s) => `  ${s.branch}: removing its worktree also deletes ${describeIgnored(s.ignored!)}`);
+  return [...details, `Delete ${plan.local.length} branch(es)${worktrees ? ` and remove ${worktrees} worktree(s)` : ""} on ${view.machine.label}?`].join("\n");
 }
 
 /** Interactive yes/no; false when stdin is not a terminal (the caller then needs --yes). */
@@ -203,6 +290,7 @@ export function renderPrunePlan(view: LedgerView, plan: PrunePlan): string {
   for (const step of plan.local) {
     L.push(`  ${step.branch}  — ${step.why}`);
     for (const c of step.commands) L.push(`    ${c}`);
+    if (step.ignored) L.push(`    ⚠ also deletes ${describeIgnored(step.ignored)}`);
   }
   if (plan.skipped.length) {
     L.push("", "Merged but left alone on this machine:");

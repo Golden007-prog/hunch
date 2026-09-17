@@ -17,7 +17,7 @@ import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { installPostCheckoutHook, installPostCommitHook, hookStatus } from "../src/integrations/hooks.js";
 import { writeSlashCommands } from "../src/integrations/scaffold.js";
-import { recordWorkspaceSnapshot, snapshotHasHome, workspaceSummaryLine, workspaceLedgerView } from "../src/integrations/workspaceLedger.js";
+import { branchRows, recordWorkspaceSnapshot, renderBranchTable, snapshotHasHome, workspaceSummaryLine, workspaceLedgerView } from "../src/integrations/workspaceLedger.js";
 import { WorkspaceSchema, workspaceId, type Workspace } from "../src/core/workspace.js";
 
 const PROJECT_ROOT = process.cwd();
@@ -220,6 +220,22 @@ test("workspaceSummaryLine reads stored records only and counts machines, dirty 
   assert.equal(line, "🗂 Workspaces in memory: 1 machine(s) · 1 worktree(s) (1 dirty) · 2 branch(es), 1 deletable — `hunch branches` for the verdicts");
   const stale = { ...fresh, observed_at: "2026-09-01T10:00:00Z" };
   assert.match(workspaceSummaryLine([stale], config, now)!, /1 machine\(s\) \(1 unverified\)/);
+});
+
+test("a no-commits branch reads as 'no commits' in the branch table, is kept, and never counts as deletable", () => {
+  const now = new Date("2026-09-17T12:00:00Z");
+  const config = { publish: "branches" as const, stale_after_days: 7, publish_public: false };
+  const rec = otherRecord("2026-09-17T10:00:00Z", [
+    { name: "feat/fresh", merged: { status: "no-commits", method: null, evidence: ["on origin/main first-parent history"] } },
+    { name: "fix/old", merged: { status: "merged", method: "ancestry", evidence: ["ancestor"] } },
+  ]);
+  assert.throws(() => otherRecord("2026-09-17T10:00:00Z", [{ name: "x", merged: { status: "no-commits", method: "ancestry", evidence: [] } }]), /names its method/);
+  const rows = branchRows([rec], { now, staleAfterDays: 7 });
+  const fresh = rows.find((r) => r.name === "feat/fresh")!;
+  assert.equal(fresh.action, "keep: no commits of its own; dirty worktree on other-box");
+  const view = { machine: MACHINE, live: rec, records: [rec], config };
+  assert.match(renderBranchTable(view, rows), /feat\/fresh\s+other-box\s+other-box \(dirty\)\s+never pushed\s+no commits\s+keep: no commits of its own/);
+  assert.match(workspaceSummaryLine([rec], config, now)!, /2 branch\(es\), 1 deletable/);
 });
 
 // ---- MCP ----------------------------------------------------------------------------------

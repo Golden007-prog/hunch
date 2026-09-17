@@ -90,7 +90,7 @@ import { projectDnaDeliverySupplement } from "../core/projectDnaDelivery.js";
 import { readConfig, writeConfig, FIRMNESS_LEVELS, isFirmness, type Firmness, workspacesConfig } from "../core/config.js";
 import { loadOrCreateMachine, setMachineLabel, machineFile, labelLeaksIdentity } from "../core/machine.js";
 import { worktreeRows, branchRows } from "../core/workspace.js";
-import { workspaceLedgerView, recordWorkspaceSnapshot, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, prunePlanFor, renderPrunePlan, applyPrune, confirmPrune } from "../integrations/workspaceLedger.js";
+import { workspaceLedgerView, recordWorkspaceSnapshot, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, prunePlanFor, renderPrunePlan, applyPrune, confirmPrune, pruneConfirmQuestion } from "../integrations/workspaceLedger.js";
 import { blockingInScope, vetoInScope, proposedEditLines, type BlockingHit } from "../core/hookpolicy.js";
 import { isHumanConfirmed } from "../core/strictgate.js";
 import { appendEvent, readEvents } from "../core/events.js";
@@ -1534,7 +1534,7 @@ workspacesCmd
     try {
       if (!isGitRepo(root)) return fail("`hunch workspaces prune` needs a git repo");
       const view = workspaceLedgerView(store, root, { fetch: opts.fetch });
-      const plan = prunePlanFor(view);
+      const plan = prunePlanFor(view, root);
       if (!opts.apply) {
         if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan }, null, 2));
         console.log(renderPrunePlan(view, plan));
@@ -1547,8 +1547,7 @@ workspacesCmd
       }
       if (!opts.json) console.log(renderPrunePlan(view, plan));
       if (!opts.yes) {
-        const worktrees = plan.local.filter((s) => s.worktree).length;
-        const ok = await confirmPrune(`Delete ${plan.local.length} branch(es)${worktrees ? ` and remove ${worktrees} worktree(s)` : ""} on ${view.machine.label}?`);
+        const ok = await confirmPrune(pruneConfirmQuestion(view, plan));
         if (!ok) return fail(process.stdin.isTTY ? "not confirmed — nothing was deleted" : "refusing to apply without confirmation: stdin is not a terminal; pass --yes to confirm explicitly");
       }
       const results = applyPrune(root, plan.local);
@@ -1558,11 +1557,12 @@ workspacesCmd
       try { recorded = recordWorkspaceSnapshot(store, root).status; } catch (error) { recorded = `failed: ${(error as Error).message}`; }
       if (opts.json) return console.log(JSON.stringify({ machine: view.machine.label, plan, results, recorded }, null, 2));
       console.log("");
-      for (const r of results) console.log(`  ${r.outcome === "deleted" ? "✓" : "✗"} ${r.step.branch}: ${r.detail}`);
+      for (const r of results) console.log(`  ${r.outcome === "deleted" ? "✓" : r.outcome === "skipped" ? "–" : "✗"} ${r.step.branch}: ${r.detail}`);
       const failed = results.filter((r) => r.outcome === "failed").length;
+      const skipped = results.filter((r) => r.outcome === "skipped").length;
       const ledger = recorded === "written" ? " · ledger updated" : recorded === "unchanged" || recorded === "no-home" || recorded === "off" ? "" : ` · ledger not updated (${recorded})`;
-      console.log(`\n${results.length - failed} deleted, ${failed} refused by git${ledger}`);
-      if (failed) process.exitCode = 1;
+      console.log(`\n${results.length - failed - skipped} deleted, ${skipped ? `${skipped} skipped (nothing changed), ` : ""}${failed} refused by git${ledger}`);
+      if (failed || skipped) process.exitCode = 1;
     } finally {
       store.close();
     }
