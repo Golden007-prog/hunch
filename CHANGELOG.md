@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Writers of derived state get `readOrCompute` in `@davesheffer/hunch/state` and `read_or_compute` in the Python client: a current statement whose dependencies are unchanged is reused without computing; otherwise the content is computed once and written with a request-scoped idempotency key (content hash included, so new wording never collides with an old key), superseding its predecessor and keeping its audience. No retries; both clients hash byte for byte with the server.
 - `hunch serve` speaks MCP over streamable HTTP at `POST /nuryel/v1/mcp`: the `nuryel_*` tools behind the same bearer/DPoP credential, grants, write lock and refusals as the REST routes, so an agent gateway or remote orchestrator adds the state layer as an MCP tool target without a stdio process. Stateless JSON responses; a refusal is a tool error carrying the REST problem body. REST and MCP share one dispatcher (`src/serve/app.ts`), so the two transports cannot diverge.
 - ROADMAP: "Agent-gateway readiness" — two phases (reachable from a managed runtime; acceptable to a regulated organization), each item with named acceptance evidence.
 
