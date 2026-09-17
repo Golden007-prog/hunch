@@ -163,9 +163,29 @@ export async function runReportCheck(root: string, taskId: string, command: stri
     // Windows launchers (npx.cmd, npm.cmd, other .cmd/.bat shims) cannot be spawned
     // without a shell; resolve them first so a check actually runs instead of
     // silently recording exit_code null (fnd: every Windows card said "no result").
-    const resolved = resolveSpawnCommand(command);
-    const child = spawn(resolved.file, resolved.args, { cwd: root, shell: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32", windowsVerbatimArguments: resolved.windowsVerbatimArguments === true });
     const stdout = createHash("sha256"), stderr = createHash("sha256");
+    const launchFailure = (error: unknown) => {
+      // A launch failure is a result the user must see (ENOENT is the common
+      // one); it is hashed like any other stderr and streamed to the caller.
+      const text = error instanceof Error ? error.message : String(error);
+      return Buffer.from(`hunch: could not start ${JSON.stringify(command[0])}: ${text}\n`);
+    };
+    const started = (() => {
+      try {
+        const resolved = resolveSpawnCommand(command);
+        return spawn(resolved.file, resolved.args, { cwd: root, shell: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32", windowsVerbatimArguments: resolved.windowsVerbatimArguments === true });
+      } catch (error) {
+        // An argument the launcher cannot carry, or a synchronous spawn refusal
+        // (EINVAL for a batch file), is the same visible failure as ENOENT.
+        return launchFailure(error);
+      }
+    })();
+    if (Buffer.isBuffer(started)) {
+      stderr.update(started); options.onStderr?.(started);
+      resolveResult({ code: null, timedOut: false, cancelled: false, hash: reportHash({ stdout: stdout.digest("hex"), stderr: stderr.digest("hex") }) });
+      return;
+    }
+    const child = started;
     let timedOut = false, cancelled = false, settled = false;
     let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
     const settle = (code: number | null) => {
@@ -196,9 +216,7 @@ export async function runReportCheck(root: string, taskId: string, command: stri
     child.stdout.on("data", chunk => { if (!settled) { stdout.update(chunk); options.onStdout?.(chunk); } });
     child.stderr.on("data", chunk => { if (!settled) { stderr.update(chunk); options.onStderr?.(chunk); } });
     child.once("error", (error) => {
-      // A launch failure is a result the user must see (ENOENT is the common
-      // one); it is hashed like any other stderr and streamed to the caller.
-      const message = Buffer.from(`hunch: could not start ${JSON.stringify(command[0])}: ${error.message}\n`);
+      const message = launchFailure(error);
       if (!settled) { stderr.update(message); options.onStderr?.(message); }
       settle(null);
     });

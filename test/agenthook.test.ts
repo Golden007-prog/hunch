@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { contextHookOutput, denyHookOutput, normalizeHookEvent, parseApplyPatch, stopHookOutput } from "../src/core/agenthook.js";
 import { hunchPaths } from "../src/core/paths.js";
-import { loadPipelineState } from "../src/core/pipeline.js";
+import { armExecutionObligations, emptyState, loadPipelineState, onCommand, onEdit, pendingExecutionObligations } from "../src/core/pipeline.js";
 import type { Constraint } from "../src/core/types.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { mkConstraint, tsxLoaderUrl } from "./helpers.js";
@@ -104,6 +104,33 @@ test("normalizes successful and failed tool outcomes without persisting raw prov
     tool_response: "",
   }, "codex");
   assert.equal(codexUnknown?.tool_outcome?.status, "unknown", "an empty PostToolUse result cannot prove failure or success");
+});
+
+test("a Codex command's plain-string output is not success evidence", () => {
+  // Codex sends a Bash call's PostToolUse `tool_response` as the command's raw
+  // output string; the exit code is not part of it. A failing test run prints
+  // output too, so text alone must not satisfy an expected-success obligation.
+  const failingRun = normalizeHookEvent({
+    hook_event_name: "PostToolUse", session_id: "thread-1", turn_id: "turn-1",
+    tool_name: "Bash", tool_input: { command: "npx vitest run src/preprocess.test.ts" },
+    tool_response: "FAIL src/preprocess.test.ts\nTest Files 1 failed | 3 passed\n",
+  }, "codex");
+  assert.equal(failingRun?.tool_outcome?.status, "unknown");
+  assert.match(failingRun?.tool_outcome?.output ?? "", /1 failed/, "the output is still kept for marker matching");
+  // Text that merely looks like an exit status is printed output, not a status.
+  for (const spoof of ["Process exited with code 0\nOutput:\nok", "Exit code: 0\nok"]) {
+    assert.equal(normalizeHookEvent({ hook_event_name: "PostToolUse", session_id: "t", tool_name: "Bash", tool_response: spoof }, "codex")?.tool_outcome?.status, "unknown", spoof);
+  }
+
+  let state = onEdit(armExecutionObligations(emptyState(), [{
+    id: "episode:runtime:preprocess", origin: "episode", category: "behavior", phase: "after-edit",
+    description: "Exercise preprocess behavior after the latest edit.",
+    command_alternatives: [["vitest", "preprocess.test.ts"]],
+    expected: { success: true, output_includes: ["passed"] },
+  }]), "src/preprocess.ts");
+  state = onCommand(state, failingRun!.tool_input!.command!, failingRun!.tool_outcome);
+  assert.equal(pendingExecutionObligations(state).length, 1, "an unobserved result cannot discharge an expected-success obligation");
+  assert.equal(state.obligations[0]?.last_attempt?.outcome, "unknown");
 });
 
 test("normalizes Cursor's lower-camel hook event and snake payload", () => {

@@ -197,7 +197,11 @@ function toolOutput(value: unknown): string {
 
 function explicitToolOutcome(response: unknown): HunchToolOutcome["status"] {
   const raw = obj(response);
-  if (!raw) return typeof response === "string" && response.trim() ? "success" : "unknown";
+  // A bare string carries no status. Codex sends a Bash call's raw output this
+  // way, without its exit code, and a failing test run prints output as readily
+  // as a passing one. Status-looking text inside it ("Exit code: 0") is output
+  // the command itself can print, so it is never parsed as a status either.
+  if (!raw) return "unknown";
   if (raw.success === false || raw.is_error === true || raw.isError === true || (raw.error !== undefined && raw.error !== null)) return "failure";
   const status = raw.status;
   if (typeof status === "string") {
@@ -214,8 +218,8 @@ function explicitToolOutcome(response: unknown): HunchToolOutcome["status"] {
   if (typeof status === "string" && /^(?:success|succeeded|ok|completed)$/i.test(status.trim())) explicitSuccess = true;
   if (explicitSuccess) return "success";
   // Common successful tool-result shapes carry output fields even when the
-  // output is empty. An unstructured empty string (Codex's native failure
-  // payload) remains unknown until the host supplies an explicit status.
+  // output is empty (Claude Code routes failed calls to PostToolUseFailure
+  // instead). An unstructured string remains unknown (see above).
   if (["stdout", "stderr", "output", "content"].some(key => Object.prototype.hasOwnProperty.call(raw, key))) return "success";
   return "unknown";
 }
