@@ -480,7 +480,10 @@ function componentResolves(id: string, target: string, options: DeliveryOptions)
   return !!component && component.paths.some((path) => anchorResolves(path, target, options));
 }
 
+let gitProbeCount = 0;
+
 function gitProbe(root: string, args: string[]): { available: boolean; status: number | null; stdout: string } {
+  gitProbeCount++;
   const result = spawnSync("git", ["-C", root, ...args], {
     encoding: "utf8",
     env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" },
@@ -503,23 +506,66 @@ function defaultBranchRef(root: string): string | null {
   return null;
 }
 
-function localCommitReachability(root: string): (commit: string) => CommitReachability {
+// Process-wide memo (#473): every delivery build used to re-probe git for the
+// same capture commits. Verdicts are keyed by the default branch's TIP sha, so a
+// long-lived process stays correct after new commits land. Only ancestry
+// answers (merge-base exit 0/1) are cached; a missing object or a transient
+// spawn failure is re-probed on the next call.
+const REACHABILITY_MEMO_CAP = 10_000;
+const reachabilityMemo = new Map<string, CommitReachability>();
+
+/** Test hook: forget memoized commit verdicts. */
+export function resetCommitReachabilityMemo(): void {
+  reachabilityMemo.clear();
+}
+
+/** Test hook: number of git spawns issued by delivery provenance probes so far. */
+export function commitReachabilityProbeCount(): number {
+  return gitProbeCount;
+}
+
+function memoizeReachability(key: string, verdict: CommitReachability): CommitReachability {
+  if (reachabilityMemo.size >= REACHABILITY_MEMO_CAP) reachabilityMemo.clear();
+  reachabilityMemo.set(key, verdict);
+  return verdict;
+}
+
+export function localCommitReachability(root: string): (commit: string) => CommitReachability {
   let initialized = false;
   let branch: string | null = null;
+  let tip: string | null = null;
   return (commit: string): CommitReachability => {
     if (!initialized) {
+      // The default ref is looked up every build (origin/HEAD can be retargeted
+      // while the old ref still exists); only verdicts are shared across builds.
       branch = defaultBranchRef(root);
+      if (branch) {
+        // One spawn: the tip sha plus whether the repo is shallow. A shallow
+        // boundary can make a present commit look unreachable until a deepen,
+        // so a shallow build never memoizes. Unexpected output disables the memo.
+        const resolved = gitProbe(root, ["rev-parse", "--is-shallow-repository", "--verify", "--quiet", `${branch}^{commit}`]);
+        const [shallow, sha, ...rest] = resolved.stdout.split(/\r?\n/);
+        if (resolved.available && resolved.status === 0 && !rest.length && shallow === "false" && sha && /^[0-9a-f]{40,64}$/i.test(sha)) {
+          tip = sha;
+        }
+      }
       initialized = true;
     }
     if (!branch) return "unknown";
     if (!/^[0-9a-f]{7,64}$/i.test(commit)) return "unreachable";
+    const key = tip ? `${root}\0${tip}\0${commit}` : null;
+    const memo = key ? reachabilityMemo.get(key) : undefined;
+    if (memo) return memo;
+    const remember = (verdict: CommitReachability): CommitReachability =>
+      key ? memoizeReachability(key, verdict) : verdict;
     const exact = gitProbe(root, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`]);
     if (!exact.available) return "unknown";
+    // A missing object is not memoized: a later fetch/deepen can bring it in under the same tip.
     if (exact.status !== 0) return "unreachable";
-    const ancestry = gitProbe(root, ["merge-base", "--is-ancestor", exact.stdout, branch]);
+    const ancestry = gitProbe(root, ["merge-base", "--is-ancestor", exact.stdout, tip ?? branch]);
     if (!ancestry.available) return "unknown";
-    if (ancestry.status === 0) return "reachable";
-    if (ancestry.status === 1) return "unreachable";
+    if (ancestry.status === 0) return remember("reachable");
+    if (ancestry.status === 1) return remember("unreachable");
     return "unknown";
   };
 }

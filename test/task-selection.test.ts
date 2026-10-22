@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, statSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BugSchema, DecisionSchema, FindingSchema, type Decision } from "../src/core/types.js";
-import { isBareFollowUp, selectForTask, liveSelectionRecords, promptPaths, type TaskSelectionRecords } from "../src/core/taskSelection.js";
+import { identifierTokens, isBareFollowUp, selectForTask, liveSelectionRecords, promptPaths, type TaskSelectionRecords } from "../src/core/taskSelection.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
 import { listReportTasks } from "../src/core/taskReport.js";
@@ -98,6 +98,77 @@ test("a term common to more than the DF cap of live records does not count; rare
   // Path matches ignore the cap.
   const pathed = dec("dec_pathed", "Telemetry sampling note", { related_files: ["src/t.ts"] });
   assert.ok(selectForTask(records({ decisions: [...filler, pathed] }), "telemetry sampling in src/t.ts").qualifying.includes("dec_pathed"));
+});
+
+test("a rare compound identifier in a question-style prompt selects its decision among many common-word records", () => {
+  const filler = Array.from({ length: 40 }, (_, i) => dec(`dec_fill_${String(i).padStart(2, "0")}`,
+    `Guard styling ${i}`, { context: `show the form on site ${i} for the guard panel`, decision: "guard form show site" }));
+  const target = dec("dec_target", "Resolve ShowInForms-hidden sites only in patrol/guard context");
+  const out = selectForTask(records({ decisions: [...filler, target] }), "why does SP_X hide ShowInForms sites for guards");
+  assert.equal(out.top[0]?.id, "dec_target");
+  assert.ok(identifierTokens("Resolve ShowInForms-hidden sites").has("id:showinforms"));
+});
+
+test("an idf-weighted rare identifier outranks two words that sit near the DF cap", () => {
+  const filler = Array.from({ length: 90 }, (_, i) => dec(`dec_fill_${String(i).padStart(2, "0")}`, "Unrelated filler note"));
+  // 100 live records: cap = 5; "ledger"/"compaction" are in exactly 5 (rare, but weak idf).
+  const wordy = Array.from({ length: 5 }, (_, i) => dec(`dec_a_${i}`, "Ledger compaction note"));
+  const ident = dec("dec_z_ident", "Quota fix", { context: "QuotaReaper runs hourly" });
+  const out = selectForTask(records({ decisions: [...wordy, ident, ...filler] }), "ledger compaction and QuotaReaper");
+  assert.equal(out.top[0]?.id, "dec_z_ident");
+  assert.deepEqual(out.top.map((x) => x.id), ["dec_z_ident", "dec_a_0", "dec_a_1"]);
+});
+
+test("one rare plain word alone still does not qualify", () => {
+  const d = dec("dec_one_word", "Quarantine sweeper cadence");
+  assert.deepEqual(selectForTask(records({ decisions: [d] }), "tell me about quarantine").qualifying, []);
+});
+
+test("plain lowercase hyphenated prose never becomes an identifier term", () => {
+  const d = dec("dec_hyphen", "Known caveat");
+  assert.deepEqual(selectForTask(records({ decisions: [d] }), "a well-known read-only thing").qualifying, []);
+  assert.equal(identifierTokens("well-known read-only pre-commit").size, 0);
+});
+
+test("file names, versions and capitalized prose never become identifier terms", () => {
+  const d = dec("dec_readme", "Keep README.md short");
+  assert.deepEqual(selectForTask(records({ decisions: [d] }), "update the README.md").qualifying, []);
+  for (const text of ["Pre-commit Read-only Co-Authored-By", "v1.45.2 Node.js CLAUDE.md index.ts"]) assert.equal(identifierTokens(text).size, 0, text);
+  assert.ok(identifierTokens("task_id dbo.GetOrders").has("id:getorders"));
+  assert.ok(identifierTokens("task_id").has("id:taskid"));
+});
+
+test("two-part camel prose words never lone-qualify; extensions and timestamps yield no identifier", () => {
+  const gh = Array.from({ length: 5 }, (_, i) => dec(`dec_gh_${i}`, `Publish via GitHub flow ${i}`));
+  const filler = Array.from({ length: 20 }, (_, i) => dec(`dec_fill_${i}`, `Unrelated filler ${i}`));
+  assert.deepEqual(selectForTask(records({ decisions: [...gh, ...filler] }), "push to GitHub and open a PR").qualifying, []);
+  const one = dec("dec_effect", "Wrap state in useEffect cleanup");
+  assert.deepEqual(selectForTask(records({ decisions: [one] }), "why useEffect").qualifying, []);
+  assert.equal(identifierTokens("2026-10-22T17:00:33Z hunch.sqlite schema.prisma data.jsonl").size, 0);
+  // Two ordinary-weight terms still qualify.
+  const two = dec("dec_two_terms", "GetOrders pagination");
+  assert.deepEqual(selectForTask(records({ decisions: [two] }), "GetOrders pagination").qualifying, ["dec_two_terms"]);
+});
+
+test("stack-frame identifiers, brand words and common strong identifiers do not qualify or rank", () => {
+  const filler = Array.from({ length: 30 }, (_, i) => dec(`dec_fill_${String(i).padStart(2, "0")}`, `Write file sync helper ${i}`));
+  const cites = dec("dec_cites", "Cache writeFileSync usage");
+  const trace = "ENOENT: no such file or directory\n    at writeFileSync (node:fs:2345:3)\n    at Object.<anonymous> (/x/y.js:1:1)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)";
+  assert.deepEqual(selectForTask(records({ decisions: [...filler, cites] }), trace).qualifying, []);
+  assert.ok(selectForTask(records({ decisions: [...filler, cites] }), "why writeFileSync here").qualifying.includes("dec_cites"), "outside a frame it is a strong identifier");
+  // Equal except spelling: if the weak identifier "powershell" added idf, the camel record (id sorts last) would win.
+  const camel = dec("dec_z_camel", "PowerShell launcher quoting");
+  const words = dec("dec_a_words", "power shell launcher quoting");
+  assert.deepEqual(selectForTask(records({ decisions: [camel, words] }), "fix PowerShell quoting in the launcher").top.map((x) => x.id), ["dec_a_words", "dec_z_camel"], "weak identifier adds no score: tie falls to id");
+  const common = Array.from({ length: 4 }, (_, i) => dec(`dec_c_${i}`, `ShowInForms handling ${i}`));
+  const rest = Array.from({ length: 70 }, (_, i) => dec(`dec_r_${String(i).padStart(2, "0")}`, `Show the form filler ${i}`));
+  assert.deepEqual(selectForTask(records({ decisions: [...common, ...rest] }), "ShowInForms").qualifying, [], "df 4 > 3: not a lone qualifier");
+});
+
+test("a dotted SQL name in the prompt selects the decision that names the bare procedure", () => {
+  const d = dec("dec_sql", "Paginate GetOrders results");
+  const other = dec("dec_other", "Unrelated wording entirely");
+  assert.deepEqual(selectForTask(records({ decisions: [d, other] }), "why is dbo.GetOrders slow").qualifying, ["dec_sql"]);
 });
 
 test("promptPaths strips :line[:col] and possessives, and folds drive-letter case", () => {
