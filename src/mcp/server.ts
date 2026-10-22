@@ -93,6 +93,7 @@ import { HUNCH_VERSION } from "../core/version.js";
 import { assertCompleteRepoScan, indexRepo, scanRepo } from "../extractors/indexer.js";
 import type { Decision, Finding, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
+import { formatWhyRecord } from "../core/whyRecord.js";
 import { pendingEscalations, policyEscalations, commitRepairEscalations, actionableEscalations, escalationHeadline, type Escalation } from "../core/escalations.js";
 import { readActivePendingRepairs, withheldRewrites } from "../core/repairqueue.js";
 import { scanRecord, publicationWarning, loadVocabulary } from "../core/publication.js";
@@ -1537,9 +1538,9 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     {
       title: "Explain why a file/symbol is the way it is",
       description:
-        "Return the decisions, bugs, and constraints that explain a file path or symbol — the 'why' and the 'what must not break', with evidence. Pass `as_of` (a commit/tag/branch) to time-travel: see what was believed at that point in history. Use when you need the full rationale for ONE target. Not for a budgeted task brief (hunch_context), keyword search (hunch_query), or where-is-it questions (hunch_structure).",
+        "Return the decisions, bugs, and constraints that explain a file path or symbol, or one record by id (dec_/con_/bug_/fnd_/cmp_) — the 'why' and the 'what must not break', with evidence. Pass `as_of` (a commit/tag/branch) to time-travel: see what was believed at that point in history. Use when you need the full rationale for ONE target. Not for a budgeted task brief (hunch_context), keyword search (hunch_query), or where-is-it questions (hunch_structure).",
       inputSchema: {
-        target: z.string().describe("A file path (e.g. src/auth/session.ts) or symbol name."),
+        target: z.string().describe("A file path (e.g. src/auth/session.ts), symbol name, or record id (e.g. dec_0b5d2be516)."),
         as_of: z.string().optional().describe("Time-travel ref: a commit sha, tag, or branch (e.g. v0.7.0). Omit for the current view."),
       },
     },
@@ -1547,6 +1548,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return invalid(`Could not resolve as_of "${as_of}" to a commit.`);
       const w = store.why(target, { asOf });
+      if (w.byId?.record) return ok(formatWhyRecord(w.byId).join("\n"));
       // Highest-signal first, then cap: invariants by severity, decisions by
       // confidence, bugs by severity — so a hot file's trim drops the tail, not
       // the records that matter most.
@@ -1554,6 +1556,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       const constraints = [...w.constraints].sort((a, b) => (SEV_CONSTRAINT[b.severity] ?? 0) - (SEV_CONSTRAINT[a.severity] ?? 0));
       const bugs = [...w.bugs].sort((a, b) => (SEV_BUG[b.severity] ?? 0) - (SEV_BUG[a.severity] ?? 0));
       const parts: string[] = [`Why for "${target}":`];
+      if (w.byId) parts.push(`\n${formatWhyRecord(w.byId).join("\n")}`);
       if (decisions.length)
         parts.push(`\nDECISIONS:\n${decisions.slice(0, WHY_CAP).map((d) => `  • ${d.id} [${d.status}] ${d.title}\n      ${d.decision}${provLine(d)}`).join("\n")}${more(decisions.length, WHY_CAP, "narrow the target")}`);
       if (constraints.length)

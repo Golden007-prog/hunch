@@ -4,7 +4,7 @@
  *
  *   - reindex():        JSON  -> SQLite (rebuild the derived index + FTS)
  *   - search():         FTS5 ranked query (hunch_query)
- *   - why():            decisions/bugs/constraints explaining a path/symbol
+ *   - why():            decisions/bugs/constraints explaining a path/symbol, or one record by id
  *   - getDependents():  recursive-CTE blast radius over the call/dep graph
  *   - checkConstraints(): constraints whose scope matches a glob/path
  *   - bugLineage():     bugs matching a symptom/symbol + their lineage
@@ -33,6 +33,7 @@ import { normalizePath, rankTaskRecords, recordIdsOf, selectLatestTasks, selectT
 import { resolveTaskRankingMode } from "../core/taskRankingMode.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
+import { WHY_RECORD_ID, type WhyById, type WhyChainLink, type WhyRecord } from "../core/whyRecord.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
 import { analyzeDiff, diffContentGaps, type DiffAnalysis, type DiffStatus } from "../extractors/diff.js";
@@ -115,6 +116,8 @@ export interface WhyResult {
   constraints: Constraint[];
   symbols: Symbol[];
   components: Component[];
+  /** Set when the target is a record id (`dec_…`, `con_…`, …; issue #474). */
+  byId?: WhyById;
 }
 
 export interface FragileNode {
@@ -1438,6 +1441,11 @@ export class HunchStore {
     // An absolute target (an agent's edit-payload path, verbatim) never matched
     // the repo-relative stored file paths below (issue #299).
     target = repoRelativeTarget(target, this.paths.root);
+    // A record id (every delivered brief line ends in `hunch_why("dec_…")`) resolves
+    // to that record directly (issue #474). Not windowed by `asOf`: asking for one
+    // record by id is asking for it, superseded or not.
+    const byId = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead) : undefined;
+    if (byId?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId };
     const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
     const bugs = this.recs("bugs").filter(opts.canRead ?? (() => true));
     const constraints = this.recs("constraints").filter(opts.canRead ?? (() => true));
@@ -1479,7 +1487,43 @@ export class HunchStore {
         && inWindow(c.valid_from, c.valid_to, asOf)),
       symbols: matchedSymbols,
       components: components.filter((c) => c.paths.some((g) => pathMatchesGlob(target, g) || [...fileSet].some((f) => pathMatchesGlob(f, g)))),
+      ...(byId ? { byId } : {}),
     };
+  }
+
+  /** Look a record up by id across the record kinds why() explains (public ∪ private
+   *  via recs(), narrowed by `canRead`). A decision carries its supersession chain. */
+  private whyRecord(id: string, canRead: (record: unknown) => boolean = () => true): WhyById {
+    const find = <K extends "decisions" | "constraints" | "bugs" | "findings" | "components">(kind: K) =>
+      this.recs(kind).find((r) => (r as { id: string }).id === id && canRead(r));
+    let record: WhyRecord | null = null;
+    switch (id.slice(0, id.indexOf("_"))) {
+      case "dec": {
+        const d = find("decisions") as Decision | undefined;
+        if (d) record = { kind: "decision", record: d, chain: this.supersessionChain(d, canRead) };
+        break;
+      }
+      case "con": { const c = find("constraints") as Constraint | undefined; if (c) record = { kind: "constraint", record: c }; break; }
+      case "bug": { const b = find("bugs") as Bug | undefined; if (b) record = { kind: "bug", record: b }; break; }
+      case "fnd": { const f = find("findings") as Finding | undefined; if (f) record = { kind: "finding", record: f }; break; }
+      case "cmp": { const c = find("components") as Component | undefined; if (c) record = { kind: "component", record: c }; break; }
+    }
+    return { id, record };
+  }
+
+  /** A decision's supersedes/superseded_by chain, oldest first (cycle-guarded). */
+  private supersessionChain(d: Decision, canRead: (record: unknown) => boolean): WhyChainLink[] {
+    const byId = new Map(this.recs("decisions").filter(canRead).map((x) => [x.id, x]));
+    const seen = new Set([d.id]);
+    const back: Decision[] = [];
+    for (let cur = d.supersedes ? byId.get(d.supersedes) : undefined; cur && !seen.has(cur.id); cur = cur.supersedes ? byId.get(cur.supersedes) : undefined) {
+      seen.add(cur.id); back.unshift(cur);
+    }
+    const fwd: Decision[] = [];
+    for (let cur = d.superseded_by ? byId.get(d.superseded_by) : undefined; cur && !seen.has(cur.id); cur = cur.superseded_by ? byId.get(cur.superseded_by) : undefined) {
+      seen.add(cur.id); fwd.push(cur);
+    }
+    return [...back, d, ...fwd].map((x) => ({ id: x.id, status: x.status, title: x.title }));
   }
 
   /** Transitive blast radius: every symbol/component that (in)directly depends on
