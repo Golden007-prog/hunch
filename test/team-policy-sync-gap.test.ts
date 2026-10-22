@@ -285,7 +285,7 @@ test("team policy reads confirm a local miss against fresh shared memory despite
 
 // Issue #474: hunch_why(<record id>) answering "No record <id>" is the same kind of
 // team-absence claim, so a shared-mode id miss is confirmed against a fresh pull.
-test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull inside the pull cooldown", { timeout: 300_000 }, async () => {
+test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull despite pull backoff", { timeout: 300_000 }, async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "hunch-why-sync-gap-"));
   let client: Client | undefined;
   try {
@@ -342,10 +342,30 @@ test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull 
 
     client = new Client({ name: "why-sync-gap-developer", version: "1.0.0" });
     await client.connect(new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: developer.root, env: developer.env }));
-    // Pushed after the MCP's startup pull: the ordinary request pull is still in its
-    // cooldown, so only the forced confirmation can see the record.
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    // Put the ordinary request pulls into FAILURE backoff (remote objects transiently
+    // gone; non-miss reads deepen it 2s, 4s, 8s), then restore the remote.
+    await sleep(1_100);
+    const remoteObjects = join(memoryRemote, "objects");
+    const unavailableObjects = join(memoryRemote, "objects.transiently-unavailable");
+    let lastFailureStartedAt = 0;
+    renameSync(remoteObjects, unavailableObjects);
+    try {
+      await mcpResult(client, "hunch_query", { query: "orders" });
+      for (const wait of [2_100, 4_100]) {
+        await sleep(wait);
+        lastFailureStartedAt = Date.now();
+        await mcpResult(client, "hunch_query", { query: "orders" });
+      }
+    } finally {
+      renameSync(unavailableObjects, remoteObjects);
+    }
+    // The teammate pushes while this MCP's ordinary pulls are still in backoff: only
+    // the forced confirmation of the id miss can see the record.
     git(staging, "push", "-q", "origin", "main");
     const why = await mcpResult(client, "hunch_why", { target: id });
+    assert.ok(Date.now() - lastFailureStartedAt < 8_000,
+      "the read must complete while the ordinary 8s pull backoff is still active");
     assert.equal(why.isError, false, why.text);
     assert.ok(why.text.includes(`DECISION ${id} [accepted] Orders are paginated server-side`), why.text);
     assert.match(why.text, /Client-side paging of the full list/);

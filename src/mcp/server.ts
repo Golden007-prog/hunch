@@ -1625,8 +1625,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       if (as_of && !asOf) return invalid(`Could not resolve as_of "${as_of}" to a commit.`);
       let w = store.why(target, { asOf });
       // "No record <id>" is a team-absence claim in shared mode: confirm the local
-      // miss against a fresh pull first, like hunch_current_decision.
-      if (w.byId && !w.byId.record && store.mode === "shared" && store.privateDir) {
+      // miss against a fresh pull first, like hunch_current_decision. A record held
+      // locally but outside its as_of window is not a team-absence claim: no pull.
+      if (w.byId && !w.byId.record && store.mode === "shared" && store.privateDir
+        && !(asOf && store.why(target).byId?.record)) {
         const abstention = confirmSharedMiss(`record ${w.byId.id} is absent from shared team memory`, `record ${w.byId.id}`);
         if (abstention) return err(abstention);
         w = store.why(target, { asOf });
