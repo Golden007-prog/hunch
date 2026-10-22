@@ -337,6 +337,11 @@ test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull 
     configureRepo(staging, "Teammate", sandbox);
     mkdirSync(join(staging, ".hunch", "decisions"), { recursive: true });
     writeFileSync(join(staging, ".hunch", "decisions", `${id}.json`), `${JSON.stringify(decision, null, 2)}\n`);
+    // A second decision whose window opens far in the future: held locally after the
+    // pull, but outside any present as_of window.
+    const futureId = "dec_5ca1ab1e02";
+    const future: Decision = { ...decision, id: futureId, title: "Future paging", valid_from: "2099-01-01T00:00:00.000Z", date: "2099-01-01T00:00:00.000Z" };
+    writeFileSync(join(staging, ".hunch", "decisions", `${futureId}.json`), JSON.stringify(future, null, 2));
     git(staging, "add", "-A");
     git(staging, "commit", "-qm", "hunch: record decision");
 
@@ -344,7 +349,8 @@ test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull 
     await client.connect(new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: developer.root, env: developer.env }));
     const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
     // Put the ordinary request pulls into FAILURE backoff (remote objects transiently
-    // gone; non-miss reads deepen it 2s, 4s, 8s), then restore the remote.
+    // gone). Each failed ordinary pull doubles the window: 1s, 2s, 4s, then 8s after
+    // the fourth, which leaves the forced path a wide margin. Then restore the remote.
     await sleep(1_100);
     const remoteObjects = join(memoryRemote, "objects");
     const unavailableObjects = join(memoryRemote, "objects.transiently-unavailable");
@@ -352,7 +358,7 @@ test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull 
     renameSync(remoteObjects, unavailableObjects);
     try {
       await mcpResult(client, "hunch_query", { query: "orders" });
-      for (const wait of [2_100, 4_100]) {
+      for (const wait of [1_100, 2_100, 4_100]) {
         await sleep(wait);
         lastFailureStartedAt = Date.now();
         await mcpResult(client, "hunch_query", { query: "orders" });
@@ -370,6 +376,19 @@ test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull 
     assert.ok(why.text.includes(`DECISION ${id} [accepted] Orders are paginated server-side`), why.text);
     assert.match(why.text, /Client-side paging of the full list/);
     assert.doesNotMatch(why.text, /No record/);
+
+    // A record held locally but outside its as_of window is not a team-absence
+    // claim: with the remote down it answers "No record … as of" without a forced
+    // pull (a forced pull would fail and abstain with "cannot confirm").
+    renameSync(remoteObjects, unavailableObjects);
+    try {
+      const windowed = await mcpResult(client, "hunch_why", { target: futureId, as_of: "HEAD" });
+      assert.equal(windowed.isError, false, windowed.text);
+      assert.match(windowed.text, new RegExp(`No record ${futureId} as of`));
+      assert.doesNotMatch(windowed.text, /cannot confirm/);
+    } finally {
+      renameSync(unavailableObjects, remoteObjects);
+    }
   } finally {
     await client?.close().catch(() => undefined);
     cleanupDir(sandbox);
