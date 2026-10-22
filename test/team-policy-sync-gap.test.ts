@@ -282,3 +282,115 @@ test("team policy reads confirm a local miss against fresh shared memory despite
     cleanupDir(sandbox);
   }
 });
+
+// Issue #474: hunch_why(<record id>) answering "No record <id>" is the same kind of
+// team-absence claim, so a shared-mode id miss is confirmed against a fresh pull.
+test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull despite pull backoff", { timeout: 300_000 }, async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "hunch-why-sync-gap-"));
+  let client: Client | undefined;
+  try {
+    const memorySeed = join(sandbox, "memory-seed");
+    const memoryRemote = join(sandbox, "memory.git");
+    mkdirSync(memorySeed, { recursive: true });
+    git(memorySeed, "init", "-q", "-b", "main");
+    configureRepo(memorySeed, "MemorySeed", sandbox);
+    writeFileSync(join(memorySeed, "README.md"), "# team memory\n");
+    git(memorySeed, "add", "README.md");
+    git(memorySeed, "commit", "-qm", "seed: shared memory repository");
+    git(sandbox, "clone", "-q", "--bare", memorySeed, memoryRemote);
+
+    const codeSeed = join(sandbox, "code-seed");
+    const codeRemote = join(sandbox, "code.git");
+    mkdirSync(join(codeSeed, "src"), { recursive: true });
+    git(codeSeed, "init", "-q", "-b", "main");
+    configureRepo(codeSeed, "CodeSeed", sandbox);
+    writeFileSync(join(codeSeed, "src/orders.ts"), "export const orders = () => [];\n");
+    git(codeSeed, "add", "src/orders.ts");
+    git(codeSeed, "commit", "-qm", "feat: tiny orders service");
+    git(sandbox, "clone", "-q", "--bare", codeSeed, codeRemote);
+
+    const architect = cloneActor(sandbox, codeRemote, "Architect");
+    expectCli(architect, ["init", "--no-index", "--no-enforce", "--no-providers", "--no-agent-hooks"]);
+    expectCli(architect, ["shared", "--repo", memoryRemote, "--no-hook"]);
+    git(architect.root, "add", "-A");
+    git(architect.root, "commit", "-qm", "chore: connect team memory");
+    git(architect.root, "push", "-q", "origin", "main");
+
+    const developer = cloneActor(sandbox, codeRemote, "Developer");
+    trustTeamStoreAs(developer.env, developer.root);
+    expectCli(developer, [
+      "record-constraint", "WHY_SYNC_GAP_FIRST_WRITE: wire the developer to shared memory",
+      "--scope", "src/orders.ts", "--severity", "warning", "--type", "correctness",
+    ]);
+
+    const id = "dec_5ca1ab1e01";
+    const decision: Decision = {
+      id, title: "Orders are paginated server-side", topic: null, status: "accepted",
+      context: "", decision: "Paginate on the server.", consequences: [],
+      alternatives_rejected: ["Client-side paging of the full list."], rejected_tripwires: [],
+      related_components: [], related_files: ["src/orders.ts"], supersedes: null, superseded_by: null,
+      caused_by_bug: null, commit: null, valid_from: NOW, valid_to: null, retired: { symbols: [], deps: [] },
+      provenance: { source: "human_confirmed", confidence: 1, evidence: ["why-sync-gap"] }, date: NOW,
+    };
+    const staging = join(sandbox, "teammate-memory");
+    git(sandbox, "clone", "-q", memoryRemote, staging);
+    configureRepo(staging, "Teammate", sandbox);
+    mkdirSync(join(staging, ".hunch", "decisions"), { recursive: true });
+    writeFileSync(join(staging, ".hunch", "decisions", `${id}.json`), `${JSON.stringify(decision, null, 2)}\n`);
+    // A second decision whose window opens far in the future: held locally after the
+    // pull, but outside any present as_of window.
+    const futureId = "dec_5ca1ab1e02";
+    const future: Decision = { ...decision, id: futureId, title: "Future paging", valid_from: "2099-01-01T00:00:00.000Z", date: "2099-01-01T00:00:00.000Z" };
+    writeFileSync(join(staging, ".hunch", "decisions", `${futureId}.json`), JSON.stringify(future, null, 2));
+    git(staging, "add", "-A");
+    git(staging, "commit", "-qm", "hunch: record decision");
+
+    client = new Client({ name: "why-sync-gap-developer", version: "1.0.0" });
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: developer.root, env: developer.env }));
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    // Put the ordinary request pulls into FAILURE backoff (remote objects transiently
+    // gone). Each failed ordinary pull doubles the window: 1s, 2s, 4s, then 8s after
+    // the fourth, which leaves the forced path a wide margin. Then restore the remote.
+    await sleep(1_100);
+    const remoteObjects = join(memoryRemote, "objects");
+    const unavailableObjects = join(memoryRemote, "objects.transiently-unavailable");
+    let lastFailureStartedAt = 0;
+    renameSync(remoteObjects, unavailableObjects);
+    try {
+      await mcpResult(client, "hunch_query", { query: "orders" });
+      for (const wait of [1_100, 2_100, 4_100]) {
+        await sleep(wait);
+        lastFailureStartedAt = Date.now();
+        await mcpResult(client, "hunch_query", { query: "orders" });
+      }
+    } finally {
+      renameSync(unavailableObjects, remoteObjects);
+    }
+    // The teammate pushes while this MCP's ordinary pulls are still in backoff: only
+    // the forced confirmation of the id miss can see the record.
+    git(staging, "push", "-q", "origin", "main");
+    const why = await mcpResult(client, "hunch_why", { target: id });
+    assert.ok(Date.now() - lastFailureStartedAt < 8_000,
+      "the read must complete while the ordinary 8s pull backoff is still active");
+    assert.equal(why.isError, false, why.text);
+    assert.ok(why.text.includes(`DECISION ${id} [accepted] Orders are paginated server-side`), why.text);
+    assert.match(why.text, /Client-side paging of the full list/);
+    assert.doesNotMatch(why.text, /No record/);
+
+    // A record held locally but outside its as_of window is not a team-absence
+    // claim: with the remote down it answers "No record … as of" without a forced
+    // pull (a forced pull would fail and abstain with "cannot confirm").
+    renameSync(remoteObjects, unavailableObjects);
+    try {
+      const windowed = await mcpResult(client, "hunch_why", { target: futureId, as_of: "HEAD" });
+      assert.equal(windowed.isError, false, windowed.text);
+      assert.match(windowed.text, new RegExp(`No record ${futureId} as of`));
+      assert.doesNotMatch(windowed.text, /cannot confirm/);
+    } finally {
+      renameSync(unavailableObjects, remoteObjects);
+    }
+  } finally {
+    await client?.close().catch(() => undefined);
+    cleanupDir(sandbox);
+  }
+});

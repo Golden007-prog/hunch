@@ -20,6 +20,19 @@ export function deliversPromptEvent(provider: HookProvider): boolean {
   return PROMPT_EVENT[provider];
 }
 
+/** Whether a provider's post-command hook carries the command's result (exit
+ * status or an explicit success/failure). Windsurf's post_run_command sends only
+ * the command line and cwd; Antigravity's installed hooks (PreInvocation,
+ * PreToolUse on edit tools, Stop) include no post-tool event at all. Evidence
+ * gates keyed on a command's result can never be satisfied there and must stay
+ * advisory. A Record, so a new provider must declare its answer. */
+const COMMAND_OUTCOME: Record<HookProvider, boolean> = {
+  claude: true, codex: true, vscode: true, windsurf: false, cursor: true, antigravity: false,
+};
+export function deliversCommandOutcome(provider: HookProvider): boolean {
+  return COMMAND_OUTCOME[provider];
+}
+
 export type HunchHookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" | "SessionStart" | "SubagentStart" | "PreCompact" | "Stop";
 
 /** One file section of a Codex `apply_patch` payload. */
@@ -269,9 +282,9 @@ function eventName(value: unknown, provider: HookProvider): HunchHookEvent | und
     if (name === "afterfileedit" || name === "aftershellexecution") return "PostToolUse";
   }
   if (provider === "windsurf") {
-    if (name === "pre_write_code" || name === "pre_run_command") return "PreToolUse";
-    if (name === "post_write_code" || name === "post_run_command") return "PostToolUse";
     if (name === "pre_user_prompt") return "UserPromptSubmit";
+    const action = /^(pre|post)_(write_code|run_command|read_code|mcp_tool_use)$/.exec(name);
+    if (action) return action[1] === "pre" ? "PreToolUse" : "PostToolUse";
   }
   // Antigravity's PreInvocation is the lifecycle point which can inject a
   // transient message before the model sees the turn. Internally it provides
@@ -286,6 +299,44 @@ export function hookProvider(value: unknown): HookProvider | null {
   return typeof value === "string" && (HOOK_PROVIDERS as readonly string[]).includes(value.toLowerCase())
     ? value.toLowerCase() as HookProvider
     : null;
+}
+
+/** Windsurf Cascade (docs.windsurf.com/windsurf/cascade/hooks) names the event in
+ * top-level `agent_action_name` (`pre_write_code`, `post_run_command`, …) and
+ * carries per-event data in `tool_info`. The tool is implied by the event. Payloads
+ * written before #484 (`event` + `agent_action_name: "write_code"`) still parse. */
+function normalizeWindsurfEvent(input: JsonObject): HunchHookInput | null {
+  const action = stringAt(input, "agent_action_name")?.toLowerCase();
+  const legacy = typeof input.event === "string" ? input.event : typeof input.hook_event_name === "string" ? input.hook_event_name : undefined;
+  const name = eventName(action, "windsurf") ? action! : legacy?.toLowerCase();
+  const event = eventName(name, "windsurf");
+  if (!name || !event) return null;
+  const info = obj(input.tool_info) ?? obj(input.toolInput) ?? obj(input.tool_input) ?? {};
+  const kind = name.replace(/^(?:pre|post)_/, "");
+  const base = {
+    hook_event_name: event,
+    session_id: stringAt(input, "trajectory_id", "session_id", "sessionId"),
+  };
+  if (event === "UserPromptSubmit") {
+    return { ...base, prompt: stringAt(info, "user_prompt", "prompt") ?? stringAt(input, "prompt", "user_prompt", "userPrompt") };
+  }
+  const toolOutcome = normalizeToolOutcome(input, event);
+  const outcome = toolOutcome ? { tool_outcome: toolOutcome } : {};
+  if (kind === "run_command") {
+    const command = stringAt(info, "command_line", "command", "commandLine");
+    const cwd = stringAt(info, "cwd");
+    return { ...base, ...(cwd ? { cwd } : {}), tool_name: "Bash", tool_input: command ? { command } : undefined, ...outcome };
+  }
+  // Reads and MCP calls are observed only: their arguments never reach the
+  // pre-edit gate, which treats any file_path as an edit target.
+  if (kind === "read_code") return { ...base, tool_name: "Read", ...outcome };
+  if (kind === "mcp_tool_use") {
+    const server = stringAt(info, "mcp_server_name", "server_name", "server");
+    const tool = stringAt(info, "mcp_tool_name", "tool_name", "tool");
+    return { ...base, tool_name: server && tool ? `mcp__${server}__${tool}` : tool ?? "mcp", ...outcome };
+  }
+  const toolInput = normalizeToolInput(info);
+  return { ...base, tool_name: kind === "write_code" ? "Edit" : hunchToolName(stringAt(input, "tool_name", "toolName"), toolInput ?? {}), tool_input: toolInput, ...outcome };
 }
 
 /** Normalize a hook stdin payload. Unknown/malformed events return null and the
@@ -308,21 +359,7 @@ export function normalizeHookEvent(raw: unknown, provider: HookProvider): HunchH
     };
   }
 
-  if (provider === "windsurf") {
-    const event = eventName(input.event ?? input.hook_event_name, provider);
-    if (!event) return null;
-    const info = obj(input.tool_info) ?? obj(input.toolInput) ?? obj(input.tool_input);
-    const toolInput = normalizeToolInput(info);
-    const toolOutcome = normalizeToolOutcome(input, event);
-    return {
-      hook_event_name: event,
-      session_id: stringAt(input, "trajectory_id", "session_id", "sessionId"),
-      tool_name: hunchToolName(stringAt(input, "agent_action_name", "tool_name", "toolName"), toolInput ?? {}),
-      tool_input: toolInput,
-      ...(toolOutcome ? { tool_outcome: toolOutcome } : {}),
-      prompt: stringAt(input, "prompt", "user_prompt", "userPrompt"),
-    };
-  }
+  if (provider === "windsurf") return normalizeWindsurfEvent(input);
 
   const event = eventName(input.hook_event_name ?? input.hookEventName ?? input.event, provider);
   if (!event) return null;

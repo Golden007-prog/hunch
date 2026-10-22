@@ -219,6 +219,27 @@ test("the pre-edit probe gate is bounded and releases immediately after a real b
   assert.equal(beforeEditProbeVerdict(st).block, false, "a valid red receipt releases the edit gate");
 });
 
+test("a host without command outcomes keeps the pre-edit gate advisory; hosts with outcomes are unchanged (#484)", () => {
+  let st = armExecutionObligations(emptyState(), compileExecutableProbes(executableProbePlan));
+  // Windsurf's post_run_command carries no exit status: the probe ran, but its result is unknown.
+  st = onCommand(st, executableProbePlan[0]!.command, { status: "unknown", output: "" });
+  assert.ok(st.obligations.some((item) => item.phase === "before-edit" && item.status === "pending"), "an unknown result is still not a receipt");
+  const advisory = beforeEditProbeVerdict(st, { commandOutcomes: false });
+  assert.equal(advisory.block, false, "an unverifiable obligation must never deny");
+  assert.equal(advisory.unverifiable, true);
+  assert.match(advisory.reason ?? "", /advisory.*do not report command results/);
+  assert.equal(advisory.state.probeBlocks, 0, "an advisory pass spends no correction budget");
+
+  const withOutcomes = beforeEditProbeVerdict(st, { commandOutcomes: true });
+  assert.equal(withOutcomes.block, true, "a host that reports outcomes still gets the deny");
+  assert.equal(withOutcomes.unverifiable, undefined);
+  assert.deepEqual(beforeEditProbeVerdict(st), withOutcomes, "the default is the unchanged behavior");
+  const wrongReason = onCommand(st, executableProbePlan[0]!.command, { status: "failure", output: "HUNCH_PROBE optional-preprocess crashed" });
+  assert.equal(beforeEditProbeVerdict(wrongReason, { commandOutcomes: true }).block, true, "a failure for the wrong reason still blocks");
+  const receipt = onCommand(st, executableProbePlan[0]!.command, { status: "failure", output: "HUNCH_PROBE optional-preprocess inner=false" });
+  assert.equal(beforeEditProbeVerdict(receipt, { commandOutcomes: true }).block, false, "a valid red receipt still releases the gate");
+});
+
 test("the pre-edit evidence gate requires both a probe baseline and a hypothesis discriminator", () => {
   const tournament: ExecutionObligation = {
     id: "episode:tournament",

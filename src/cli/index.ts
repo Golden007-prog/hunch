@@ -29,6 +29,7 @@ import { registerTaskReportCommands } from "./taskReport.js";
 import { registerStateCommands } from "./state.js";
 import { DEFAULT_CONFIG as SERVE_DEFAULT_CONFIG_FILE, registerServeCommands } from "./serve.js";
 import { registerUpdateCommand } from "./update.js";
+import { registerVerifyCommand } from "./verify.js";
 import { registerReviewMemoryCommands } from "./reviewMemory.js";
 import { detectInitiator, normalizeInitiator } from "../synthesis/initiator.js";
 import { inspectIntegrations, formatIntegrationHealth, integrationHealthFails, integrationSessionWarning } from "../integrations/health.js";
@@ -51,7 +52,7 @@ import {
   normalizeProviderName,
   type SynthPreference,
 } from "../synthesis/provider.js";
-import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedGateDiff, workingGateDiff, commitGateDiff, rangeFiles, rangeGateDiff, rangeCommits, revExists, revParse, commitAndPushHunch, pullHunchStatus, syncExistingHunch, gitUntrackCached, gitCommonDir, checkoutCommonDir, separateGitDirCandidate, separateGitDirLink, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, commitRepairStatusAgainst, commitPatchIds, mergeRangeChanges, commitsExist, type HunchPullStatus } from "../extractors/git.js";
+import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedGateDiff, workingGateDiff, commitGateDiff, rangeFiles, rangeGateDiff, rangeCommits, revExists, revParse, commitAndPushHunch, pullHunchStatus, pullHunchStatusDetailed, describePullFailure, syncExistingHunch, gitUntrackCached, gitCommonDir, checkoutCommonDir, separateGitDirCandidate, separateGitDirLink, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, commitRepairStatusAgainst, commitPatchIds, mergeRangeChanges, commitsExist, type HunchPullStatus, type HunchPullFailureDetail } from "../extractors/git.js";
 import { runbookDraft } from "../core/runbookDraft.js";
 import { parseMemoryLog, type MemoryMove } from "../core/memorylog.js";
 import { renamesOf, planRepair, repairDecision, repairConstraint, type RepairPlan } from "../core/repair.js";
@@ -111,7 +112,7 @@ import { renderRecalledLine } from "../core/taskReportRender.js";
 import { closeHookTask, hookReportTaskId, isNotificationPrompt, nativeHookCwd, settleHookSession, startHookReport, stopHookReport, observeHookDenial } from "../core/taskReportHook.js";
 import { persistTaskRecord } from "../core/taskRecord.js";
 import { recordHookObservation } from "../core/hookObservations.js";
-import { contextHookOutput, deliversPromptEvent, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchHookInput, type HunchToolInput } from "../core/agenthook.js";
+import { contextHookOutput, deliversCommandOutcome, deliversPromptEvent, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchHookInput, type HunchToolInput } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
   armExecutionObligations,
@@ -217,6 +218,7 @@ registerTaskReportCommands(program, () => { const { store, root } = storeFor(); 
 registerServeCommands(program);
 registerStateCommands(program);
 registerUpdateCommand(program);
+registerVerifyCommand(program);
 registerReviewMemoryCommands(program, (records, repository, privateOnly) => {
   const { store, root } = storeFor();
   if (!repositoryUsesRemote(root, `https://github.com/${repository}.git`)) {
@@ -304,6 +306,7 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
   store: HunchStore;
   teamWired: string | null;
   teamPullStatus: HunchPullStatus | null;
+  teamPullDetail?: HunchPullFailureDetail;
 } {
   // A committed team.json is an explicit declaration that this checkout belongs
   // to a shared memory graph. Once that declaration exists, silently falling back
@@ -341,6 +344,7 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
   // from their durable local overlay when the network is temporarily down, but a
   // strict guard must prove it saw the advertised remote before it may pass.
   let pullStatus: HunchPullStatus | null = null;
+  let pullDetail: HunchPullFailureDetail | undefined;
   if (teamAdvertised && store.mode === "shared" && store.privateDir) {
     const remote = advertisedTeamRemoteContract(root, dirname(store.privateDir));
     if (!remote || !remote.verify()) {
@@ -349,10 +353,9 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
       throw new Error("the advertised team memory route could not be pinned for this command");
     }
     pinSharedRemote(store, remote);
-    pullStatus = pullHunchStatus(store.privateDir, {
-      timeoutMs: 5_000,
+    ({ status: pullStatus, detail: pullDetail } = pullHunchStatusDetailed(store.privateDir, {
       remote,
-    });
+    }));
     // The route may be coherently rewritten while the bounded pull is blocked.
     // No handler — including an ordinary non-strict read — may run after the
     // graph epoch that admitted this command stops verifying.
@@ -362,13 +365,13 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
       throw new Error("the advertised team memory route changed while this command was refreshing; refusing to serve or mutate stale memory");
     }
   }
-  return { store, teamWired, teamPullStatus: opts.requireFreshTeamMemory ? pullStatus : null };
+  return { store, teamWired, teamPullStatus: opts.requireFreshTeamMemory ? pullStatus : null, teamPullDetail: opts.requireFreshTeamMemory ? pullDetail : undefined };
 }
 
-function storeFor(opts: TeamStoreOptions = {}): { store: HunchStore; root: string; teamPullStatus: HunchPullStatus | null } {
+function storeFor(opts: TeamStoreOptions = {}): { store: HunchStore; root: string; teamPullStatus: HunchPullStatus | null; teamPullDetail?: HunchPullFailureDetail } {
   const root = findRoot();
-  const { store, teamPullStatus } = openTeamStore(root, opts);
-  return { store, root, teamPullStatus };
+  const { store, teamPullStatus, teamPullDetail } = openTeamStore(root, opts);
+  return { store, root, teamPullStatus, teamPullDetail };
 }
 
 function pumpMemoryHome(store: HunchStore, root: string, home: MemoryHome, message: string): void {
@@ -1072,7 +1075,6 @@ function configureExistingValidatedOverlay(
     }
   } else {
     const pulled = pullHunchStatus(hunchDir, {
-      timeoutMs: 5_000,
       remote: contract,
       allowUnrelatedHistories: true,
     });
@@ -4024,9 +4026,10 @@ program
     const sarif = opts.format === "sarif";
     const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], redundant: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
 
-    const { store, root, teamPullStatus } = storeFor({ requireFreshTeamMemory: !!opts.strict && !opts.publicOnly });
+    const { store, root, teamPullStatus, teamPullDetail } = storeFor({ requireFreshTeamMemory: !!opts.strict && !opts.publicOnly });
     const teamFreshnessFailure = teamPullStatus !== null && !teamPullIsFresh(teamPullStatus)
       ? `strict check could not refresh the advertised team memory (${teamPullStatus}); refusing a stale pass` +
+        (teamPullDetail ? ` (${describePullFailure(teamPullDetail)})` : "") +
         (teamPullStatus === "unconfigured" ? " — the shared memory remote has no published branch while this clone has memory; publish it with `hunch shared --sync`" : "")
       : null;
     // An empty team remote is in sync with a never-committed clone, but it is also what
@@ -5167,7 +5170,10 @@ program
       // before implementation. Firm/strict may deny two edits per prompt, then
       // fail open so a malformed or unavailable probe can never deadlock work.
       if ((firmness === "firm" || firmness === "strict") && evt.session_id && pipelineEnabled() && targets.some((t) => isProductPath(t.target))) {
-        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id));
+        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id), { commandOutcomes: deliversCommandOutcome(provider) });
+        // Unverifiable on this host: the edit proceeds and the hook says why on
+        // stderr (stdout stays free for the grounding/deny response below).
+        if (baseline.unverifiable && baseline.reason) process.stderr.write(`${baseline.reason}\n`);
         if (baseline.block) {
           savePipelineState(evt.session_id, baseline.state);
           emitDeny(provider, baseline.reason ?? "Hunch evidence gate — establish the pre-edit probe baseline first.");

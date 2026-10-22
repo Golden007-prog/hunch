@@ -34,7 +34,7 @@ import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
 import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, recordWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
 import { workspacesConfig } from "../core/config.js";
-import { revParse, asOfDate, revExists, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, rangeFiles, rangeGateDiff, commitFiles, commitGateDiff, stagedFiles, stagedGateDiff, workingFiles, workingGateDiff, pullHunchStatus, sameRemoteUrl, currentBranch, worktreePaths, pathKnownToHistory, type HunchPullStatus } from "../extractors/git.js";
+import { revParse, asOfDate, revExists, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, rangeFiles, rangeGateDiff, commitFiles, commitGateDiff, stagedFiles, stagedGateDiff, workingFiles, workingGateDiff, pullHunchStatusDetailed, describePullFailure, sameRemoteUrl, currentBranch, worktreePaths, pathKnownToHistory, type HunchPullStatus } from "../extractors/git.js";
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { withWriteLock } from "../serve/writelock.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, isTeamStoreTrusted, overlayMatchesTeamRemote, teamWiringConsented, untrustedTeamStoreMessage, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
@@ -1172,10 +1172,10 @@ function prepareRoot(root: string, explicitOverlay: boolean, requireIndex: boole
     let consecutivePullFailures = 0;
     if (store.privateDir) {
       try {
-        const status = pullHunchStatus(store.privateDir, {
-          timeoutMs: 5_000,
+        const { status, detail } = pullHunchStatusDetailed(store.privateDir, {
           remote: startupTeamRoute ?? advertisedTeamRemoteContract(root, join(store.privateDir, "..")),
         });
+        if (detail) console.error(`[hunch-mcp] team memory pull failed (${describePullFailure(detail)})`);
         ({ nextRemotePullAt, consecutivePullFailures } = pullBackoff(status, Date.now(), 0));
       } catch {
         // Offline / no remote — proceed with the validated local store.
@@ -1285,10 +1285,11 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     if (!force && now < nextRemotePullAt) return "cooldown";
     let status: HunchPullStatus;
     try {
-      status = pullHunchStatus(store.privateDir, {
-        timeoutMs: 5_000,
+      const pulled = pullHunchStatusDetailed(store.privateDir, {
         remote: startupTeamRoute ?? advertisedTeamRemoteContract(root, join(store.privateDir, "..")),
       });
+      status = pulled.status;
+      if (pulled.detail) console.error(`[hunch-mcp] team memory pull failed (${describePullFailure(pulled.detail)})`);
     } catch {
       status = "failed";
     }
@@ -1623,7 +1624,16 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     async ({ target, as_of }): Promise<ToolResult> => {
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return invalid(`Could not resolve as_of "${as_of}" to a commit.`);
-      const w = store.why(target, { asOf });
+      let w = store.why(target, { asOf });
+      // "No record <id>" is a team-absence claim in shared mode: confirm the local
+      // miss against a fresh pull first, like hunch_current_decision. A record held
+      // locally but outside its as_of window is not a team-absence claim: no pull.
+      if (w.byId && !w.byId.record && store.mode === "shared" && store.privateDir
+        && !(asOf && store.why(target).byId?.record)) {
+        const abstention = confirmSharedMiss(`record ${w.byId.id} is absent from shared team memory`, `record ${w.byId.id}`);
+        if (abstention) return err(abstention);
+        w = store.why(target, { asOf });
+      }
       if (w.byId?.record) return ok(formatWhyRecord(w.byId).join("\n"));
       // Highest-signal first, then cap: invariants by severity, decisions by
       // confidence, bugs by severity — so a hot file's trim drops the tail, not
@@ -3822,6 +3832,10 @@ export async function startServer(cwd: string = process.cwd(), options: RootCont
   wireClientRoots(control, fallback);
   const transport = new StdioServerTransport();
   await control.server.connect(transport);
+  // Exit through process.exit on a termination signal (same conventional codes as
+  // a signal death) so NODE_V8_COVERAGE is flushed for `hunch verify --refresh-map`.
+  process.once("SIGTERM", () => process.exit(143));
+  process.once("SIGINT", () => process.exit(130));
   console.error(control.pinned
     ? `[hunch-mcp] serving Hunch over stdio (pinned root ${control.getRoot()}; client roots ignored)`
     : `[hunch-mcp] serving Hunch over stdio (spawn root ${control.getRoot()}; resolving client roots…)`);

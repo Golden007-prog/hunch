@@ -38,6 +38,9 @@ export interface HunchConfig {
    *  (see src/mcp/toolset.ts). Undefined = decide from the root's contents. */
   mcp_tools?: string;
   workspaces?: Partial<WorkspacesConfig>;
+  /** `hunch verify` knobs: `tests` discovery glob, `command` runner template
+   *  (`{files}` is replaced by the selected test paths). */
+  verify?: { tests?: string; command?: string };
 }
 
 /** The effective workspace config: every field present, unknown values ignored. */
@@ -69,6 +72,7 @@ export function readConfig(paths: HunchPaths): HunchConfig {
       firmness: isFirmness(raw.firmness) ? raw.firmness : DEFAULT_FIRMNESS,
       ...(typeof raw.mcp_tools === "string" && raw.mcp_tools.trim() ? { mcp_tools: raw.mcp_tools.trim() } : {}),
       ...(raw.workspaces && typeof raw.workspaces === "object" && !Array.isArray(raw.workspaces) ? { workspaces: raw.workspaces } : {}),
+      ...(raw.verify && typeof raw.verify === "object" && !Array.isArray(raw.verify) ? { verify: raw.verify } : {}),
     };
   } catch {
     return defaults();
