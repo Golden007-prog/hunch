@@ -27,7 +27,7 @@ import { HUNCH_VERSION } from "../core/version.js";
 import { registerIntegrationCommands } from "./integrations.js";
 import { registerTaskReportCommands } from "./taskReport.js";
 import { registerStateCommands } from "./state.js";
-import { registerServeCommands } from "./serve.js";
+import { DEFAULT_CONFIG as SERVE_DEFAULT_CONFIG_FILE, registerServeCommands } from "./serve.js";
 import { registerUpdateCommand } from "./update.js";
 import { registerReviewMemoryCommands } from "./reviewMemory.js";
 import { detectInitiator, normalizeInitiator } from "../synthesis/initiator.js";
@@ -252,8 +252,6 @@ registerReviewMemoryCommands(program, (records, repository, privateOnly) => {
 // (`hook` silently: its stdout is the agent's context). The merge drivers still
 // run: a leftover driver that exits without writing %A would let git drop `theirs`.
 const OPT_OUT_ALLOWED = new Set(["uninstall", "doctor", "help", "merge-driver", "merge-driver-grounding"]);
-// `serve init`'s default config file (DEFAULT_CONFIG in ./serve.ts), resolved against the cwd.
-const SERVE_DEFAULT_CONFIG = "hunch-serve.json";
 const OPT_OUT_QUIET = new Set(["hook", "sync", "check", "grounding", "repair-provenance", "workspaces"]);
 program.hook("preAction", (_thisCommand, actionCommand) => {
   let top = actionCommand;
@@ -270,7 +268,7 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
   let gated = rootGiven ? optedOutAt(realpathNorm(resolve(rootOpt as string))) : isOptedOut(findRoot());
   if (!gated && name === "serve" && actionCommand.name() === "init") {
     const configOpt = (top.opts() as { config?: unknown }).config ?? (actionCommand.opts() as { config?: unknown }).config;
-    const configFile = resolve(typeof configOpt === "string" ? configOpt : SERVE_DEFAULT_CONFIG);
+    const configFile = resolve(typeof configOpt === "string" ? configOpt : SERVE_DEFAULT_CONFIG_FILE);
     gated = optedOutAt(realpathNorm(dirname(configFile)));
   }
   if (!gated) return;

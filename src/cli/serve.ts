@@ -37,8 +37,10 @@ export async function compactPartition(
   } finally { store.close(); }
 }
 
+/** The serve config file used when no --config is given, resolved against the cwd. */
+export const DEFAULT_CONFIG = "hunch-serve.json";
+
 export function registerServeCommands(program: Command): void {
-  const DEFAULT_CONFIG = "hunch-serve.json";
   const serve = program.command("serve")
     .description("Serve nuryel.state/1 over HTTP for organization / team / user / repository partitions (binds 127.0.0.1; put it behind SSH or a reverse proxy)")
     .option("--config <file>", `serve config (nuryel.serve-config/1); default ${DEFAULT_CONFIG}`)

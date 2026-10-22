@@ -17,7 +17,6 @@ import { spawnSync } from "node:child_process";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { writeFileAtomic } from "../core/io.js";
-import { isDir } from "../core/paths.js";
 import { currentBranch, gitCommonDir, isGitRepo, isLinkedWorktree, separateGitDirLink } from "../extractors/git.js";
 import { HUNCH_END, HUNCH_START } from "./claudemd.js";
 import { ciWorkflowYaml } from "./ciAction.js";
@@ -35,16 +34,16 @@ export function isOptedOut(root: string): boolean {
   try { return lstatSync(join(root, OPT_OUT_FILE)).isFile(); } catch { return false; }
 }
 
-/** Whether `start`, or the store or repository containing it, opted out: walks up
- *  through `start`'s ancestors (which need not exist yet), stopping after the first one
- *  holding `.git` or a `.hunch` directory (the boundary `findRoot` uses) or at the
- *  filesystem root, so a path inside an opted-out repository (`serve init --root
- *  ./partitions/x`) is gated like the repository itself, while a marker above an
- *  unrelated store or repository never refuses it (#458). */
+/** Whether `start`, or the repository containing it, opted out: walks up through
+ *  `start`'s ancestors (which need not exist yet), stopping after the first one holding
+ *  `.git` or at the filesystem root, so a path inside an opted-out repository (`serve
+ *  init --root ./partitions/x`) is gated like the repository itself (#458). A `.hunch`
+ *  store is deliberately not a boundary: a partition store nested in an opted-out
+ *  repository stays gated (fail closed). */
 export function optedOutAt(start: string): boolean {
   for (let dir = resolve(start); ; ) {
     if (isOptedOut(dir)) return true;
-    if (isDir(join(dir, ".hunch")) || existsSync(join(dir, ".git"))) return false;
+    if (existsSync(join(dir, ".git"))) return false;
     const parent = dirname(dir);
     if (parent === dir) return false;
     dir = parent;
