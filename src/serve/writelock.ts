@@ -22,7 +22,11 @@ import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, rmdirSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import { heldLockNonces, judgeSameHostOwner, processStartedAt, selfStartToken, startTokenOf } from "../core/procstart.js";
+import { createdAfterLock, heldLockNonces, judgeSameHostOwner, processStartedAt, selfStartToken, startTokenOf } from "../core/procstart.js";
+
+/** Shared with jsonStore's `.rmw-lock` (core/procstart.ts); re-exported so this
+ *  module's surface is unchanged. */
+export { CREATED_AFTER_SLACK_MS } from "../core/procstart.js";
 
 /** Longest a write may hold the lock before another process may steal it: a put plus a
  *  git commit and push — seconds, not minutes. */
@@ -34,10 +38,6 @@ export const ACQUIRE_TIMEOUT_MS = 10_000;
  *  crashed inside it. */
 export const CLAIM_STALE_MS = 10_000;
 const POLL_MS = 25;
-/** How much later than the lock's recorded `at` the pid's current process must
- *  have been created before it is proven not to be the owner. A genuine owner
- *  started BEFORE it took the lock; the slack only absorbs clock granularity. */
-export const CREATED_AFTER_SLACK_MS = 5_000;
 
 export interface LockOwner { pid: number; host: string; nonce: string; at: string; start?: string }
 
@@ -108,9 +108,10 @@ function stealable(path: string, owner: LockOwner | undefined, now: number, toke
   // and any skew between them would "prove" a live owner recycled and steal its
   // lock. Anything the token cannot settle stays "not proven".
   //
-  // The whole table lives in core/procstart.ts so this lock and jsonStore's
-  // `.rmw-lock` can never drift apart; "age" means it proved nothing and the
-  // fallback below governs, exactly as for a foreign host.
+  // The whole table, and the creation-time check for an "unproven" pid, live in
+  // core/procstart.ts so this lock and jsonStore's `.rmw-lock` apply one rule;
+  // "age" means it proved nothing and the fallback below governs, exactly as
+  // for a foreign host.
   if (owner && owner.host === hostname()) {
     const verdict = judgeSameHostOwner(owner, {
       alive: pidAlive,
@@ -120,19 +121,10 @@ function stealable(path: string, owner: LockOwner | undefined, now: number, toke
       selfPid: process.pid,
       heldNonces: heldLockNonces,
     });
-    if (verdict === "unproven") return ageMs > STALE_AFTER_MS && createdAfterLock(owner, token);
+    if (verdict === "unproven") return ageMs > STALE_AFTER_MS && createdAfterLock(owner, token.startedAt);
     if (verdict !== "age") return verdict === "stale";
   }
   return ageMs > STALE_AFTER_MS;
-}
-
-/** Is the process now holding the owner's pid provably newer than the lock?
- *  Unreadable either way means not proven, and a live pid keeps its lock. */
-function createdAfterLock(owner: LockOwner, token: StartTokenProbe): boolean {
-  const at = Date.parse(owner.at);
-  if (!Number.isFinite(at)) return false;
-  const started = (token.startedAt ?? processStartedAt)(owner.pid);
-  return started !== null && started > at + CREATED_AFTER_SLACK_MS;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

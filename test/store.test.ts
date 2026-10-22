@@ -9,6 +9,8 @@ import { tempStore, prov, mkSymbol } from "./helpers.js";
 import { openMemoryDb, type DB } from "../src/store/db.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { hunchPaths } from "../src/core/paths.js";
+import { JsonStore } from "../src/store/jsonStore.js";
+import { processStartedAt } from "../src/core/procstart.js";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
@@ -375,6 +377,91 @@ test("single-file RMW lock: a LIVE owner's lock back-dated by clock skew is neve
     assert.equal(store.json.loadAll("edges").some((e) => e.id === "e_skew"), false);
   } finally {
     try { holder.kill("SIGKILL"); } catch { /* already gone */ }
+    cleanup();
+  }
+});
+
+// Issue #457: off linux there is no process-instance token, so a hunch that died
+// holding `.rmw-lock` and an UNRELATED process that then reused its pid left the
+// lock "unproven" (= live) forever. The write lock's creation-time rule now
+// applies here too: an AGED lock whose pid's current process was created after
+// the lock's recorded `at` is taken over. The probe is injected (JsonStore's
+// internal lockOpts seam) so the rule runs identically on linux CI, where the
+// real OS probe reports nothing.
+function orphanedRmwLock(root: string, pid: number, at: number): string {
+  const lock = join(root, ".hunch", "edges", ".rmw-lock");
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, "owner.tmp.json"), JSON.stringify({ pid, host: hostname(), nonce: "dead-owner", at: new Date(at).toISOString() }));
+  const old = new Date(Date.now() - 30_000);
+  utimesSync(lock, old, old);
+  return lock;
+}
+
+/** A creation-time probe that answers `startedAt` for `pid` and counts every call. */
+function countingProbe(pid: number, startedAt: number): { probe: (p: number) => number | null; calls: Map<number, number> } {
+  const calls = new Map<number, number>();
+  return { calls, probe: (p) => { calls.set(p, (calls.get(p) ?? 0) + 1); return p === pid ? startedAt : null; } };
+}
+
+test("single-file RMW lock: an aged tokenless lock whose pid was REUSED by a newer process is taken over (issue #457)", () => {
+  const { root, cleanup } = seed();
+  const reuser = spawnSleeper();
+  const reuserStarted = Date.now();
+  const { probe, calls } = countingProbe(reuser.pid, reuserStarted);
+  const json = new JsonStore(hunchPaths(root), { startedAt: probe });
+  try {
+    // The owner took the lock a minute BEFORE the process now holding its pid was created.
+    const lock = orphanedRmwLock(root, reuser.pid, reuserStarted - 60_000);
+    json.put("edges", { id: "e_reused_pid", from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() } as never);
+    assert.ok(json.loadAll("edges").some((e) => e.id === "e_reused_pid"), "the orphaned lock is taken over and the write lands");
+    assert.equal(existsSync(lock), false, "the reclaimed lock is released after the write");
+    assert.deepEqual([...calls], [[reuser.pid, 1]], "the judge and the re-judge under the claim share one probe call");
+  } finally {
+    reuser.kill();
+    cleanup();
+  }
+});
+
+test("single-file RMW lock: an aged tokenless lock taken AFTER its live pid started is never stolen (issue #457)", () => {
+  const { root, cleanup } = seed();
+  const holder = spawnSleeper();
+  const holderStarted = Date.now();
+  const { probe, calls } = countingProbe(holder.pid, holderStarted);
+  const json = new JsonStore(hunchPaths(root), { startedAt: probe });
+  try {
+    // A slow genuine owner: it started, then took the lock. Age alone is not enough.
+    const lock = orphanedRmwLock(root, holder.pid, holderStarted + 1_000);
+    const edge = (id: string) => ({ id, from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() }) as never;
+    assert.throws(() => json.put("edges", edge("e_live_owner")), /timed out acquiring the edges index lock/);
+    assert.equal(existsSync(lock), true, "the live owner's lock survives");
+    assert.equal(json.loadAll("edges").some((e) => e.id === "e_live_owner"), false);
+    // The OS probe spawns: a waiter polling for 2 s asks it once per pid per acquisition.
+    assert.deepEqual([...calls], [[holder.pid, 1]], "one probe call for the whole acquisition, not one per poll");
+    assert.throws(() => json.put("edges", edge("e_live_owner_2")), /timed out acquiring the edges index lock/);
+    assert.deepEqual([...calls], [[holder.pid, 2]], "a new acquisition asks again (a pid can be reused between them)");
+  } finally {
+    holder.kill();
+    cleanup();
+  }
+});
+
+// The same takeover through the REAL OS probe, where one exists. Never in the CI
+// matrix; skipped, not failed, when the probe cannot answer (a cold PowerShell
+// past its 3 s timeout, a restricted `ps`).
+test("single-file RMW lock: the real creation-time probe proves a reused pid (issue #457)", { skip: process.platform !== "win32" && process.platform !== "darwin" }, (t) => {
+  const { store, root, cleanup } = seed();
+  const reuser = spawnSleeper();
+  try {
+    if (processStartedAt(reuser.pid) === null) {
+      t.skip("the OS creation-time probe returned nothing for the child process");
+      return;
+    }
+    const lock = orphanedRmwLock(root, reuser.pid, Date.now() - 10 * 60_000);
+    store.json.put("edges", { id: "e_reused_real", from: "sym_a", to: "sym_b", type: "calls", reason: "", strength: 1, provenance: prov() } as never);
+    assert.ok(store.json.loadAll("edges").some((e) => e.id === "e_reused_real"));
+    assert.equal(existsSync(lock), false);
+  } finally {
+    reuser.kill();
     cleanup();
   }
 });
