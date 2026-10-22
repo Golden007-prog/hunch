@@ -1,0 +1,766 @@
+{
+  "APPDATA": {
+    "class": "platform",
+    "purpose": "Windows config root for the machine/workspace ledger when XDG_CONFIG_HOME is unset",
+    "tests": [
+      {
+        "file": "test/optout-gate-matrix.test.ts",
+        "title": "opt-out gate holds for every location-taking option of every command (#458 class)"
+      },
+      {
+        "file": "test/runbook-capture.test.ts",
+        "title": "hunch runbook over a range interleaving capture commits records only the real procedure"
+      }
+    ]
+  },
+  "CI": {
+    "class": "platform",
+    "purpose": "Suppresses the npm update check in CI",
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, check, and the VS Code seam share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/canonical-locale.test.ts",
+        "title": "canonical artifacts and exact source receipts are locale-independent"
+      }
+    ]
+  },
+  "CLAUDECODE": {
+    "class": "agent-identity",
+    "purpose": "Detects Claude Code as the invoking agent (initiator binding)",
+    "tests": [
+      {
+        "file": "test/experiment.test.ts",
+        "title": "EXP-01 runner uses a fresh worktree, strips ambient instructions, and scores only with a hidden external evaluator"
+      },
+      {
+        "file": "test/fixture-environment.test.ts",
+        "title": "fixture CLI environment drops every inherited initiator and preserves explicit fixture choices"
+      }
+    ]
+  },
+  "CODEX_SESSION_ID": {
+    "class": "agent-identity",
+    "purpose": "Detects Codex as the invoking agent (initiator binding)",
+    "tests": [
+      {
+        "file": "test/fixture-environment.test.ts",
+        "title": "fixture CLI environment drops every inherited initiator and preserves explicit fixture choices"
+      }
+    ]
+  },
+  "CODEX_THREAD_ID": {
+    "class": "agent-identity",
+    "purpose": "Detects Codex as the invoking agent (initiator binding)",
+    "tests": [
+      {
+        "file": "test/cli-adapter.test.ts",
+        "title": "ACP initializes a fresh session, streams only assistant text and denies tool requests"
+      },
+      {
+        "file": "test/fixture-environment.test.ts",
+        "title": "fixture CLI environment drops every inherited initiator and preserves explicit fixture choices"
+      }
+    ]
+  },
+  "ComSpec": {
+    "class": "platform",
+    "purpose": "Windows command interpreter used to launch .cmd shims",
+    "tests": [
+      {
+        "file": "test/hook-matrix.test.ts",
+        "title": "every installed hook config command launches hunch through the shell"
+      }
+    ]
+  },
+  "GIT_AUTHOR_EMAIL": {
+    "class": "git",
+    "purpose": "Respected before Hunch supplies a machine commit identity",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      },
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      }
+    ]
+  },
+  "GIT_AUTHOR_NAME": {
+    "class": "git",
+    "purpose": "Respected before Hunch supplies a machine commit identity",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      },
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      }
+    ]
+  },
+  "GIT_COMMITTER_EMAIL": {
+    "class": "git",
+    "purpose": "Respected before Hunch supplies a machine commit identity",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      },
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      }
+    ]
+  },
+  "GIT_COMMITTER_NAME": {
+    "class": "git",
+    "purpose": "Respected before Hunch supplies a machine commit identity",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      },
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      }
+    ]
+  },
+  "GIT_INDEX_FILE": {
+    "class": "git",
+    "purpose": "Detects a git-hook alternate index so checks never mutate the user's index",
+    "tests": [
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "alternate-index pre-commit checks scan the same staged blobs they enumerate"
+      },
+      {
+        "file": "test/dependency-snapshot-isolation.test.ts",
+        "title": "behavior execution cannot mutate its shared dependency snapshot and ordinary-file tampering invalidates reuse"
+      }
+    ]
+  },
+  "HTTPS_PROXY": {
+    "class": "network-passthrough",
+    "purpose": "Proxy forwarded to isolated npm dependency snapshots",
+    "tests": [
+      {
+        "file": "test/team-route-contract.test.ts",
+        "title": "a CLI command refuses all handlers when its route changes during the startup pull"
+      }
+    ]
+  },
+  "HTTP_PROXY": {
+    "class": "network-passthrough",
+    "purpose": "Proxy forwarded to isolated npm dependency snapshots",
+    "tests": [
+      {
+        "file": "test/team-route-contract.test.ts",
+        "title": "a CLI command refuses all handlers when its route changes during the startup pull"
+      }
+    ]
+  },
+  "HUNCH_CLI_CONFIG": {
+    "class": "hunch-config",
+    "purpose": "Path to a local agent-CLI adapter config (also set by --cli-config) for non-builtin initiators",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_CLI_CONFIG: a valid adapter file binds a non-builtin initiator; without it the initiator is unavailable"
+      },
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_CLI_CONFIG: malformed, schema-invalid, oversized, directory, missing and traversal paths are refused before any adapter runs"
+      }
+    ]
+  },
+  "HUNCH_CODEX_MODEL": {
+    "class": "hunch-synthesis",
+    "purpose": "Model id passed to codex exec -m (validated; omitted when invalid)",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_CODEX_MODEL reaches codex exec as -m; an unsafe id or no value omits the flag"
+      }
+    ]
+  },
+  "HUNCH_COMMIT_GIT_TIMEOUT_MS": {
+    "class": "hunch-config",
+    "purpose": "Timeout for git calls in the commit path",
+    "tests": [
+      {
+        "file": "test/commit-git-timeout.test.ts",
+        "title": "a git that hangs is stopped at the bound and the flush returns null quickly"
+      }
+    ]
+  },
+  "HUNCH_CURSOR_MODEL": {
+    "class": "hunch-synthesis",
+    "purpose": "Model id passed to cursor-agent -m (validated; omitted when invalid)",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_CURSOR_MODEL reaches cursor-agent as -m; an unsafe id or no value omits the flag"
+      }
+    ]
+  },
+  "HUNCH_EMBEDDER": {
+    "class": "hunch-config",
+    "purpose": "Selects/disables the optional local embedder",
+    "tests": [
+      {
+        "file": "test/embed.test.ts",
+        "title": "selectEmbedder honors HUNCH_EMBEDDER (stub / none)"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:embed: degrades with a clear message when no embedder is installed, keyword query still works, and a stub embedder embeds idempotently"
+      }
+    ]
+  },
+  "HUNCH_EXECUTABLE_PROBES": {
+    "class": "hunch-harness",
+    "purpose": "Orchestrator-injected red/green probe specs armed at SessionStart",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_EXECUTABLE_PROBES: a valid probe compiles to a baseline and a validation obligation; unsafe or malformed probes compile to nothing"
+      }
+    ]
+  },
+  "HUNCH_EXECUTION_OBLIGATIONS": {
+    "class": "hunch-harness",
+    "purpose": "Orchestrator-injected execution obligations armed at SessionStart",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_EXECUTION_OBLIGATIONS: valid JSON arms obligations; unset, malformed, non-array and invalid entries arm nothing"
+      }
+    ]
+  },
+  "HUNCH_GRAPH_GAMMA": {
+    "class": "hunch-ranking",
+    "purpose": "Graph-expansion decay in retrieval",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_GRAPH_MAX_DEPTH": {
+    "class": "hunch-ranking",
+    "purpose": "Graph-expansion depth (bounded)",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_GRAPH_NODE_CAP": {
+    "class": "hunch-ranking",
+    "purpose": "Graph-expansion node cap (bounded)",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_GRAPH_TOKEN_CAP": {
+    "class": "hunch-ranking",
+    "purpose": "Graph-expansion token cap (bounded)",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_HOOK_DEDUP": {
+    "class": "hunch-config",
+    "purpose": "Controls per-session hook injection dedup",
+    "tests": [
+      {
+        "file": "test/hookcache.test.ts",
+        "title": "hookcache: sessions are isolated; missing session id and kill switch always mean full"
+      }
+    ]
+  },
+  "HUNCH_INITIATOR": {
+    "class": "agent-identity",
+    "purpose": "Explicit invoking-agent identity (or 'unknown') binding synthesis provider",
+    "tests": [
+      {
+        "file": "test/cli-adapter.test.ts",
+        "title": "custom stdin CLI receives literal input and initiating identity without a shell prompt"
+      },
+      {
+        "file": "test/fixture-environment.test.ts",
+        "title": "fixture CLI environment drops every inherited initiator and preserves explicit fixture choices"
+      }
+    ]
+  },
+  "HUNCH_MAX_PRIOR_SHIFT": {
+    "class": "hunch-ranking",
+    "purpose": "Cap on prior-based rank shift",
+    "tests": [
+      {
+        "file": "test/rankeviction.test.ts",
+        "title": "the prior's authority is BOUNDED — it cannot move a hit past the whole pool (#4)"
+      }
+    ]
+  },
+  "HUNCH_MCP_TOOLS": {
+    "class": "hunch-config",
+    "purpose": "Restricts the MCP tool list",
+    "tests": [
+      {
+        "file": "test/footprint.test.ts",
+        "title": "footprint: every surface is measured, non-empty, and under its ceiling"
+      },
+      {
+        "file": "test/lean-tool-list.test.ts",
+        "title": "tools/list across every tool group carries no $schema, default execution, or safe-integer bound — and calls still validate"
+      }
+    ]
+  },
+  "HUNCH_MEMORY_PRIOR_SHIFT": {
+    "class": "hunch-ranking",
+    "purpose": "Rank shift applied to memory priors",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_NO_UPDATE_CHECK": {
+    "class": "hunch-config",
+    "purpose": "Disables the npm update check",
+    "tests": [
+      {
+        "file": "test/updatecheck.test.ts",
+        "title": "update checks are limited to ordinary installed interactive commands"
+      }
+    ]
+  },
+  "HUNCH_PIPELINE": {
+    "class": "hunch-config",
+    "purpose": "Enables/disables the execution pipeline controller in hooks",
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "Codex apply_patch lists every touched file with only its added lines"
+      },
+      {
+        "file": "test/drift.test.ts",
+        "title": "drift --fail-on turns a reported kind into a gate failure; unknown kinds are refused"
+      }
+    ]
+  },
+  "HUNCH_PRIOR_SHIFT_SCALE": {
+    "class": "hunch-ranking",
+    "purpose": "Scale of prior-based rank shift",
+    "tests": [
+      {
+        "file": "test/rankeviction.test.ts",
+        "title": "the prior's authority is BOUNDED — it cannot move a hit past the whole pool (#4)"
+      }
+    ]
+  },
+  "HUNCH_PRIVATE_DIR": {
+    "class": "hunch-config",
+    "purpose": "Location of the private overlay store ('' disables)",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      }
+    ]
+  },
+  "HUNCH_PULL_GIT_TIMEOUT_MS": {
+    "class": "hunch-config",
+    "purpose": "Timeout for git calls in pull",
+    "tests": [
+      {
+        "file": "test/pull-failure-detail.test.ts",
+        "title": "HUNCH_PULL_GIT_TIMEOUT_MS: positive integers only; local budgets scale to max(2s, value/2.5)"
+      }
+    ]
+  },
+  "HUNCH_REVIEW_CLI_CONFIG": {
+    "class": "hunch-config",
+    "purpose": "Agent-CLI adapter config for automatic review memory; fallback for HUNCH_CLI_CONFIG",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_REVIEW_CLI_CONFIG is honoured as the adapter config fallback, and HUNCH_CLI_CONFIG takes precedence"
+      }
+    ]
+  },
+  "HUNCH_REVIEW_INITIATOR": {
+    "class": "agent-identity",
+    "purpose": "Initiator for automatic review memory",
+    "tests": [
+      {
+        "file": "test/review-memory-provider.test.ts",
+        "title": "explicit initiator binds Claude, Codex, Kimi and arbitrary configured CLIs"
+      }
+    ]
+  },
+  "HUNCH_RRF_K": {
+    "class": "hunch-ranking",
+    "purpose": "Reciprocal-rank-fusion k",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_RRF_W_FTS": {
+    "class": "hunch-ranking",
+    "purpose": "RRF weight for full-text results",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_RRF_W_GRAPH": {
+    "class": "hunch-ranking",
+    "purpose": "RRF weight for graph results",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_RRF_W_SEM": {
+    "class": "hunch-ranking",
+    "purpose": "RRF weight for semantic results",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_SIG_MIN_LINES": {
+    "class": "hunch-synthesis",
+    "purpose": "Churn threshold above which a commit is significant enough for model synthesis (default 12)",
+    "tests": [
+      {
+        "file": "test/env-vars.test.ts",
+        "title": "HUNCH_SIG_MIN_LINES moves the churn threshold for model synthesis; garbage keeps the default 12"
+      }
+    ]
+  },
+  "HUNCH_STALE_DECISION_PRIOR_WEIGHT": {
+    "class": "hunch-ranking",
+    "purpose": "Prior weight for stale decisions",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_STATE_HISTORY_SCORE_FACTOR": {
+    "class": "hunch-ranking",
+    "purpose": "Score factor for superseded state history",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_STATE_TOKEN": {
+    "class": "hunch-config",
+    "purpose": "Bearer token for the hunch serve state client",
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/state-cli.test.ts",
+        "title": "state CLI uses the real authenticated contract for writes, reads, records, subscriptions and typed refusals"
+      }
+    ]
+  },
+  "HUNCH_STATE_URL": {
+    "class": "hunch-config",
+    "purpose": "URL of the hunch serve state endpoint",
+    "tests": [
+      {
+        "file": "test/state-cli.test.ts",
+        "title": "state CLI uses the real authenticated contract for writes, reads, records, subscriptions and typed refusals"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_ALLOW_METERED": {
+    "class": "hunch-synthesis",
+    "purpose": "Explicit opt-in for a metered OpenAI-compatible endpoint",
+    "tests": [
+      {
+        "file": "test/cliproviders.test.ts",
+        "title": "meteredHostsAllowed is true only when HUNCH_SYNTH_ALLOW_METERED=1"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_API_KEY": {
+    "class": "hunch-synthesis",
+    "purpose": "API key for the OpenAI-compatible local endpoint",
+    "tests": [
+      {
+        "file": "test/cliproviders.test.ts",
+        "title": "OpenAICompatProvider.available() requires explicit opt-in for any public remote endpoint"
+      },
+      {
+        "file": "test/doctor.test.ts",
+        "title": "synthesisStatusLines: openai-compat notes when HUNCH_SYNTH_API_KEY is set"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_BASE_URL": {
+    "class": "hunch-synthesis",
+    "purpose": "Base URL of the OpenAI-compatible local endpoint",
+    "tests": [
+      {
+        "file": "test/cliproviders.test.ts",
+        "title": "OpenAICompatProvider.available() is false unless BOTH HUNCH_SYNTH_BASE_URL and HUNCH_SYNTH_MODEL are set"
+      },
+      {
+        "file": "test/doctor.test.ts",
+        "title": "synthesisStatusLines: openai-compat reports the configured endpoint/model, not 'no assistant CLI found'"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_MAX_TOKENS": {
+    "class": "hunch-synthesis",
+    "purpose": "Output token cap for the OpenAI-compatible endpoint",
+    "tests": [
+      {
+        "file": "test/cliproviders.test.ts",
+        "title": "OpenAICompatProvider.draftDecision honors HUNCH_SYNTH_MAX_TOKENS"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_MODEL": {
+    "class": "hunch-synthesis",
+    "purpose": "Model for the OpenAI-compatible endpoint",
+    "tests": [
+      {
+        "file": "test/cliproviders.test.ts",
+        "title": "OpenAICompatProvider.available() is false unless BOTH HUNCH_SYNTH_BASE_URL and HUNCH_SYNTH_MODEL are set"
+      },
+      {
+        "file": "test/doctor.test.ts",
+        "title": "synthesisStatusLines: openai-compat reports the configured endpoint/model, not 'no assistant CLI found'"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_PROVIDER": {
+    "class": "hunch-synthesis",
+    "purpose": "Synthesis provider preference (deterministic/auto/named CLI)",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      }
+    ]
+  },
+  "HUNCH_SYNTH_TIMEOUT_MS": {
+    "class": "hunch-synthesis",
+    "purpose": "Timeout for the OpenAI-compatible endpoint",
+    "tests": [
+      {
+        "file": "test/cliproviders.test.ts",
+        "title": "HUNCH_SYNTH_PROVIDER=deterministic forces the offline heuristic"
+      }
+    ]
+  },
+  "HUNCH_TASK_SELECTION": {
+    "class": "hunch-config",
+    "purpose": "Task selection mode for hook task binding",
+    "tests": [
+      {
+        "file": "test/task-selection.test.ts",
+        "title": "without a pathExists check only a slashed token counts as a path"
+      }
+    ]
+  },
+  "HUNCH_TEAM_CLONE_DEBUG": {
+    "class": "hunch-debug",
+    "purpose": "Prints team-store clone diagnostics when '1'",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_TEAM_CLONE_TIMEOUT_MS": {
+    "class": "hunch-config",
+    "purpose": "Per-process override of the team-store clone timeout",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "HUNCH_TEST_FAIL_OVERLAY_MIGRATION_AFTER_PUBLIC_DROP": {
+    "class": "test-hook",
+    "purpose": "Fault injection for overlay migration crash-safety tests",
+    "tests": [
+      {
+        "file": "test/local-pointer-ownership.test.ts",
+        "title": "a failed fresh setup in a --separate-git-dir checkout leaves no back-link behind"
+      }
+    ]
+  },
+  "HUNCH_WORKSPACE_REFRESH": {
+    "class": "hunch-config",
+    "purpose": "Controls workspace ledger refresh",
+    "tests": [
+      {
+        "file": "test/workspace-ledger.test.ts",
+        "title": "HUNCH_WORKSPACE_REFRESH=0 makes a hunch_workspaces call read-only"
+      }
+    ]
+  },
+  "LOCALAPPDATA": {
+    "class": "platform",
+    "purpose": "Windows cache root for the update-check cache",
+    "tests": [
+      {
+        "file": "test/updatecheck.test.ts",
+        "title": "cache path follows the host convention without creating a .hunch segment"
+      }
+    ]
+  },
+  "NO_PROXY": {
+    "class": "network-passthrough",
+    "purpose": "Proxy bypass forwarded to isolated npm dependency snapshots",
+    "tests": [
+      {
+        "file": "test/team-route-contract.test.ts",
+        "title": "a CLI command refuses all handlers when its route changes during the startup pull"
+      }
+    ]
+  },
+  "NO_UPDATE_NOTIFIER": {
+    "class": "platform",
+    "purpose": "Conventional opt-out for the npm update check",
+    "tests": [
+      {
+        "file": "test/updatecheck.test.ts",
+        "title": "update checks are limited to ordinary installed interactive commands"
+      }
+    ]
+  },
+  "PATH": {
+    "class": "platform",
+    "purpose": "Executable lookup for provider CLIs; forwarded to sandboxed children",
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/cli-adapter.test.ts",
+        "title": "custom stdin CLI receives literal input and initiating identity without a shell prompt"
+      }
+    ]
+  },
+  "PATHEXT": {
+    "class": "platform",
+    "purpose": "Windows executable extensions for provider CLI lookup",
+    "tests": [
+      {
+        "file": "test/providers.test.ts",
+        "title": "detectAssistants finds assistants from the repository, the home folder or PATH"
+      }
+    ]
+  },
+  "Path": {
+    "class": "platform",
+    "purpose": "Windows spelling of PATH for executable lookup",
+    "tests": [
+      {
+        "file": "test/optout-gate-matrix.test.ts",
+        "title": "opt-out gate holds for every location-taking option of every command (#458 class)"
+      },
+      {
+        "file": "test/task-selection.test.ts",
+        "title": "a term common to more than the DF cap of live records does not count; rare terms do"
+      }
+    ]
+  },
+  "SystemRoot": {
+    "class": "platform-passthrough",
+    "purpose": "Forwarded to sandboxed replay/behaviour children so Windows binaries start",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "TEMP": {
+    "class": "platform-passthrough",
+    "purpose": "Temp dir forwarded to sandboxed children",
+    "tests": [
+      {
+        "file": "test/parse.test.ts",
+        "title": "known trade-off: a plain YAML file whose STRING VALUE merely contains \\\"{{\\\" is treated as templated, but real anchors alongside it are still extracted"
+      },
+      {
+        "file": "test/provider-exec.test.ts",
+        "title": "pexecIn feeds untrusted input via stdin, not argv"
+      }
+    ]
+  },
+  "TMP": {
+    "class": "platform-passthrough",
+    "purpose": "Temp dir forwarded to sandboxed children",
+    "tests": [
+      {
+        "file": "test/parse.test.ts",
+        "title": "known trade-off: a plain YAML file whose STRING VALUE merely contains \\\"{{\\\" is treated as templated, but real anchors alongside it are still extracted"
+      },
+      {
+        "file": "test/task-selection.test.ts",
+        "title": "without a pathExists check only a slashed token counts as a path"
+      }
+    ]
+  },
+  "TMPDIR": {
+    "class": "platform-passthrough",
+    "purpose": "Temp dir forwarded to sandboxed children",
+    "tests": [
+      {
+        "file": "test/cold-start.test.ts",
+        "title": "a real parse still works and loads the addons on first use"
+      },
+      {
+        "file": "test/parse.test.ts",
+        "title": "known trade-off: a plain YAML file whose STRING VALUE merely contains \\\"{{\\\" is treated as templated, but real anchors alongside it are still extracted"
+      }
+    ]
+  },
+  "WINDIR": {
+    "class": "platform-passthrough",
+    "purpose": "Forwarded to sandboxed replay/behaviour children so Windows binaries start",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  },
+  "XDG_CACHE_HOME": {
+    "class": "platform",
+    "purpose": "Cache root for the update-check cache",
+    "tests": [
+      {
+        "file": "test/updatecheck.test.ts",
+        "title": "cache path follows the host convention without creating a .hunch segment"
+      }
+    ]
+  },
+  "XDG_CONFIG_HOME": {
+    "class": "platform",
+    "purpose": "Config root for machine identity, trust and workspace ledger",
+    "tests": [
+      {
+        "file": "test/hooks.test.ts",
+        "title": "strict pre-commit enforces the exact alternate index Git is committing"
+      },
+      {
+        "file": "test/optout-gate-matrix.test.ts",
+        "title": "opt-out gate holds for every location-taking option of every command (#458 class)"
+      }
+    ]
+  },
+  "http_proxy": {
+    "class": "network-passthrough",
+    "purpose": "Proxy forwarded to isolated npm dependency snapshots",
+    "tests": [
+      {
+        "file": "test/team-route-contract.test.ts",
+        "title": "a CLI command refuses all handlers when its route changes during the startup pull"
+      }
+    ]
+  },
+  "https_proxy": {
+    "class": "network-passthrough",
+    "purpose": "Proxy forwarded to isolated npm dependency snapshots",
+    "tests": [
+      {
+        "file": "test/team-route-contract.test.ts",
+        "title": "a CLI command refuses all handlers when its route changes during the startup pull"
+      }
+    ]
+  },
+  "no_proxy": {
+    "class": "network-passthrough",
+    "purpose": "Proxy bypass forwarded to isolated npm dependency snapshots",
+    "tests": [
+      {
+        "file": "test/team-route-contract.test.ts",
+        "title": "a CLI command refuses all handlers when its route changes during the startup pull"
+      }
+    ]
+  },
+  "npm_config_registry": {
+    "class": "network-passthrough",
+    "purpose": "npm registry forwarded to isolated dependency snapshots",
+    "todo": "no test exercises this read yet (pre-existing gap when the gate landed)"
+  }
+}

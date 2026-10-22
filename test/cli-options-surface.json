@@ -1,0 +1,3697 @@
+{
+  "--cli-config": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--cli-config and --initiator bind auto-review to a local adapter"
+      }
+    ]
+  },
+  "--initiator": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--cli-config and --initiator bind auto-review to a local adapter"
+      }
+    ]
+  },
+  "--version": {
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/cold-start.test.ts",
+        "title": "the real CLI entry loads no native addon for a command that parses nothing"
+      }
+    ]
+  },
+  "adopt-drafts --dry-run": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:adopt-drafts: dry run lists drafts unchanged, apply flips them to accepted advisory, and it is idempotent"
+      }
+    ]
+  },
+  "adopt-drafts --private": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:adopt-drafts: dry run lists drafts unchanged, apply flips them to accepted advisory, and it is idempotent"
+      }
+    ]
+  },
+  "auto-review --apply": {
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:auto-review: refuses --apply on an unjudged batch, and --no-llm --apply rejects a deterministic duplicate"
+      }
+    ]
+  },
+  "auto-review --min-grounded": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--cli-config and --initiator bind auto-review to a local adapter"
+      }
+    ]
+  },
+  "auto-review --min-reject-confidence": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--cli-config and --initiator bind auto-review to a local adapter"
+      }
+    ]
+  },
+  "auto-review --no-llm": {
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:auto-review: refuses --apply on an unjudged batch, and --no-llm --apply rejects a deterministic duplicate"
+      }
+    ]
+  },
+  "auto-review --private": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--private on auto-review and capture-comments is refused"
+      }
+    ]
+  },
+  "backfill --concurrency": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "backfill --deep": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:backfill flags"
+      }
+    ]
+  },
+  "backfill --max": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "backfill --samples": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:backfill flags"
+      }
+    ]
+  },
+  "backfill --since": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "backfill --verify": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:backfill flags"
+      }
+    ]
+  },
+  "branches --fetch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:branches flags"
+      }
+    ]
+  },
+  "branches --json": {
+    "tests": [
+      {
+        "file": "test/workspaces.test.ts",
+        "title": "CLI: this machine is always LIVE — a stored record claiming a branch is merged never changes the verdict; other machines come from memory"
+      }
+    ]
+  },
+  "branches --machine": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:branches flags"
+      }
+    ]
+  },
+  "branches --merged": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:branches flags"
+      }
+    ]
+  },
+  "branches --stale": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:branches flags"
+      }
+    ]
+  },
+  "branches --unpushed": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:branches flags"
+      }
+    ]
+  },
+  "capture-comments --private": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--private on auto-review and capture-comments is refused"
+      }
+    ]
+  },
+  "change-id --json": {
+    "tests": [
+      {
+        "file": "test/change-identity.test.ts",
+        "title": "an exact branch delta and its squash commit share one change identity"
+      }
+    ]
+  },
+  "check --base": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      },
+      {
+        "file": "test/team-matrix-e2e.test.ts",
+        "title": "team Matrix: three isolated clones share live memory, catch a bad branch, repair it, and never leak it publicly"
+      }
+    ]
+  },
+  "check --blast": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "check --blast prints the dependency blast radius"
+      }
+    ]
+  },
+  "check --commit": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "check --format": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "check --public-only": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "alternate-index pre-commit checks scan the same staged blobs they enumerate"
+      }
+    ]
+  },
+  "check --staged": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "check --strict": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "check --working": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "compact --apply": {
+    "tests": [
+      {
+        "file": "test/compact.test.ts",
+        "title": "compact --apply refuses physical deletion and leaves the additive memory pump live"
+      }
+    ]
+  },
+  "compact --max-age": {
+    "tests": [
+      {
+        "file": "test/compact.test.ts",
+        "title": "compact --apply refuses physical deletion and leaves the additive memory pump live"
+      }
+    ]
+  },
+  "compact --min-confidence": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:compact --min-confidence"
+      }
+    ]
+  },
+  "compare --base": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:compare: ranks a candidate branch against main and refuses an unknown base"
+      }
+    ]
+  },
+  "conform --add": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "conform --assert": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "conform --bug": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "conform --add records --object --transitive --why --bug"
+      }
+    ]
+  },
+  "conform --object": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "conform --add records --object --transitive --why --bug"
+      }
+    ]
+  },
+  "conform --strict": {
+    "tests": [
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "CLI and MCP conformance use the complete live working graph without publishing it"
+      }
+    ]
+  },
+  "conform --subject": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "conform --transitive": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "conform --add records --object --transitive --why --bug"
+      }
+    ]
+  },
+  "conform --why": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "conform --add records --object --transitive --why --bug"
+      }
+    ]
+  },
+  "constitution bootstrap --history": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution bootstrap --history switches"
+      }
+    ]
+  },
+  "constitution bootstrap --max-candidates": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:constitution bootstrap: compiles a non-active candidate from the human-confirmed predicate"
+      }
+    ]
+  },
+  "constitution bootstrap --private": {
+    "todo": "needs a configured private overlay plus constitution history; no flag test sets that up yet"
+  },
+  "constitution bootstrap --public-only": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:constitution bootstrap: compiles a non-active candidate from the human-confirmed predicate"
+      }
+    ]
+  },
+  "constitution bootstrap --since": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:constitution bootstrap: compiles a non-active candidate from the human-confirmed predicate"
+      }
+    ]
+  },
+  "constitution delta --private": {
+    "todo": "needs a configured private overlay plus constitution history; no flag test sets that up yet"
+  },
+  "constitution delta --public-only": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:constitution delta: inspects the exact fix-commit structural delta; an unanchored decision is refused"
+      }
+    ]
+  },
+  "constitution g2 --actor": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --allow-install-script": {
+    "tests": [
+      {
+        "file": "test/cli-flags-risky.test.ts",
+        "title": "constitution g2 --allow-install-script is refused without a dependency action and writes nothing"
+      }
+    ]
+  },
+  "constitution g2 --attest": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --backfill": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --behavior-attest": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --behavior-candidates": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --behavior-decision": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --behavior-deps": {
+    "tests": [
+      {
+        "file": "test/cli-flags-risky.test.ts",
+        "title": "constitution g2 --allow-install-script is refused without a dependency action and writes nothing"
+      }
+    ]
+  },
+  "constitution g2 --behavior-materialize": {
+    "tests": [
+      {
+        "file": "test/cli-flags-risky.test.ts",
+        "title": "constitution g2 --allow-install-script is refused without a dependency action and writes nothing"
+      }
+    ]
+  },
+  "constitution g2 --behavior-policy-materialize": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --behavior-replay": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --behavior-review-hash": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --candidate-commits": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --candidate-limit": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --candidate-since": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --candidates": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "constitution g2 --dependency-timeout-ms": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --disposition": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --drill": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --evidence": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --notes": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --observe": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --plan": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --queue": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "constitution g2 --reason": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --rehearse": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --result": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g2 --review-hash": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g2 --strict": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "constitution g2 --supersedes": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g2 action flags are validated before any private write"
+      }
+    ]
+  },
+  "constitution g3 --conformance": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g3 action flags are mutually exclusive"
+      }
+    ]
+  },
+  "constitution g3 --experiment": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g3 action flags are mutually exclusive"
+      }
+    ]
+  },
+  "constitution g3 --plan": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g3 action flags are mutually exclusive"
+      }
+    ]
+  },
+  "constitution g3 --review": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g3 action flags are mutually exclusive"
+      }
+    ]
+  },
+  "constitution g3 --strict": {
+    "tests": [
+      {
+        "file": "test/g3.test.ts",
+        "title": "CLI and read-only client-neutral MCP expose the identical fail-closed G3 receipt"
+      }
+    ]
+  },
+  "constitution g3 --timeout-ms": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution g3 action flags are mutually exclusive"
+      }
+    ]
+  },
+  "constitution ingest --from": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2D review/conversation exports validate as one batch and preserve exact public/private homes without raw text"
+      }
+    ]
+  },
+  "constitution ingest --instructions": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution ingest --instructions adds committed instruction evidence"
+      }
+    ]
+  },
+  "constitution ingest --max-events": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "constitution ingest --instructions adds committed instruction evidence"
+      }
+    ]
+  },
+  "constitution ingest --private": {
+    "todo": "needs a configured private overlay plus constitution history; no flag test sets that up yet"
+  },
+  "constitution ingest --public-only": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2D review/conversation exports validate as one batch and preserve exact public/private homes without raw text"
+      }
+    ]
+  },
+  "constitution ingest --since": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2D review/conversation exports validate as one batch and preserve exact public/private homes without raw text"
+      }
+    ]
+  },
+  "constitution scorecard --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:constitution scorecard: scores the shipped EXP-03 bank; a malformed bank is refused"
+      }
+    ]
+  },
+  "context --as-of": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "context --as-of refuses an unresolvable ref"
+      }
+    ]
+  },
+  "context --budget": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:context: a file target delivers the decision and invariant brief"
+      }
+    ]
+  },
+  "context --include": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:context: a bad --profile or --include is refused before any write"
+      }
+    ]
+  },
+  "context --profile": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:context: a file target delivers the decision and invariant brief"
+      }
+    ]
+  },
+  "context --task": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "context --as-of refuses an unresolvable ref"
+      }
+    ]
+  },
+  "dna context --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna context: renders the bounded advisory supplement; a bad ref is refused"
+      }
+    ]
+  },
+  "dna context --ref": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna context: renders the bounded advisory supplement; a bad ref is refused"
+      }
+    ]
+  },
+  "dna context --traits": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna context: renders the bounded advisory supplement; a bad ref is refused"
+      }
+    ]
+  },
+  "dna diff --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna diff: compares two exact revisions without rewriting either; a bad revision is refused"
+      }
+    ]
+  },
+  "dna inspect --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna inspect: --json profile is bound to HEAD and writes nothing; an unknown ref is refused"
+      }
+    ]
+  },
+  "dna inspect --ref": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna inspect: --json profile is bound to HEAD and writes nothing; an unknown ref is refused"
+      }
+    ]
+  },
+  "dna match --body": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna match: scores a conventional commit subject; an unknown --kind is refused"
+      }
+    ]
+  },
+  "dna match --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna match: scores a conventional commit subject; an unknown --kind is refused"
+      }
+    ]
+  },
+  "dna match --kind": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna match: scores a conventional commit subject; an unknown --kind is refused"
+      }
+    ]
+  },
+  "dna match --ref": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "dna match --ref scores against the profile at that exact revision"
+      }
+    ]
+  },
+  "dna match --title": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna match: scores a conventional commit subject; an unknown --kind is refused"
+      }
+    ]
+  },
+  "drift --fail-on": {
+    "tests": [
+      {
+        "file": "test/drift.test.ts",
+        "title": "drift --fail-on turns a reported kind into a gate failure; unknown kinds are refused"
+      }
+    ]
+  },
+  "embed --batch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "embed --batch embeds with the stub model"
+      }
+    ]
+  },
+  "escalations --json": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "a queued repair surfaces via `hunch escalations` — the discoverable surface for what the silent hook found"
+      }
+    ]
+  },
+  "eval --file": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:eval: --guards scores a generated golden set through the real gate and refuses a missing or malformed set"
+      },
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:eval: retrieval scoring over a small golden set, refusing an empty or malformed set"
+      }
+    ]
+  },
+  "eval --generate": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:eval: --guards scores a generated golden set through the real gate and refuses a missing or malformed set"
+      }
+    ]
+  },
+  "eval --guards": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:eval: --guards scores a generated golden set through the real gate and refuses a missing or malformed set"
+      },
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "cli->eval / eval->core: `hunch eval --guards` scores cases through the real check verdict"
+      }
+    ]
+  },
+  "eval --k": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:eval: retrieval scoring over a small golden set, refusing an empty or malformed set"
+      },
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "cli->eval / eval->store: `hunch eval` retrieval finds the seeded decision through the store index"
+      }
+    ]
+  },
+  "eval --kind": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "embed --batch embeds with the stub model"
+      }
+    ]
+  },
+  "eval --semantic": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "embed --batch embeds with the stub model"
+      }
+    ]
+  },
+  "evidence-map --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:evidence-map: compiles an authenticated receipt to JSON and refuses an invalid one"
+      }
+    ]
+  },
+  "experiment create --actor": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment create --max-turns": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment create --model": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment create --provider": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment create --reason": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment create --sample-per-arm": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment next --reviewer": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment next: refuses a reviewer without the plain-language qualification"
+      }
+    ]
+  },
+  "experiment respond --choice": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment respond: records a plain-language review outcome; refuses an accept without a rule"
+      }
+    ]
+  },
+  "experiment respond --confirmed-private-leak": {
+    "tests": [
+      {
+        "file": "test/cli-flags-experiment-respond.test.ts",
+        "title": "experiment respond --confirmed-private-leak --data-loss --unsafe-evaluator are counted as guardrail incidents"
+      }
+    ]
+  },
+  "experiment respond --data-loss": {
+    "tests": [
+      {
+        "file": "test/cli-flags-experiment-respond.test.ts",
+        "title": "experiment respond --confirmed-private-leak --data-loss --unsafe-evaluator are counted as guardrail incidents"
+      }
+    ]
+  },
+  "experiment respond --inspected": {
+    "tests": [
+      {
+        "file": "test/cli-flags-experiment-respond.test.ts",
+        "title": "experiment respond --inspected is refused outside arm C and recorded in arm C; --rule and --rule-file supply the kept rule"
+      }
+    ]
+  },
+  "experiment respond --reason": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment respond: records a plain-language review outcome; refuses an accept without a rule"
+      }
+    ]
+  },
+  "experiment respond --reviewer": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment respond: records a plain-language review outcome; refuses an accept without a rule"
+      }
+    ]
+  },
+  "experiment respond --rule": {
+    "tests": [
+      {
+        "file": "test/cli-flags-experiment-respond.test.ts",
+        "title": "experiment respond --rule with --rule-file is refused and writes nothing"
+      }
+    ]
+  },
+  "experiment respond --rule-file": {
+    "tests": [
+      {
+        "file": "test/cli-flags-experiment-respond.test.ts",
+        "title": "experiment respond --rule with --rule-file is refused and writes nothing"
+      }
+    ]
+  },
+  "experiment respond --unsafe-evaluator": {
+    "tests": [
+      {
+        "file": "test/cli-flags-experiment-respond.test.ts",
+        "title": "experiment respond --confirmed-private-leak --data-loss --unsafe-evaluator are counted as guardrail incidents"
+      }
+    ]
+  },
+  "experiment run --limit": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment run: executes one EXP-01 assignment against a fake provider and retains the failure; refuses EXP-03"
+      }
+    ]
+  },
+  "experiment run --timeout-ms": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment run: executes one EXP-01 assignment against a fake provider and retains the failure; refuses EXP-03"
+      }
+    ]
+  },
+  "export-adr --dry-run": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:export-adr: writes a marked MADR corpus and a manifest; refuses a hand-written corpus"
+      }
+    ]
+  },
+  "findings --all": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "findings --all includes resolved findings"
+      }
+    ]
+  },
+  "firmness --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:firmness: prints the level as JSON, persists a new level to config, and refuses an unknown level"
+      }
+    ]
+  },
+  "footprint --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:footprint: measures the injected surfaces as hunch.footprint JSON and as a table"
+      }
+    ]
+  },
+  "footprint --target": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "footprint --target measures hunch_context"
+      }
+    ]
+  },
+  "fragile --limit": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:fragile: prints a fragility report (or the no-signal notice) for the indexed repo"
+      }
+    ]
+  },
+  "grounding --force": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "grounding --force is ignored without --refresh"
+      }
+    ]
+  },
+  "grounding --json": {
+    "tests": [
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      }
+    ]
+  },
+  "grounding --quiet": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "integrations->constitution: a compiled policy appears in the regenerated CLAUDE.md grounding block"
+      }
+    ]
+  },
+  "grounding --refresh": {
+    "tests": [
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      },
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "integrations->constitution: a compiled policy appears in the regenerated CLAUDE.md grounding block"
+      }
+    ]
+  },
+  "hook --provider": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "Codex apply_patch lists every touched file with only its added lines"
+      },
+      {
+        "file": "test/hook-matrix.test.ts",
+        "title": "every provider×event runs the real CLI with a native payload"
+      }
+    ]
+  },
+  "impact --commit": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:impact: reports a single commit's surface and refuses ambiguous or unresolvable inputs"
+      }
+    ]
+  },
+  "impact --working": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "impact --working covers unstaged edits"
+      }
+    ]
+  },
+  "import-adr --dry-run": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:import-adr: an exported corpus round-trips into a fresh repo"
+      }
+    ]
+  },
+  "import-adr --private": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "import-adr --private writes into the overlay"
+      }
+    ]
+  },
+  "index --no-auto-commit": {
+    "tests": [
+      {
+        "file": "test/cold-start.test.ts",
+        "title": "the addon probe observes the addons when a command really parses"
+      },
+      {
+        "file": "test/grounding-capture-commit.test.ts",
+        "title": "hunch index --no-auto-commit refreshes the graph without moving HEAD"
+      }
+    ]
+  },
+  "init --all-assistants": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "init --all-assistants configures undetected assistants"
+      }
+    ]
+  },
+  "init --details": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "--details prints every step"
+      }
+    ]
+  },
+  "init --enforce-strict": {
+    "tests": [
+      {
+        "file": "test/shared-empty-remote-strict.test.ts",
+        "title": "#427: first-time shared setup on an empty memory repo is committable under --enforce-strict"
+      }
+    ]
+  },
+  "init --firmness": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "e2e: `hunch init` wires Windsurf and its documented pre_write_code payload reaches the strict gate (#484)"
+      }
+    ]
+  },
+  "init --no-agent-hooks": {
+    "tests": [
+      {
+        "file": "test/hook-managers.test.ts",
+        "title": "husky v9: hunch init reports the hooks as NOT installed with the snippet, and writes nothing under .husky"
+      },
+      {
+        "file": "test/json-store-security.test.ts",
+        "title": "real init refuses a public .hunch symlink without scaffolding its target"
+      }
+    ]
+  },
+  "init --no-auto-commit": {
+    "tests": [
+      {
+        "file": "test/cold-start.test.ts",
+        "title": "the addon probe observes the addons when a command really parses"
+      },
+      {
+        "file": "test/index-all-parse-failed.test.ts",
+        "title": "index CLI and doctor report the all-files condition without replacing stored records"
+      }
+    ]
+  },
+  "init --no-enforce": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "e2e: `hunch init` wires Windsurf and its documented pre_write_code payload reaches the strict gate (#484)"
+      },
+      {
+        "file": "test/json-store-security.test.ts",
+        "title": "real init refuses a public .hunch symlink without scaffolding its target"
+      }
+    ]
+  },
+  "init --no-index": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "e2e: `hunch init` wires Windsurf and its documented pre_write_code payload reaches the strict gate (#484)"
+      },
+      {
+        "file": "test/hook-managers.test.ts",
+        "title": "husky v9: hunch init reports the hooks as NOT installed with the snippet, and writes nothing under .husky"
+      }
+    ]
+  },
+  "init --no-providers": {
+    "tests": [
+      {
+        "file": "test/hook-managers.test.ts",
+        "title": "husky v9: hunch init reports the hooks as NOT installed with the snippet, and writes nothing under .husky"
+      },
+      {
+        "file": "test/json-store-security.test.ts",
+        "title": "real init refuses a public .hunch symlink without scaffolding its target"
+      }
+    ]
+  },
+  "init --private-sync": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "init --private-sync and --shared-sync route the post-commit sync"
+      }
+    ]
+  },
+  "init --shared-sync": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "init --private-sync and --shared-sync route the post-commit sync"
+      }
+    ]
+  },
+  "integrations check --harness": {
+    "tests": [
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "CLI upgrade repairs installed Codex hooks into a runnable handler"
+      }
+    ]
+  },
+  "integrations check --json": {
+    "tests": [
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "CLI upgrade repairs installed Codex hooks into a runnable handler"
+      }
+    ]
+  },
+  "integrations check --probe": {
+    "todo": "probes installed external assistant CLIs; not reproducible in a hermetic test"
+  },
+  "integrations check --require": {
+    "todo": "depends on which external assistant CLIs are installed; not reproducible in a hermetic test"
+  },
+  "landscape adopt --acknowledge-issues": {
+    "todo": "needs a landscape candidate with recorded issues; no flag test builds one yet"
+  },
+  "landscape adopt --all": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape adopt --candidate": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "landscape adopt --candidate is refused together with --all"
+      }
+    ]
+  },
+  "landscape adopt --expected": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape adopt --ref": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape adopt --refresh-reviewed": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape adopt --reviewed-by": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape review --json": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape review --ref": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "log --diff": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "log --limit pages memory moves"
+      }
+    ]
+  },
+  "log --json": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      },
+      {
+        "file": "test/private-correction-interfaces.test.ts",
+        "title": "MD-1a private CLI upgrade writes only to a standalone overlay and public CLI output/history stay sentinel-clean"
+      }
+    ]
+  },
+  "log --limit": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "log --limit pages memory moves"
+      }
+    ]
+  },
+  "mcp --root": {
+    "tests": [
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "the opt-out gate judges the --root a command acts on, not the cwd's repository (#458)"
+      }
+    ]
+  },
+  "now --private": {
+    "tests": [
+      {
+        "file": "test/workspace-ledger.test.ts",
+        "title": "CLI: hunch worktree records the new worktree; doctor and now report the ledger"
+      }
+    ]
+  },
+  "now --recent": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "log --limit pages memory moves"
+      }
+    ]
+  },
+  "path --max-depth": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "path --max-depth bounds the hop search"
+      }
+    ]
+  },
+  "policy accept --actor": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy demote: active blocking -> active advisory with an audit entry; demoting again is refused"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy accept --advisory": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy accept --advisory activates a proved policy as advisory"
+      }
+    ]
+  },
+  "policy accept --blocking": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy demote: active blocking -> active advisory with an audit entry; demoting again is refused"
+      }
+    ]
+  },
+  "policy card --json": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy card --public-only": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy compile --private": {
+    "todo": "needs a configured private overlay with a proved policy; no flag test sets that up yet"
+  },
+  "policy compile --through": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "integrations->constitution: a compiled policy appears in the regenerated CLAUDE.md grounding block"
+      }
+    ]
+  },
+  "policy consolidation --public-only": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy relations/consolidation --public-only still see a public policy"
+      }
+    ]
+  },
+  "policy corpus --import": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy corpus: imports an immutable known-good/bad corpus and inspects it; refusals write nothing"
+      }
+    ]
+  },
+  "policy corpus --public-only": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy corpus: imports an immutable known-good/bad corpus and inspects it; refusals write nothing"
+      }
+    ]
+  },
+  "policy demote --actor": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy demote: active blocking -> active advisory with an audit entry; demoting again is refused"
+      }
+    ]
+  },
+  "policy demote --reason": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy demote: active blocking -> active advisory with an audit entry; demoting again is refused"
+      }
+    ]
+  },
+  "policy evaluate --active": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "policy evaluate --commit": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      }
+    ]
+  },
+  "policy evaluate --json": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      }
+    ]
+  },
+  "policy evaluate --public-only": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      }
+    ]
+  },
+  "policy evaluate --staged": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      }
+    ]
+  },
+  "policy evaluate --strict": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "policy evaluate --working": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "policy exception --actor": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy exception: links a strictly narrower opposite policy to its parent; a broader child is refused"
+      }
+    ]
+  },
+  "policy exception --parent": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy exception: links a strictly narrower opposite policy to its parent; a broader child is refused"
+      }
+    ]
+  },
+  "policy exception --reason": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy exception: links a strictly narrower opposite policy to its parent; a broader child is refused"
+      }
+    ]
+  },
+  "policy history --actor": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy history: lists accepted-history receipts after proof; partial classification is refused"
+      }
+    ]
+  },
+  "policy history --classify": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy history: lists accepted-history receipts after proof; partial classification is refused"
+      }
+    ]
+  },
+  "policy history --commit": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy history: lists accepted-history receipts after proof; partial classification is refused"
+      }
+    ]
+  },
+  "policy history --public-only": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy history --supersedes and --public-only are validated"
+      }
+    ]
+  },
+  "policy history --reason": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy history: lists accepted-history receipts after proof; partial classification is refused"
+      }
+    ]
+  },
+  "policy history --supersedes": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy history --supersedes and --public-only are validated"
+      }
+    ]
+  },
+  "policy list --json": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      },
+      {
+        "file": "test/private-correction-interfaces.test.ts",
+        "title": "MD-1a private CLI upgrade writes only to a standalone overlay and public CLI output/history stay sentinel-clean"
+      }
+    ]
+  },
+  "policy list --public-only": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      },
+      {
+        "file": "test/private-correction-interfaces.test.ts",
+        "title": "MD-1a private CLI upgrade writes only to a standalone overlay and public CLI output/history stay sentinel-clean"
+      }
+    ]
+  },
+  "policy list --state": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy list --state filters by lifecycle state"
+      }
+    ]
+  },
+  "policy plan --history": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy plan --history --mutations --minutes set the ProofPlan budget"
+      }
+    ]
+  },
+  "policy plan --minutes": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy plan --history --mutations --minutes set the ProofPlan budget"
+      }
+    ]
+  },
+  "policy plan --mutations": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy plan --history --mutations --minutes set the ProofPlan budget"
+      }
+    ]
+  },
+  "policy plan --public-only": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "policy plan --public-only pumps the actual public home when a duplicate private policy exists"
+      }
+    ]
+  },
+  "policy relations --public-only": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy relations/consolidation --public-only still see a public policy"
+      }
+    ]
+  },
+  "policy retire --actor": {
+    "tests": [
+      {
+        "file": "test/team-matrix-e2e.test.ts",
+        "title": "team Matrix: three isolated clones share live memory, catch a bad branch, repair it, and never leak it publicly"
+      }
+    ]
+  },
+  "policy retire --reason": {
+    "tests": [
+      {
+        "file": "test/team-matrix-e2e.test.ts",
+        "title": "team Matrix: three isolated clones share live memory, catch a bad branch, repair it, and never leak it publicly"
+      }
+    ]
+  },
+  "policy shadow --actor": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy shadow --event --classify --actor --reason --supersedes classification is validated"
+      }
+    ]
+  },
+  "policy shadow --classify": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy shadow --event --classify --actor --reason --supersedes classification is validated"
+      }
+    ]
+  },
+  "policy shadow --event": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy shadow --event --classify --actor --reason --supersedes classification is validated"
+      }
+    ]
+  },
+  "policy shadow --max-unknown-error-rate": {
+    "todo": "needs a shadow-evaluation run over recorded events; no flag test builds one yet"
+  },
+  "policy shadow --min-applicable": {
+    "todo": "needs a shadow-evaluation run over recorded events; no flag test builds one yet"
+  },
+  "policy shadow --public-only": {
+    "tests": [
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "policy shadow --reason": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy shadow --event --classify --actor --reason --supersedes classification is validated"
+      }
+    ]
+  },
+  "policy shadow --recent": {
+    "todo": "needs a shadow-evaluation run over recorded events; no flag test builds one yet"
+  },
+  "policy shadow --record": {
+    "tests": [
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "policy shadow --supersedes": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "policy shadow --event --classify --actor --reason --supersedes classification is validated"
+      }
+    ]
+  },
+  "policy show --proof": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy show --public-only": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy upgrade-correction --json": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a CLI stays plain and MCP requires an explicit flag for full proof artifacts"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy upgrade-correction --private": {
+    "tests": [
+      {
+        "file": "test/private-correction-interfaces.test.ts",
+        "title": "MD-1a private CLI upgrade writes only to a standalone overlay and public CLI output/history stay sentinel-clean"
+      }
+    ]
+  },
+  "policy upgrade-correction --public-only": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a CLI stays plain and MCP requires an explicit flag for full proof artifacts"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy withdraw --actor": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy withdraw: active advisory -> proposed with authority cleared; withdrawing again is refused"
+      }
+    ]
+  },
+  "policy withdraw --reason": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy withdraw: active advisory -> proposed with authority cleared; withdrawing again is refused"
+      }
+    ]
+  },
+  "private --migrate": {
+    "tests": [
+      {
+        "file": "test/local-pointer-ownership.test.ts",
+        "title": "a failed fresh setup in a --separate-git-dir checkout leaves no back-link behind"
+      }
+    ]
+  },
+  "private --no-auto-commit": {
+    "tests": [
+      {
+        "file": "test/gitignore.test.ts",
+        "title": "re-running `hunch private <dir>` on a repo migrated by an older release upgrades its private-only block"
+      },
+      {
+        "file": "test/overlay-commit-guard.test.ts",
+        "title": "hunch private --repo resolves an existing overlay's relative remote before any attach, fetch, merge, or push"
+      }
+    ]
+  },
+  "private --no-hook": {
+    "tests": [
+      {
+        "file": "test/gitignore.test.ts",
+        "title": "re-running `hunch private <dir>` on a repo migrated by an older release upgrades its private-only block"
+      },
+      {
+        "file": "test/local-pointer-ownership.test.ts",
+        "title": "a failed fresh setup in a --separate-git-dir checkout leaves no back-link behind"
+      }
+    ]
+  },
+  "private --repo": {
+    "tests": [
+      {
+        "file": "test/local-pointer-ownership.test.ts",
+        "title": "a failed fresh setup in a --separate-git-dir checkout leaves no back-link behind"
+      },
+      {
+        "file": "test/overlay-commit-guard.test.ts",
+        "title": "existing plain .hunch-private plus an empty memory remote never attaches or pushes the public repository"
+      }
+    ]
+  },
+  "private --sync": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:private --sync"
+      }
+    ]
+  },
+  "prove --json": {
+    "tests": [
+      {
+        "file": "test/change-proof.test.ts",
+        "title": "native change proof deterministically binds exact revisions, DNA, memory, blast radius, and conformance"
+      }
+    ]
+  },
+  "prove --public-only": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "prove --public-only scopes the change proof memory"
+      }
+    ]
+  },
+  "query --semantic": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "embed --batch embeds with the stub model"
+      }
+    ]
+  },
+  "record-bug --message": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "record-bug --private": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "record-bug --test": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "record-constraint --enforcement": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "record-constraint --enforcement and --match are persisted"
+      }
+    ]
+  },
+  "record-constraint --forbid-dep": {
+    "tests": [
+      {
+        "file": "test/hooks.test.ts",
+        "title": "strict pre-commit enforces the exact alternate index Git is committing"
+      },
+      {
+        "file": "test/integration-capture-pipeline.test.ts",
+        "title": "store->extractors: `hunch check` runs the stored invariant through the diff analyser (content, not scope-touch)"
+      }
+    ]
+  },
+  "record-constraint --forbid-symbol": {
+    "tests": [
+      {
+        "file": "test/team-workflow-failure-regressions.test.ts",
+        "title": "the first CLI write cannot fall back to public .hunch when committed team memory is unavailable"
+      }
+    ]
+  },
+  "record-constraint --match": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "record-constraint --enforcement and --match are persisted"
+      }
+    ]
+  },
+  "record-constraint --private": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a private cross-adapter journey keeps every sensitive token and artifact outside the public repo"
+      }
+    ]
+  },
+  "record-constraint --rationale": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "record-constraint --scope": {
+    "tests": [
+      {
+        "file": "test/compact.test.ts",
+        "title": "compact --apply refuses physical deletion and leaves the additive memory pump live"
+      },
+      {
+        "file": "test/hooks.test.ts",
+        "title": "strict pre-commit enforces the exact alternate index Git is committing"
+      }
+    ]
+  },
+  "record-constraint --severity": {
+    "tests": [
+      {
+        "file": "test/hooks.test.ts",
+        "title": "strict pre-commit enforces the exact alternate index Git is committing"
+      },
+      {
+        "file": "test/integration-capture-pipeline.test.ts",
+        "title": "store->extractors: `hunch check` runs the stored invariant through the diff analyser (content, not scope-touch)"
+      }
+    ]
+  },
+  "record-constraint --source-decision": {
+    "tests": [
+      {
+        "file": "test/record-constraint-cli.test.ts",
+        "title": "record-constraint rejects a public reference to a private-only decision before any public write or commit"
+      }
+    ]
+  },
+  "record-constraint --type": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      },
+      {
+        "file": "test/team-absence-claims.test.ts",
+        "title": "team absence claims: id-taking MCP tools never present local absence as team absence"
+      }
+    ]
+  },
+  "repair --apply": {
+    "tests": [
+      {
+        "file": "test/sync-repair-commit.test.ts",
+        "title": "standalone repair --apply still auto-commits the repair move"
+      }
+    ]
+  },
+  "repair-provenance --apply": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "repair-provenance --range --apply rewrites commit + evidence directly, and leaves the queue empty"
+      }
+    ]
+  },
+  "repair-provenance --drop": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "repair-provenance --drop removes one queued entry without applying anything"
+      }
+    ]
+  },
+  "repair-provenance --expect": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:repair-provenance --expect"
+      }
+    ]
+  },
+  "repair-provenance --from-hook": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "repair-provenance --from-hook (no --apply, matches installed hook exactly) detects and QUEUES, never writes the decision"
+      }
+    ]
+  },
+  "repair-provenance --only": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "hunch escalations' apply-target wording for a duplicate-id queue (withheld-first, resolvable-second) matches what --apply --only actually applies (#59, mr-complexity-reviewer round 2)"
+      }
+    ]
+  },
+  "repair-provenance --quiet": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "repair-provenance's fresh-detection merge on a duplicate-id queue overrides only the entry pickRewrite would pick, leaving the untargeted sibling queued (#56)"
+      }
+    ]
+  },
+  "repair-provenance --range": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "repair-provenance --range --apply rewrites commit + evidence directly, and leaves the queue empty"
+      }
+    ]
+  },
+  "repair-ref --from": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "repair-ref --private": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:repair-provenance --expect"
+      }
+    ]
+  },
+  "repair-ref --to": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "report --before": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "report --revision and --before page lesson history"
+      }
+    ]
+  },
+  "report --html": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "report --json": {
+    "tests": [
+      {
+        "file": "test/task-report-hook.test.ts",
+        "title": "native Stop shows the card as soon as a check is observed, even when the agent never called a tool"
+      },
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "report --kind": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "report --lesson": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "report --public-only": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "report --public-only exports only public revisions"
+      }
+    ]
+  },
+  "report --revision": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "report --revision and --before page lesson history"
+      }
+    ]
+  },
+  "retire-constraint --reason": {
+    "tests": [
+      {
+        "file": "test/retire-constraint-cli.test.ts",
+        "title": "retire-constraint keeps a private constraint and reason out of the public checkout"
+      }
+    ]
+  },
+  "review --accept": {
+    "tests": [
+      {
+        "file": "test/import-review.test.ts",
+        "title": "CLI asks plainly, refuses the unbound accept path, and applies an exact approval"
+      },
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "review --accept-verified": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "review --approve-import": {
+    "tests": [
+      {
+        "file": "test/import-review.test.ts",
+        "title": "CLI asks plainly, refuses the unbound accept path, and applies an exact approval"
+      }
+    ]
+  },
+  "review --confirm": {
+    "tests": [
+      {
+        "file": "test/capture-authority.test.ts",
+        "title": "hunch review --confirm: a human countersigns a correction (granting severity) and a decision (keeping status)"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
+      }
+    ]
+  },
+  "review --decline-import": {
+    "tests": [
+      {
+        "file": "test/cli-flags-risky.test.ts",
+        "title": "review --decline-import records a hash-bound decline that stays advisory; a stale hash is refused"
+      }
+    ]
+  },
+  "review --expected-review-hash": {
+    "tests": [
+      {
+        "file": "test/import-review.test.ts",
+        "title": "CLI asks plainly, refuses the unbound accept path, and applies an exact approval"
+      }
+    ]
+  },
+  "review --expected-source-hash": {
+    "tests": [
+      {
+        "file": "test/import-review.test.ts",
+        "title": "CLI asks plainly, refuses the unbound accept path, and applies an exact approval"
+      }
+    ]
+  },
+  "review --min-grounded": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review --min-grounded moves a Critic-verified draft"
+      }
+    ]
+  },
+  "review --private": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "review --reject": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "review --reject-duplicates": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "review --reviewed-by": {
+    "tests": [
+      {
+        "file": "test/import-review.test.ts",
+        "title": "CLI asks plainly, refuses the unbound accept path, and applies an exact approval"
+      },
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "review --severity": {
+    "tests": [
+      {
+        "file": "test/capture-authority.test.ts",
+        "title": "hunch review --confirm: a human countersigns a correction (granting severity) and a decision (keeping status)"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
+      }
+    ]
+  },
+  "review-memory auto --cli-config": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --dry-run": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --from": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --initiator": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --limit": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --output": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --private": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --public": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --repository": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory auto --retry": {
+    "tests": [
+      {
+        "file": "test/cli-flags-governance.test.ts",
+        "title": "review-memory auto validates --limit"
+      }
+    ]
+  },
+  "review-memory capture --apply": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "review-memory capture --from": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "review-memory capture --private": {
+    "todo": "needs a configured private overlay; no flag test sets that up yet"
+  },
+  "review-memory capture --public": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "review-memory capture --rules": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "review-memory prepare --from": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "review-memory prepare --repository": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "runbook --find": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "runbook --private": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "runbook --semantic": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "runbook --semantic runs and degrades to keyword retrieval"
+      }
+    ]
+  },
+  "runbook --task": {
+    "tests": [
+      {
+        "file": "test/runbook-capture.test.ts",
+        "title": "hunch runbook over a range interleaving capture commits records only the real procedure"
+      },
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "serve --config": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/serve.test.ts",
+        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
+      }
+    ]
+  },
+  "serve --port": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/serve.test.ts",
+        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
+      }
+    ]
+  },
+  "serve compact --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve compact --keep": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve compact --partition": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve init --config": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/serve.test.ts",
+        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
+      }
+    ]
+  },
+  "serve init --grant": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "serve init --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve init --kind": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "serve init --partition": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve init --port": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/serve.test.ts",
+        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
+      }
+    ]
+  },
+  "serve init --principal": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve init --proof-key-file": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "serve init --public-origin": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "serve init --root": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve replay --json": {
+    "tests": [
+      {
+        "file": "test/state-replay.test.ts",
+        "title": "replay: `hunch serve replay --root` prints the report and exits 1 on divergence"
+      }
+    ]
+  },
+  "serve replay --partition": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "serve replay --root": {
+    "tests": [
+      {
+        "file": "test/state-replay.test.ts",
+        "title": "replay: `hunch serve replay --root` prints the report and exits 1 on divergence"
+      }
+    ]
+  },
+  "serve revoke --principal": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve revoke: removes a principal's credential from the config and refuses an unknown principal"
+      }
+    ]
+  },
+  "served --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:served: empty ledger says so, then summarises seeded delivery receipts in text and JSON"
+      }
+    ]
+  },
+  "shared --migrate": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:private --sync"
+      }
+    ]
+  },
+  "shared --no-auto-commit": {
+    "tests": [
+      {
+        "file": "test/shared-empty-remote-strict.test.ts",
+        "title": "#427: a clone WITH memory against an empty remote still fails strict closed and names `hunch shared --sync`"
+      }
+    ]
+  },
+  "shared --no-hook": {
+    "tests": [
+      {
+        "file": "test/shared-empty-remote-strict.test.ts",
+        "title": "#427: first-time shared setup on an empty memory repo is committable under --enforce-strict"
+      },
+      {
+        "file": "test/team-absence-claims.test.ts",
+        "title": "team absence claims: id-taking MCP tools never present local absence as team absence"
+      }
+    ]
+  },
+  "shared --repo": {
+    "tests": [
+      {
+        "file": "test/shared-empty-remote-strict.test.ts",
+        "title": "#427: first-time shared setup on an empty memory repo is committable under --enforce-strict"
+      },
+      {
+        "file": "test/team-absence-claims.test.ts",
+        "title": "team absence claims: id-taking MCP tools never present local absence as team absence"
+      }
+    ]
+  },
+  "shared --sync": {
+    "tests": [
+      {
+        "file": "test/shared-empty-remote-strict.test.ts",
+        "title": "#427: a clone WITH memory against an empty remote still fails strict closed and names `hunch shared --sync`"
+      },
+      {
+        "file": "test/team-workflow-failure-regressions.test.ts",
+        "title": "an existing shared-overlay CLI check refreshes a teammate's new blocking correction without MCP or explicit sync"
+      }
+    ]
+  },
+  "shared --trust": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      },
+      {
+        "file": "test/team-final-closure.test.ts",
+        "title": "a truly empty shared remote boots on the first unified capture and auto-joins a second actor"
+      }
+    ]
+  },
+  "shortlist --evidence": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "shortlist --evidence validates the receipt"
+      }
+    ]
+  },
+  "shortlist --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:shortlist: emits a JSON diagnostic with scan stats and refuses an out-of-range limit"
+      }
+    ]
+  },
+  "shortlist --limit": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:shortlist: emits a JSON diagnostic with scan stats and refuses an out-of-range limit"
+      }
+    ]
+  },
+  "stale --resync": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "state --pretty": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state --proof-key-file": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state --timeout": {
+    "tests": [
+      {
+        "file": "test/state-cli.test.ts",
+        "title": "state CLI refuses unsupported capabilities and redirects, times out, and bounds input before sending writes"
+      }
+    ]
+  },
+  "state --token-file": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/state-cli.test.ts",
+        "title": "state CLI uses the real authenticated contract for writes, reads, records, subscriptions and typed refusals"
+      }
+    ]
+  },
+  "state --url": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/state-cli.test.ts",
+        "title": "state CLI uses the real authenticated contract for writes, reads, records, subscriptions and typed refusals"
+      }
+    ]
+  },
+  "state capabilities --scope": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state read --input": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state read --scope": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state read --subject": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state read --task": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state records --ids": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state records --input": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state records --scope": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state subscribe --after": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state subscribe --input": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state subscribe --scope": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "state write --input": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:serve init + replay + state flags"
+      }
+    ]
+  },
+  "stats --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract counting the seeded records"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract over the seeded graph, text renders, --private is refused"
+      }
+    ]
+  },
+  "stats --private": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:stats: --private without an overlay is refused"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract over the seeded graph, text renders, --private is refused"
+      }
+    ]
+  },
+  "stats --since": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract counting the seeded records"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract over the seeded graph, text renders, --private is refused"
+      }
+    ]
+  },
+  "supersede --by": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      },
+      {
+        "file": "test/supersede-cli.test.ts",
+        "title": "supersede resolves and closes a decision that lives in the private overlay (issue #294)"
+      }
+    ]
+  },
+  "sync --commit": {
+    "tests": [
+      {
+        "file": "test/hook-shared-worktree.test.ts",
+        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
+      }
+    ]
+  },
+  "sync --deep": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:sync flags"
+      }
+    ]
+  },
+  "sync --force": {
+    "tests": [
+      {
+        "file": "test/sync-repair-commit.test.ts",
+        "title": "normal sync folds rename repair and capture into one memory commit"
+      }
+    ]
+  },
+  "sync --from-hook": {
+    "tests": [
+      {
+        "file": "test/hook-shared-worktree.test.ts",
+        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
+      },
+      {
+        "file": "test/integration-capture-pipeline.test.ts",
+        "title": "synthesis->store: re-running the capture is idempotent (same id, no duplicate)"
+      }
+    ]
+  },
+  "sync --no-commit": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, and review-bounded"
+      },
+      {
+        "file": "test/sync-repair-commit.test.ts",
+        "title": "sync --no-commit applies rename repair without creating a hidden repair commit"
+      }
+    ]
+  },
+  "sync --overlay": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:sync flags"
+      }
+    ]
+  },
+  "sync --private": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a private split sync commits its proposal only to a standalone overlay and leaves both repositories clean"
+      },
+      {
+        "file": "test/hook-shared-worktree.test.ts",
+        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
+      }
+    ]
+  },
+  "sync --quiet": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, and review-bounded"
+      },
+      {
+        "file": "test/hook-shared-worktree.test.ts",
+        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
+      }
+    ]
+  },
+  "sync --samples": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:sync flags"
+      }
+    ]
+  },
+  "sync --verify": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:sync flags"
+      }
+    ]
+  },
+  "task finish --interrupted": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:task flags"
+      }
+    ]
+  },
+  "task list --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:task forget: refuses an open task, then removes a closed task's report history"
+      },
+      {
+        "file": "test/task-status.test.ts",
+        "title": "a delivery or a check makes the task non-empty and shows up in the status line, the list, and the JSON"
+      }
+    ]
+  },
+  "task list --limit": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:task flags"
+      }
+    ]
+  },
+  "task prune --days": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:task prune: removes nothing inside the retention window and refuses an out-of-range retention"
+      }
+    ]
+  },
+  "task rank-eval --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:task rank-eval: scores task-record ranking offline as JSON"
+      }
+    ]
+  },
+  "task rank-eval --since": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:task flags"
+      }
+    ]
+  },
+  "task rank-eval --split": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:task flags"
+      }
+    ]
+  },
+  "task start --id": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:task flags"
+      }
+    ]
+  },
+  "task stats --days": {
+    "tests": [
+      {
+        "file": "test/task-status.test.ts",
+        "title": "task stats counts adherence from the ledger over a window"
+      }
+    ]
+  },
+  "task stats --json": {
+    "tests": [
+      {
+        "file": "test/task-status.test.ts",
+        "title": "task stats counts adherence from the ledger over a window"
+      }
+    ]
+  },
+  "task status --json": {
+    "tests": [
+      {
+        "file": "test/task-status.test.ts",
+        "title": "a delivery or a check makes the task non-empty and shows up in the status line, the list, and the JSON"
+      }
+    ]
+  },
+  "task verify --json": {
+    "tests": [
+      {
+        "file": "test/task-report-hook.test.ts",
+        "title": "a prompt that follows another in the same session continues its task; the episode's record is written under the first task's id"
+      },
+      {
+        "file": "test/task-report.test.ts",
+        "title": "verification timeout is caller-bounded so a long suite can be retained, within a hard ceiling"
+      }
+    ]
+  },
+  "task verify --label": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:task flags"
+      }
+    ]
+  },
+  "task verify --timeout": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "verification timeout is caller-bounded so a long suite can be retained, within a hard ceiling"
+      }
+    ]
+  },
+  "test --dry-run": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:test: a failing TAP run is captured as a bug and keeps a non-zero exit; --dry-run writes nothing"
+      }
+    ]
+  },
+  "test --private": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "session id is stable"
+      }
+    ]
+  },
+  "uninstall --dry-run": {
+    "tests": [
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "uninstall without --purge keeps .hunch/ and its ignore block; --dry-run writes nothing"
+      }
+    ]
+  },
+  "uninstall --purge": {
+    "tests": [
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "init then uninstall --purge leaves only the user's files, and nothing re-installs Hunch"
+      }
+    ]
+  },
+  "update --dry-run": {
+    "todo": "talks to the npm registry and refuses inside a source checkout; not exercised hermetically"
+  },
+  "update --global": {
+    "todo": "installs from the npm registry; not exercised hermetically"
+  },
+  "verify --base": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:verify flags"
+      }
+    ]
+  },
+  "verify --ci": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:verify flags"
+      }
+    ]
+  },
+  "verify --full": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:verify flags"
+      }
+    ]
+  },
+  "verify --json": {
+    "tests": [
+      {
+        "file": "test/test-selection.test.ts",
+        "title": "hunch verify --list on a temp repo: src change, package.json, README"
+      }
+    ]
+  },
+  "verify --list": {
+    "tests": [
+      {
+        "file": "test/test-selection.test.ts",
+        "title": "hunch verify --list on a temp repo: src change, package.json, README"
+      }
+    ]
+  },
+  "verify --map": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:verify flags"
+      }
+    ]
+  },
+  "verify --only": {
+    "tests": [
+      {
+        "file": "test/test-selection.test.ts",
+        "title": "hunch verify --refresh-map, map-driven selection through a spawned child, and a real selected run"
+      }
+    ]
+  },
+  "verify --refresh-map": {
+    "tests": [
+      {
+        "file": "test/test-selection.test.ts",
+        "title": "hunch verify --refresh-map, map-driven selection through a spawned child, and a real selected run"
+      }
+    ]
+  },
+  "verify --staged": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:verify flags"
+      }
+    ]
+  },
+  "veto --base": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "veto --commit": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "veto --format": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      },
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "veto --staged": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "veto --strict": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "why --as-of": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:why: an unresolvable --as-of ref fails with a clear message"
+      }
+    ]
+  },
+  "wiki --check": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:wiki: generates deterministic pages + manifest, then --check reports fresh"
+      }
+    ]
+  },
+  "wiki --dir": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:wiki: a conflicting --dir and --private without an overlay are refused, nothing written"
+      }
+    ]
+  },
+  "wiki --heal": {
+    "tests": [
+      {
+        "file": "test/wiki.test.ts",
+        "title": "generateWiki: writes pages + README + manifest; regen with unchanged graph is byte-identical and touches nothing on --heal"
+      }
+    ]
+  },
+  "wiki --no-llm": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:wiki: generates deterministic pages + manifest, then --check reports fresh"
+      },
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "integrations->wiki: a generated wiki manifest is summarized in the regenerated grounding block"
+      }
+    ]
+  },
+  "wiki --private": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:wiki: a conflicting --dir and --private without an overlay are refused, nothing written"
+      }
+    ]
+  },
+  "wiki --private-prose": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "wiki --private-prose lifts the private prose block"
+      }
+    ]
+  },
+  "wiki --prose-heal": {
+    "tests": [
+      {
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "wiki --prose-heal needs the LLM"
+      }
+    ]
+  },
+  "workspaces list --branch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces list --fetch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces list --json": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:workspaces list: emits this machine's worktree as JSON and refuses outside a git repo"
+      }
+    ]
+  },
+  "workspaces list --machine": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces prune --apply": {
+    "tests": [
+      {
+        "file": "test/workspace-prune.test.ts",
+        "title": "CLI prune: dry run prints per-machine commands and deletes nothing; --apply refuses off a terminal; --apply --yes deletes only the safe set on this machine and never a remote"
+      }
+    ]
+  },
+  "workspaces prune --fetch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces prune --json": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces prune --yes": {
+    "tests": [
+      {
+        "file": "test/workspace-prune.test.ts",
+        "title": "CLI prune: dry run prints per-machine commands and deletes nothing; --apply refuses off a terminal; --apply --yes deletes only the safe set on this machine and never a remote"
+      }
+    ]
+  },
+  "workspaces snapshot --dry-run": {
+    "tests": [
+      {
+        "file": "test/workspaces.test.ts",
+        "title": "CLI: snapshot writes nothing without an overlay (dry-run too), writes into a private overlay once, and skips an unchanged re-run"
+      }
+    ]
+  },
+  "workspaces snapshot --fetch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces snapshot --json": {
+    "tests": [
+      {
+        "file": "test/cli-flags-ops.test.ts",
+        "title": "cli:workspaces flags"
+      }
+    ]
+  },
+  "workspaces snapshot --quiet": {
+    "tests": [
+      {
+        "file": "test/workspaces.test.ts",
+        "title": "CLI: snapshot writes nothing without an overlay (dry-run too), writes into a private overlay once, and skips an unchanged re-run"
+      }
+    ]
+  },
+  "worktree --branch": {
+    "tests": [
+      {
+        "file": "test/cli-flags-risky.test.ts",
+        "title": "worktree --no-share skips the shared overlay pointer that the default registers; --branch creates the named branch"
+      }
+    ]
+  },
+  "worktree --no-index": {
+    "tests": [
+      {
+        "file": "test/team-matrix-e2e.test.ts",
+        "title": "team Matrix: three isolated clones share live memory, catch a bad branch, repair it, and never leak it publicly"
+      },
+      {
+        "file": "test/team-workflow-failure-regressions.test.ts",
+        "title": "worktree creation fails closed when committed team memory is unavailable"
+      }
+    ]
+  },
+  "worktree --no-share": {
+    "tests": [
+      {
+        "file": "test/cli-flags-risky.test.ts",
+        "title": "worktree --no-share skips the shared overlay pointer that the default registers; --branch creates the named branch"
+      }
+    ]
+  }
+}
