@@ -669,6 +669,19 @@ test("every enum value is accepted by the protocol (a domain refusal is fine, a 
   }
 });
 
+/** Frozen: shrink only. Parameters classified `none` when this ratchet landed. */
+const NONE_BASELINE = new Set([
+  "hunch_report.before", "hunch_project_match.body", "hunch_project_match.ref", "hunch_context.include",
+  "hunch_now.roadmap_limit", "hunch_review_imported_adr.reviewed_by", "nuryel_write.expected_version",
+  "nuryel_write.cause", "hunch_findings.all", "hunch_policy_upgrade_correction.public_only",
+  "hunch_policy_candidates.public_only", "hunch_policy_plan.public_only", "hunch_policy_card.public_only",
+  "hunch_policy_shadow.public_only", "hunch_policy_proof.public_only", "hunch_policy_evaluate.policy_id",
+  "hunch_policy_evaluate.active_only", "hunch_policy_evaluate.public_only", "hunch_policy_evaluate.workspace",
+  ...["decision_id", "since", "max_commits", "limit", "timeout_ms"].map((p) => `hunch_constitution_g2_behavior_replay.${p}`),
+  ...["decision_id", "since", "max_commits", "limit"].map((p) => `hunch_constitution_g2_behavior_materialization.${p}`),
+  ...["decision_id", "since", "max_commits", "limit", "allow_install_scripts", "dependency_timeout_ms", "cwd"].map((p) => `hunch_constitution_g2_behavior_policy_materialize.${p}`),
+]);
+
 test("every optional parameter observably changes the result (or is a reasoned no-effect)", async (t) => {
   const none: string[] = [];
   for (const p of discovered().filter((x) => !x.required)) {
@@ -689,6 +702,9 @@ test("every optional parameter observably changes the result (or is a reasoned n
       assert.notEqual(ow, o1, `${key} made no observable difference:\n${ow.slice(0, 500)}`);
     });
   }
+  const noneKeys = none.map((n) => n.slice(0, n.indexOf(": ")));
+  const added = noneKeys.filter((k) => !NONE_BASELINE.has(k));
+  assert.deepEqual(added, [], `new parameter(s) classified \`none\` (no observable effect): ${added.join(", ")}. The no-effect set is frozen; give the param a real EFFECT check instead of a reason.`);
   t.diagnostic(`NO-EFFECT (review candidates, ${none.length}):\n${none.join("\n")}`);
   void lastTask;
 });

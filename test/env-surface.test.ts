@@ -9,6 +9,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { resolveSpawnCommand } from "../src/core/spawnCommand.js";
 
 const ROOT = process.cwd();
 const NAME = "([A-Z][A-Za-z0-9_]*)";
@@ -73,6 +76,23 @@ function testBody(file: string, title: string): string | null {
   return src.slice(starts[i]!.index, starts[i + 1]?.index ?? src.length);
 }
 
+/** Drop // and block comments (string-aware enough: skips quoted text) so a comment cannot satisfy the gate. */
+function stripComments(src: string): string {
+  return src.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => (str ? m : " "));
+}
+
+/** The name must appear as a string literal, an object key, or an env assignment/delete, outside comments. */
+function setsOrNamesVar(body: string, name: string): boolean {
+  const code = stripComments(body);
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return [
+    new RegExp(`["'\`]${n}["'\`]`),
+    new RegExp(`(?<![\\w.])${n}\\s*:`),
+    new RegExp(`\\benv\\??\\.${n}\\s*=(?!=)`),
+    new RegExp(`\\bdelete\\s+(?:process\\.)?env\\.${n}\\b`),
+  ].some((re) => re.test(code));
+}
+
 test("env surface: every environment variable src reads is registered, and nothing stale is", () => {
   const discovered = discoverEnvReads();
   const missing = [...discovered.keys()].filter((k) => !(k in registry)).sort();
@@ -82,6 +102,7 @@ test("env surface: every environment variable src reads is registered, and nothi
 });
 
 test("env surface: each entry is documented and either tested or a baseline todo", () => {
+  const unused: string[] = [];
   for (const [name, entry] of Object.entries(registry)) {
     assert.ok(entry.purpose?.trim().length >= 10, `${name}: purpose required`);
     assert.ok(entry.class?.trim(), `${name}: class required`);
@@ -96,9 +117,10 @@ test("env surface: each entry is documented and either tested or a baseline todo
       assert.ok(existsSync(join(ROOT, t.file)), `${name}: ${t.file} missing`);
       const body = testBody(t.file, t.title);
       assert.ok(body !== null, `${name}: test "${t.title}" not found in ${t.file}`);
-      assert.match(body!, new RegExp(`\\b${name}\\b`), `${name}: test "${t.title}" never mentions the variable`);
+      if (!setsOrNamesVar(body!, name)) unused.push(`${name}: test "${t.title}" in ${t.file} never uses the variable as a string literal, env key or assignment (comments do not count)`);
     }
   }
+  assert.deepEqual(unused, []);
 });
 
 test("env surface: discovery sees aliases, helper reads and pass-through lists but not writes", () => {
@@ -109,4 +131,54 @@ test("env surface: discovery sees aliases, helper reads and pass-through lists b
   for (const name of discovered.keys()) assert.match(name, /^[A-Z]|_proxy$|^npm_config_/, `${name}: not an env name`);
   // no truncated names from regex backtracking
   for (const name of discovered.keys()) assert.ok(!/^(HUNCH_CLI_CONFI|GIT_INDEX_FIL)$/.test(name), name);
+});
+
+// Behavioural tests for variables no other test sets as a real input. Each body
+// uses the variable as an env key, so the registry can point here honestly.
+
+test("env surface: Windows lookup honors ComSpec, PATH and the Path spelling", () => {
+  const exists = (p: string) => p.toLowerCase() === "c:\\tools\\tool.cmd";
+  const resolve = (env: Record<string, string>) => resolveSpawnCommand(["tool", "x"], { platform: "win32", execPath: "C:\\node\\node.exe", env, exists });
+  const viaPATH = resolve({ PATH: "C:\\tools", PATHEXT: ".CMD", ComSpec: "C:\\custom\\cmd.exe" });
+  assert.equal(viaPATH.how, "cmd-shim");
+  assert.equal(viaPATH.file, "C:\\custom\\cmd.exe");
+  assert.equal(resolve({ Path: "C:\\tools", PATHEXT: ".CMD" }).how, "cmd-shim");
+  assert.equal(resolve({ Path: "C:\\elsewhere", PATHEXT: ".CMD" }).how, "direct");
+  assert.equal(resolve({ PATH: "C:\\tools", PATHEXT: ".CMD" }).file, "cmd.exe");
+});
+
+function runInChild(script: string, overrides: Record<string, string>): string {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...overrides };
+  delete env.NODE_TEST_CONTEXT;
+  const run = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
+    cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 60_000,
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  return run.stdout.trim().split("\n").at(-1)!;
+}
+const modUrl = (rel: string) => JSON.stringify(pathToFileURL(join(ROOT, rel)).href);
+
+test("env surface: HUNCH_MAX_PRIOR_SHIFT and HUNCH_PRIOR_SHIFT_SCALE bound how far a dead hit's rank drops", () => {
+  const script = `
+    const { HunchStore } = await import(${modUrl("src/store/hunchStore.ts")});
+    const s = Object.create(HunchStore.prototype);
+    s.recs = () => []; s.staleDecisionIds = () => new Set();
+    s.priorMeta = (ref) => (ref === "h0" ? { dead: true, provenance: [] } : null);
+    const hits = Array.from({ length: 8 }, (_, i) => ({ ref: "h" + i, kind: "symbols", title: "", snippet: "", score: 1 }));
+    console.log(JSON.stringify(s.rerankByPriors(hits, 10, undefined, ".").findIndex((h) => h.ref === "h0")));
+  `;
+  assert.equal(runInChild(script, {}), "3", "defaults clamp the shift at 4 positions (rank 0 lands behind three hits)");
+  assert.equal(runInChild(script, { HUNCH_MAX_PRIOR_SHIFT: "2" }), "1");
+  assert.equal(runInChild(script, { HUNCH_PRIOR_SHIFT_SCALE: "1" }), "0", "a tiny scale never moves the hit a whole position");
+});
+
+test("env surface: HUNCH_SIG_MIN_LINES sets the churn threshold for model synthesis", () => {
+  const script = `
+    const { isSignificant } = await import(${modUrl("src/synthesis/synthesize.ts")});
+    const a = (n) => ({ addedSymbols: [], removedSymbols: [], changedSymbols: [], addedDeps: [], removedDeps: [], addedLines: n, removedLines: 0 });
+    console.log(JSON.stringify([5, 13, 60].map((n) => isSignificant({ body: "" }, a(n), ["src/a.ts"]))));
+  `;
+  assert.equal(runInChild(script, { HUNCH_SIG_MIN_LINES: "" }), "[false,true,true]");
+  assert.equal(runInChild(script, { HUNCH_SIG_MIN_LINES: "3" }), "[true,true,true]");
+  assert.equal(runInChild(script, { HUNCH_SIG_MIN_LINES: "50" }), "[false,false,true]");
 });

@@ -18,12 +18,8 @@
     "purpose": "Suppresses the npm update check in CI",
     "tests": [
       {
-        "file": "test/behavior-workspace.test.ts",
-        "title": "CLI, MCP, check, and the VS Code seam share one non-blocking working-snapshot receipt without public leakage"
-      },
-      {
-        "file": "test/canonical-locale.test.ts",
-        "title": "canonical artifacts and exact source receipts are locale-independent"
+        "file": "test/hooks.test.ts",
+        "title": "strict pre-commit enforces the exact alternate index Git is committing"
       }
     ]
   },
@@ -56,8 +52,8 @@
     "purpose": "Detects Codex as the invoking agent (initiator binding)",
     "tests": [
       {
-        "file": "test/cli-adapter.test.ts",
-        "title": "ACP initializes a fresh session, streams only assistant text and denies tool requests"
+        "file": "test/initiator.test.ts",
+        "title": "unknown MCP clients cannot inherit the account of the server's launching shell"
       },
       {
         "file": "test/fixture-environment.test.ts",
@@ -70,8 +66,8 @@
     "purpose": "Windows command interpreter used to launch .cmd shims",
     "tests": [
       {
-        "file": "test/hook-matrix.test.ts",
-        "title": "every installed hook config command launches hunch through the shell"
+        "file": "test/env-surface.test.ts",
+        "title": "env surface: Windows lookup honors ComSpec, PATH and the Path spelling"
       }
     ]
   },
@@ -278,10 +274,6 @@
     "purpose": "Explicit invoking-agent identity (or 'unknown') binding synthesis provider",
     "tests": [
       {
-        "file": "test/cli-adapter.test.ts",
-        "title": "custom stdin CLI receives literal input and initiating identity without a shell prompt"
-      },
-      {
         "file": "test/fixture-environment.test.ts",
         "title": "fixture CLI environment drops every inherited initiator and preserves explicit fixture choices"
       }
@@ -292,8 +284,8 @@
     "purpose": "Cap on prior-based rank shift",
     "tests": [
       {
-        "file": "test/rankeviction.test.ts",
-        "title": "the prior's authority is BOUNDED — it cannot move a hit past the whole pool (#4)"
+        "file": "test/env-surface.test.ts",
+        "title": "env surface: HUNCH_MAX_PRIOR_SHIFT and HUNCH_PRIOR_SHIFT_SCALE bound how far a dead hit's rank drops"
       }
     ]
   },
@@ -345,8 +337,8 @@
     "purpose": "Scale of prior-based rank shift",
     "tests": [
       {
-        "file": "test/rankeviction.test.ts",
-        "title": "the prior's authority is BOUNDED — it cannot move a hit past the whole pool (#4)"
+        "file": "test/env-surface.test.ts",
+        "title": "env surface: HUNCH_MAX_PRIOR_SHIFT and HUNCH_PRIOR_SHIFT_SCALE bound how far a dead hit's rank drops"
       }
     ]
   },
@@ -419,8 +411,8 @@
     "purpose": "Churn threshold above which a commit is significant enough for model synthesis (default 12)",
     "tests": [
       {
-        "file": "test/env-vars.test.ts",
-        "title": "HUNCH_SIG_MIN_LINES moves the churn threshold for model synthesis; garbage keeps the default 12"
+        "file": "test/env-surface.test.ts",
+        "title": "env surface: HUNCH_SIG_MIN_LINES sets the churn threshold for model synthesis"
       }
     ]
   },
@@ -540,7 +532,7 @@
     "tests": [
       {
         "file": "test/cliproviders.test.ts",
-        "title": "HUNCH_SYNTH_PROVIDER=deterministic forces the offline heuristic"
+        "title": "OpenAICompatProvider.draftDecision rejects when the endpoint exceeds HUNCH_SYNTH_TIMEOUT_MS"
       }
     ]
   },
@@ -623,8 +615,8 @@
         "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
       },
       {
-        "file": "test/cli-adapter.test.ts",
-        "title": "custom stdin CLI receives literal input and initiating identity without a shell prompt"
+        "file": "test/env-surface.test.ts",
+        "title": "env surface: Windows lookup honors ComSpec, PATH and the Path spelling"
       }
     ]
   },
@@ -643,12 +635,8 @@
     "purpose": "Windows spelling of PATH for executable lookup",
     "tests": [
       {
-        "file": "test/optout-gate-matrix.test.ts",
-        "title": "opt-out gate holds for every location-taking option of every command (#458 class)"
-      },
-      {
-        "file": "test/task-selection.test.ts",
-        "title": "a term common to more than the DF cap of live records does not count; rare terms do"
+        "file": "test/env-surface.test.ts",
+        "title": "env surface: Windows lookup honors ComSpec, PATH and the Path spelling"
       }
     ]
   },
@@ -662,12 +650,8 @@
     "purpose": "Temp dir forwarded to sandboxed children",
     "tests": [
       {
-        "file": "test/parse.test.ts",
-        "title": "known trade-off: a plain YAML file whose STRING VALUE merely contains \\\"{{\\\" is treated as templated, but real anchors alongside it are still extracted"
-      },
-      {
-        "file": "test/provider-exec.test.ts",
-        "title": "pexecIn feeds untrusted input via stdin, not argv"
+        "file": "test/task-selection.test.ts",
+        "title": "without a pathExists check only a slashed token counts as a path"
       }
     ]
   },
@@ -690,12 +674,8 @@
     "purpose": "Temp dir forwarded to sandboxed children",
     "tests": [
       {
-        "file": "test/cold-start.test.ts",
-        "title": "a real parse still works and loads the addons on first use"
-      },
-      {
-        "file": "test/parse.test.ts",
-        "title": "known trade-off: a plain YAML file whose STRING VALUE merely contains \\\"{{\\\" is treated as templated, but real anchors alongside it are still extracted"
+        "file": "test/task-selection.test.ts",
+        "title": "without a pathExists check only a slashed token counts as a path"
       }
     ]
   },

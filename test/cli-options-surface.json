@@ -18,10 +18,6 @@
   "--version": {
     "tests": [
       {
-        "file": "test/autoreview-cli.test.ts",
-        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
-      },
-      {
         "file": "test/cold-start.test.ts",
         "title": "the real CLI entry loads no native addon for a command that parses nothing"
       }
@@ -240,10 +236,6 @@
       {
         "file": "test/check-base-veto-freshness.test.ts",
         "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
-      },
-      {
-        "file": "test/md1-e2e.test.ts",
-        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
       }
     ]
   },
@@ -261,10 +253,6 @@
   },
   "check --staged": {
     "tests": [
-      {
-        "file": "test/behavior-workspace.test.ts",
-        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
-      },
       {
         "file": "test/check-base-veto-freshness.test.ts",
         "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
@@ -664,8 +652,8 @@
   "constitution g2 --strict": {
     "tests": [
       {
-        "file": "test/constitution.test.ts",
-        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "wiki --heal writes the missing pages; constitution g2 --strict fails while the packet is not ready"
       }
     ]
   },
@@ -1327,12 +1315,12 @@
   "init --no-auto-commit": {
     "tests": [
       {
-        "file": "test/cold-start.test.ts",
-        "title": "the addon probe observes the addons when a command really parses"
+        "file": "test/cli-flags-misc-2.test.ts",
+        "title": "init --all-assistants configures undetected assistants; --details prints every step"
       },
       {
-        "file": "test/index-all-parse-failed.test.ts",
-        "title": "index CLI and doctor report the all-files condition without replacing stored records"
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "--cli-config and --initiator bind auto-review to a local adapter; --min-grounded and --min-reject-confidence move drafts between plan buckets"
       }
     ]
   },
@@ -1472,8 +1460,8 @@
   "landscape review --ref": {
     "tests": [
       {
-        "file": "test/landscape-adoption.test.ts",
-        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "landscape review --ref inspects the named commit, not HEAD, and refuses a ref that is not a commit"
       }
     ]
   },
@@ -1488,12 +1476,8 @@
   "log --json": {
     "tests": [
       {
-        "file": "test/md1-e2e.test.ts",
-        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
-      },
-      {
-        "file": "test/private-correction-interfaces.test.ts",
-        "title": "MD-1a private CLI upgrade writes only to a standalone overlay and public CLI output/history stay sentinel-clean"
+        "file": "test/cli-flags-misc.test.ts",
+        "title": "log --limit pages memory moves and log --diff prints one move's .hunch diff; now --recent caps the recent list"
       }
     ]
   },
@@ -1675,10 +1659,6 @@
   "policy evaluate --public-only": {
     "tests": [
       {
-        "file": "test/behavior-workspace.test.ts",
-        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
-      },
-      {
         "file": "test/check-nonmutating.test.ts",
         "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
       }
@@ -1697,10 +1677,6 @@
       {
         "file": "test/behavior-workspace.test.ts",
         "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
-      },
-      {
-        "file": "test/constitution.test.ts",
-        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
       }
     ]
   },
@@ -1709,10 +1685,6 @@
       {
         "file": "test/behavior-workspace.test.ts",
         "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
-      },
-      {
-        "file": "test/constitution.test.ts",
-        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
       }
     ]
   },
@@ -1909,10 +1881,6 @@
   "policy shadow --public-only": {
     "tests": [
       {
-        "file": "test/check-nonmutating.test.ts",
-        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
-      },
-      {
         "file": "test/constitution.test.ts",
         "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
       }
@@ -2100,8 +2068,8 @@
   "record-bug --private": {
     "tests": [
       {
-        "file": "test/team-cli-mutator-pump.test.ts",
-        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "record-bug --private and runbook --private are refused without a private store and write nothing"
       }
     ]
   },
@@ -2316,10 +2284,6 @@
   "report --json": {
     "tests": [
       {
-        "file": "test/task-report-hook.test.ts",
-        "title": "native Stop shows the card as soon as a check is observed, even when the agent never called a tool"
-      },
-      {
         "file": "test/task-report.test.ts",
         "title": "CLI start, verify, finish and HTML share the persisted task report"
       }
@@ -2466,10 +2430,6 @@
       {
         "file": "test/import-review.test.ts",
         "title": "CLI asks plainly, refuses the unbound accept path, and applies an exact approval"
-      },
-      {
-        "file": "test/landscape-adoption.test.ts",
-        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
       }
     ]
   },
@@ -2627,8 +2587,8 @@
   "runbook --private": {
     "tests": [
       {
-        "file": "test/team-cli-mutator-pump.test.ts",
-        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "record-bug --private and runbook --private are refused without a private store and write nothing"
       }
     ]
   },
@@ -3135,8 +3095,8 @@
   "sync --commit": {
     "tests": [
       {
-        "file": "test/hook-shared-worktree.test.ts",
-        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "sync --commit commits the captured decision into the repo"
       }
     ]
   },
@@ -3158,10 +3118,6 @@
   },
   "sync --from-hook": {
     "tests": [
-      {
-        "file": "test/hook-shared-worktree.test.ts",
-        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
-      },
       {
         "file": "test/integration-capture-pipeline.test.ts",
         "title": "synthesis->store: re-running the capture is idempotent (same id, no duplicate)"
@@ -3193,10 +3149,6 @@
       {
         "file": "test/constitution.test.ts",
         "title": "MD-1a private split sync commits its proposal only to a standalone overlay and leaves both repositories clean"
-      },
-      {
-        "file": "test/hook-shared-worktree.test.ts",
-        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
       }
     ]
   },
@@ -3205,10 +3157,6 @@
       {
         "file": "test/constitution.test.ts",
         "title": "Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, and review-bounded"
-      },
-      {
-        "file": "test/hook-shared-worktree.test.ts",
-        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
       }
     ]
   },
@@ -3316,7 +3264,7 @@
     "tests": [
       {
         "file": "test/task-status.test.ts",
-        "title": "a delivery or a check makes the task non-empty and shows up in the status line, the list, and the JSON"
+        "title": "status line JSON from Claude Code names the exact prompt task, never the most recent one"
       }
     ]
   },
@@ -3352,7 +3300,7 @@
     "tests": [
       {
         "file": "test/integration-cli-commands-b.test.ts",
-        "title": "cli:test: a failing TAP run is captured as a bug and keeps a non-zero exit; --dry-run writes nothing"
+        "title": "session id is stable"
       }
     ]
   },
@@ -3469,28 +3417,24 @@
   "veto --commit": {
     "tests": [
       {
-        "file": "test/check-base-veto-freshness.test.ts",
-        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "veto --staged, --commit and --format each check their own file set and keep a clean verdict at exit 0"
       }
     ]
   },
   "veto --format": {
     "tests": [
       {
-        "file": "test/check-base-veto-freshness.test.ts",
-        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
-      },
-      {
-        "file": "test/review-cli.test.ts",
-        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "veto --staged, --commit and --format each check their own file set and keep a clean verdict at exit 0"
       }
     ]
   },
   "veto --staged": {
     "tests": [
       {
-        "file": "test/check-base-veto-freshness.test.ts",
-        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "veto --staged, --commit and --format each check their own file set and keep a clean verdict at exit 0"
       }
     ]
   },
@@ -3529,8 +3473,8 @@
   "wiki --heal": {
     "tests": [
       {
-        "file": "test/wiki.test.ts",
-        "title": "generateWiki: writes pages + README + manifest; regen with unchanged graph is byte-identical and touches nothing on --heal"
+        "file": "test/cli-flags-gaps.test.ts",
+        "title": "wiki --heal writes the missing pages; constitution g2 --strict fails while the packet is not ready"
       }
     ]
   },

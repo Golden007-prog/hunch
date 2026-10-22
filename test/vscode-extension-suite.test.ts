@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -13,7 +13,10 @@ const EXT_ROOT = join(resolve(dirname(fileURLToPath(import.meta.url)), ".."), "v
 test("the VS Code extension's own test script passes", () => {
   const script = JSON.parse(readFileSync(join(EXT_ROOT, "package.json"), "utf8")).scripts?.test as string | undefined;
   assert.equal(script, "node ../tooling/run-tests.mjs test/*.test.mts");
-  const run = spawnSync(process.execPath, ["../tooling/run-tests.mjs", "test/*.test.mts"], {
+  // Enumerate explicitly rather than rely on shell/node glob expansion (differs per platform).
+  const files = readdirSync(join(EXT_ROOT, "test")).filter((f) => f.endsWith(".test.mts")).sort().map((f) => `test/${f}`);
+  assert.ok(files.length > 0, "no vscode-extension test files found");
+  const run = spawnSync(process.execPath, ["../tooling/run-tests.mjs", ...files], {
     cwd: EXT_ROOT, encoding: "utf8", windowsHide: true, timeout: 120_000,
   });
   assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`.slice(-4000));

@@ -9,7 +9,7 @@ import { cleanupDir, isolatedCliEnv, tempDir } from "./fixtures.js";
 /** CLI options gate: every option of every command in the live Commander tree must be
  *  listed in test/cli-options-surface.json, keyed "<command path> <flag>" (root options
  *  are keyed by the bare flag), either with a test that PASSES THAT FLAG to that command
- *  or with an explicit `todo` reason. An option added without an entry (or removed while
+ *  or with an explicit `todo` reason — and a todo only for keys in FROZEN_TODOS. An option added without an entry (or removed while
  *  one remains) fails here, so no flag can ship without black-box coverage or a recorded
  *  reason. The flag is the option's long name (`--no-share` for a negatable option), or
  *  its short name when it has no long one.
@@ -39,6 +39,24 @@ const REGISTRY = join(ROOT, "test/cli-options-surface.json");
 const CLI_MARKER = /hunchCliArgs|cli["'/, ]+index\.[tj]s/;
 const TEST_TITLE = /\b(test|it|describe)(?:\.\w+)?\(\s*(["'`])((?:\\.|(?!\2)[^\\])*)\2/g;
 const NO_TEST_TODO = "no test passes this flag to this command";
+
+/** Ratchet: the only options allowed to stay `todo`. This list may only shrink — cover one,
+ *  then delete its key here. A new option cannot be parked as a todo; it must ship with a test. */
+const FROZEN_TODOS: readonly string[] = [
+  "constitution bootstrap --private",
+  "constitution delta --private",
+  "constitution ingest --private",
+  "integrations check --probe",
+  "integrations check --require",
+  "landscape adopt --acknowledge-issues",
+  "policy compile --private",
+  "policy shadow --max-unknown-error-rate",
+  "policy shadow --min-applicable",
+  "policy shadow --recent",
+  "review-memory capture --private",
+  "update --dry-run",
+  "update --global",
+];
 
 const DUMP_SCRIPT = `
 const [commanderUrl, cliUrl] = process.argv.slice(2);
@@ -81,20 +99,155 @@ function discoverPairs(): Pair[] {
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Command words passed as CLI arguments (identical to cli-surface.test.ts). */
-function invocationPattern(path: string): RegExp | null {
-  if (!path) return null;
-  const words = path.split(" ").map(esc);
-  const q = "[\"'`]";
-  const lead = "(?:[(\\[]|[\\w$)\\]]\\s*,)\\s*";
-  const asArgs = words.map((w) => `${q}${w}${q}`).join("\\s*,\\s*");
-  const asString = `${q}${words.join(" ")}(?=[\\s"'\`])`;
-  return new RegExp(`${lead}(?:${asArgs}|${asString})`);
+/** A CLI invocation is a call whose argument list runs the CLI: hunchCliArgs(...), a process
+ *  spawner whose arguments reference the CLI entry (`[tsx, cli, ...]`, `hunchCliArgs(...)`),
+ *  or a wrapper the test file defines around one of those — hunch()/run()/runCli()/ok()...,
+ *  resolved to a fixed point with the wrapper's own literal arguments prepended (so
+ *  `runCheck(root, "--strict")` -> `runCli(root, "check", ...args)` counts as `check --strict`). */
+type Helpers = Map<string, string[][]>;
+const SPAWNERS = ["spawnSync", "spawn", "execFileSync", "execFile"];
+const SPAWNS_CLI = /hunchCliArgs|\b[\w$]*(?:cli|Cli|CLI)\b|index\.[tj]s/;
+
+/** End index (exclusive) of the bracket group opening at `open`, skipping strings and comments. */
+function groupEnd(src: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i]!;
+    if (c === '"' || c === "'" || c === "`") { i = stringEnd(src, i) - 1; continue; }
+    if (c === "/" && src[i + 1] === "/") { const n = src.indexOf("\n", i); i = n < 0 ? src.length : n; continue; }
+    if (c === "/" && src[i + 1] === "*") { const n = src.indexOf("*/", i + 2); i = n < 0 ? src.length : n + 1; continue; }
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") { depth--; if (depth === 0) return i + 1; }
+  }
+  return src.length;
 }
 
-/** The flag as a CLI token inside a string literal. */
-function flagPattern(flag: string): RegExp {
-  return new RegExp(`(?:["'\`]|["'\`][^"'\`\\n]*\\s)${esc(flag)}(?=["'\`\\s=])`);
+function stringEnd(src: string, open: number): number {
+  const q = src[open]!;
+  for (let i = open + 1; i < src.length; i++) {
+    if (src[i] === "\\") { i++; continue; }
+    if (q === "`" && src[i] === "$" && src[i + 1] === "{") { i = groupEnd(src, i + 1) - 1; continue; }
+    if (src[i] === q) return i + 1;
+  }
+  return src.length;
+}
+
+/** CLI tokens from the string literals in an argument list; object literals (spawn options,
+ *  env maps) and comments are skipped, `${...}` interpolations become token breaks. An
+ *  identifier bound to a literal array in scope (`const args = [...]`, `for (const flag of
+ *  [...])`) expands to its literals — one alternative per loop element. */
+function literalTokens(args: string, bindings: Bindings = new Map()): string[][] {
+  let alts: string[][] = [[]];
+  const push = (options: string[][]) => {
+    alts = alts.flatMap((a) => options.map((o) => [...a, ...o])).slice(0, 256);
+  };
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i]!;
+    if (c === "{") { i = groupEnd(args, i) - 1; continue; }
+    if (c === "/" && args[i + 1] === "/") { const n = args.indexOf("\n", i); i = n < 0 ? args.length : n; continue; }
+    if (c === "/" && args[i + 1] === "*") { const n = args.indexOf("*/", i + 2); i = n < 0 ? args.length : n + 1; continue; }
+    if (c === '"' || c === "'" || c === "`") {
+      const end = stringEnd(args, i);
+      let body = args.slice(i + 1, end - 1);
+      if (c === "`") body = body.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, " ");
+      push([body.split(/\s+/).filter(Boolean)]);
+      i = end - 1;
+      continue;
+    }
+    const id = /^[A-Za-z_$][\w$]*/.exec(args.slice(i));
+    if (id && (args.slice(Math.max(0, i - 3), i) === "..." || !/[\w$.]/.test(args[i - 1] ?? ""))) {
+      const bound = bindings.get(id[0]);
+      if (bound && !/^\s*[.([]/.test(args.slice(i + id[0].length))) push(bound);
+      i += id[0].length - 1;
+    }
+  }
+  return alts;
+}
+
+/** Literal arrays bound to a name in `src`: `const NAME = [...]` (one alternative) and
+ *  `for (const NAME of [...])` (one alternative per element). */
+type Bindings = Map<string, string[][]>;
+function bindingsIn(src: string, raw = new Map<string, string>()): Bindings {
+  const out: Bindings = new Map();
+  const re = /(?:for\s*\(\s*(?:const|let)\s+([\w$]+)\s+of\s*|(?:const|let)\s+([\w$]+)\s*(?::\s*[\w$[\]<> ]+)?=\s*)\[/g;
+  for (const m of src.matchAll(re)) {
+    const open = m.index! + m[0].length - 1;
+    const inner = src.slice(open + 1, groupEnd(src, open) - 1);
+    raw.set((m[1] ?? m[2])!, inner);
+    if (m[2]) { out.set(m[2], literalTokens(inner)); continue; }
+    const elements: string[][] = [];
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner[i]!;
+      if (c === "[") { const end = groupEnd(inner, i); elements.push(...literalTokens(inner.slice(i + 1, end - 1))); i = end - 1; }
+      else if (c === '"' || c === "'" || c === "`") { const end = stringEnd(inner, i); elements.push(...literalTokens(inner.slice(i, end))); i = end - 1; }
+    }
+    out.set(m[1]!, elements);
+  }
+  return out;
+}
+
+/** Each CLI invocation in `src` as its token list (one list per helper prefix and binding alternative). */
+function invocations(src: string, helpers: Helpers): string[][] {
+  const names = [...helpers.keys(), ...SPAWNERS].map(esc).join("|");
+  const call = new RegExp(`(?<![\\w$.])(${names})\\s*\\(`, "g");
+  const raw = new Map<string, string>();
+  const bindings = bindingsIn(src, raw);
+  const out: string[][] = [];
+  for (const m of src.matchAll(call)) {
+    const open = m.index! + m[0].length - 1;
+    const args = src.slice(open + 1, groupEnd(src, open) - 1);
+    // A spawner runs the CLI when its arguments, or a literal array they spread, name the entry.
+    const named = [...raw].filter(([name]) => new RegExp(`(?<![\\w$])${esc(name)}(?![\\w$])`).test(args)).map(([, text]) => text);
+    const prefixes = helpers.get(m[1]!) ?? ([args, ...named].some((t) => SPAWNS_CLI.test(t)) ? [[]] : []);
+    const alts = literalTokens(args, bindings);
+    for (const prefix of prefixes) for (const tokens of alts) out.push([...prefix, ...tokens]);
+  }
+  return out;
+}
+
+/** hunchCliArgs plus the file's own wrappers around a CLI invocation (fixed point), each
+ *  with the literal argument prefixes it adds (one per definition of that name). */
+const helperCache = new Map<string, Helpers>();
+function helpersFor(text: string): Helpers {
+  if (helperCache.has(text)) return helperCache.get(text)!;
+  const helpers: Helpers = new Map([["hunchCliArgs", [[]]]]);
+  const defs = [...text.matchAll(/(?:function\s+([\w$]+)\s*\(|(?:const|let)\s+([\w$]+)\s*=\s*(?:async\s*)?\()/g)];
+  const done = new Set<number>();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [i, d] of defs.entries()) {
+      const name = (d[1] ?? d[2])!;
+      if (done.has(i) || SPAWNERS.includes(name)) continue;
+      const paramsEnd = groupEnd(text, d.index! + d[0].length - 1);
+      let body: string;
+      if (d[1]) {
+        // Skip `{...}` groups that belong to a return type annotation (`): { out: string } {`).
+        let open = text.indexOf("{", paramsEnd);
+        while (open >= 0 && /^\s*[{|&[>]/.test(text.slice(groupEnd(text, open)))) open = text.indexOf("{", groupEnd(text, open));
+        body = open < 0 ? "" : text.slice(open, groupEnd(text, open));
+      } else {
+        const arrow = /^\s*(?::[^\n]*?)?=>\s*/.exec(text.slice(paramsEnd));
+        if (!arrow) continue;
+        const start = paramsEnd + arrow[0].length;
+        const open = text.slice(start).search(/[({]/);
+        body = open < 0 ? "" : text.slice(start, groupEnd(text, start + open));
+      }
+      const inner = invocations(body, helpers)[0];
+      if (!inner) continue;
+      helpers.set(name, [...(helpers.get(name) ?? []), inner]);
+      done.add(i);
+      changed = true;
+    }
+  }
+  helperCache.set(text, helpers);
+  return helpers;
+}
+
+/** Command words, in order and adjacent, then the flag, all in ONE invocation's arguments. */
+function invokes(tokens: string[], pair: Pair): boolean {
+  const words = pair.path ? pair.path.split(" ") : [];
+  const at = words.length === 0 ? 0 : tokens.findIndex((_, i) => words.every((w, j) => tokens[i + j] === w));
+  return at >= 0 && tokens.some((t) => t === pair.flag || t.startsWith(`${pair.flag}=`));
 }
 
 interface Block { title: string; body: string }
@@ -109,9 +262,8 @@ function testBlocks(text: string): Block[] {
   }]);
 }
 
-function passes(body: string, pair: Pair): boolean {
-  const cmd = invocationPattern(pair.path);
-  return (!cmd || cmd.test(body)) && flagPattern(pair.flag).test(body);
+function passes(text: string, body: string, pair: Pair): boolean {
+  return invocations(body, helpersFor(text)).some((tokens) => invokes(tokens, pair));
 }
 
 const fileCache = new Map<string, string>();
@@ -131,7 +283,7 @@ function seedFor(pair: Pair, files: string[]): Entry {
     const text = source(file);
     if (!CLI_MARKER.test(text)) continue;
     for (const b of testBlocks(text)) {
-      if (b.title.includes("${") || b.title.length < 8 || !passes(b.body, pair)) continue;
+      if (b.title.includes("${") || b.title.length < 8 || !passes(text, b.body, pair)) continue;
       if (text.split(b.title).length !== 2) continue; // title must identify one block
       tests.push({ file, title: b.title });
       break;
@@ -150,7 +302,13 @@ test("CLI options: every option of every command has a test that passes it, or a
     const files = testFiles();
     const next: Record<string, Entry> = {};
     for (const p of pairs) {
-      const kept = registry[p.key];
+      let kept = registry[p.key];
+      if (kept && "tests" in kept) {
+        // Keep only references that still pass; an entry left with none is re-seeded.
+        const live = kept.tests.filter((ref) => existsSync(join(ROOT, ref.file)) &&
+          testBlocks(source(ref.file)).some((b) => b.title.includes(ref.title) && passes(source(ref.file), b.body, p)));
+        kept = live.length ? { tests: live } : undefined;
+      }
       next[p.key] = kept && !("todo" in kept && kept.todo === NO_TEST_TODO) ? kept : seedFor(p, files);
     }
     writeFileSync(REGISTRY, `${JSON.stringify(next, null, 2)}\n`);
@@ -182,11 +340,14 @@ test("CLI options: every option of every command has a test that passes it, or a
       const text = source(ref.file);
       if (!text.includes(ref.title)) { problems.push(`${where}: no test with that title`); continue; }
       if (!CLI_MARKER.test(text)) { problems.push(`${where}: file never spawns the CLI`); continue; }
-      if (!testBlocks(text).some((b) => b.title.includes(ref.title) && passes(b.body, p))) {
+      if (!testBlocks(text).some((b) => b.title.includes(ref.title) && passes(text, b.body, p))) {
         problems.push(`${where}: test body does not pass ${p.flag} to \`${p.path || "hunch"}\``);
       }
     }
   }
   assert.deepEqual(problems, [], `cli-options-surface.json references tests that do not pass their flag:\n  ${problems.join("\n  ")}`);
+  const unfrozen = todos.filter((k) => !FROZEN_TODOS.includes(k));
+  assert.deepEqual(unfrozen, [], unfrozen.map((k) =>
+    `new option \`hunch ${k}\` must have a test that passes it; a todo is not accepted for options outside FROZEN_TODOS`).join("\n"));
   console.log(`[cli-options] ${pairs.length} (command, option) pairs: ${pairs.length - todos.length} covered, ${todos.length} todo`);
 });

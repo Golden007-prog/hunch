@@ -3,6 +3,8 @@
 // (`platform-matrix-safety`), otherwise its win32/darwin branch is never run.
 // A new platform-branching file without a mapping here fails; a mapping whose
 // tests are all absent from the workflow's list fails.
+// Scope: this proves each platform-branching module is imported by a test that
+// runs on Windows/macOS CI, not that the specific platform branch executes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
