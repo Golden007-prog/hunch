@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tempStore } from "./helpers.js";
-import { scaffoldProviders, detectAssistants, writeCursorMcp, writeVscodeMcp, writeCodexConfig, writeCodexHooks, writeCursorHooks, writeWindsurfMcp, writeAntigravityWorkspaceMcp, writeAntigravityHooks } from "../src/integrations/providers.js";
+import { scaffoldProviders, detectAssistants, writeCursorMcp, writeVscodeMcp, writeCodexConfig, writeCodexHooks, writeCursorHooks, writeWindsurfMcp, writeAntigravityWorkspaceMcp, writeAntigravityHooks, writeWindsurfHooks } from "../src/integrations/providers.js";
 import { writeSlashCommands } from "../src/integrations/scaffold.js";
 import { publishedMcpInvocation } from "../src/cli/invocation.js";
 
@@ -406,6 +406,68 @@ test("scaffoldProviders with `only` writes the chosen assistants plus AGENTS.md"
     assert.ok(existsSync(join(root, "AGENTS.md")));
     assert.ok(!existsSync(join(root, ".vscode/mcp.json")), "VS Code was not chosen");
     assert.ok(!existsSync(join(root, ".codex/config.toml")), "Codex was not chosen");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a source-checkout run keeps the published Windsurf hook pin (issue #466)", () => {
+  const { root, cleanup } = tempStore();
+  const local = { command: "npx", args: ["tsx", "C:\\x\\src\\cli\\index.ts"] };
+  const file = join(root, ".windsurf/hooks.json");
+  const pinned = "npx -y --package=hunch-exact@npm:@davesheffer/hunch@1.0.0 hunch hook --provider windsurf";
+  const events = ["pre_user_prompt", "pre_write_code", "post_write_code", "post_run_command"];
+  const withCommand = (command: string) => JSON.stringify({
+    hooks: Object.fromEntries(events.map((event) => [event, [{ command: "./lint.sh" }, { command, show_output: false }]])),
+  }, null, 4);
+  try {
+    mkdirSync(join(root, ".windsurf"), { recursive: true });
+
+    // a: published pin + machine-local invocation -> byte-for-byte unchanged.
+    writeFileSync(file, withCommand(pinned));
+    assert.equal(writeWindsurfHooks(root, local), file);
+    assert.equal(readFileSync(file, "utf8"), withCommand(pinned));
+
+    // b: an already machine-local Hunch command is refreshed to the new one.
+    writeFileSync(file, withCommand("node C:/old/dist/cli/index.js hook --provider windsurf"));
+    writeWindsurfHooks(root, local);
+    let hooks = JSON.parse(readFileSync(file, "utf8")).hooks;
+    for (const event of events) {
+      assert.deepEqual(hooks[event].map((e: { command: string }) => e.command), ["./lint.sh", `npx tsx ${JSON.stringify(local.args[1])} hook --provider windsurf`]);
+    }
+
+    // c: no file -> written with the local command.
+    rmSync(file);
+    writeWindsurfHooks(root, local);
+    hooks = JSON.parse(readFileSync(file, "utf8")).hooks;
+    assert.match(hooks.pre_write_code[0].command, /^npx tsx .*index\.ts.* hook --provider windsurf$/);
+
+    // d: published pin + published invocation -> unchanged (idempotent).
+    writeWindsurfHooks(root, publishedMcpInvocation());
+    const once = readFileSync(file, "utf8");
+    writeWindsurfHooks(root, publishedMcpInvocation());
+    assert.equal(readFileSync(file, "utf8"), once);
+    assert.match(JSON.parse(once).hooks.pre_write_code[0].command, /^npx -y --package=hunch-exact@npm:/);
+
+    // e: the fully quoted pin written before v1.21.1 + machine-local invocation -> unchanged.
+    const legacy = `"npx" "-y" "--package=@davesheffer/hunch@1.20.0" "hunch" "hook" "--provider" "windsurf"`;
+    writeFileSync(file, withCommand(legacy));
+    writeWindsurfHooks(root, local);
+    assert.equal(readFileSync(file, "utf8"), withCommand(legacy));
+
+    // f: a pin in one event only + machine-local invocation -> all four events get
+    // the published pin, never the machine-local path; foreign hooks stay.
+    writeFileSync(file, JSON.stringify({
+      hooks: { pre_user_prompt: [{ command: "./lint.sh" }], pre_write_code: [{ command: pinned, show_output: false }] },
+    }, null, 4));
+    writeWindsurfHooks(root, local);
+    const partial = readFileSync(file, "utf8");
+    hooks = JSON.parse(partial).hooks;
+    const publishedCommand = [publishedMcpInvocation().command, ...publishedMcpInvocation().args, "hook", "--provider", "windsurf"].join(" ");
+    for (const event of events) {
+      assert.deepEqual(hooks[event].map((e: { command: string }) => e.command), event === "pre_user_prompt" ? ["./lint.sh", publishedCommand] : [publishedCommand]);
+    }
+    assert.ok(!partial.includes("tsx") && !partial.includes("index.ts"), partial);
   } finally {
     cleanup();
   }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.45.1 — 2026-10-22
+
+- **`hunch init` from a source checkout keeps the published Windsurf pin.** Running init with a local `tsx` or `dist` launcher rewrote a tracked `.windsurf/hooks.json` so its four hook commands pointed at a path on one machine. When every Hunch entry in that file already holds the published `npx -y --package=…` pin, in the current spelling or the older fully quoted one, init now leaves the file untouched if all four events have it (it is still listed among the files it set up), and fills any missing event with the published pin, never the local path. Files with machine-local entries, or with no Hunch entries, are written as before (#466).
+- **`hunch uninstall` in a linked worktree keeps the shared git hooks and merge drivers.** The git hooks and the `merge.hunch*` drivers are shared by every worktree and branch of a clone, while the `.hunch-removed` marker lands only where uninstall ran. In a linked worktree, uninstall now keeps them and names the main checkout to run it from. From the main checkout it warns which linked worktrees lose them too. In a bare clone with worktrees, where no main checkout exists, uninstall removes the shared hooks and drivers from the worktree it runs in and warns about the others. Off the default branch it reminds you that the marker is on this branch only (#459).
+
 ## 1.45.0 — 2026-10-22
 
 - **Short `hunch init` output.** Init now prints a summary of what it set up and one next step, instead of about 60 lines. `hunch init --details` prints every step and the integration matrix as before. Warnings always print (#465).
