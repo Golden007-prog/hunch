@@ -1294,6 +1294,33 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   const refreshIndex = (): void => {
     indexedSourceStamp = rebuildFreshIndex(store);
   };
+  // An exact local miss in shared mode is an authority claim: local absence must
+  // never be presented as team absence. Ordinary request pulls honour cooldown and
+  // failure backoff, so bypass it once. Returns null after a fresh convergence
+  // (the caller re-reads), else the explicit abstention to return instead.
+  const confirmSharedMiss = (absenceClaim: string, subject: string): string | null => {
+    const status = pullTeamMemory(true);
+    if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
+      return `Shared team memory refresh is ${status}; Hunch cannot confirm that ${absenceClaim}. Retry when the shared store is available.`;
+    }
+    try {
+      if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
+    } catch {
+      return `Shared team memory refreshed, but its derived index could not be rebuilt; Hunch cannot confirm that ${subject} is absent. Retry this read.`;
+    }
+    return null;
+  };
+  // Policy reads: confirm a local policy (or its referenced proof) miss against
+  // fresh shared memory before the service reports "not found". Public-only reads
+  // and non-shared stores never consult the team remote.
+  const confirmSharedPolicy = (policyId: string, publicOnly: boolean | undefined): string | null => {
+    if (publicOnly || store.mode !== "shared" || !store.privateDir) return null;
+    const repository = new PolicyRepository(root, store);
+    const policy = repository.getPolicy(policyId);
+    if (policy && (!policy.proof || repository.getProof(policy.proof))) return null;
+    const subject = policy ? `proof ${policy.proof} of policy ${policyId}` : `policy ${policyId}`;
+    return confirmSharedMiss(`${subject} is absent from shared team memory`, subject);
+  };
   // Resolve the embedder ONCE for this long-lived process (never throws; null when
   // the optional model isn't installed). The model then loads lazily on the first
   // hunch_query and stays warm — and hybridSearch degrades to FTS until then.
@@ -2289,23 +2316,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       let live = liveForTopic(decs, topic);
       // A prior transient fetch failure may have placed ordinary tool traffic in
       // backoff. That is acceptable for cached positive reads, but an exact topic
-      // miss is an authority claim: local absence must never be presented as team
-      // absence. Bypass the cooldown once, then reread only after a successful
-      // bounded convergence. An unavailable remote produces an explicit abstention.
+      // miss must be confirmed against fresh team memory (confirmSharedMiss).
       if (live.length === 0 && store.mode === "shared" && store.privateDir) {
-        const status = pullTeamMemory(true);
-        if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
-          return err(
-            `Shared team memory refresh is ${status}; Hunch cannot confirm that topic "${topic}" has no current decision. Retry when the shared store is available.`,
-          );
-        }
-        try {
-          if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
-        } catch {
-          return err(
-            `Shared team memory refreshed, but its derived index could not be rebuilt; Hunch cannot confirm that topic "${topic}" is absent. Retry this read.`,
-          );
-        }
+        const abstention = confirmSharedMiss(`topic "${topic}" has no current decision`, `topic "${topic}"`);
+        if (abstention) return err(abstention);
         decs = store.recs("decisions");
         live = liveForTopic(decs, topic);
       }
@@ -3310,6 +3324,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         const service = new ConstitutionService(store, root);
         const plan = service.plan(policy_id, { publicOnly: public_only });
         const home = public_only ? "public" : service.repository.homeOfPolicy(policy_id);
@@ -3336,6 +3352,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         return ok(JSON.stringify(new ConstitutionService(store, root).card(policy_id, { publicOnly: public_only }), null, 2));
       } catch (e) {
         return err(`Failed to build policy proof card: ${(e as Error).message}`);
@@ -3356,6 +3374,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         return ok(JSON.stringify(new ConstitutionService(store, root).shadowReport(policy_id, {}, { publicOnly: public_only }), null, 2));
       } catch (e) {
         return err(`Failed to inspect policy shadow precision: ${(e as Error).message}`);
@@ -3376,6 +3396,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         const service = new ConstitutionService(store, root);
         const policy = service.get(policy_id, { publicOnly: public_only });
         if (!policy.proof) return ok(`Policy ${policy_id} has no proof yet.`);
@@ -3404,6 +3426,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       try {
         if (workspace && commit) throw new Error("choose either workspace or commit for executable-behavior evaluation");
         if (commit && !revExists(commit, root)) throw new Error(`commit ref ${JSON.stringify(commit)} does not resolve`);
+        if (policy_id) {
+          const abstention = confirmSharedPolicy(policy_id, public_only);
+          if (abstention) return err(abstention);
+        }
         const exactCommit = commit ? revParse(`${commit}^{commit}`, root) : undefined;
         const behavior = workspace ? { workspace }
           : exactCommit ? { commit: exactCommit }
