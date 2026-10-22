@@ -93,6 +93,7 @@ import { HUNCH_VERSION } from "../core/version.js";
 import { assertCompleteRepoScan, indexRepo, scanRepo } from "../extractors/indexer.js";
 import type { Decision, Finding, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
+import { formatWhyRecord, more, WHY_CAP } from "../core/whyRecord.js"; // WHY_CAP: per record-type cap in hunch_why
 import { pendingEscalations, policyEscalations, commitRepairEscalations, actionableEscalations, escalationHeadline, type Escalation } from "../core/escalations.js";
 import { readActivePendingRepairs, withheldRewrites } from "../core/repairqueue.js";
 import { scanRecord, publicationWarning, loadVocabulary } from "../core/publication.js";
@@ -640,7 +641,6 @@ const resolveDestRoot = (home: "public" | "private", store: HunchStore, root: st
 // session, so an uncapped list pollutes the context window. Cap each list to its
 // highest-signal head (records are pre-sorted by severity/confidence) and tell the
 // caller what was withheld rather than truncating silently.
-const WHY_CAP = 6; // per record-type in hunch_why
 const DEP_CAP = 25; // dependents in hunch_get_dependents
 const QUERY_HITS = 8; // hunch_query matches (was 12)
 const FINDINGS_CAP = 12; // hunch_findings listing
@@ -665,8 +665,6 @@ export const firstSentence = (text: string): string => {
 };
 const SEV_CONSTRAINT: Record<string, number> = { blocking: 3, warning: 2, advisory: 1 };
 const SEV_BUG: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
-const more = (total: number, cap: number, hint = ""): string =>
-  total > cap ? `\n  …(+${total - cap} more${hint ? ` — ${hint}` : ""})` : "";
 
 const EXECUTION_OBLIGATION_SCHEMA = z.object({
   id: z.string(),
@@ -1537,9 +1535,9 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     {
       title: "Explain why a file/symbol is the way it is",
       description:
-        "Return the decisions, bugs, and constraints that explain a file path or symbol — the 'why' and the 'what must not break', with evidence. Pass `as_of` (a commit/tag/branch) to time-travel: see what was believed at that point in history. Use when you need the full rationale for ONE target. Not for a budgeted task brief (hunch_context), keyword search (hunch_query), or where-is-it questions (hunch_structure).",
+        "Return the decisions, bugs, and constraints that explain a file path or symbol, or one record by id (dec_/con_/bug_/fnd_/cmp_) — the 'why' and the 'what must not break', with evidence. Pass `as_of` (a commit/tag/branch) to time-travel: see what was believed at that point in history. Use when you need the full rationale for ONE target. Not for a budgeted task brief (hunch_context), keyword search (hunch_query), or where-is-it questions (hunch_structure).",
       inputSchema: {
-        target: z.string().describe("A file path (e.g. src/auth/session.ts) or symbol name."),
+        target: z.string().describe("A file path (e.g. src/auth/session.ts), symbol name, or record id (e.g. dec_0b5d2be516)."),
         as_of: z.string().optional().describe("Time-travel ref: a commit sha, tag, or branch (e.g. v0.7.0). Omit for the current view."),
       },
     },
@@ -1547,6 +1545,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return invalid(`Could not resolve as_of "${as_of}" to a commit.`);
       const w = store.why(target, { asOf });
+      if (w.byId?.record) return ok(formatWhyRecord(w.byId).join("\n"));
       // Highest-signal first, then cap: invariants by severity, decisions by
       // confidence, bugs by severity — so a hot file's trim drops the tail, not
       // the records that matter most.
@@ -1554,6 +1553,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       const constraints = [...w.constraints].sort((a, b) => (SEV_CONSTRAINT[b.severity] ?? 0) - (SEV_CONSTRAINT[a.severity] ?? 0));
       const bugs = [...w.bugs].sort((a, b) => (SEV_BUG[b.severity] ?? 0) - (SEV_BUG[a.severity] ?? 0));
       const parts: string[] = [`Why for "${target}":`];
+      if (w.byId) parts.push(`\n${formatWhyRecord(w.byId).join("\n")}`);
       if (decisions.length)
         parts.push(`\nDECISIONS:\n${decisions.slice(0, WHY_CAP).map((d) => `  • ${d.id} [${d.status}] ${d.title}\n      ${d.decision}${provLine(d)}`).join("\n")}${more(decisions.length, WHY_CAP, "narrow the target")}`);
       if (constraints.length)

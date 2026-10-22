@@ -184,6 +184,7 @@ import { partitionOf, stateHomeFor } from "../store/stateBinding.js";
 import { scopePath } from "../core/stateContract.js";
 import { movePublicMemoryToPrivate } from "../store/privateMigrate.js";
 import { ENTITY_KINDS } from "../core/types.js";
+import { formatWhyRecord } from "../core/whyRecord.js";
 import { planCompaction } from "../store/compact.js";
 import { repairDecisionReference } from "../core/refrepair.js";
 import { resolveInvocation, dim, synthesisStatusLines, maybeWarnOllamaContext } from "./invocation.js";
@@ -3607,13 +3608,19 @@ program
 program
   .command("why")
   .description("Explain why a file/symbol is the way it is (decisions, bugs, constraints).")
-  .argument("<target>", "file path or symbol name")
+  .argument("<target>", "file path, symbol name, or record id (dec_/con_/bug_/fnd_/cmp_)")
   .option("--as-of <ref>", "time-travel: what was believed as of a commit/tag/branch (e.g. v0.7.0, HEAD~5)")
   .action((target: string, opts: { asOf?: string }) => {
     const { store, root } = storeFor();
     const asOf = opts.asOf ? asOfDate(opts.asOf, root) : undefined;
     if (opts.asOf && !asOf) return fail(`could not resolve --as-of "${opts.asOf}" to a commit (need a git repo and a valid ref)`);
     const w = store.why(target, { asOf });
+    if (w.byId?.record) {
+      if (asOf) console.log(`Why "${target}" (as of ${opts.asOf} — ${asOf.slice(0, 10)}):\n`);
+      console.log(formatWhyRecord(w.byId).join("\n"));
+      store.close();
+      return;
+    }
     const staleIds = new Set(store.staleness((f) => lastChangeDate(f, root)).map((s) => s.id));
     const drift = (id: string) => (staleIds.has(id) ? " ⚠STALE" : "");
     console.log(asOf ? `Why "${target}" (as of ${opts.asOf} — ${asOf.slice(0, 10)}):\n` : `Why "${target}":\n`);
@@ -3630,7 +3637,7 @@ program
       for (const b of w.bugs) console.log(`  • ${b.id} [${b.status}] ${b.title} — ${b.root_cause}`);
     }
     if (!w.decisions.length && !w.constraints.length && !w.bugs.length) {
-      console.log("(No recorded decisions/bugs/constraints yet. Try `hunch backfill` or make a commit.)");
+      console.log(w.byId ? formatWhyRecord(w.byId).join("\n") : "(No recorded decisions/bugs/constraints yet. Try `hunch backfill` or make a commit.)");
     }
     if (w.symbols.length) console.log(`\nSYMBOLS: ${w.symbols.map((s) => `${s.name} [fan-in ${s.metrics.fan_in}, churn ${s.metrics.churn_90d}]`).join(", ")}`);
     store.close();
