@@ -173,7 +173,7 @@ test("the opt-out gate judges the --root a command acts on, not the cwd's reposi
     const nested = spawnSync(process.execPath, hunchCliArgs("mcp", "--root", partition), { cwd: elsewhere, env, encoding: "utf8", input: "", timeout: 60_000 });
     assert.equal(nested.status, 1, out(nested));
     assert.match(out(nested), optedOut, "a store nested in an opted-out repository is gated");
-    rmSync(join(root, "partitions"), { recursive: true, force: true });
+    cleanupDir(join(root, "partitions"));
     // serve init writes its config file relative to the cwd: an opted-out cwd refuses it
     // even when the partition --root lies elsewhere, with or without --config.
     const away = join(elsewhere, "x");
