@@ -25,7 +25,7 @@ import { ENTITY_KINDS, SCHEMAS, type EntityKind, type EntityFor } from "../core/
 import { BASELINE_VERSION, migrateRaw, SCHEMA_VERSION } from "../core/migrate.js";
 import { writeFileAtomic } from "../core/io.js";
 import { readStoreArtifact } from "../core/storeArtifact.js";
-import { heldLockNonces, judgeSameHostOwner, selfStartToken, startTokenOf } from "../core/procstart.js";
+import { createdAfterLock, heldLockNonces, judgeSameHostOwner, processStartedAt, selfStartToken, startTokenOf } from "../core/procstart.js";
 
 /** High-cardinality collections (symbols, edges) are stored as a single
  *  index.json array — there can be thousands, and one file per edge would create
@@ -60,7 +60,7 @@ export const MAX_JSON_DIRECTORY_ENTRIES_PER_KIND = 100_000;
 
 type FileStat = Stats;
 type SafeDirectory = { lexical: string; canonical: string; stat: FileStat };
-type RmwOwner = { pid: number; host: string; nonce?: string; start?: string };
+type RmwOwner = { pid: number; host: string; nonce?: string; start?: string; at?: string };
 
 /** Reads of ownership metadata that a concurrent release + re-acquire can make
  *  fail once. A real refusal (hardlink, symlink, oversize) is persistent and
@@ -132,6 +132,7 @@ function readRmwOwnerOnce(lock: string): RmwOwner | undefined {
       host: parsed.host,
       ...(typeof parsed.nonce === "string" ? { nonce: parsed.nonce } : {}),
       ...(typeof parsed.start === "string" ? { start: parsed.start } : {}),
+      ...(typeof parsed.at === "string" ? { at: parsed.at } : {}),
     };
   } catch { return undefined; }
 }
@@ -141,6 +142,9 @@ function rmwPidAlive(pid: number): boolean {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
+
+/** When the process now holding `pid` was created (wall-clock ms), or null. */
+type StartedAtProbe = (pid: number) => number | null;
 
 /** Longest a `.rmw-lock.reclaim` claim may sit before another contender clears
  *  it: the claimed section is a handful of syscalls. */
@@ -153,9 +157,14 @@ const RMW_CLAIM_STALE_MS = 10_000;
  *  The owner's recorded process-instance token settles that by string equality
  *  (core/procstart.ts); no clock is compared, because a lock's mtime and a start
  *  time come from different clocks and any skew would "prove" a live owner
- *  recycled. `readRmwOwner` stays FIRST: it throws on unsafe/hardlinked or
- *  oversized ownership metadata, and unsafe ownership never licenses removal. */
-function rmwLockIsStale(lock: string): boolean {
+ *  recycled. Where no token exists (macOS, Windows) a live pid is "unproven",
+ *  and an AGED lock is still taken over once the OS proves the process now
+ *  holding that pid was created after the lock's recorded `at` (issue #457) —
+ *  the same `createdAfterLock` rule as the write lock. `startedAt` is
+ *  memoized per acquisition by the caller, because the OS probe spawns.
+ *  `readRmwOwner` stays FIRST: it throws on unsafe/hardlinked or oversized
+ *  ownership metadata, and unsafe ownership never licenses removal. */
+function rmwLockIsStale(lock: string, startedAt: StartedAtProbe): boolean {
   let stat: FileStat;
   try {
     stat = lstatSync(lock);
@@ -165,9 +174,10 @@ function rmwLockIsStale(lock: string): boolean {
   }
   const owner = readRmwOwner(lock);
   if (owner && owner.host === hostname()) {
-    // One shared table with src/serve/writelock.ts (core/procstart.ts), so the
-    // two locks can never drift apart; "age" means nothing was proven and the
-    // fallback below governs, exactly as for a foreign host.
+    // One shared table with src/serve/writelock.ts (core/procstart.ts), and one
+    // shared creation-time check for an "unproven" pid, so the two locks apply
+    // the same rule; "age" means nothing was proven and the fallback below
+    // governs, exactly as for a foreign host.
     const verdict = judgeSameHostOwner(owner, {
       alive: rmwPidAlive,
       self: selfStartToken(),
@@ -176,6 +186,7 @@ function rmwLockIsStale(lock: string): boolean {
       selfPid: process.pid,
       heldNonces: heldLockNonces,
     });
+    if (verdict === "unproven") return Date.now() - stat.mtimeMs > 10_000 && createdAfterLock(owner, startedAt);
     if (verdict !== "age") return verdict === "stale";
   }
   return Date.now() - stat.mtimeMs > 10_000;
@@ -218,7 +229,7 @@ function rmwLockIsStale(lock: string): boolean {
  * so the race persists until every writer on the store is upgraded. Returns true
  * when the path may now be free.
  */
-function takeOverRmwLock(lock: string): boolean {
+function takeOverRmwLock(lock: string, startedAt: StartedAtProbe): boolean {
   const claim = `${lock}.reclaim`;
   try {
     mkdirSync(claim);
@@ -234,7 +245,7 @@ function takeOverRmwLock(lock: string): boolean {
     return false;
   }
   try {
-    if (!rmwLockIsStale(lock)) return false; // re-judged from scratch under the claim
+    if (!rmwLockIsStale(lock, startedAt)) return false; // re-judged from scratch under the claim
     rmSync(lock, { recursive: true, force: true });
     return true;
   } finally {
@@ -270,7 +281,11 @@ export class JsonStore {
   private readonly canonicalRoot: string;
   private readonly lexicalHunch: string;
 
-  constructor(private readonly paths: HunchPaths) {
+  /** `lockOpts.startedAt` is an INTERNAL TEST SEAM, not API: it replaces the OS
+   *  creation-time probe of the `.rmw-lock` "unproven" rule so the suite can
+   *  drive it on linux, where the real probe reports nothing. Callers outside
+   *  this repo must leave it unset — `processStartedAt` is the only sound probe. */
+  constructor(private readonly paths: HunchPaths, private readonly lockOpts: { startedAt?: StartedAtProbe } = {}) {
     this.lexicalRoot = resolve(paths.root);
     this.canonicalRoot = realpathSync(this.lexicalRoot);
     this.lexicalHunch = resolve(paths.hunch);
@@ -677,6 +692,14 @@ export class JsonStore {
     const lock = join(directory.lexical, ".rmw-lock");
     const deadline = Date.now() + 2_000;
     const nonce = randomBytes(8).toString("hex");
+    // The creation-time probe spawns; ask it once per pid for this acquisition,
+    // not on every poll nor again under the takeover claim (as writelock.ts).
+    const createdAt = new Map<number, number | null>();
+    const probe = this.lockOpts.startedAt ?? processStartedAt;
+    const startedAt: StartedAtProbe = (pid) => {
+      if (!createdAt.has(pid)) createdAt.set(pid, probe(pid));
+      return createdAt.get(pid)!;
+    };
     for (;;) {
       try {
         mkdirSync(lock);
@@ -687,10 +710,11 @@ export class JsonStore {
         // writer may exceed the stale-age heuristic while serializing a large
         // index; its PID must prevent a second writer from taking over. The
         // process-instance token (when this platform has one) is what lets a
-        // successor tell that PID apart from a recycled one.
+        // successor tell that PID apart from a recycled one; without one, `at`
+        // lets it prove the pid's current process was created after this lock.
         try {
           const start = selfStartToken();
-          writeFileAtomic(join(lock, "owner.tmp.json"), JSON.stringify({ pid: process.pid, host: hostname(), nonce, ...(start !== null ? { start } : {}) }));
+          writeFileAtomic(join(lock, "owner.tmp.json"), JSON.stringify({ pid: process.pid, host: hostname(), nonce, at: new Date().toISOString(), ...(start !== null ? { start } : {}) }));
         } catch (error) {
           try { rmSync(lock, { recursive: true, force: true }); } catch { /* report the ownership failure below */ }
           heldLockNonces.delete(nonce);
@@ -699,7 +723,7 @@ export class JsonStore {
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        if (rmwLockIsStale(lock) && takeOverRmwLock(lock)) continue;
+        if (rmwLockIsStale(lock, startedAt) && takeOverRmwLock(lock, startedAt)) continue;
         // The deadline is checked only AFTER an acquire has been attempted: with
         // the check at the top of the loop, a successful takeover could still be
         // followed immediately by a spurious timeout.
