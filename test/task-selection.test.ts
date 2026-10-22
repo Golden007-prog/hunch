@@ -156,9 +156,10 @@ test("stack-frame identifiers, brand words and common strong identifiers do not 
   const trace = "ENOENT: no such file or directory\n    at writeFileSync (node:fs:2345:3)\n    at Object.<anonymous> (/x/y.js:1:1)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)";
   assert.deepEqual(selectForTask(records({ decisions: [...filler, cites] }), trace).qualifying, []);
   assert.ok(selectForTask(records({ decisions: [...filler, cites] }), "why writeFileSync here").qualifying.includes("dec_cites"), "outside a frame it is a strong identifier");
-  const launcher = dec("dec_z_launcher", "PowerShell launcher quoting");
-  const brand = dec("dec_a_brand", "PowerShell notes");
-  assert.deepEqual(selectForTask(records({ decisions: [launcher, brand] }), "fix PowerShell quoting in the launcher").top.map((x) => x.id), ["dec_z_launcher", "dec_a_brand"]);
+  // Equal except spelling: if the weak identifier "powershell" added idf, the camel record (id sorts last) would win.
+  const camel = dec("dec_z_camel", "PowerShell launcher quoting");
+  const words = dec("dec_a_words", "power shell launcher quoting");
+  assert.deepEqual(selectForTask(records({ decisions: [camel, words] }), "fix PowerShell quoting in the launcher").top.map((x) => x.id), ["dec_a_words", "dec_z_camel"], "weak identifier adds no score: tie falls to id");
   const common = Array.from({ length: 4 }, (_, i) => dec(`dec_c_${i}`, `ShowInForms handling ${i}`));
   const rest = Array.from({ length: 70 }, (_, i) => dec(`dec_r_${String(i).padStart(2, "0")}`, `Show the form filler ${i}`));
   assert.deepEqual(selectForTask(records({ decisions: [...common, ...rest] }), "ShowInForms").qualifying, [], "df 4 > 3: not a lone qualifier");
