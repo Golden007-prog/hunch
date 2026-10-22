@@ -110,7 +110,11 @@ function records(f: Fixture, kind: string): string[] {
   return existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".json")).sort() : [];
 }
 
-/** A provider stub that answers --version and fails every agent invocation. */
+/**
+ * A provider stub that answers --version and fails every agent invocation.
+ * The POSIX stub drains stdin like the real CLI: exiting before reading the
+ * piped prompt makes spawnSync report EPIPE (agent-runner-error), not a nonzero exit.
+ */
 function installFakeClaude(bin: string): void {
   mkdirSync(bin, { recursive: true });
   if (process.platform === "win32") {
@@ -119,7 +123,7 @@ function installFakeClaude(bin: string): void {
     return;
   }
   const script = join(bin, "claude");
-  writeFileSync(script, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "9.9.9 (fake claude)"; exit 0; fi\necho "$@" >> "${join(bin, "invocations.log")}"\nexit 3\n`);
+  writeFileSync(script, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "9.9.9 (fake claude)"; exit 0; fi\necho "$@" >> "${join(bin, "invocations.log")}"\ncat > /dev/null\nexit 3\n`);
   chmodSync(script, 0o755);
 }
 
