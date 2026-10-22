@@ -8,6 +8,7 @@ export const changelogLocales = {
       footer: "© Hunch — תיעוד משותף לסוכני AI.", home: "בית", githubReleases: "גרסאות ב-GitHub"
     },
     titles: [
+      "תיקונים להתקנה ולהסרה",
       "התקנה שקטה יותר ופחות עומס על הסוכן",
       "הסרה מלאה, וסבב תיקונים",
       "זיכרון שנבחר לפי המשימה שלפניך",
@@ -93,6 +94,7 @@ export const changelogLocales = {
       footer: "© Hunch — общие записи для ИИ-агентов.", home: "Главная", githubReleases: "Релизы на GitHub"
     },
     titles: [
+      "Исправления установки и удаления",
       "Более простая установка и меньше нагрузки на агента",
       "Удаление и набор исправлений",
       "Память, подобранная под текущую задачу",
@@ -178,6 +180,7 @@ export const changelogLocales = {
       footer: "© Hunch — سجل مشترك لوكلاء الذكاء الاصطناعي.", home: "الرئيسية", githubReleases: "الإصدارات على GitHub"
     },
     titles: [
+      "إصلاحات للتثبيت والإزالة",
       "إعداد أبسط وحمل أخف على الوكيل",
       "إزالة كاملة، ومجموعة من الإصلاحات",
       "ذاكرة مختارة للمهمة الحالية",
@@ -263,6 +266,7 @@ export const changelogLocales = {
       footer: "© Hunch — un registro compartido para agentes de IA.", home: "Inicio", githubReleases: "Versiones en GitHub"
     },
     titles: [
+      "Correcciones de instalación y desinstalación",
       "Instalación más simple y menos carga para el agente",
       "Desinstalación y una ronda de correcciones",
       "Memoria elegida para la tarea actual",
