@@ -26,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const MATRIX_RELEASE_SCHEMA = "hunch.matrix.release.v2";
 export const LEGACY_MATRIX_TAG = "v1.8.3";
-export const LEGACY_MATRIX_COMMIT = "abf2b40f1d67076e2526000f9336b792add06983";
+export const LEGACY_MATRIX_COMMIT = "c7bbfbf18e0f68ed925331ae6a0dd3140e29ba84";
 // Exact public npm bytes observed at the official registry for 1.8.3. The
 // verifier rebuilds the pinned tag offline and refuses it unless npm pack
 // reproduces the package consumers actually installed.

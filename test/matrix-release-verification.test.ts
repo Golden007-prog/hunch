@@ -116,7 +116,7 @@ function passingEvidence() {
 test("Matrix release receipt is fail-closed, content-addressed, and binds the pinned npm-latest baseline", () => {
   assert.equal(MATRIX_RELEASE_SCHEMA, "hunch.matrix.release.v2");
   assert.equal(LEGACY_MATRIX_TAG, "v1.8.3");
-  assert.equal(LEGACY_MATRIX_COMMIT, "abf2b40f1d67076e2526000f9336b792add06983");
+  assert.equal(LEGACY_MATRIX_COMMIT, "c7bbfbf18e0f68ed925331ae6a0dd3140e29ba84");
   assert.deepEqual(LEGACY_MATRIX_TARBALL, {
     sha256: "sha256:c781eaa71db40d4f4ea03de4272f794d62e470917bfe29f687e7fea557ddebb9",
     shasum: "7d01e409aa1a6533a9d1bae0c63ecd2377def410",
