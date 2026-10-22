@@ -71,6 +71,7 @@ const EXPECTED: Record<string, Kind> = {
   "export-adr <dir>": "output",
   "mcp --root": "root",
   "footprint --target": "input",
+  "verify --map": "input",
   "wiki --dir": "confined",
   "repair-ref --from": "input",
   "repair-ref --to": "input",

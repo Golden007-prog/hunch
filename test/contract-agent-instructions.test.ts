@@ -269,11 +269,9 @@ test("every tool and CLI command Hunch's agent-facing text names exists, and the
   for (const id of advertisedIds) answers(`hunch_why("${id}") as advertised`, await call("hunch_why", { target: id }), id);
 });
 
-// REAL BUG (kept as todo): brief lines advertise `hunch_why("<id>")` for ANY stored id, but
-// why() resolves ids only when they match WHY_RECORD_ID (`<prefix>_<hex>`, src/core/whyRecord.ts).
-// The schema accepts any id string (hand-authored, imported), so such a record is advertised
-// and then answered "No recorded decisions/bugs/constraints yet for this target."
-test("hunch_why resolves every id a brief line advertises, including a non-hex stored id", { todo: "WHY_RECORD_ID only matches hex ids; delivery advertises hunch_why for any id" }, async (t) => {
+// Brief lines advertise `hunch_why("<id>")` for ANY stored id; the schema accepts any id
+// string (hand-authored, imported), so a non-hex id must resolve too.
+test("hunch_why resolves every id a brief line advertises, including a non-hex stored id", async (t) => {
   const root = fixture("dec_session_transport");
   const server = buildServer(root);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

@@ -48,10 +48,8 @@ interface Run { status: number | null; stdout: string; stderr: string }
 let sandbox = "";
 let root = "";
 let env: NodeJS.ProcessEnv = {};
-/** Windsurf's documented payload names its event in `agent_action_name`; the parser
- * reads `event`/`hook_event_name` only, so real Windsurf deliveries are dropped.
- * Collected here and asserted under a todo until the parser is fixed. */
-const WINDSURF_TODO = "real bug: Windsurf native payloads (event in agent_action_name, prompt/command in tool_info) are not recognized by normalizeHookEvent";
+/** Windsurf's documented payload names its event in `agent_action_name` and carries
+ * prompt/command in `tool_info`; failures are collected here and asserted below. */
 const windsurfFailures: string[] = [];
 
 function hunch(args: string[], input?: string, cwd = root): Run {
@@ -298,7 +296,7 @@ describe("hook matrix", () => {
     assert.deepEqual([...new Set(failures.filter((f) => !f.startsWith("windsurf:")))], []);
   });
 
-  test("windsurf native payloads are recognized end to end", { todo: WINDSURF_TODO }, () => {
+  test("windsurf native payloads are recognized end to end", () => {
     assert.deepEqual(windsurfFailures, []);
   });
 
@@ -364,7 +362,7 @@ describe("hook matrix", () => {
     assert.deepEqual(failures.filter((f) => !f.startsWith(".windsurf/")), []);
   });
 
-  test("windsurf installed command is handled when launched", { todo: WINDSURF_TODO }, () => {
+  test("windsurf installed command is handled when launched", () => {
     assert.deepEqual(windsurfFailures.filter((f) => f.startsWith(".windsurf/")), []);
   });
 });

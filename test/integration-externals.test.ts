@@ -350,10 +350,6 @@ const HOOK_CASES: Array<{ provider: string; todo?: string; payload: (root: strin
   {
     // Windsurf (Cascade) documented payload: the event travels in agent_action_name.
     provider: "windsurf",
-    // REAL BUG: normalizeHookEvent reads the Windsurf event only from `event`/
-    // `hook_event_name`; the documented Cascade payload names it `agent_action_name`,
-    // so the strict gate never fires for Windsurf (exit 0, silent allow).
-    todo: "windsurf normalizer ignores agent_action_name — documented pre_write_code payload is never gated",
     payload: (root) => ({ agent_action_name: "pre_write_code", trajectory_id: "ws-1", execution_id: "e1", timestamp: "2026-10-22T00:00:00Z",
       tool_info: { file_path: target(root), edits: [{ old_string: "1", new_string: "2" }] } }),
     denied: (r) => r.status === 2 && r.stdout === "" && /con_billing_frozen|Billing is frozen/.test(r.stderr),

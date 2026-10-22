@@ -240,7 +240,6 @@ const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // to confirm its miss against fresh team memory.
 const LOCAL_MISS = "answers from the local store without confirming the miss against fresh team memory (no confirmSharedMiss)";
 const TODO: Record<string, string> = {
-  hunch_why: `record-id lookup ${LOCAL_MISS}`,
   "hunch_why#absent": `record-id lookup ${LOCAL_MISS}`,
   hunch_findings: `findings(id) ${LOCAL_MISS}`,
   "hunch_findings#absent": `findings(id) ${LOCAL_MISS}`,

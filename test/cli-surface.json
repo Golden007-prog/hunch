@@ -1378,6 +1378,14 @@
       }
     ]
   },
+  "verify": {
+    "tests": [
+      {
+        "file": "test/test-selection.test.ts",
+        "title": "hunch verify --list on a temp repo: src change, package.json, README"
+      }
+    ]
+  },
   "why": {
     "tests": [
       {
