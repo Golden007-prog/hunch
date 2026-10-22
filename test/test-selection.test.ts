@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  buildImportGraph, changedFiles, coverageFiles, entryTrusted, importSpecifiers, listRepoFiles, literalRepoPaths, selectTests, testDependencyModel,
+  buildImportGraph, changedFiles, coverageFiles, entryTrusted, importSpecifiers, isDocsOnly, joinSegmentRuns, listRepoFiles, literalRepoPaths, selectTests, testDependencyModel,
   type ImpactEntry, type SelectionInput,
 } from "../src/core/testSelection.js";
 import { cleanupDir, isolatedCliEnv, tempDir } from "./fixtures.js";
@@ -76,14 +76,51 @@ test("selectTests: a spawning test reaches the whole program unless its map entr
   assert.equal(entryTrusted(undefined, "h1"), false);
 });
 
-test("selectTests: a changed non-.ts file selects tests that mention its path or basename", () => {
+test("selectTests: any non-code change runs FULL, even one a test names", () => {
   const text: Record<string, string> = { "test/e.test.ts": `readFileSync(join(root, "site", "changelog.html"))`, "test/d.test.ts": `const x = "data/fixture.json";` };
-  const sel = selectTests(input(["site/changelog.html", "data/fixture.json"], { testText: (t) => text[t] ?? "" }));
+  for (const file of ["site/changelog.html", "data/fixture.json", "src/schema.json", "docs/guide.md"]) {
+    const sel = selectTests(input(["src/c.ts", file], { testText: (t) => text[t] ?? "" }));
+    assert.equal(sel.mode, "full", file);
+    assert.match(sel.fullReason!, /non-code change/, file);
+    assert.ok(sel.unattributed.includes(file), file);
+  }
+});
+
+test("selectTests: repo-root markdown selects tests that mention it, else nothing", () => {
+  const text: Record<string, string> = { "test/e.test.ts": `readFileSync(join(root, "CHANGELOG.md"))`, "test/d.test.ts": `const p = "README.md";` };
+  const sel = selectTests(input(["CHANGELOG.md", "README.md"], { testText: (t) => text[t] ?? "" }));
   assert.deepEqual(sel.tests, ["test/d.test.ts", "test/e.test.ts"]);
-  assert.deepEqual(sel.reasons["test/e.test.ts"], ["mentions site/changelog.html"]);
-  const unmentioned = selectTests(input(["site/other.html"], { testText: (t) => text[t] ?? "" }));
-  assert.equal(unmentioned.mode, "full");
-  assert.deepEqual(unmentioned.unattributed, ["site/other.html"]);
+  assert.deepEqual(sel.reasons["test/e.test.ts"], ["mentions CHANGELOG.md"]);
+  assert.equal(selectTests(input(["NOTES.md"], { testText: (t) => text[t] ?? "" })).mode, "none");
+});
+
+test("regression: a test that walks a directory with readdirSync is not missed for an html edit", () => {
+  const root = gitRepo("hunch-verify-walk-", {
+    "site/index.html": "<a href=\"changelog.html\">x</a>\n",
+    "site/changelog.html": "<p>log</p>\n",
+    "test/links.test.ts": `import { readdirSync } from "node:fs";\nfor (const f of readdirSync("site")) check(f);\n`,
+    "test/other.test.ts": "export {};\n",
+    "test/third.test.ts": "export {};\n",
+  });
+  try {
+    const files = listRepoFiles(root);
+    const model = testDependencyModel(root, files);
+    writeFileSync(join(root, "site/changelog.html"), "<a href=\"missing.html\">broken</a>\n");
+    const sel = selectTests({
+      changedFiles: changedFiles(root), allTests: ["test/links.test.ts", "test/other.test.ts", "test/third.test.ts"],
+      importGraph: model.dependencies, testText: model.testText, spawning: model.spawning, wholeProgram: model.wholeProgram, closureHash: model.closureHash,
+    });
+    assert.equal(sel.mode, "full");
+    assert.ok(sel.tests.includes("test/links.test.ts"));
+  } finally { cleanupDir(root); }
+});
+
+test("joinSegmentRuns/literalRepoPaths: nested-paren join() arguments", () => {
+  assert.deepEqual(joinSegmentRuns(`join(process.cwd(), "src", "cli", "index.ts")`), [["src", "cli", "index.ts"]]);
+  assert.deepEqual(joinSegmentRuns(`resolve(dirname(fileURLToPath(import.meta.url)), "..", "tooling", "x.mjs")`), [["..", "tooling", "x.mjs"]]);
+  const available = new Set(["src/cli/index.ts", "tooling/x.mjs"]);
+  assert.deepEqual(literalRepoPaths(`const cli = join(process.cwd(), "src", "cli", "index.ts");`, "test/t.test.ts", available), ["src/cli/index.ts"]);
+  assert.deepEqual(literalRepoPaths(`spawnSync(process.execPath, [join(ROOT, "tooling", "x.mjs")]);`, "test/t.test.ts", available), ["tooling/x.mjs"]);
 });
 
 test("coverageFiles: V8 coverage → repo files with an executed range", () => {
@@ -152,11 +189,12 @@ test("selectTests: an unattributed change goes FULL (fail-safe)", () => {
   assert.match(sel.fullReason!, /src\/new\.ts/);
 });
 
-test("selectTests: unmentioned markdown outside src/ and test/ selects nothing; other docs go FULL", () => {
-  const sel = selectTests(input(["README.md", "pkg/notes.md"]));
+test("selectTests: unmentioned repo-root markdown selects nothing; any other docs go FULL", () => {
+  const sel = selectTests(input(["README.md", "AGENTS.md"]));
   assert.equal(sel.mode, "none");
   assert.deepEqual(sel.unattributed, []);
-  for (const file of ["docs/guide.txt", "site/index.html", "src/notes.md", "test/README.md"]) {
+  assert.equal(isDocsOnly("docs/guide.md"), false);
+  for (const file of ["pkg/notes.md", "docs/guide.md", "docs/guide.txt", "site/index.html", "src/notes.md", "test/README.md"]) {
     assert.equal(selectTests(input([file])).mode, "full", file);
   }
 });

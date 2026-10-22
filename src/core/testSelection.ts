@@ -71,17 +71,21 @@ export const DEFAULT_FULL_TRIGGERS: readonly string[] = [
   ".github/workflows/**",
 ];
 
-/** Markdown outside src/ and test/ that no test mentions selects nothing. */
+/** Repo-root markdown (README.md, CHANGELOG.md, ...) is the only non-code change
+ *  that can skip the full suite: it selects tests that mention it, else nothing. */
 export function isDocsOnly(file: string): boolean {
-  return pathMatchesGlob(file, "**/*.md") && !file.startsWith("src/") && !file.startsWith("test/");
+  return !file.includes("/") && file.endsWith(".md");
 }
+
+/** Source the import graph can follow. Any other changed file may be read at
+ *  runtime in ways no static scan sees (readdirSync walks, globs), so it runs FULL. */
+const CODE_FILE_RE = /\.(?:tsx?|jsx?|mjs|cjs)$/;
 
 /** Selected tests above this share of the suite run the full suite instead. */
 export const MAX_SELECTED_SHARE = 0.6;
 
 const norm = (p: string): string => p.replace(/\\/g, "/").replace(/^\.\//, "");
 const sorted = (xs: Iterable<string>): string[] => [...new Set(xs)].sort();
-const TS_FILE = /\.tsx?$/;
 const basename = (p: string): string => p.slice(p.lastIndexOf("/") + 1);
 /** A basename mention bounded by non-path characters ("d.mjs" ≠ "child.mjs"). */
 const mentionRe = (name: string): RegExp => new RegExp(`(?<![\\w.-])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`);
@@ -101,6 +105,7 @@ export function selectTests(input: SelectionInput): Selection {
   const entries = input.impactMap?.map ?? {};
   const reasons = new Map<string, Set<string>>();
   const unattributed: string[] = [];
+  const nonCode: string[] = [];
   const mapUsed = new Set<string>();
   let triggerReason: string | undefined;
   const pick = (test: string, why: string) => {
@@ -122,8 +127,18 @@ export function selectTests(input: SelectionInput): Selection {
     for (const [test, globs] of Object.entries(input.gateMaps ?? {})) {
       if (globs.some((g) => pathMatchesGlob(file, g))) hit(norm(test), `gate map covers ${file}`);
     }
+    if (!testSet.has(file) && isDocsOnly(file)) {
+      for (const test of allTests) {
+        const text = input.testText?.(test) ?? "";
+        if (text.includes(file) || mentionRe(basename(file)).test(text)) hit(test, `mentions ${file}`);
+      }
+      continue;
+    }
+    if (!testSet.has(file) && !CODE_FILE_RE.test(file)) {
+      nonCode.push(file);
+      continue;
+    }
     if (!testSet.has(file)) {
-      const mentionable = !TS_FILE.test(file);
       for (const test of allTests) {
         const entry = entries[test];
         // The map only ever ADDS: a stale or partial entry never hides a test
@@ -134,13 +149,9 @@ export function selectTests(input: SelectionInput): Selection {
           if (entryTrusted(entry, input.closureHash)) mapUsed.add(test);
           else hit(test, `spawns a process without a trusted impact-map entry → whole program (${file})`);
         }
-        if (mentionable && input.testText) {
-          const text = input.testText(test);
-          if (text.includes(file) || mentionRe(basename(file)).test(text)) hit(test, `mentions ${file}`);
-        }
       }
     }
-    if (!attributed && !isDocsOnly(file)) unattributed.push(file);
+    if (!attributed) unattributed.push(file);
   }
 
   const reasonRecord: Record<string, string[]> = {};
@@ -150,6 +161,11 @@ export function selectTests(input: SelectionInput): Selection {
   const full = (fullReason: string): Selection => ({ mode: "full", tests: allTests, reasons: reasonRecord, fullReason, unattributed, mapUsed: used });
 
   if (triggerReason) return full(triggerReason);
+  if (nonCode.length) {
+    unattributed.unshift(...nonCode);
+    const more = nonCode.length > 1 ? ` (+${nonCode.length - 1} more)` : "";
+    return full(`non-code change ${nonCode[0]}${more}: runtime file reads are not traceable`);
+  }
   if (unattributed.length) {
     const more = unattributed.length > 1 ? ` (+${unattributed.length - 1} more)` : "";
     return full(`no test attributed to ${unattributed[0]}${more}`);
@@ -236,8 +252,30 @@ const SPAWN_RE = /child_process|\bexeca\b|cli-invocation|hunchCliArgs|StdioClien
 export const CLOSURE_ROOTS: readonly string[] = ["src/cli/index.ts", "src/mcp/server.ts", "src/cli/dna.ts"];
 
 const PATH_TOKEN_RE = /[\w.@-]+(?:\/[\w.@-]+)+/g;
-const JOIN_RE = /\b(?:join|resolve)\s*\(([^()]*)\)/g;
-const LITERAL_RE = /["'`]([^"'`\n]*)["'`]/g;
+const JOIN_CALL_RE = /\b(?:join|resolve)\s*\(/g;
+
+/** String-literal arguments of each `join(`/`resolve(` call, found with a
+ *  balanced-paren scan so nested calls (`join(process.cwd(), "src")`) parse. */
+export function joinSegmentRuns(text: string): string[][] {
+  const runs: string[][] = [];
+  for (const m of text.matchAll(JOIN_CALL_RE)) {
+    const segs: string[] = [];
+    let depth = 1;
+    const stop = Math.min(text.length, m.index! + m[0].length + 4000);
+    for (let i = m.index! + m[0].length; i < stop && depth > 0; i++) {
+      const ch = text[i]!;
+      if (ch === '"' || ch === "'" || ch === "`") {
+        const end = text.indexOf(ch, i + 1);
+        if (end < 0) break;
+        if (depth === 1 && end > i + 1) segs.push(text.slice(i + 1, end));
+        i = end;
+      } else if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+    }
+    runs.push(segs);
+  }
+  return runs;
+}
 
 /** Repo files a test's text names: path-like tokens anywhere (string literals,
  *  `--eval` import specifiers, template strings) and `join(…, "src", "x.ts")`
@@ -254,8 +292,7 @@ export function literalRepoPaths(text: string, fromFile: string, available: Set<
     }
   };
   for (const m of text.matchAll(PATH_TOKEN_RE)) tryPath(m[0]);
-  for (const m of text.matchAll(JOIN_RE)) {
-    const segs = [...m[1]!.matchAll(LITERAL_RE)].map((l) => l[1]!).filter(Boolean);
+  for (const segs of joinSegmentRuns(text)) {
     for (let i = 0; i < segs.length; i++) tryPath(segs.slice(i).join("/"));
   }
   return sorted(out);
