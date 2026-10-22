@@ -1248,6 +1248,11 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   let store = initial.store;
   let nextRemotePullAt = initial.nextRemotePullAt;
   let consecutivePullFailures = initial.consecutivePullFailures;
+  // Consecutive FAILED forced pulls (any subject); reset by any fresh pull.
+  let forcedFailureStreak = 0;
+  // When the last fresh pull (ordinary or forced) finished; a forced failure
+  // older than this is never reused, since team memory was refreshed since.
+  let lastFreshPullAt = 0;
   let indexedSourceStamp = initial.indexedSourceStamp;
 
   const matchesStartupTeamRoute = (): boolean => {
@@ -1268,6 +1273,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   const notePull = (status: HunchPullStatus, finishedAt: number): void => {
     ({ nextRemotePullAt, consecutivePullFailures } =
       pullBackoff(status, finishedAt, consecutivePullFailures));
+    if (teamPullIsFresh(status)) {
+      forcedFailureStreak = 0;
+      lastFreshPullAt = finishedAt;
+    }
   };
   type TeamMemoryPullStatus = HunchPullStatus | "cooldown" | "not_shared";
   const pullTeamMemory = (force = false): TeamMemoryPullStatus => {
@@ -1291,6 +1300,63 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   // continued churn leaves the marker unset so the next request tries again.
   const refreshIndex = (): void => {
     indexedSourceStamp = rebuildFreshIndex(store);
+  };
+  const FORCED_PULL_RETRY_MS = 2_000;
+  const FORCED_FAILURE_LIMIT = 3;
+  let lastForcedFailure: { at: number; status: TeamMemoryPullStatus; subject: string } | null = null;
+  // True only during the synchronous prefix of a tool callback whose request
+  // wrapper just pulled shared memory fresh (set/cleared around the callback).
+  let requestPulledFresh = false;
+  // An exact local miss in shared mode is an authority claim: local absence must
+  // never be presented as team absence. Ordinary request pulls honour cooldown and
+  // failure backoff, so bypass it once. Returns null after a fresh convergence
+  // (the caller re-reads), else the explicit abstention to return instead.
+  // Two throttles keep the synchronous fetch off the hot path: a miss in a
+  // request whose ordinary pull already converged needs no second fetch, and a
+  // forced pull that failed within FORCED_PULL_RETRY_MS for the SAME subject is
+  // reused, not retried, so a client looping on one miss against a dead remote
+  // cannot block stdio on each call. A different subject still fetches: a remote
+  // restored moments later must converge for the next distinct read — until
+  // FORCED_FAILURE_LIMIT forced pulls have failed in a row (any subject); then
+  // misses reuse the last failure until the ordinary backoff window has passed.
+  // Any fresh pull resets the streak (notePull).
+  const confirmSharedMiss = (absenceClaim: string, subject: string): string | null => {
+    let status: TeamMemoryPullStatus;
+    if (requestPulledFresh) {
+      status = "current";
+    } else if (lastForcedFailure && lastForcedFailure.at > lastFreshPullAt && ((lastForcedFailure.subject === subject
+      && Date.now() - lastForcedFailure.at < FORCED_PULL_RETRY_MS)
+      || (forcedFailureStreak >= FORCED_FAILURE_LIMIT && Date.now() < nextRemotePullAt))) {
+      status = lastForcedFailure.status;
+    } else {
+      status = pullTeamMemory(true);
+      if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
+        lastForcedFailure = { at: Date.now(), status, subject };
+        forcedFailureStreak++;
+      } else {
+        lastForcedFailure = null;
+      }
+    }
+    if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
+      return `Shared team memory refresh is ${status}; Hunch cannot confirm that ${absenceClaim}. Retry when the shared store is available.`;
+    }
+    try {
+      if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
+    } catch {
+      return `Shared team memory refreshed, but its derived index could not be rebuilt; Hunch cannot confirm that ${subject} is absent. Retry this read.`;
+    }
+    return null;
+  };
+  // Policy reads: confirm a local policy (or its referenced proof) miss against
+  // fresh shared memory before the service reports "not found". Public-only reads
+  // and non-shared stores never consult the team remote.
+  const confirmSharedPolicy = (policyId: string, publicOnly: boolean | undefined): string | null => {
+    if (publicOnly || store.mode !== "shared" || !store.privateDir) return null;
+    const repository = new PolicyRepository(root, store);
+    const policy = repository.getPolicy(policyId);
+    if (policy && (!policy.proof || repository.getProof(policy.proof))) return null;
+    const subject = policy ? `proof ${policy.proof} of policy ${policyId}` : `policy ${policyId}`;
+    return confirmSharedMiss(`${subject} is absent from shared team memory`, subject);
   };
   // Resolve the embedder ONCE for this long-lived process (never throws; null when
   // the optional model isn't installed). The model then loads lazily on the first
@@ -1328,6 +1394,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     nextRemotePullAt = prepared.nextRemotePullAt;
     consecutivePullFailures = prepared.consecutivePullFailures;
     indexedSourceStamp = prepared.indexedSourceStamp;
+    lastForcedFailure = null;
+    forcedFailureStreak = 0;
     previous.close();
     console.error(`[hunch-mcp] serving Hunch at ${root} (client root)`);
   };
@@ -1454,8 +1522,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
           || !overlayMatchesTeamRemote(root, join(store.privateDir, "..")))) {
           return refused("The committed team memory destination is invalid or no longer matches this process. Refusing the stale graph; reconnect Hunch first.");
         }
+        let pulledFresh = false;
         if (store.mode === "shared" && store.privateDir) {
-          pullTeamMemory();
+          const pulled = pullTeamMemory();
+          pulledFresh = pulled !== "cooldown" && pulled !== "not_shared" && teamPullIsFresh(pulled);
           // Recompute the full semantic + physical snapshot after the synchronous
           // network seam. A paired team.json/origin change can occur while fetch is
           // blocked; serving after that race would attach the old checkout to a new
@@ -1473,7 +1543,16 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         try {
           if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
         } catch { /* corrupt/churning local source — serve the last durable indexed view */ }
-        const result = await withInitiator(initiatorFromClient(server.server.getClientVersion()?.name), () => callback(...args));
+        // A shared-miss check in the callback's synchronous prefix may reuse this
+        // request's fresh pull; any later (post-await) check falls back to a forced pull.
+        const result = await withInitiator(initiatorFromClient(server.server.getClientVersion()?.name), () => {
+          requestPulledFresh = pulledFresh;
+          try {
+            return callback(...args);
+          } finally {
+            requestPulledFresh = false;
+          }
+        });
         if (teamAdvertised && !matchesStartupTeamRoute()) {
           return refused("The team-memory route changed while the tool was running. Its startup destination was not published; reconnect Hunch before retrying.");
         }
@@ -2289,23 +2368,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       let live = liveForTopic(decs, topic);
       // A prior transient fetch failure may have placed ordinary tool traffic in
       // backoff. That is acceptable for cached positive reads, but an exact topic
-      // miss is an authority claim: local absence must never be presented as team
-      // absence. Bypass the cooldown once, then reread only after a successful
-      // bounded convergence. An unavailable remote produces an explicit abstention.
+      // miss must be confirmed against fresh team memory (confirmSharedMiss).
       if (live.length === 0 && store.mode === "shared" && store.privateDir) {
-        const status = pullTeamMemory(true);
-        if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
-          return err(
-            `Shared team memory refresh is ${status}; Hunch cannot confirm that topic "${topic}" has no current decision. Retry when the shared store is available.`,
-          );
-        }
-        try {
-          if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
-        } catch {
-          return err(
-            `Shared team memory refreshed, but its derived index could not be rebuilt; Hunch cannot confirm that topic "${topic}" is absent. Retry this read.`,
-          );
-        }
+        const abstention = confirmSharedMiss(`topic "${topic}" has no current decision`, `topic "${topic}"`);
+        if (abstention) return err(abstention);
         decs = store.recs("decisions");
         live = liveForTopic(decs, topic);
       }
@@ -3310,6 +3376,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         const service = new ConstitutionService(store, root);
         const plan = service.plan(policy_id, { publicOnly: public_only });
         const home = public_only ? "public" : service.repository.homeOfPolicy(policy_id);
@@ -3336,6 +3404,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         return ok(JSON.stringify(new ConstitutionService(store, root).card(policy_id, { publicOnly: public_only }), null, 2));
       } catch (e) {
         return err(`Failed to build policy proof card: ${(e as Error).message}`);
@@ -3356,6 +3426,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         return ok(JSON.stringify(new ConstitutionService(store, root).shadowReport(policy_id, {}, { publicOnly: public_only }), null, 2));
       } catch (e) {
         return err(`Failed to inspect policy shadow precision: ${(e as Error).message}`);
@@ -3376,6 +3448,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     },
     async ({ policy_id, public_only }): Promise<ToolResult> => {
       try {
+        const abstention = confirmSharedPolicy(policy_id, public_only);
+        if (abstention) return err(abstention);
         const service = new ConstitutionService(store, root);
         const policy = service.get(policy_id, { publicOnly: public_only });
         if (!policy.proof) return ok(`Policy ${policy_id} has no proof yet.`);
@@ -3404,6 +3478,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
       try {
         if (workspace && commit) throw new Error("choose either workspace or commit for executable-behavior evaluation");
         if (commit && !revExists(commit, root)) throw new Error(`commit ref ${JSON.stringify(commit)} does not resolve`);
+        if (policy_id) {
+          const abstention = confirmSharedPolicy(policy_id, public_only);
+          if (abstention) return err(abstention);
+        }
         const exactCommit = commit ? revParse(`${commit}^{commit}`, root) : undefined;
         const behavior = workspace ? { workspace }
           : exactCommit ? { commit: exactCommit }
