@@ -252,6 +252,8 @@ registerReviewMemoryCommands(program, (records, repository, privateOnly) => {
 // (`hook` silently: its stdout is the agent's context). The merge drivers still
 // run: a leftover driver that exits without writing %A would let git drop `theirs`.
 const OPT_OUT_ALLOWED = new Set(["uninstall", "doctor", "help", "merge-driver", "merge-driver-grounding"]);
+// `serve init`'s default config file (DEFAULT_CONFIG in ./serve.ts), resolved against the cwd.
+const SERVE_DEFAULT_CONFIG = "hunch-serve.json";
 const OPT_OUT_QUIET = new Set(["hook", "sync", "check", "grounding", "repair-provenance", "workspaces"]);
 program.hook("preAction", (_thisCommand, actionCommand) => {
   let top = actionCommand;
@@ -259,16 +261,17 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
   const name = top.name();
   if (OPT_OUT_ALLOWED.has(name)) return;
   // Gate the repository the command acts on (#458): a `--root` names it (`hunch mcp
-  // --root`, `hunch serve ... --root`), so it is gated with every ancestor up to its
-  // repository and the cwd's repository is irrelevant; without one, the command acts
-  // on the cwd's repository. `serve init` without --config also writes its config
-  // into the cwd, so the cwd's repository gates it too.
+  // --root`, `hunch serve ... --root`), so its real path is gated with every ancestor
+  // up to its store or repository and the cwd's repository is irrelevant; without
+  // one, the command acts on the cwd's repository. `serve init` also writes its
+  // config file (resolved against the cwd), so the directory it lands in gates it too.
   const rootOpt = (actionCommand.opts() as { root?: unknown }).root;
   const rootGiven = typeof rootOpt === "string" && rootOpt.trim() !== "";
-  let gated = rootGiven ? optedOutAt(resolve(rootOpt as string)) : isOptedOut(findRoot());
+  let gated = rootGiven ? optedOutAt(realpathNorm(resolve(rootOpt as string))) : isOptedOut(findRoot());
   if (!gated && name === "serve" && actionCommand.name() === "init") {
-    const configOpt = (actionCommand.opts() as { config?: unknown }).config ?? (top.opts() as { config?: unknown }).config;
-    if (configOpt === undefined) gated = isOptedOut(findRoot());
+    const configOpt = (top.opts() as { config?: unknown }).config ?? (actionCommand.opts() as { config?: unknown }).config;
+    const configFile = resolve(typeof configOpt === "string" ? configOpt : SERVE_DEFAULT_CONFIG);
+    gated = optedOutAt(realpathNorm(dirname(configFile)));
   }
   if (!gated) return;
   if (name !== "hook") console.error(optOutMessage());

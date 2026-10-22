@@ -168,6 +168,16 @@ test("the opt-out gate judges the --root a command acts on, not the cwd's reposi
       assert.ok(!existsSync(join(partition, ".hunch")), "no partition store was created");
       assert.ok(!existsSync(join(cwd, "hunch-serve.json")), "no serve config was written");
     }
+    // serve init writes its config file relative to the cwd: an opted-out cwd refuses it
+    // even when the partition --root lies elsewhere, with or without --config.
+    const away = join(elsewhere, "x");
+    for (const config of [[], ["--config", "hunch-serve.json"]]) {
+      const init = spawnSync(process.execPath, hunchCliArgs("serve", "init", "--partition", "user:x", "--root", away, ...config), { cwd: root, env, encoding: "utf8", timeout: 60_000 });
+      assert.equal(init.status, 1, out(init));
+      assert.match(out(init), optedOut, `serve init ${config.join(" ")} from an opted-out cwd is refused`);
+      assert.ok(!existsSync(join(root, "hunch-serve.json")), "no serve config was written into the opted-out repository");
+      assert.ok(!existsSync(join(away, ".hunch")), "no partition store was created");
+    }
   } finally { cleanupDir(base); }
 });
 
