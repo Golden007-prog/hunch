@@ -29,6 +29,7 @@ import { registerTaskReportCommands } from "./taskReport.js";
 import { registerStateCommands } from "./state.js";
 import { DEFAULT_CONFIG as SERVE_DEFAULT_CONFIG_FILE, registerServeCommands } from "./serve.js";
 import { registerUpdateCommand } from "./update.js";
+import { registerVerifyCommand } from "./verify.js";
 import { registerReviewMemoryCommands } from "./reviewMemory.js";
 import { detectInitiator, normalizeInitiator } from "../synthesis/initiator.js";
 import { inspectIntegrations, formatIntegrationHealth, integrationHealthFails, integrationSessionWarning } from "../integrations/health.js";
@@ -217,6 +218,7 @@ registerTaskReportCommands(program, () => { const { store, root } = storeFor(); 
 registerServeCommands(program);
 registerStateCommands(program);
 registerUpdateCommand(program);
+registerVerifyCommand(program);
 registerReviewMemoryCommands(program, (records, repository, privateOnly) => {
   const { store, root } = storeFor();
   if (!repositoryUsesRemote(root, `https://github.com/${repository}.git`)) {

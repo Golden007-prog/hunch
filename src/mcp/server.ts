@@ -3832,6 +3832,10 @@ export async function startServer(cwd: string = process.cwd(), options: RootCont
   wireClientRoots(control, fallback);
   const transport = new StdioServerTransport();
   await control.server.connect(transport);
+  // Exit through process.exit on a termination signal (same conventional codes as
+  // a signal death) so NODE_V8_COVERAGE is flushed for `hunch verify --refresh-map`.
+  process.once("SIGTERM", () => process.exit(143));
+  process.once("SIGINT", () => process.exit(130));
   console.error(control.pinned
     ? `[hunch-mcp] serving Hunch over stdio (pinned root ${control.getRoot()}; client roots ignored)`
     : `[hunch-mcp] serving Hunch over stdio (spawn root ${control.getRoot()}; resolving client roots…)`);
