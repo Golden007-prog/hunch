@@ -14,15 +14,15 @@
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, rmdirSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { basename, join, relative } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { writeFileAtomic } from "../core/io.js";
-import { gitCommonDir, isGitRepo, separateGitDirLink } from "../extractors/git.js";
+import { currentBranch, gitCommonDir, isGitRepo, isLinkedWorktree, separateGitDirLink } from "../extractors/git.js";
 import { HUNCH_END, HUNCH_START } from "./claudemd.js";
 import { ciWorkflowYaml } from "./ciAction.js";
 import { assertSafeTopLevelConfigFile, stripManagedGitignore } from "./gitignore.js";
 import { isHunchHookCommand } from "./hookmatch.js";
-import { planHookRemoval } from "./hooks.js";
+import { gitRun, isInside, planHookRemoval, worktreeTops } from "./hooks.js";
 import { ATTR_LINES, targetRepositoryEnv } from "./mergeDriver.js";
 import { antigravityMcpFile, isHunchProviderHook, readJsonObj, TOML_END, TOML_START, windsurfMcpFile } from "./providers.js";
 import { SLASH_COMMAND_FILES } from "./scaffold.js";
@@ -64,6 +64,8 @@ export interface UninstallPlan {
   purge: boolean;
   steps: UninstallStep[];
   refused: Array<{ path: string; reason: string }>;
+  /** Consequences beyond this checkout (other worktrees, other branches); printed, never refused over. */
+  warnings?: string[];
 }
 
 type Json = Record<string, unknown>;
@@ -193,6 +195,27 @@ function gitConfigHasDrivers(root: string): boolean {
   return r.status === 0 && r.stdout.trim() !== "";
 }
 
+/** The branch the clone treats as default: origin's HEAD, else a local main, else
+ *  master; "" when none can be named. */
+function defaultBranch(root: string): string {
+  const head = gitRun(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], root);
+  if (head.status === 0 && head.stdout) return head.stdout.replace(/^origin\//, "");
+  for (const b of ["main", "master"]) {
+    if (gitRun(["show-ref", "--verify", "--quiet", `refs/heads/${b}`], root).status === 0) return b;
+  }
+  return "";
+}
+
+/** The marker is committed per branch: off the default branch, say the rest of the clone still has Hunch. */
+function branchWarning(root: string): string | null {
+  try {
+    const branch = currentBranch(root);
+    const def = branch ? defaultBranch(root) : "";
+    if (!branch || !def || branch === def) return null;
+    return `the ${OPT_OUT_FILE} marker is only on branch ${branch}; other branches of this clone still have Hunch's instruction blocks and config — commit and merge it, or run uninstall there too`;
+  } catch { return null; }
+}
+
 /** The overlay clone a pointer names, for the "kept" note. Never deleted: it is
  *  its own repository holding memory that may not be pushed yet. */
 function pointerOverlay(file: string): string | null {
@@ -283,20 +306,44 @@ export function planUninstall(root: string, opts: { purge?: boolean } = {}): Uni
     }
   }
 
-  // Git hooks + merge driver.
+  // Git hooks + merge driver. Both live in the clone's common git dir, so they
+  // serve every worktree and every branch (#459): a linked worktree leaves them to
+  // the main checkout, and the main checkout says which worktrees lose them too.
+  // A bare common dir has no main checkout, so any worktree removes them and warns.
+  const warnings: string[] = [];
   if (isGitRepo(root)) {
+    const commonDir = gitCommonDir(root);
+    const top = gitRun(["rev-parse", "--show-toplevel"], root).stdout;
+    const here = top || root;
+    const same = (a: string, b: string): boolean => isInside(a, b) && isInside(b, a);
+    // The main checkout as git lists it, not the common dir's parent, which in a
+    // bare clone or a --separate-git-dir checkout is no checkout at all.
+    const tops = worktreeTops(root);
+    const mainCheckout = tops.main;
+    const linked = commonDir !== "" && mainCheckout !== null && !same(mainCheckout, here) && isLinkedWorktree(root);
+    // The same test `hunch init` uses: in the common dir, or outside this checkout.
+    const shared = (file: string): boolean => (commonDir !== "" && isInside(commonDir, file)) || (top !== "" && !isInside(top, file));
+    const elsewhere = (what: string, it: string): string => `${what} shared by every worktree of this clone — run \`hunch uninstall\` from the main checkout (${mainCheckout}) to remove ${it}`;
+    let removesShared = false;
     for (const h of planHookRemoval(root)) {
       const path = p.rel(h.path);
       if (h.reason) p.steps.push({ path, kind: "keep", note: h.reason });
-      else if (h.next === null) p.steps.push({ path, kind: "delete", note: `Hunch's ${h.hookName} git hook`, run: () => rmSync(h.path, { force: true }) });
+      else if (linked && shared(h.path)) p.steps.push({ path, kind: "keep", note: elsewhere(`Hunch's ${h.hookName} git hook is`, "it") });
       else {
-        const next = h.next!;
-        p.steps.push({ path, kind: "edit", note: `removed Hunch's block from the ${h.hookName} git hook (your own lines are kept)`, run: () => { writeFileSync(h.path, next); chmodSync(h.path, 0o755); } });
+        if (shared(h.path)) removesShared = true;
+        if (h.next === null) p.steps.push({ path, kind: "delete", note: `Hunch's ${h.hookName} git hook`, run: () => rmSync(h.path, { force: true }) });
+        else {
+          const next = h.next!;
+          p.steps.push({ path, kind: "edit", note: `removed Hunch's block from the ${h.hookName} git hook (your own lines are kept)`, run: () => { writeFileSync(h.path, next); chmodSync(h.path, 0o755); } });
+        }
       }
     }
-    if (gitConfigHasDrivers(root)) {
+    if (gitConfigHasDrivers(root) && linked) {
+      p.steps.push({ path: p.rel(join(commonDir, "config")), kind: "keep", note: elsewhere("the merge.hunch and merge.hunch-grounding drivers are", "them") });
+    } else if (gitConfigHasDrivers(root)) {
+      removesShared = true;
       p.steps.push({
-        path: ".git/config", kind: "edit", note: "unregistered the merge.hunch and merge.hunch-grounding drivers",
+        path: commonDir ? p.rel(join(commonDir, "config")) : ".git/config", kind: "edit", note: "unregistered the merge.hunch and merge.hunch-grounding drivers",
         run: () => {
           for (const section of ["merge.hunch", "merge.hunch-grounding"]) {
             spawnSync("git", ["config", "--local", "--remove-section", section], { cwd: root, env: targetRepositoryEnv(), stdio: "ignore" });
@@ -304,6 +351,12 @@ export function planUninstall(root: string, opts: { purge?: boolean } = {}): Uni
         },
       });
     }
+    const others = linked ? [] : tops.linked.filter((w) => !same(w, here)).map((w) => resolve(w));
+    if (removesShared && others.length) {
+      warnings.push(`the git hooks and merge drivers are shared with ${others.length === 1 ? "the linked worktree" : `${others.length} linked worktrees`} ${others.join(", ")}, so they are removed there too, though ${others.length === 1 ? "it still has" : "those still have"} Hunch and no ${OPT_OUT_FILE} marker`);
+    }
+    const onBranch = branchWarning(root);
+    if (onBranch) warnings.push(onBranch);
   }
   const attrs = p.text(".gitattributes");
   if (attrs !== null) {
@@ -354,7 +407,7 @@ export function planUninstall(root: string, opts: { purge?: boolean } = {}): Uni
   for (const dir of overlays) {
     p.steps.push({ path: p.rel(dir), kind: "keep", note: "a private/shared overlay clone: its own repository with memory that may not be pushed; never deleted here" });
   }
-  return { root, purge, steps: p.steps, refused: p.refused };
+  return { root, purge, steps: p.steps, refused: p.refused, warnings };
 }
 
 /** Directories Hunch's writers create; removed only when left empty. Deepest first. */
@@ -405,5 +458,6 @@ export function formatUninstallPlan(plan: UninstallPlan, dryRun: boolean): strin
   const out: string[] = [];
   for (const r of plan.refused) out.push(`  ✗ ${r.path}: ${r.reason}`);
   for (const s of plan.steps) out.push(`  ${icon(s.kind)} ${verb(s.kind)} ${s.path} — ${s.note}`);
+  for (const w of plan.warnings ?? []) out.push(`  ⚠ ${w}`);
   return out;
 }

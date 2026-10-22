@@ -200,13 +200,13 @@ function realish(p: string): string {
   try { return realpathSync.native(p); } catch { return resolve(p); }
 }
 
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
   const norm = (p: string) => (process.platform === "win32" ? realish(p).toLowerCase() : realish(p));
   const rel = relative(norm(parent), norm(child));
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function gitRun(args: string[], cwd: string): { status: number | null; stdout: string } {
+export function gitRun(args: string[], cwd: string): { status: number | null; stdout: string } {
   const p = spawnSync("git", args, { cwd, encoding: "utf8", env: initiatorChildEnv(), stdio: ["ignore", "pipe", "ignore"] });
   return { status: p.status, stdout: (p.stdout ?? "").trim() };
 }
@@ -590,13 +590,15 @@ function snippetFor(t: HookTarget, mark: string, build: BlockBuilder, localInvoc
  *  `linked` is every entry AFTER the first (the first is always the main
  *  worktree, or the bare repo) that is not the bare entry, and `count` is how
  *  many non-bare worktrees the repo has — the number the shared-hooks note
- *  quotes, which must not include a bare repo's phantom entry. Entries are
+ *  quotes, which must not include a bare repo's phantom entry. `main` is the
+ *  first entry when it is a checkout, null when the common dir is bare (no
+ *  main checkout exists). Entries are
  *  separated by blank lines and each starts with a `worktree <path>` line.
  *  Read straight from git rather than the workspace ledger: this runs during
  *  `hunch init`, before any ledger exists. */
-function worktreeTops(root: string): { linked: string[]; count: number } {
+export function worktreeTops(root: string): { linked: string[]; count: number; main: string | null } {
   const out = gitRun(["worktree", "list", "--porcelain"], root).stdout;
-  if (!out) return { linked: [], count: 0 };
+  if (!out) return { linked: [], count: 0, main: null };
   const entries = normalizeEol(out).split(/\n\s*\n/).map((e) => e.split("\n"));
   const parsed = entries
     .map((lines) => ({
@@ -604,7 +606,12 @@ function worktreeTops(root: string): { linked: string[]; count: number } {
       bare: lines.some((l) => l.trim() === "bare"),
     }))
     .filter((e) => e.path !== "");
-  return { linked: parsed.slice(1).filter((e) => !e.bare).map((e) => e.path), count: parsed.filter((e) => !e.bare).length };
+  const first = parsed[0];
+  return {
+    linked: parsed.slice(1).filter((e) => !e.bare).map((e) => e.path),
+    count: parsed.filter((e) => !e.bare).length,
+    main: first && !first.bare ? first.path : null,
+  };
 }
 
 /** The LINKED worktree an invocation is bound to — one it can only work from

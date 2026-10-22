@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { cleanupDir, isolatedCliEnv, tempDir } from "./fixtures.js";
 import { hunchCliArgs } from "./cli-invocation.js";
-import { applyUninstall, OPT_OUT_FILE, planUninstall, type UninstallPlan } from "../src/integrations/uninstall.js";
+import { applyUninstall, formatUninstallPlan, OPT_OUT_FILE, planUninstall, type UninstallPlan } from "../src/integrations/uninstall.js";
 import { HUNCH_END, HUNCH_START } from "../src/integrations/claudemd.js";
 import { planHookRemoval } from "../src/integrations/hooks.js";
 
@@ -251,5 +251,113 @@ test("hook removal keeps a CRLF hook's own bytes and line endings", () => {
     writeFileSync(join(root, ".git", "hooks", "post-commit"), `#!/bin/sh\r\necho mine\r\n${block}echo after\r\n`);
     const plan = planHookRemoval(root).find((r) => r.hookName === "post-commit");
     assert.equal(plan?.next, "#!/bin/sh\r\necho mine\r\necho after\r\n", "only the block and its own line break go");
+  } finally { cleanupDir(base); }
+});
+
+/** #459: the git hooks and merge drivers live in the clone's common git dir, so
+ *  every worktree and branch shares them, while the marker lands on one branch. */
+const norm = (p: string): string => (process.platform === "win32" ? p.replace(/\\/g, "/").toLowerCase() : p);
+
+function installSharedHunch(root: string, git: (...args: string[]) => string): void {
+  writeFileSync(join(root, ".git", "hooks", "post-commit"), "#!/bin/sh\n# >>> hunch post-commit >>>\nhunch sync\n# <<< hunch post-commit <<<\n");
+  git("config", "merge.hunch.driver", "hunch merge-driver %O %A %B %P");
+  git("config", "merge.hunch-grounding.driver", "hunch merge-driver %O %A %B %P");
+}
+
+test("uninstall in a linked worktree leaves the clone's shared git hooks and merge drivers to the main checkout (#459)", { timeout: 120_000 }, () => {
+  const { base, root, git } = fixture();
+  try {
+    installSharedHunch(root, git);
+    const wt = join(base, "wt");
+    git("worktree", "add", "-q", "-b", "feature", wt);
+    writeFileSync(join(wt, "CLAUDE.md"), `# My project\n\nMy own rules for agents.\n\n${HUNCH_START}\nhunch text\n${HUNCH_END}\n`);
+    const plan = planUninstall(wt);
+    const hook = plan.steps.find((s) => norm(s.path).endsWith(".git/hooks/post-commit"));
+    const config = plan.steps.find((s) => norm(s.path).endsWith(".git/config"));
+    for (const step of [hook, config]) {
+      assert.equal(step?.kind, "keep", JSON.stringify(plan.steps));
+      assert.ok(norm(step!.note).includes(`run \`hunch uninstall\` from the main checkout (${norm(root)})`), step!.note);
+    }
+    assert.ok(plan.steps.filter((s) => s.kind === "edit" || s.kind === "delete").every((s) => !isAbsolute(s.path)), "nothing outside the worktree is edited");
+    assert.ok(formatUninstallPlan(plan, true).some((l) => l.startsWith("  · kept ") && l.includes("shared by every worktree")));
+    assert.deepEqual(applyUninstall(plan).failed, []);
+    assert.match(readFileSync(join(root, ".git", "hooks", "post-commit"), "utf8"), /# >>> hunch post-commit >>>/);
+    assert.equal(git("config", "--get", "merge.hunch.driver").trim(), "hunch merge-driver %O %A %B %P");
+    assert.ok(existsSync(join(wt, OPT_OUT_FILE)) && !existsSync(join(root, OPT_OUT_FILE)));
+    assert.equal(readFileSync(join(wt, "CLAUDE.md"), "utf8"), "# My project\n\nMy own rules for agents.\n");
+  } finally { cleanupDir(base); }
+});
+
+test("uninstall in the main checkout warns that its linked worktrees lose the shared hooks and drivers too (#459)", { timeout: 120_000 }, () => {
+  const { base, root, git } = fixture();
+  try {
+    installSharedHunch(root, git);
+    const wt = join(base, "wt");
+    git("worktree", "add", "-q", "-b", "feature", wt);
+    const plan = planUninstall(root);
+    assert.ok(plan.warnings?.some((w) => norm(w).includes(norm(wt)) && w.includes("removed there too")), JSON.stringify(plan.warnings));
+    assert.ok(formatUninstallPlan(plan, true).some((l) => l.startsWith("  ⚠ ") && norm(l).includes(norm(wt))));
+    assert.equal(plan.steps.find((s) => s.path === ".git/hooks/post-commit")?.kind, "delete");
+    assert.deepEqual(applyUninstall(plan).failed, []);
+    assert.ok(!existsSync(join(root, ".git", "hooks", "post-commit")));
+    assert.equal(spawnSync("git", ["config", "--get", "merge.hunch.driver"], { cwd: root }).status, 1);
+  } finally { cleanupDir(base); }
+});
+
+test("uninstall off the default branch warns that the marker is only on that branch (#459)", { timeout: 120_000 }, () => {
+  const { base, root, git } = fixture();
+  try {
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+    git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    const branchWarnings = () => (planUninstall(root).warnings ?? []).filter((w) => w.includes(OPT_OUT_FILE) && w.includes("only on branch"));
+    assert.deepEqual(branchWarnings(), [], "no warning on the default branch");
+    git("checkout", "-q", "-b", "feature");
+    assert.equal(branchWarnings().length, 1);
+    assert.match(branchWarnings()[0]!, /only on branch feature; other branches of this clone still have Hunch/);
+    git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/feature");
+    assert.deepEqual(branchWarnings(), [], "origin's HEAD names the default, not a local main");
+    git("checkout", "-q", "--detach");
+    assert.deepEqual(branchWarnings(), [], "detached HEAD: no branch to name");
+  } finally { cleanupDir(base); }
+});
+
+test("uninstall in a bare clone's worktree removes the shared hooks and drivers and warns about the other worktrees (#459)", { timeout: 120_000 }, () => {
+  const { base, root, env } = fixture();
+  const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: "pipe" });
+  try {
+    const bare = join(base, "repo.git");
+    g(base, "clone", "-q", "--bare", root, bare);
+    const wt1 = join(base, "wt1"), wt2 = join(base, "wt2");
+    g(bare, "worktree", "add", "-q", wt1, "main");
+    g(bare, "worktree", "add", "-q", "-b", "feature", wt2);
+    const hook = join(bare, "hooks", "post-commit");
+    writeFileSync(hook, "#!/bin/sh\n# >>> hunch post-commit >>>\nhunch sync\n# <<< hunch post-commit <<<\n");
+    g(bare, "config", "merge.hunch.driver", "hunch merge-driver %O %A %B %P");
+    const plan = planUninstall(wt1);
+    assert.ok(plan.steps.every((s) => !s.note.includes("main checkout")), JSON.stringify(plan.steps));
+    assert.equal(plan.steps.find((s) => norm(s.path).endsWith("repo.git/hooks/post-commit"))?.kind, "delete", JSON.stringify(plan.steps));
+    assert.ok(plan.warnings?.some((w) => norm(w).includes(norm(wt2)) && w.includes("removed there too") && !norm(w).includes(norm(wt1))), JSON.stringify(plan.warnings));
+    assert.deepEqual(applyUninstall(plan).failed, []);
+    assert.ok(!existsSync(hook));
+    assert.equal(spawnSync("git", ["config", "--get", "merge.hunch.driver"], { cwd: bare, env }).status, 1);
+  } finally { cleanupDir(base); }
+});
+
+test("uninstall in a --separate-git-dir checkout removes its hooks rather than deferring to a main checkout (#459)", { timeout: 120_000 }, () => {
+  const { base, env } = fixture();
+  const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: "pipe" });
+  try {
+    const work = join(base, "sd"), gitDir = join(base, "sep.git");
+    g(base, "init", "-q", "-b", "main", "--separate-git-dir", gitDir, work);
+    const hook = join(gitDir, "hooks", "post-commit");
+    mkdirSync(join(gitDir, "hooks"), { recursive: true });
+    writeFileSync(hook, "#!/bin/sh\n# >>> hunch post-commit >>>\nhunch sync\n# <<< hunch post-commit <<<\n");
+    g(work, "config", "merge.hunch.driver", "hunch merge-driver %O %A %B %P");
+    const plan = planUninstall(work);
+    assert.ok(plan.steps.every((s) => !s.note.includes("main checkout")), JSON.stringify(plan.steps));
+    assert.equal(plan.steps.find((s) => norm(s.path).endsWith("sep.git/hooks/post-commit"))?.kind, "delete", JSON.stringify(plan.steps));
+    assert.deepEqual(applyUninstall(plan).failed, []);
+    assert.ok(!existsSync(hook));
+    assert.equal(spawnSync("git", ["config", "--get", "merge.hunch.driver"], { cwd: work, env }).status, 1);
   } finally { cleanupDir(base); }
 });

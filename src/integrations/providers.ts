@@ -29,6 +29,7 @@ import { renderHunchSection, stripManagedSection, upsertSection, updateClaudeMd,
 import { headFileContent, isGitCleanPath } from "../extractors/git.js";
 import { parseJsonc } from "../core/jsonc.js";
 import { parse as parseToml } from "smol-toml";
+import { publishedMcpInvocation } from "../cli/invocation.js";
 
 /** JSONC comments are user prose. A parsed object cannot retain their position,
  * so refuse a write rather than reserialize the file without them. */
@@ -396,18 +397,49 @@ export function writeVscodeHooks(root: string, inv: Invocation): string {
   });
 }
 
+const WINDSURF_EVENTS = ["pre_user_prompt", "pre_write_code", "post_write_code", "post_run_command"] as const;
+
+/** The published npx pin (any version), in the current spelling and in the fully
+ * quoted one written before v1.21.1 (`"npx" "-y" "--package=…" …`). */
+const PUBLISHED_PIN = /^\s*"?npx(?:\.cmd)?"?\s+"?-y"?\s+"?--package=(?:hunch-exact@npm:)?@davesheffer\/hunch/;
+
+/** The events of `file` holding a Hunch hook entry, when it has at least one and
+ * every one of them runs the published pin; null otherwise. Throws, like every
+ * writer, on a file it cannot parse. */
+function publishedPinEvents(file: string): Set<string> | null {
+  const hooks = objectField(readJsonObj(file), "hooks", file);
+  const events = new Set<string>();
+  let onlyPins = true;
+  const collect = (event: string) => (entry: unknown): void => {
+    const e = entry && typeof entry === "object" ? entry as Record<string, unknown> : null;
+    if (Array.isArray(e?.hooks) && typeof e.command !== "string") e.hooks.forEach(collect(event));
+    else if (typeof e?.command === "string") {
+      if (PUBLISHED_PIN.test(e.command)) events.add(event);
+      else onlyPins = false;
+    }
+  };
+  for (const [event, entries] of Object.entries(hooks)) {
+    if (Array.isArray(entries)) entries.filter(isHunchProviderHook).forEach(collect(event));
+  }
+  return onlyPins && events.size > 0 ? events : null;
+}
+
 /** Windsurf's documented workspace hooks. It only supports deterministic
  * pre-hook blocking via exit code 2, so Hunch uses rules + MCP for context and
  * reserves the hook for strict edit protection and pipeline observation. */
 export function writeWindsurfHooks(root: string, inv: Invocation): string {
   const file = join(root, ".windsurf", "hooks.json");
-  const command = hookCommand(inv, "windsurf");
-  return writeHookConfig(file, {
-    pre_user_prompt: [{ command, show_output: false }],
-    pre_write_code: [{ command, show_output: false }],
-    post_write_code: [{ command, show_output: false }],
-    post_run_command: [{ command, show_output: false }],
-  });
+  const published = hookCommand(publishedMcpInvocation(), "windsurf");
+  let command = hookCommand(inv, "windsurf");
+  // A source-checkout run (tsx / local dist) must never replace a tracked
+  // published pin with a machine-local path (#466): a complete pinned file is
+  // kept as is, and a partial one is completed with the published pin.
+  if (command !== published) {
+    const pinned = publishedPinEvents(file);
+    if (pinned && WINDSURF_EVENTS.every((event) => pinned.has(event))) return file;
+    if (pinned) command = published;
+  }
+  return writeHookConfig(file, Object.fromEntries(WINDSURF_EVENTS.map((event) => [event, [{ command, show_output: false }]])));
 }
 
 function antigravityHandler(command: string): Record<string, unknown> {
