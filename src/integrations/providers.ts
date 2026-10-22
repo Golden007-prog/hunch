@@ -20,7 +20,7 @@
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { writeFileAtomic } from "../core/io.js";
 import { homedir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, delimiter } from "node:path";
 import type { HunchStore } from "../store/hunchStore.js";
 import type { Invocation } from "./scaffold.js";
 import type { HookProvider } from "../core/agenthook.js";
@@ -51,7 +51,7 @@ function hasJsoncComments(raw: string): boolean {
 /** Read a JSON/JSONC object. Returns {} only for an ABSENT or empty file. A
  *  non-empty file we cannot parse THROWS — overwriting it would silently wipe the
  *  user's other MCP servers. */
-function readJsonObj(file: string): Record<string, unknown> {
+export function readJsonObj(file: string): Record<string, unknown> {
   if (!existsSync(file)) return {};
   const raw = readFileSync(file, "utf8");
   if (!raw.trim()) return {};
@@ -126,7 +126,7 @@ function hookCommand(inv: Invocation, provider: HookProvider): string {
   return [inv.command, ...inv.args, "hook", "--provider", provider].map(shellToken).join(" ");
 }
 
-function isHunchProviderHook(entry: unknown): boolean {
+export function isHunchProviderHook(entry: unknown): boolean {
   const e = entry && typeof entry === "object" ? entry as Record<string, unknown> : null;
   // Codex (like Claude Code) nests commands under a matcher entry: an entry
   // whose every nested hook is ours is ours; a mixed entry stays foreign.
@@ -209,8 +209,8 @@ export function writeAntigravityWorkspaceMcp(root: string, inv: Invocation): str
   return writeJson(file, json);
 }
 
-const TOML_START = "# >>> hunch mcp (managed) >>>";
-const TOML_END = "# <<< hunch mcp <<<";
+export const TOML_START = "# >>> hunch mcp (managed) >>>";
+export const TOML_END = "# <<< hunch mcp <<<";
 
 /** Codex CLI: .codex/config.toml — `[mcp_servers.hunch]` stdio entry. We own only
  *  a marker-delimited block; any other TOML the user has is preserved. Paths use
@@ -578,7 +578,32 @@ function runProvider(writers: Array<() => string | string[]>): Omit<ProviderScaf
  *  per-assistant summary for `hunch init` to print. Each assistant is isolated:
  *  a writer that refuses to clobber a malformed file degrades to a warning rather
  *  than aborting the rest. Claude Code is handled separately by scaffold.ts. */
-export function scaffoldProviders(root: string, inv: Invocation, store: HunchStore, options: { agentHooks?: boolean; home?: string } = {}): ProviderScaffold[] {
+/** The assistants `scaffoldProviders` can configure, besides the always-written AGENTS.md. */
+export const PROVIDER_ASSISTANTS = ["Cursor", "VS Code (Copilot)", "Codex CLI", "Windsurf", "Google Antigravity"] as const;
+export type ProviderAssistant = typeof PROVIDER_ASSISTANTS[number];
+
+function onPath(names: string[], env: NodeJS.ProcessEnv): boolean {
+  const dirs = (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean);
+  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").concat("") : [""];
+  return dirs.some((dir) => names.some((name) => exts.some((ext) => existsSync(join(dir, name + ext)))));
+}
+
+/** Assistants with a footprint here: a config already in the repository (a teammate
+ *  set it up), a settings folder in the user's home, or a command on PATH. `hunch init`
+ *  configures only these, so a repository is not filled with settings for tools nobody
+ *  on it uses; when none is found it configures every assistant, as before. */
+export function detectAssistants(root: string, home = homedir(), env: NodeJS.ProcessEnv = process.env): Set<ProviderAssistant> {
+  const has = (...paths: string[]) => paths.some((p) => existsSync(p));
+  const found = new Set<ProviderAssistant>();
+  if (has(join(root, ".cursor"), join(home, ".cursor")) || onPath(["cursor", "cursor-agent"], env)) found.add("Cursor");
+  if (has(join(root, ".vscode"), join(root, ".github", "copilot-instructions.md"), join(home, ".vscode")) || onPath(["code", "code-insiders"], env)) found.add("VS Code (Copilot)");
+  if (has(join(root, ".codex"), join(home, ".codex")) || onPath(["codex"], env)) found.add("Codex CLI");
+  if (has(join(root, ".windsurf"), join(home, ".codeium", "windsurf")) || onPath(["windsurf"], env)) found.add("Windsurf");
+  if (has(join(root, ".agents", "mcp_config.json"), join(home, ".gemini")) || onPath(["antigravity"], env)) found.add("Google Antigravity");
+  return found;
+}
+
+export function scaffoldProviders(root: string, inv: Invocation, store: HunchStore, options: { agentHooks?: boolean; home?: string; only?: ReadonlySet<string> } = {}): ProviderScaffold[] {
   const hooks = options.agentHooks !== false;
   const home = options.home;
   const tasks: Array<[string, () => Omit<ProviderScaffold, "assistant">]> = [
@@ -602,5 +627,8 @@ export function scaffoldProviders(root: string, inv: Invocation, store: HunchSto
     }],
     ["Any (AGENTS.md)", () => runProvider([() => writeAgentsMd(root, store)])],
   ];
-  return tasks.map(([assistant, run]) => ({ assistant, ...run() }));
+  const only = options.only;
+  return tasks
+    .filter(([assistant]) => !only || only.has(assistant) || assistant === "Any (AGENTS.md)")
+    .map(([assistant, run]) => ({ assistant, ...run() }));
 }
