@@ -7,8 +7,8 @@ import { readConfig } from "../core/config.js";
 import { writeFileAtomic } from "../core/io.js";
 import { hunchPaths } from "../core/paths.js";
 import {
-  buildImportGraph, changedFiles, coverageFiles, discoverTests, listRepoFiles, loadImpactMap, selectTests, spawnAwareGraph,
-  type ChangeMode, type ImpactMap, type Selection,
+  buildImportGraph, changedFiles, coverageFiles, discoverTests, listRepoFiles, loadImpactMap, selectTests, testDependencyModel,
+  type ChangeMode, type ImpactEntry, type ImpactMap, type Selection,
 } from "../core/testSelection.js";
 
 export const DEFAULT_IMPACT_MAP = ".hunch-cache/test-impact.json";
@@ -18,8 +18,6 @@ interface VerifyOptions {
   refreshMap?: boolean; only?: string[];
 }
 
-const quote = (arg: string): string => /^[\w@%+=:,./-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '\\"')}"`;
-
 function testScript(root: string): string | null {
   try {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts?: Record<string, unknown> };
@@ -27,16 +25,39 @@ function testScript(root: string): string | null {
   } catch { return null; }
 }
 
-/** The shell command for a run. A configured template wins; otherwise this
- *  repo's runner when present, else `npm test` (full) / `npm test -- {files}`. */
-export function verifyCommand(root: string, template: string | undefined, files: string[], extra: string[], full: boolean): string {
-  const extraStr = extra.map(quote).join(" ");
-  const withExtra = (cmd: string) => extraStr ? `${cmd} ${extraStr}` : cmd;
-  if (full && !template && testScript(root)) return withExtra("npm test" + (extraStr ? " --" : ""));
-  const tpl = template ?? (existsSync(join(root, "tooling/run-tests.mjs")) ? "node tooling/run-tests.mjs {files}" : "npm test -- {files}");
-  const fileStr = files.map(quote).join(" ");
-  return withExtra(tpl.includes("{files}") ? tpl.replace("{files}", fileStr) : `${tpl} ${fileStr}`.trim());
+/** Split a command template into argv tokens; double/single quotes group. */
+export function tokenize(template: string): string[] {
+  const out: string[] = [];
+  for (const m of template.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) out.push(m[1] ?? m[2] ?? m[3]!);
+  return out;
 }
+
+/** npm without a shell: run npm-cli.js under this Node; POSIX may exec `npm`. */
+function npmArgv(args: string[]): string[] {
+  const dir = dirname(process.execPath);
+  for (const cli of [join(dir, "node_modules/npm/bin/npm-cli.js"), join(dir, "../lib/node_modules/npm/bin/npm-cli.js")]) {
+    if (existsSync(cli)) return [process.execPath, cli, ...args];
+  }
+  if (process.platform === "win32") throw new Error("cannot locate npm-cli.js; set verify.command in .hunch/config.json");
+  return ["npm", ...args];
+}
+
+/** The runner argv (never a shell). A configured template wins (`{files}` expands
+ *  to one argv entry per file); otherwise this repo's runner when present, else
+ *  `npm test` (full) / `npm test -- <files>`. */
+export function runnerArgv(root: string, template: string | undefined, files: string[], extra: string[], full: boolean): string[] {
+  if (template) {
+    const tokens = tokenize(template);
+    const argv = tokens.includes("{files}") ? tokens.flatMap((t) => t === "{files}" ? files : [t]) : [...tokens, ...files];
+    if (argv[0] === "node") argv[0] = process.execPath;
+    return [...argv, ...extra];
+  }
+  if (full && testScript(root)) return npmArgv(["test", ...(extra.length ? ["--", ...extra] : [])]);
+  if (existsSync(join(root, "tooling/run-tests.mjs"))) return [process.execPath, "tooling/run-tests.mjs", ...files, ...extra];
+  return npmArgv(["test", "--", ...files, ...extra]);
+}
+
+const display = (argv: string[]): string => argv.map((a, i) => i === 0 && a === process.execPath ? "node" : /\s/.test(a) ? JSON.stringify(a) : a).join(" ");
 
 function printSelection(sel: Selection, total: number, note: string[]): void {
   for (const line of note) console.log(`  note: ${line}`);
@@ -44,7 +65,7 @@ function printSelection(sel: Selection, total: number, note: string[]): void {
   if (sel.mode === "full") {
     console.log(`▶ FULL suite (${total} tests): ${sel.fullReason}`);
     if (sel.unattributed.length) console.log(`  unattributed: ${sel.unattributed.join(", ")}`);
-    console.log("  hint: add an impact map (--map) or a test that imports the file to narrow this.");
+    console.log("  hint: `hunch verify --refresh-map` records per-test coverage so passing tests can narrow this.");
     return;
   }
   console.log(`▶ ${sel.tests.length} of ${total} tests selected:`);
@@ -66,8 +87,10 @@ function readCoverageDir(dir: string): unknown[] {
 }
 
 /** Run each test in its own runner process under NODE_V8_COVERAGE (inherited
- *  by spawned CLI/MCP children) and record the repo files each executed.
- *  Failing tests still contribute coverage. `only` merges into the old map. */
+ *  by spawned CLI/MCP children) and record the repo files each executed. An
+ *  entry is `complete` only when the test file passed and produced coverage;
+ *  failing tests still record their (partial) files. `only` merges into the
+ *  old map, keeping each untouched entry's own commit stamp. */
 export async function refreshImpactMap(opts: {
   root: string; tests: string[]; files: string[]; template?: string; mapPath: string; only?: string[];
   concurrency?: number; log?: (line: string) => void;
@@ -78,25 +101,31 @@ export async function refreshImpactMap(opts: {
   let previous: ImpactMap | null = null;
   if (opts.only?.length) { try { previous = loadImpactMap(mapPath); } catch { previous = null; } }
   const repoFiles = new Set(opts.files);
+  const commit = headSha(root);
+  const { closureHash } = testDependencyModel(root, opts.files, buildImportGraph(root, opts.files));
   const covDir = mkdtempSync(join(tmpdir(), "hunch-verify-cov-"));
-  const map: Record<string, string[]> = { ...(previous?.map ?? {}) };
+  const map: Record<string, ImpactEntry> = { ...(previous?.map ?? {}) };
   const failed: string[] = [];
   const width = Math.max(1, opts.concurrency ?? availableParallelism() - 1);
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT; // a parent test runner must not turn the child into a reporter
   let next = 0;
   const worker = async () => {
     while (next < run.length) {
       const index = next++;
       const test = run[index]!;
       const dir = join(covDir, String(index));
-      const cmd = verifyCommand(root, opts.template, [test], [], false);
+      const argv = runnerArgv(root, opts.template, [test], [], false);
       const status = await new Promise<number>((done) => {
-        const child = spawn(cmd, { cwd: root, shell: true, stdio: "ignore", windowsHide: true, env: { ...process.env, NODE_V8_COVERAGE: dir } });
+        const child = spawn(argv[0]!, argv.slice(1), { cwd: root, stdio: "ignore", windowsHide: true, env: { ...env, NODE_V8_COVERAGE: dir } });
         child.on("error", () => done(1));
         child.on("close", (code) => done(code ?? 1));
       });
+      const reports = readCoverageDir(dir);
       if (status !== 0) failed.push(test);
-      map[test] = coverageFiles(readCoverageDir(dir), root, repoFiles).filter((f) => f !== test);
-      log(`  ${status === 0 ? "✓" : "✗"} ${test}  (${map[test]!.length} files)`);
+      const files = coverageFiles(reports, root, repoFiles).filter((f) => f !== test);
+      map[test] = { files, complete: status === 0 && reports.length > 0, commit, closureHash };
+      log(`  ${status === 0 ? "✓" : "✗"} ${test}  (${files.length} files)`);
     }
   };
   try {
@@ -105,9 +134,9 @@ export async function refreshImpactMap(opts: {
     // Coverage is scratch; a straggling child holding a handle must not fail the refresh.
     try { rmSync(covDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* best effort */ }
   }
-  const sortedMap: Record<string, string[]> = {};
+  const sortedMap: Record<string, ImpactEntry> = {};
   for (const test of Object.keys(map).sort()) sortedMap[test] = map[test]!;
-  const result: ImpactMap & { generatedAt: string } = { version: 1, commit: headSha(root), generatedAt: new Date().toISOString(), map: sortedMap };
+  const result: ImpactMap = { version: 2, commit, generatedAt: new Date().toISOString(), closureHash, map: sortedMap };
   mkdirSync(dirname(mapPath), { recursive: true });
   writeFileAtomic(mapPath, JSON.stringify(result, null, 2) + "\n");
   return { map: result, failed: failed.sort() };
@@ -116,7 +145,7 @@ export async function refreshImpactMap(opts: {
 export function registerVerifyCommand(program: Command): void {
   program
     .command("verify")
-    .description("Run only the tests the current change can affect (fail-safe: unattributed changes run the full suite).")
+    .description("Run only the tests the current change can affect (fail-closed: anything unattributed runs the full suite).")
     .argument("[runnerArgs...]", "extra arguments for the test runner (after --)")
     .option("--staged", "select from staged changes only")
     .option("--base <ref>", "select from merge-base(<ref>, HEAD)..HEAD plus the working tree")
@@ -145,15 +174,15 @@ export function registerVerifyCommand(program: Command): void {
         const total = opts.only?.length ?? allTests.length;
         console.log(`▶ refreshing impact map: ${total} test file(s) under V8 coverage`);
         const { map, failed } = await refreshImpactMap({ root, tests: allTests, files, template, mapPath, only: opts.only });
-        const covered = new Set(Object.values(map.map).flat()).size;
+        const covered = new Set(Object.values(map.map).flatMap((e) => e.files)).size;
         console.log(`✓ wrote ${opts.map ?? DEFAULT_IMPACT_MAP}: ${Object.keys(map.map).length} tests → ${covered} files @ ${map.commit.slice(0, 12) || "(no HEAD)"}`);
-        if (failed.length) console.log(`  ${failed.length} test file(s) failed (coverage still recorded): ${failed.join(", ")}`);
+        if (failed.length) console.log(`  ${failed.length} test file(s) failed (partial coverage recorded, not trusted): ${failed.join(", ")}`);
         return;
       }
       const note: string[] = [];
       let sel: Selection;
       if (opts.full || opts.ci) {
-        sel = { mode: "full", tests: allTests, reasons: {}, fullReason: opts.ci ? "--ci" : "--full", unattributed: [] };
+        sel = { mode: "full", tests: allTests, reasons: {}, fullReason: opts.ci ? "--ci" : "--full", unattributed: [], mapUsed: [] };
       } else {
         const mode: ChangeMode = opts.base ? { kind: "base", ref: opts.base } : opts.staged ? { kind: "staged" } : { kind: "worktree" };
         let impactMap: ImpactMap | undefined;
@@ -163,22 +192,31 @@ export function registerVerifyCommand(program: Command): void {
           note.push(`${(e as Error).message}; ignoring it`);
         }
         if (!impactMap && !note.length) note.push(`no impact map at ${opts.map ?? DEFAULT_IMPACT_MAP}; using the import graph (build one: hunch verify --refresh-map)`);
-        const head = headSha(root);
-        if (impactMap && impactMap.commit !== head) {
-          note.push(`impact map is stale (built at ${impactMap.commit.slice(0, 12) || "?"}, HEAD ${head.slice(0, 12)}); still unioned with the import graph`);
-        }
-        const importGraph = spawnAwareGraph(root, buildImportGraph(root, files), files, impactMap);
+        const model = testDependencyModel(root, files, buildImportGraph(root, files));
         // The map itself is a derived cache; a not-yet-ignored copy is never a code change.
         const mapRel = relative(root, mapPath).replace(/\\/g, "/");
         const changed = changedFiles(root, mode).filter((f) => f !== mapRel);
-        sel = selectTests({ changedFiles: changed, allTests, impactMap, importGraph });
+        sel = selectTests({
+          changedFiles: changed, allTests, impactMap, importGraph: model.dependencies,
+          testText: model.testText, spawning: model.spawning, closureHash: model.closureHash,
+          wholeProgram: [...model.wholeProgram, ...changed.filter((f) => f.startsWith("src/"))],
+        });
+        if (impactMap) {
+          const head = headSha(root);
+          const stale = sel.mapUsed.filter((t) => impactMap!.map[t]!.commit !== head);
+          if (stale.length) note.push(`${stale.length} impact-map entr${stale.length === 1 ? "y" : "ies"} used were recorded at another commit than HEAD ${head.slice(0, 12)} (${stale.join(", ")}); the map only adds tests`);
+          if (Object.values(impactMap.map).some((e) => e.closureHash !== model.closureHash)) {
+            note.push("CLI/MCP/tooling import closure changed since some entries were recorded; those spawning tests use the whole program");
+          }
+        }
       }
       if (opts.json) { console.log(JSON.stringify({ ...sel, total: allTests.length }, null, 2)); return; }
       printSelection(sel, allTests.length, note);
       if (opts.list || sel.mode === "none") return;
-      const cmd = verifyCommand(root, template, sel.tests, runnerArgs, sel.mode === "full");
-      console.log(`▶ running: ${cmd}\n`);
-      const run = spawnSync(cmd, { cwd: root, shell: true, stdio: "inherit", windowsHide: true });
+      let argv: string[];
+      try { argv = runnerArgv(root, template, sel.tests, runnerArgs, sel.mode === "full"); } catch (e) { console.error((e as Error).message); process.exitCode = 1; return; }
+      console.log(`▶ running: ${display(argv)}\n`);
+      const run = spawnSync(argv[0]!, argv.slice(1), { cwd: root, stdio: "inherit", windowsHide: true });
       if (run.error) { console.error(run.error.message); process.exitCode = 1; return; }
       process.exitCode = run.status ?? 1;
     });
