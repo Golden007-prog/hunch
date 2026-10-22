@@ -129,20 +129,37 @@ function groupEnd(src: string, open: number): number {
 
 const TEST_FILE = /^test\/.+\.test\.(ts|mts)$/;
 
-/** True when the test call starting at `m` is skipped or todo: `test.skip(`/`.todo(`, or a
- *  `{ skip: ... }`/`{ todo: ... }` option — unless that option's value only depends on
- *  process.platform (directly or via a `const x = ...process.platform...` name), since the
- *  test then runs, and covers, on the other platforms CI uses. */
+/** True when the test call starting at `m` is skipped or todo: `test.skip(`/`.todo(`, a
+ *  `{ todo: ... }` option (other than literal false/undefined), or a `{ skip: ... }` option whose
+ *  value is a literal `true` or string. Any other skip value (process.platform, a probed
+ *  capability constant like SYMLINK_SKIP) is decided at runtime, so the test runs, and covers,
+ *  where CI can. */
 function isSkipped(src: string, modifier: string | undefined, afterTitle: number): boolean {
   if (/^\.(skip|todo)$/.test(modifier ?? "")) return true;
   const opts = /^\s*,\s*\{/.exec(src.slice(afterTitle));
   if (!opts) return false;
   const open = afterTitle + opts[0].length - 1;
   const obj = src.slice(open, groupEnd(src, open));
-  const opt = /\b(?:skip|todo)\s*:([\s\S]*)/.exec(obj);
-  if (!opt) return false;
-  const platformNames = [...src.matchAll(/(?:const|let)\s+([\w$]+)\s*=\s*[^;\n]*process\.platform/g)].map((x) => escRe(x[1]!));
-  return !new RegExp(`process\\.platform${platformNames.length ? `|(?<![\\w$.])(?:${platformNames.join("|")})(?![\\w$])` : ""}`).test(opt[1]!);
+  return [...obj.matchAll(/(?<![\w$.])(skip|todo)\s*:\s*/g)].some((m) => {
+    const value = optionValue(obj, m.index! + m[0].length);
+    if (m[1] === "todo") return !/^(false|undefined|null)$/.test(value);
+    return value === "true" || /^(["'`])[\s\S]*\1$/.test(value);
+  });
+}
+
+/** The option value starting at `start`, up to a top-level `,`, `}` or newline. */
+function optionValue(obj: string, start: number): string {
+  let i = start;
+  for (; i < obj.length; i++) {
+    const c = obj[i]!;
+    if (c === '"' || c === "'" || c === "`") {
+      for (i++; i < obj.length && obj[i] !== c; i++) if (obj[i] === "\\") i++;
+      continue;
+    }
+    if (c === "(" || c === "[" || c === "{") { i = groupEnd(obj, i) - 1; continue; }
+    if (c === "," || c === "}" || c === "\n") break;
+  }
+  return obj.slice(start, i).trim();
 }
 
 /** Bodies of the file's own functions (`function f(...) {...}`, `const f = (...) => ...`), by name. */

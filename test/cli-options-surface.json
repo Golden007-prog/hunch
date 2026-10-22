@@ -2629,6 +2629,10 @@
       {
         "file": "test/integration-cli-commands-b.test.ts",
         "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/serve.test.ts",
+        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
       }
     ]
   },
@@ -2677,6 +2681,10 @@
       {
         "file": "test/integration-cli-commands-b.test.ts",
         "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/serve.test.ts",
+        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
       }
     ]
   },

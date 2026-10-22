@@ -24,11 +24,13 @@ import { cleanupDir, isolatedCliEnv, tempDir } from "./fixtures.js";
  *      it (`"--flag"`, `"--flag=x"`) or after a space in it (`"serve init --flag 1"`).
  *  The block is the test's own call (balanced parentheses from `test(` to its `)`); a
  *  skipped or todo test (`test.skip(`, `it.todo(`, `{ skip: ... }`, `{ todo: ... }`, or
- *  inside a skipped describe) is not coverage, unless the skip only depends on
- *  process.platform. The command words must be the invocation's FIRST literal arguments
- *  (after the CLI entry, for a raw spawn), in order, and the flag must come after them.
+ *  inside a skipped describe) is not coverage, unless the skip value is decided at runtime
+ *  (anything but a literal `true` or string: process.platform, SYMLINK_SKIP). The command words
+ *  must be the invocation's FIRST literal arguments (after the CLI entry, for a raw spawn), in
+ *  order, and the flag must come after them.
  *  A spawn counts only when it references the CLI entry: hunchCliArgs, a src|dist/cli/index
- *  path, or a name bound to one.
+ *  path, or a name whose whole definition is one (a path builder, hunchCliArgs(...), `[tsx, cli]`)
+ *  — never a name whose definition merely contains the text "cli".
  *
  *  Known limits (a source-text heuristic, not an execution trace; runtime tracing of the
  *  CLI's parsed argv is the planned fix):
@@ -123,25 +125,85 @@ const ENTRY_PATH = /(?:src|dist)["'`/\\, ]{1,6}cli["'`/\\, ]{1,6}index\b/;
 /** Stands in for the CLI entry in a token list; the command's arguments start after it. */
 const ENTRY = "\u0000entry";
 
-/** Per file: the names bound to the CLI entry path (fixed point over `const NAME = ...`), and
+/** A tsx loader path in source text: "node_modules/tsx/dist/cli.mjs", join(ROOT, "node_modules", "tsx", ...). */
+const LOADER_PATH = /node_modules["'`/\\, ]{1,6}tsx\b/;
+
+/** Per file: the names bound to the CLI entry (fixed point over `const NAME = ...`), and
  *  the test a spawn's arguments must pass to count as running the CLI. */
 interface FileCtx { entries: Set<string>; spawnsCli: RegExp }
 const ctxCache = new Map<string, FileCtx>();
 function ctxFor(text: string): FileCtx {
   if (ctxCache.has(text)) return ctxCache.get(text)!;
-  const defs = [...text.matchAll(/(?:const|let)\s+([\w$]+)\s*(?::[^=\n]+)?=\s*([^;\n]*)/g)];
-  // `const [tsx, cli] = hunchCliArgs()` binds the loader and the entry.
-  const entries = new Set<string>([...text.matchAll(/(?:const|let)\s*\[([^\]]*)\]\s*=\s*hunchCliArgs\(\s*\)/g)]
-    .flatMap((m) => m[1]!.split(",").map((s) => s.trim()).filter((s) => /^[\w$]+$/.test(s))));
-  const ref = () => new RegExp(`${ENTRY_PATH.source}${entries.size ? `|(?<![\\w$.])(?:${[...entries].map(esc).join("|")})(?![\\w$])` : ""}`);
+  const defs = [...text.matchAll(/(?:const|let)\s+([\w$]+)\s*(?::[^=\n]+)?=(?!=)\s*/g)]
+    .map((m) => [m[1]!, exprAt(text, m.index! + m[0].length)] as const);
+  // `const [tsx, cli] = hunchCliArgs()` binds the loader(s) and, last, the entry.
+  const entries = new Set<string>();
+  const loaders = new Set<string>();
+  for (const m of text.matchAll(/(?:const|let)\s*\[([^\]]*)\]\s*=\s*hunchCliArgs\(\s*\)/g)) {
+    const names = m[1]!.split(",").map((s) => s.trim()).filter((s) => /^[\w$]+$/.test(s));
+    names.forEach((n, i) => (i === names.length - 1 ? entries : loaders).add(n));
+  }
   for (let changed = true; changed;) {
     changed = false;
-    const re = ref();
-    for (const d of defs) if (!entries.has(d[1]!) && re.test(d[2]!)) { entries.add(d[1]!); changed = true; }
+    for (const [name, expr] of defs) {
+      if (entries.has(name) || loaders.has(name)) continue;
+      const kind = entryKind(expr, entries, loaders);
+      if (kind) { (kind === "entry" ? entries : loaders).add(name); changed = true; }
+    }
   }
-  const ctx = { entries, spawnsCli: new RegExp(`hunchCliArgs|${ref().source}`) };
+  const names = entries.size ? `|(?<![\\w$.])(?:${[...entries].map(esc).join("|")})(?![\\w$])` : "";
+  const ctx = { entries, spawnsCli: new RegExp(`hunchCliArgs|${ENTRY_PATH.source}${names}`) };
   ctxCache.set(text, ctx);
   return ctx;
+}
+
+/** Whether a whole expression is the CLI entry or a tsx loader — never by substring: a name
+ *  already bound to one, a path literal/builder (join/resolve/pathToFileURL/fileURLToPath) naming
+ *  src|dist/cli/index or node_modules/tsx, a hunchCliArgs(...) call, or an array literal whose
+ *  elements are all entries/loaders with at least one entry (`[tsx, cli]`). */
+function entryKind(expr: string, entries: Set<string>, loaders: Set<string>): "entry" | "loader" | undefined {
+  const e = expr.trim().replace(/^\.\.\./, "");
+  if (/^[A-Za-z_$][\w$]*$/.test(e)) return entries.has(e) ? "entry" : loaders.has(e) ? "loader" : undefined;
+  if (e.startsWith("[")) {
+    if (groupEnd(e, 0) !== e.length) return undefined;
+    const kinds = topLevelItems(e.slice(1, -1)).map((item) => entryKind(item, entries, loaders));
+    return kinds.length && kinds.every(Boolean) && kinds.includes("entry") ? "entry" : undefined;
+  }
+  let whole = /^["'`]/.test(e) && stringEnd(e, 0) === e.length;
+  const call = /^(hunchCliArgs|(?:path\.)?(?:join|resolve)|pathToFileURL|fileURLToPath)\s*\(/.exec(e);
+  if (call) {
+    const rest = e.slice(groupEnd(e, call[0].length - 1));
+    if (call[1] === "hunchCliArgs") return rest === "" ? "entry" : undefined;
+    whole = rest === "" || rest === ".href";
+  }
+  if (!whole) return undefined;
+  return ENTRY_PATH.test(e) ? "entry" : LOADER_PATH.test(e) ? "loader" : undefined;
+}
+
+/** The expression starting at `start`, up to a top-level `;`, `,`, newline or closing bracket. */
+function exprAt(src: string, start: number): string {
+  let i = start;
+  for (; i < src.length; i++) {
+    const c = src[i]!;
+    if (c === '"' || c === "'" || c === "`") { i = stringEnd(src, i) - 1; continue; }
+    if (c === "(" || c === "[" || c === "{") { i = groupEnd(src, i) - 1; continue; }
+    if (c === ";" || c === "," || c === "\n" || c === ")" || c === "]" || c === "}") break;
+  }
+  return src.slice(start, i);
+}
+
+/** The top-level comma-separated items of a bracket group's inner text. */
+function topLevelItems(inner: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i]!;
+    if (c === '"' || c === "'" || c === "`") { i = stringEnd(inner, i) - 1; continue; }
+    if (c === "(" || c === "[" || c === "{") { i = groupEnd(inner, i) - 1; continue; }
+    if (c === ",") { out.push(inner.slice(start, i)); start = i + 1; }
+  }
+  out.push(inner.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
 }
 
 /** End index (exclusive) of the bracket group opening at `open`, skipping strings and comments. */
@@ -238,10 +300,19 @@ function invocations(src: string, helpers: Helpers, ctx: FileCtx): string[][] {
     // A spawner runs the CLI when its arguments, or a literal array they spread, name the entry.
     const named = [...raw].filter(([name]) => new RegExp(`(?<![\\w$])${esc(name)}(?![\\w$])`).test(args)).map(([, text]) => text);
     const prefixes = helpers.get(m[1]!) ?? ([args, ...named].some((t) => ctx.spawnsCli.test(t)) ? [[]] : []);
-    const alts = literalTokens(args, bindings, ctx.entries).map((tokens) => tokens.slice(tokens.lastIndexOf(ENTRY) + 1));
+    const alts = literalTokens(args, bindings, ctx.entries).map(afterEntry);
     for (const prefix of prefixes) for (const tokens of alts) out.push([...prefix, ...tokens]);
   }
   return out;
+}
+
+/** The command's tokens: everything after the first run of CLI-entry markers (`[tsx, CLI, "serve",
+ *  "init", "--config", join(dir, ...)]` keeps every argument after the entry). */
+function afterEntry(tokens: string[]): string[] {
+  let i = tokens.indexOf(ENTRY);
+  if (i < 0) return tokens;
+  while (tokens[i] === ENTRY) i++;
+  return tokens.slice(i).filter((t) => t !== ENTRY);
 }
 
 /** hunchCliArgs plus the file's own wrappers around a CLI invocation (fixed point), each
@@ -300,19 +371,25 @@ interface Block { title: string; body: string }
 
 const stripComments = (s: string) => s.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
 
-/** True when a test()/it()/describe() call is skipped or todo: a `.skip`/`.todo` modifier, or a
- *  `{ skip: ... }`/`{ todo: ... }` option — unless that option's value only depends on
- *  process.platform (directly or via a `const x = ...process.platform...` name), since the test
- *  then runs, and covers, on the other platforms CI uses. */
+/** True when a test()/it()/describe() call is skipped or todo: a `.skip`/`.todo` modifier, a
+ *  `{ todo: ... }` option (other than literal false/undefined), or a `{ skip: ... }` option whose
+ *  value is a literal `true` or string. Any other skip value (process.platform, a probed capability
+ *  constant like SYMLINK_SKIP) is decided at runtime, so the test runs, and covers, where CI can. */
 function isSkipped(text: string, modifier: string | undefined, afterTitle: number): boolean {
   if (/^\.(skip|todo)$/.test(modifier ?? "")) return true;
   const opts = /^\s*,\s*\{/.exec(text.slice(afterTitle));
   if (!opts) return false;
   const open = afterTitle + opts[0].length - 1;
-  const opt = /\b(?:skip|todo)\s*:([\s\S]*)/.exec(text.slice(open, groupEnd(text, open)));
-  if (!opt) return false;
-  const platformNames = [...text.matchAll(/(?:const|let)\s+([\w$]+)\s*=\s*[^;\n]*process\.platform/g)].map((x) => esc(x[1]!));
-  return !new RegExp(`process\\.platform${platformNames.length ? `|(?<![\\w$.])(?:${platformNames.join("|")})(?![\\w$])` : ""}`).test(opt[1]!);
+  return skipOption(text.slice(open, groupEnd(text, open)));
+}
+
+/** Whether an options object literal statically skips or todos its test (see isSkipped). */
+function skipOption(obj: string): boolean {
+  return [...obj.matchAll(/(?<![\w$.])(skip|todo)\s*:\s*/g)].some((m) => {
+    const value = exprAt(obj, m.index! + m[0].length).trim();
+    if (m[1] === "todo") return !/^(false|undefined|null)$/.test(value);
+    return value === "true" || /^(["'`])[\s\S]*\1$/.test(value);
+  });
 }
 
 /** Each non-skipped test()/it() call, its body bounded to its own balanced `(...)`. Tests inside a
