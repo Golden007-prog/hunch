@@ -12,6 +12,10 @@ Hunch keeps that record in Git and makes the relevant parts available to your ag
 
 The goal is simple: agents working from the same maintained record, with sources they can inspect. Hunch supplies memory and checks; the assistant still does the work.
 
+[![Watch: Hunch Memory in 2 minutes](https://img.youtube.com/vi/m2PM6pV7D9Y/maxresdefault.jpg)](https://www.youtube.com/watch?v=m2PM6pV7D9Y)
+
+▶ **[Watch Hunch Memory in 2 minutes](https://www.youtube.com/watch?v=m2PM6pV7D9Y)**, then the [7-episode series](https://www.youtube.com/playlist?list=PLIXqtdE0LcNI) on setup, hooks, memory capture, delivery, rules, drift and teams.
+
 ## Start with your coding assistant
 
 Requires **Node 22.13+** and a Git repository.
@@ -102,6 +106,16 @@ hunch integrations check --harness codex --require context
 
 The first command checks configuration. The probe starts a fresh MCP process and reads memory. The context check requires observed hook delivery on the expected version, so run it after the new assistant session begins. `--require` fails when the named capability is not verified; none of these checks proves that a model followed the advice.
 
+## Remove Hunch from a repository
+
+```bash
+hunch uninstall --dry-run   # show what would change
+hunch uninstall             # remove what Hunch installed; keep .hunch/ (your memory)
+hunch uninstall --purge     # also delete .hunch/, the derived cache and Hunch's .gitignore blocks
+```
+
+It removes the instruction blocks, MCP entries, agent and git hooks, merge driver, slash commands and CI workflow that Hunch installed, and leaves your own content in those files alone. If a file it needs to edit can't be parsed, it changes nothing and says which file. It writes `.hunch-removed`: while that file exists, no Hunch command sets Hunch up here again. Commit it so every clone stays opted out; to reinstall, delete it and run `hunch init`. Close running `hunch mcp` / `hunch serve` processes first, so they can't recreate files.
+
 ## See what Hunch contributed
 
 Task reports answer: what memory reached this task, what did the agent say it used, and what checks actually ran?
@@ -113,7 +127,7 @@ hunch task list
 hunch report <task-id> --html
 ```
 
-A delivered lesson, an agent's claim, and a passing test are different evidence. Hunch keeps them separate. Automatic presentation depends on the host following the task lifecycle; missing evidence stays unverified. [Read the reporting guide](docs/task-reports.md).
+A delivered lesson, an agent's claim, and a passing test are different evidence. Hunch keeps them separate. Automatic presentation depends on the host following the task lifecycle; missing evidence stays unverified.
 
 ## Share one living repository memory with your team
 
@@ -138,19 +152,19 @@ Hunch ships `hunch serve`: a self-hosted HTTP service for organization, team, us
 
 Open `/operator` on your server to inspect current records, completed work and commitments in a read-only browser view. Writer-supplied citations can point to an exact summary field or text passage and its recorded sources. They show traceability; they do not prove that a source supports a claim.
 
-Agents can use the same contract through MCP, `hunch state read|write|records|subscribe`, the `@davesheffer/hunch/state` TypeScript client, or the [Python client](docs/python-state-client.md). The Python package is built and tested from this repository; it is not yet published to PyPI. [Scoped conventions](docs/scoped-conventions.md) let a person record sourced user, team or organization preferences. Those preferences remain advisory and do not silently become blocking rules.
+Agents can use the same contract through MCP, `hunch state read|write|records|subscribe`, the `@davesheffer/hunch/state` TypeScript client, or the Python client. The Python package is built and tested from this repository; it is not yet published to PyPI. Scoped conventions let a person record sourced user, team or organization preferences. Those preferences remain advisory and do not silently become blocking rules.
 
 Records can describe decisions, action outcomes, commitments, entities, relationships, and summaries that name their dependencies. Actions retain their status, including unknown or unverified outcomes. Repeated writes have stable identities, conflicting current decisions are refused, and confirmed human records receive protections against agent overwrites. These are defined checks on structured records; Hunch cannot establish every fact in the outside world on its own.
 
 This is what **deterministic state** means here: explicit rules govern the stored record, rather than having each agent reconstruct it from scratch. Git holds the durable data; SQLite is a rebuildable index. The server binds to loopback and requires deployment and agent integration by its operator. Hunch does not provide a managed CRM or email connector service.
 
-[Set up and understand the state server](docs/deterministic-state.md) · [State contract and client reference](docs/nuryel-state-contract.md) · [Upgrade to 1.33](docs/upgrade-1.33.md)
+See the [full documentation](https://www.hunchmemory.com/docs).
 
 ### The vision, and what is still being tested
 
 The vision is continuity across people, tools, and agents: an operations agent records a customer issue, a coding agent finds the relevant decision and fixes the cause, and the operations agent closes the commitment using evidence of the fix.
 
-The underlying memory and state tools ship today. The broader claim—that different agents reliably use that shared state and avoid contradictory work—is still being measured in the Sofia pilot. Simulated results and a limited live pilot are not proof of that outcome across organizations. The [roadmap](ROADMAP.md) tracks the remaining acceptance gates.
+The underlying memory and state tools ship today. The broader claim—that different agents reliably use that shared state and avoid contradictory work—is still being measured.
 
 **Hunch remains the product name.** The `nuryel.state/1` protocol and `nuryel_*` tool names are existing technical identifiers; a possible future rename is undecided.
 
@@ -164,7 +178,7 @@ hunch dna context
 hunch dna diff <older-ref> <newer-ref>
 ```
 
-Profiles retain their revision, sources, confidence, and freshness. [Project DNA contract](docs/project-dna.md) · [Broader DNA vision](docs/project-dna-engine.md)
+Profiles retain their revision, sources, confidence, and freshness.
 
 ## Your data and your authority
 
@@ -178,18 +192,8 @@ Profiles retain their revision, sources, confidence, and freshness. [Project DNA
 
 - [Full documentation](https://www.hunchmemory.com/docs)
 - [Copy-paste cookbook](https://www.hunchmemory.com/cookbook)
-- [Task contribution reports](docs/task-reports.md)
-- [Deterministic organizational state](docs/deterministic-state.md)
-- [Project DNA](docs/project-dna.md)
-- [Native change proof](docs/change-proof.md)
-- [Engineering Landscape](docs/engineering-landscape.md)
-- [Review memory](docs/review-memory.md)
-- [Agent-origin handling](docs/agent-origin.md)
-- [Autonomy ladder](docs/autonomy-ladder.md)
-- [Autonomous development](https://github.com/davesheffer/hunch-private/blob/main/projects/hunch/docs/autonomous-development.md)
-- [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
 - [VS Code extension](vscode-extension/README.md)
-- [Architecture benchmark](bench/architectural-conformance.md)
 - [Contributing](CONTRIBUTING.md)
 
 Apache-2.0

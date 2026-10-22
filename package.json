@@ -1,6 +1,6 @@
 {
   "name": "@davesheffer/hunch",
-  "version": "1.42.0",
+  "version": "1.44.0",
   "mcpName": "io.github.davesheffer/hunch",
   "license": "Apache-2.0",
   "author": "Dave Sheffer <dave.sheffer1@gmail.com>",
@@ -44,7 +44,6 @@
     "contracts/change-proof/*.json",
     "server.json",
     "bench/constitution-exp03-v1.json",
-    "tooling/competitive-watch.mjs",
     "tooling/md1-benchmark.mjs",
     "LICENSE",
     "NOTICE"
@@ -91,16 +90,14 @@
     "site:proof": "npm run build && node tooling/generate-public-proof.mjs",
     "site:sitemap": "node tooling/generate-sitemap.mjs",
     "bench:md1": "node tooling/md1-benchmark.mjs",
-    "research:competitors": "node tooling/competitive-watch.mjs",
-    "outreach": "node tooling/outreach-pipeline.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@tree-sitter-grammars/tree-sitter-yaml": "^0.6.1",
     "commander": "^15.0.0",
     "cross-spawn": "^7.0.6",
-    "smol-toml": "1.8.0",
+    "smol-toml": "1.9.0",
     "tree-sitter": "0.21.1",
     "tree-sitter-go": "^0.23.4",
     "tree-sitter-php": "0.23.12",
