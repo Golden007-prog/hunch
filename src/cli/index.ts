@@ -27,7 +27,7 @@ import { HUNCH_VERSION } from "../core/version.js";
 import { registerIntegrationCommands } from "./integrations.js";
 import { registerTaskReportCommands } from "./taskReport.js";
 import { registerStateCommands } from "./state.js";
-import { registerServeCommands } from "./serve.js";
+import { DEFAULT_CONFIG as SERVE_DEFAULT_CONFIG_FILE, registerServeCommands } from "./serve.js";
 import { registerUpdateCommand } from "./update.js";
 import { registerReviewMemoryCommands } from "./reviewMemory.js";
 import { detectInitiator, normalizeInitiator } from "../synthesis/initiator.js";
@@ -71,7 +71,7 @@ import { flushCapture, flushMemoryHome, flushMemoryHomes, pinSharedRemote, share
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS, upgradeManagedGitignore, describeGitignoreUpgrade, memoryIgnoreRule, describeMemoryIgnoreRule } from "../integrations/gitignore.js";
 import { writeCiWorkflow } from "../integrations/ciAction.js";
-import { applyUninstall, formatUninstallPlan, isOptedOut, OPT_OUT_FILE, optOutMessage, planUninstall } from "../integrations/uninstall.js";
+import { applyUninstall, formatUninstallPlan, isOptedOut, OPT_OUT_FILE, optedOutAt, optOutMessage, planUninstall } from "../integrations/uninstall.js";
 import { updateClaudeMd, renderHunchSection } from "../integrations/claudemd.js";
 import { HOOK_REMINDER } from "../core/hookText.js";
 import { measureFootprint } from "../core/footprint.js";
@@ -258,7 +258,20 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
   while (top.parent && top.parent !== program) top = top.parent;
   const name = top.name();
   if (OPT_OUT_ALLOWED.has(name)) return;
-  if (!isOptedOut(findRoot())) return;
+  // Gate the repository the command acts on (#458): a `--root` names it (`hunch mcp
+  // --root`, `hunch serve ... --root`), so its real path is gated with every ancestor
+  // up to its store or repository and the cwd's repository is irrelevant; without
+  // one, the command acts on the cwd's repository. `serve init` also writes its
+  // config file (resolved against the cwd), so the directory it lands in gates it too.
+  const rootOpt = (actionCommand.opts() as { root?: unknown }).root;
+  const rootGiven = typeof rootOpt === "string" && rootOpt.trim() !== "";
+  let gated = rootGiven ? optedOutAt(realpathNorm(resolve(rootOpt as string))) : isOptedOut(findRoot());
+  if (!gated && name === "serve" && actionCommand.name() === "init") {
+    const configOpt = (top.opts() as { config?: unknown }).config ?? (actionCommand.opts() as { config?: unknown }).config;
+    const configFile = resolve(typeof configOpt === "string" ? configOpt : SERVE_DEFAULT_CONFIG_FILE);
+    gated = optedOutAt(realpathNorm(dirname(configFile)));
+  }
+  if (!gated) return;
   if (name !== "hook") console.error(optOutMessage());
   process.exit(OPT_OUT_QUIET.has(name) ? 0 : 1);
 });
