@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.45.2 — 2026-10-22
+
+- **Faster pre-edit hook.** The hook no longer repeats the same git reachability checks for every capture commit; verdicts are remembered per process, cutting most of its time on large memories.
+- **`hunch_why` and `hunch why` accept a record id** (`dec_`, `con_`, `bug_`, `fnd_`, `cmp_`), which every brief line already told agents to call.
+- **Better memory selection for question-style prompts.** Whole identifiers such as `ShowInForms` or `dbo.GetOrders` count as terms, and rare terms outweigh common ones.
+- **The opt-out gate checks the repository a command acts on** via `--root`, not the current directory.
+- **A store lock left by a crashed process is taken over** when its process id was reused by a newer process on macOS and Windows.
+- **Team memory:** policy tools no longer answer "not found" for a policy a teammate just pushed; they confirm against a fresh pull, or say they cannot confirm.
+
 ## 1.45.1 — 2026-10-22
 
 - **`hunch init` from a source checkout keeps the published Windsurf pin.** Running init with a local `tsx` or `dist` launcher rewrote a tracked `.windsurf/hooks.json` so its four hook commands pointed at a path on one machine. When every Hunch entry in that file already holds the published `npx -y --package=…` pin, in the current spelling or the older fully quoted one, init now leaves the file untouched if all four events have it (it is still listed among the files it set up), and fills any missing event with the published pin, never the local path. Files with machine-local entries, or with no Hunch entries, are written as before (#466).
