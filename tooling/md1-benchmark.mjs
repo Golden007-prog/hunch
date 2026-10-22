@@ -18,7 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const BENCHMARK_BASELINE_REF = "610cd2e5673bf3c69ac984b4737e2d4a749ed374";
+export const BENCHMARK_BASELINE_REF = "a1ad6d89631cce7c194f3f679abf7ed4e56d13e3";
 export const BENCHMARK_SCHEMA = "hunch.md1a.performance.v1";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
