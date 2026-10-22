@@ -158,9 +158,9 @@ function headShaWithEnv(cwd: string, env: NodeJS.ProcessEnv): string {
 function gitSafeWithEnv(args: string[], cwd: string, env: NodeJS.ProcessEnv): string {
   try {
     return execFileSync("git", ["-C", cwd, ...args], {
-      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: 2_000,
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: pullLocalGitTimeoutMs(),
     }).trim();
-  } catch { return ""; }
+  } catch (error) { notePullGitError(error); return ""; }
 }
 
 export function isGitRepo(cwd: string): boolean {
@@ -223,6 +223,69 @@ function clearStrandedIndexLock(repoDir: string, env: NodeJS.ProcessEnv, sinceMs
   } catch {
     return false; // no lock present, or git itself unavailable — nothing to heal
   }
+}
+
+/** Why the last pull-path git call failed (issue #482). The bounded helpers swallow
+ *  their errors into booleans; they also note the error here so mergeRemote can attach
+ *  it to the failing step. Synchronous code only, so a module slot is race-free. */
+let lastPullGitError: unknown;
+function notePullGitError(error: unknown): void { lastPullGitError = error; }
+
+export interface HunchPullFailureDetail {
+  /** The mergeRemote/pull step that failed (e.g. "ls-remote", "fetch", "worktree-clean"). */
+  step: string;
+  /** Node error code (ETIMEDOUT), killing signal, or `exit <status>`. */
+  code?: string;
+  /** Last 400 characters of git's stderr, when captured. */
+  stderr?: string;
+}
+
+/** Captured git stderr can echo a remote URL with embedded credentials; strip the
+ *  userinfo (`://user:pass@`, `://token@`) before it is stored or printed. */
+export function redactUrlUserinfo(text: string): string {
+  return text.replace(/:\/\/[^\s/@'"]+@/g, "://***@");
+}
+
+function pullFailureDetail(step: string, error: unknown): HunchPullFailureDetail {
+  const detail: HunchPullFailureDetail = { step };
+  if (!error || typeof error !== "object") return detail;
+  const err = error as { code?: unknown; signal?: unknown; status?: unknown; stderr?: unknown };
+  if (typeof err.code === "string" && err.code) detail.code = err.code;
+  else if (typeof err.signal === "string" && err.signal) detail.code = err.signal;
+  else if (typeof err.status === "number") detail.code = `exit ${err.status}`;
+  const stderr = (typeof err.stderr === "string" ? err.stderr : Buffer.isBuffer(err.stderr) ? err.stderr.toString("utf8") : "").trim();
+  if (stderr) detail.stderr = redactUrlUserinfo(stderr).slice(-400);
+  return detail;
+}
+
+/** One-line rendering for logs and refusal messages: `step: fetch, ETIMEDOUT, fatal: ...`. */
+export function describePullFailure(detail: HunchPullFailureDetail | undefined): string {
+  if (!detail) return "";
+  const firstLine = detail.stderr?.split(/\r?\n/).find((line) => line.trim())?.trim();
+  return [`step: ${detail.step}`, detail.code, firstLine].filter(Boolean).join(", ");
+}
+
+/** HUNCH_PULL_GIT_TIMEOUT_MS: per-process override of the read-side pull's DEFAULT
+ *  remote budget (ls-remote/fetch/merge) for slow runners — a caller's explicit
+ *  timeoutMs still wins; ignored unless a positive integer. */
+export function pullGitTimeoutOverride(): number | undefined {
+  const raw = process.env.HUNCH_PULL_GIT_TIMEOUT_MS?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  return value > 0 ? Math.min(600_000, value) : undefined;
+}
+
+/** Remote budget for one read-side pull: an explicit caller budget always wins;
+ *  HUNCH_PULL_GIT_TIMEOUT_MS only replaces the 5s default. */
+export function pullRemoteTimeoutMs(callerMs?: number): number {
+  return callerMs ?? pullGitTimeoutOverride() ?? DEFAULT_READ_REMOTE_TIMEOUT_MS;
+}
+
+/** Budget for the bounded local git helpers (status, rev-parse, ls-tree): 2s by
+ *  default, scaled with HUNCH_PULL_GIT_TIMEOUT_MS to max(2s, override / 2.5). */
+export function pullLocalGitTimeoutMs(): number {
+  const override = pullGitTimeoutOverride();
+  return override === undefined ? 2_000 : Math.max(2_000, Math.round(override / 2.5));
 }
 
 /** Compare physical directory identity before path text. Git for Windows can
@@ -543,7 +606,7 @@ export interface HunchRemoteContract {
 }
 
 const CAPTURE_REMOTE_TIMEOUT_MS = 15_000;
-const READ_REMOTE_TIMEOUT_MS = 5_000;
+export const DEFAULT_READ_REMOTE_TIMEOUT_MS = 5_000;
 // A capture can spend roughly 90s in commit + bounded merge/push/retry seams.
 // A contending writer waits beyond that proven ceiling, then takes the lock and
 // drains every already-durable JSON write itself. This removes the old "maybe a
@@ -939,9 +1002,10 @@ function hunchWorktreeClean(hunchDir: string, env: NodeJS.ProcessEnv): boolean {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       env,
-      timeout: 2_000,
+      timeout: pullLocalGitTimeoutMs(),
     }).trim() === "";
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return false;
   }
 }
@@ -953,7 +1017,7 @@ function overlayGitTreeIsSafe(hunchDir: string, revision: string, env: NodeJS.Pr
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       env,
-      timeout: 2_000,
+      timeout: pullLocalGitTimeoutMs(),
       maxBuffer: 64 * 1024 * 1024,
     });
     return hunchTreeAttributesAreSafe(listing, (oid) => {
@@ -962,14 +1026,16 @@ function overlayGitTreeIsSafe(hunchDir: string, revision: string, env: NodeJS.Pr
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
           env,
-          timeout: 2_000,
+          timeout: pullLocalGitTimeoutMs(),
           maxBuffer: 4 * 1024 * 1024,
         });
-      } catch {
+      } catch (error) {
+        notePullGitError(error);
         return null;
       }
     });
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return false;
   }
 }
@@ -1118,7 +1184,7 @@ function contractRemoteHeads(
       "ls-remote", "--refs", "--heads", "--upload-pack=git-upload-pack", url,
     ], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
       env: boundedTeamEnv(env),
       timeout: timeoutMs,
     });
@@ -1130,7 +1196,8 @@ function contractRemoteHeads(
       heads.push({ oid: match[1]!, ref: match[2]! });
     }
     return heads;
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return null;
   }
 }
@@ -1150,13 +1217,14 @@ function fetchContractRef(
       "-c", `core.hooksPath=${hooksDir}`,
       "fetch", "--no-tags", "--no-write-fetch-head", "--upload-pack=git-upload-pack",
       contract.fetchUrl, `+${contract.ref}:${TEAM_FETCH_REF}`,
-    ], { stdio: "ignore", env: boundedTeamEnv(env), timeout: timeoutMs });
+    ], { stdio: ["ignore", "ignore", "pipe"], env: boundedTeamEnv(env), timeout: timeoutMs });
     if (!contractReady(contract)) return "";
     const oid = execFileSync("git", ["-C", hunchDir, "rev-parse", "--verify", TEAM_FETCH_REF], {
-      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: 2_000,
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: pullLocalGitTimeoutMs(),
     }).trim();
     return /^[0-9a-f]{40,64}$/i.test(oid) ? oid : "";
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return "";
   }
 }
@@ -1164,7 +1232,7 @@ function fetchContractRef(
 function setContractUpstream(hunchDir: string, contract: HunchRemoteContract, env: NodeJS.ProcessEnv): boolean {
   try {
     const branch = execFileSync("git", ["-C", hunchDir, "symbolic-ref", "--quiet", "--short", "HEAD"], {
-      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: 2_000,
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: pullLocalGitTimeoutMs(),
     }).trim();
     if (!branch) return false;
     const remoteBranch = contract.ref.slice("refs/heads/".length);
@@ -1172,12 +1240,13 @@ function setContractUpstream(hunchDir: string, contract: HunchRemoteContract, en
     if (!oid) oid = headShaWithEnv(hunchDir, env);
     if (!oid || !remoteBranch) return false;
     execFileSync("git", ["-C", hunchDir, "update-ref", `refs/remotes/origin/${remoteBranch}`, oid], {
-      stdio: "ignore", env, timeout: 2_000,
+      stdio: "ignore", env, timeout: pullLocalGitTimeoutMs(),
     });
-    execFileSync("git", ["-C", hunchDir, "config", `branch.${branch}.remote`, "origin"], { stdio: "ignore", env, timeout: 2_000 });
-    execFileSync("git", ["-C", hunchDir, "config", `branch.${branch}.merge`, contract.ref], { stdio: "ignore", env, timeout: 2_000 });
+    execFileSync("git", ["-C", hunchDir, "config", `branch.${branch}.remote`, "origin"], { stdio: "ignore", env, timeout: pullLocalGitTimeoutMs() });
+    execFileSync("git", ["-C", hunchDir, "config", `branch.${branch}.merge`, contract.ref], { stdio: "ignore", env, timeout: pullLocalGitTimeoutMs() });
     return contractReady(contract);
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return false;
   }
 }
@@ -1189,7 +1258,7 @@ function setContractUpstream(hunchDir: string, contract: HunchRemoteContract, en
 function unbornBootstrapFingerprint(hunchDir: string, env: NodeJS.ProcessEnv): string | null {
   try {
     const status = execFileSync("git", ["-C", hunchDir, "status", "--porcelain=v1", "--untracked-files=all", "--", "."], {
-      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: 2_000,
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env, timeout: pullLocalGitTimeoutMs(),
     }).trim();
     const lines = status ? status.split(/\r?\n/) : [];
     if (lines.some((line) => !/^\?\? (?:\.hunch\/)?manifest\.json$/.test(line.trim()))) return null;
@@ -1204,7 +1273,8 @@ function unbornBootstrapFingerprint(hunchDir: string, env: NodeJS.ProcessEnv): s
       if (lines.length) return null;
     }
     return createHash("sha256").update(status).update("\0").update(manifest).digest("hex");
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return null;
   }
 }
@@ -1231,11 +1301,12 @@ function adoptContractHead(
       "-c", "core.autocrlf=false",
       "reset", "--hard", fetchedHead,
     ], {
-      stdio: "ignore", env, timeout: 5_000,
+      stdio: ["ignore", "ignore", "pipe"], env, timeout: 5_000,
     });
     return overlayGitTreeIsSafe(hunchDir, headShaWithEnv(hunchDir, env), env)
       && overlayAttributeSourcesAreSafe(hunchDir, env);
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     if (moved) {
       try { renameSync(backup, manifest); } catch { /* leave the durable backup under the lock */ }
     }
@@ -1252,28 +1323,52 @@ function adoptContractHead(
  *  rechecked immediately before mutation. Hooks are disabled for the machine sync. */
 type RemoteMergeStatus = "merged" | "unconfigured" | "failed";
 
+/** Out-parameter for mergeRemote's failure detail (issue #482). */
+interface RemoteMergeDiagnostics { detail?: HunchPullFailureDetail }
+
 function mergeRemote(
   hunchDir: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   contract?: HunchRemoteContract,
   allowUnrelatedHistories = false,
+  diag?: RemoteMergeDiagnostics,
 ): RemoteMergeStatus {
   env = machineCommitEnv(hunchDir, env);
   env.GIT_ATTR_NOSYSTEM = "1";
-  let overlayRoot = "";
-  try { overlayRoot = dirname(realpathSync(hunchDir)); } catch { return "failed"; }
-  if (!isGitRepoRoot(overlayRoot) || !safeOverlayTree(overlayRoot)
-    || !overlayAttributeSourcesAreSafe(hunchDir, env) || !contractReady(contract)) {
+  const failed = (step: string, error: unknown = lastPullGitError): "failed" => {
+    if (diag) diag.detail = pullFailureDetail(step, error);
     return "failed";
-  }
+  };
+  // First failing step of an ordered conjunction; each check starts from a clean
+  // error slot so the noted git error belongs to the step that failed.
+  const firstFailure = (checks: Array<[string, () => boolean]>): string | null => {
+    for (const [step, ok] of checks) {
+      lastPullGitError = undefined;
+      if (!ok()) return step;
+    }
+    return null;
+  };
+  let overlayRoot = "";
+  try { overlayRoot = dirname(realpathSync(hunchDir)); } catch (error) { return failed("resolve-overlay", error); }
+  let bad = firstFailure([
+    ["overlay-repo-root", () => isGitRepoRoot(overlayRoot)],
+    ["overlay-tree-safe", () => safeOverlayTree(overlayRoot)],
+    ["overlay-attributes-safe", () => overlayAttributeSourcesAreSafe(hunchDir, env)],
+    ["remote-contract", () => contractReady(contract)],
+  ]);
+  if (bad) return failed(bad);
+  lastPullGitError = undefined;
   const localHead = headShaWithEnv(hunchDir, env);
   const unbornFingerprint = localHead ? null : unbornBootstrapFingerprint(hunchDir, env);
-  if (localHead ? !hunchWorktreeClean(hunchDir, env) : !unbornFingerprint) return "failed";
+  if (localHead ? !hunchWorktreeClean(hunchDir, env) : !unbornFingerprint) {
+    return failed(localHead ? "worktree-clean" : "unborn-bootstrap");
+  }
   const hooksDir = disabledHooksDir(hunchDir);
-  if (!hooksDir) return "failed";
+  if (!hooksDir) return failed("hooks-dir");
   const tryGit = (args: string[], timeout = timeoutMs): boolean => {
     const startedAt = Date.now();
+    lastPullGitError = undefined;
     try {
       execFileSync("git", [
         "-C", hunchDir,
@@ -1283,11 +1378,12 @@ function mergeRemote(
         "-c", "commit.gpgsign=false",
         ...args,
       ], {
-        stdio: "ignore", env, timeout,
+        stdio: ["ignore", "ignore", "pipe"], env, timeout,
       });
       return true;
     }
     catch (error) {
+      notePullGitError(error);
       // Same stranding class as the commit path: a timeout-killed merge/fetch
       // leaves index.lock behind and wedges every later sync (issue #53).
       clearStrandedIndexLock(hunchDir, env, startedAt, error);
@@ -1296,42 +1392,56 @@ function mergeRemote(
   };
   let fetchedHead = "";
   if (contract) {
+    lastPullGitError = undefined;
     const heads = contractRemoteHeads(hunchDir, contract, "fetch", env, timeoutMs);
-    if (!heads) return "failed";
+    if (!heads) return failed("ls-remote");
     if (heads.length === 0) return "unconfigured";
-    if (heads.length !== 1 || heads[0]!.ref !== contract.ref) return "failed";
+    if (heads.length !== 1 || heads[0]!.ref !== contract.ref) return failed("remote-heads", null);
+    lastPullGitError = undefined;
     fetchedHead = fetchContractRef(hunchDir, contract, env, timeoutMs);
+    if (!fetchedHead) return failed("fetch");
   } else {
-    if (!tryGit(["rev-parse", "--abbrev-ref", "@{upstream}"], 2_000)) return "unconfigured";
-    if (!tryGit(["fetch", "--no-tags"])) return "failed";
+    if (!tryGit(["rev-parse", "--abbrev-ref", "@{upstream}"], pullLocalGitTimeoutMs())) return "unconfigured";
+    if (!tryGit(["fetch", "--no-tags"])) return failed("fetch");
+    lastPullGitError = undefined;
     fetchedHead = upstreamSha(hunchDir, env);
+    if (!fetchedHead) return failed("upstream-sha");
   }
-  if (!fetchedHead || !overlayGitTreeIsSafe(hunchDir, fetchedHead, env)) return "failed";
+  bad = firstFailure([["fetched-tree-safe", () => overlayGitTreeIsSafe(hunchDir, fetchedHead, env)]]);
+  if (bad) return failed(bad);
   // Another process need not honor Hunch's lock. Re-prove both the exact local
   // revision and the filesystem boundary after the network operation, before
   // Git is permitted to materialize the already-validated fetched tree.
-  if (headShaWithEnv(hunchDir, env) !== localHead
-    || !safeOverlayTree(overlayRoot)
-    || !overlayAttributeSourcesAreSafe(hunchDir, env)
-    || (localHead ? !hunchWorktreeClean(hunchDir, env) : unbornBootstrapFingerprint(hunchDir, env) !== unbornFingerprint)
-    || (localHead && !overlayGitTreeIsSafe(hunchDir, localHead, env))
-    || !contractReady(contract)) return "failed";
+  bad = firstFailure([
+    ["local-head-unchanged", () => headShaWithEnv(hunchDir, env) === localHead],
+    ["overlay-tree-safe-after-fetch", () => safeOverlayTree(overlayRoot)],
+    ["overlay-attributes-safe-after-fetch", () => overlayAttributeSourcesAreSafe(hunchDir, env)],
+    [localHead ? "worktree-clean-after-fetch" : "unborn-bootstrap-after-fetch",
+      () => (localHead ? hunchWorktreeClean(hunchDir, env) : unbornBootstrapFingerprint(hunchDir, env) === unbornFingerprint)],
+    ["local-tree-safe", () => !localHead || overlayGitTreeIsSafe(hunchDir, localHead, env)],
+    ["remote-contract-after-fetch", () => contractReady(contract)],
+  ]);
+  if (bad) return failed(bad);
   // Canonicalize local branch/upstream metadata before the worktree mutation.
   // If this fails, the exact fetched tree has not been materialized yet.
-  if (contract && !setContractUpstream(hunchDir, contract, env)) return "failed";
+  lastPullGitError = undefined;
+  if (contract && !setContractUpstream(hunchDir, contract, env)) return failed("set-upstream");
   if (!localHead && contract && unbornFingerprint) {
-    return adoptContractHead(hunchDir, fetchedHead, contract, env, unbornFingerprint) ? "merged" : "failed";
+    lastPullGitError = undefined;
+    return adoptContractHead(hunchDir, fetchedHead, contract, env, unbornFingerprint) ? "merged" : failed("adopt-remote-head");
   }
   if (tryGit(["merge", "--no-edit", ...(allowUnrelatedHistories ? ["--allow-unrelated-histories"] : []), fetchedHead])) {
-    return safeOverlayTree(overlayRoot)
-      && overlayAttributeSourcesAreSafe(hunchDir, env)
-      && contractReady(contract)
-      && overlayGitTreeIsSafe(hunchDir, headShaWithEnv(hunchDir, env), env)
-      ? "merged"
-      : "failed";
+    bad = firstFailure([
+      ["overlay-tree-safe-after-merge", () => safeOverlayTree(overlayRoot)],
+      ["overlay-attributes-safe-after-merge", () => overlayAttributeSourcesAreSafe(hunchDir, env)],
+      ["remote-contract-after-merge", () => contractReady(contract)],
+      ["merged-tree-safe", () => overlayGitTreeIsSafe(hunchDir, headShaWithEnv(hunchDir, env), env)],
+    ]);
+    return bad ? failed(bad) : "merged";
   }
-  tryGit(["merge", "--abort"], 2_000); // conflict/timeout → restore a clean tree
-  return "failed";
+  const mergeError = lastPullGitError;
+  tryGit(["merge", "--abort"], pullLocalGitTimeoutMs()); // conflict/timeout → restore a clean tree
+  return failed("merge", mergeError);
 }
 
 function upstreamSha(hunchDir: string, env: NodeJS.ProcessEnv): string {
@@ -1340,9 +1450,10 @@ function upstreamSha(hunchDir: string, env: NodeJS.ProcessEnv): string {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       env,
-      timeout: 2_000,
+      timeout: pullLocalGitTimeoutMs(),
     }).trim();
-  } catch {
+  } catch (error) {
+    notePullGitError(error);
     return "";
   }
 }
@@ -1554,6 +1665,18 @@ export interface PullHunchOptions {
 }
 
 export function pullHunchStatus(hunchDir: string, opts: PullHunchOptions = {}): HunchPullStatus {
+  return pullHunchStatusDetailed(hunchDir, opts).status;
+}
+
+export interface HunchPullResult {
+  status: HunchPullStatus;
+  /** Present on "failed": which step failed and git's own reason (issue #482). */
+  detail?: HunchPullFailureDetail;
+}
+
+/** pullHunchStatus plus a diagnosable reason for a "failed" pull. The remote budget is
+ *  the caller's (default 5s) unless HUNCH_PULL_GIT_TIMEOUT_MS overrides it. */
+export function pullHunchStatusDetailed(hunchDir: string, opts: PullHunchOptions = {}): HunchPullResult {
   const env = foreignRepoEnv({
     ...process.env,
     ...opts.env,
@@ -1563,18 +1686,22 @@ export function pullHunchStatus(hunchDir: string, opts: PullHunchOptions = {}): 
   });
   const before = headShaWithEnv(hunchDir, env);
   const lock = join(hunchDir, ".hunch-commit.lock");
-  if (acquireCommitLock(lock).state !== "acquired") return "busy";
+  if (acquireCommitLock(lock).state !== "acquired") return { status: "busy" };
+  const diag: RemoteMergeDiagnostics = {};
   try {
-    const merged = mergeRemote(hunchDir, env, opts.timeoutMs ?? READ_REMOTE_TIMEOUT_MS, opts.remote, opts.allowUnrelatedHistories ?? false);
+    const timeoutMs = pullRemoteTimeoutMs(opts.timeoutMs);
+    const merged = mergeRemote(hunchDir, env, timeoutMs, opts.remote, opts.allowUnrelatedHistories ?? false, diag);
     if (merged === "failed" || merged === "unconfigured" || !contractReady(opts.remote)) {
-      if (merged !== "unconfigured" || !contractReady(opts.remote)) return "failed";
+      if (merged !== "unconfigured" || !contractReady(opts.remote)) {
+        return { status: "failed", detail: merged === "failed" ? diag.detail ?? { step: "merge-remote" } : { step: "remote-contract-after-pull" } };
+      }
       // The advertised remote has no branch yet AND this clone never committed memory:
       // both sides are empty, so there is nothing to be stale against (#427). A clone
       // WITH memory against an empty remote stays "unconfigured" (unpublished, or the
       // remote lost its history) so strict guards keep failing closed on it.
-      return opts.remote && !before && !headShaWithEnv(hunchDir, env) ? "empty" : merged;
+      return { status: opts.remote && !before && !headShaWithEnv(hunchDir, env) ? "empty" : merged };
     }
-    return headShaWithEnv(hunchDir, env) !== before ? "updated" : "current";
+    return { status: headShaWithEnv(hunchDir, env) !== before ? "updated" : "current" };
   } finally {
     try { rmSync(lock, { recursive: true, force: true }); } catch { /* released best-effort */ }
   }

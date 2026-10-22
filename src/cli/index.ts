@@ -51,7 +51,7 @@ import {
   normalizeProviderName,
   type SynthPreference,
 } from "../synthesis/provider.js";
-import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedGateDiff, workingGateDiff, commitGateDiff, rangeFiles, rangeGateDiff, rangeCommits, revExists, revParse, commitAndPushHunch, pullHunchStatus, syncExistingHunch, gitUntrackCached, gitCommonDir, checkoutCommonDir, separateGitDirCandidate, separateGitDirLink, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, commitRepairStatusAgainst, commitPatchIds, mergeRangeChanges, commitsExist, type HunchPullStatus } from "../extractors/git.js";
+import { isGitRepo, isGitRepoRoot, sameGitPublication, sameRemoteUrl, canonicalRemoteUrl, repositoryUsesRemote, headSha, isolatedHeadSha, logSince, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, firstCommitForFile, stagedFiles, workingFiles, commitFiles, asOfDate, stagedGateDiff, workingGateDiff, commitGateDiff, rangeFiles, rangeGateDiff, rangeCommits, revExists, revParse, commitAndPushHunch, pullHunchStatus, pullHunchStatusDetailed, describePullFailure, syncExistingHunch, gitUntrackCached, gitCommonDir, checkoutCommonDir, separateGitDirCandidate, separateGitDirLink, hooksDir, isLinkedWorktree, mainWorktreeRoot, gitMemoryLog, memoryMoveDiff, revertMemoryMove, pushCurrentBranch, commitChanges, commitRepairStatusAgainst, commitPatchIds, mergeRangeChanges, commitsExist, type HunchPullStatus, type HunchPullFailureDetail } from "../extractors/git.js";
 import { runbookDraft } from "../core/runbookDraft.js";
 import { parseMemoryLog, type MemoryMove } from "../core/memorylog.js";
 import { renamesOf, planRepair, repairDecision, repairConstraint, type RepairPlan } from "../core/repair.js";
@@ -304,6 +304,7 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
   store: HunchStore;
   teamWired: string | null;
   teamPullStatus: HunchPullStatus | null;
+  teamPullDetail?: HunchPullFailureDetail;
 } {
   // A committed team.json is an explicit declaration that this checkout belongs
   // to a shared memory graph. Once that declaration exists, silently falling back
@@ -341,6 +342,7 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
   // from their durable local overlay when the network is temporarily down, but a
   // strict guard must prove it saw the advertised remote before it may pass.
   let pullStatus: HunchPullStatus | null = null;
+  let pullDetail: HunchPullFailureDetail | undefined;
   if (teamAdvertised && store.mode === "shared" && store.privateDir) {
     const remote = advertisedTeamRemoteContract(root, dirname(store.privateDir));
     if (!remote || !remote.verify()) {
@@ -349,10 +351,9 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
       throw new Error("the advertised team memory route could not be pinned for this command");
     }
     pinSharedRemote(store, remote);
-    pullStatus = pullHunchStatus(store.privateDir, {
-      timeoutMs: 5_000,
+    ({ status: pullStatus, detail: pullDetail } = pullHunchStatusDetailed(store.privateDir, {
       remote,
-    });
+    }));
     // The route may be coherently rewritten while the bounded pull is blocked.
     // No handler — including an ordinary non-strict read — may run after the
     // graph epoch that admitted this command stops verifying.
@@ -362,13 +363,13 @@ function openTeamStore(root: string, opts: TeamStoreOptions = {}): {
       throw new Error("the advertised team memory route changed while this command was refreshing; refusing to serve or mutate stale memory");
     }
   }
-  return { store, teamWired, teamPullStatus: opts.requireFreshTeamMemory ? pullStatus : null };
+  return { store, teamWired, teamPullStatus: opts.requireFreshTeamMemory ? pullStatus : null, teamPullDetail: opts.requireFreshTeamMemory ? pullDetail : undefined };
 }
 
-function storeFor(opts: TeamStoreOptions = {}): { store: HunchStore; root: string; teamPullStatus: HunchPullStatus | null } {
+function storeFor(opts: TeamStoreOptions = {}): { store: HunchStore; root: string; teamPullStatus: HunchPullStatus | null; teamPullDetail?: HunchPullFailureDetail } {
   const root = findRoot();
-  const { store, teamPullStatus } = openTeamStore(root, opts);
-  return { store, root, teamPullStatus };
+  const { store, teamPullStatus, teamPullDetail } = openTeamStore(root, opts);
+  return { store, root, teamPullStatus, teamPullDetail };
 }
 
 function pumpMemoryHome(store: HunchStore, root: string, home: MemoryHome, message: string): void {
@@ -1072,7 +1073,6 @@ function configureExistingValidatedOverlay(
     }
   } else {
     const pulled = pullHunchStatus(hunchDir, {
-      timeoutMs: 5_000,
       remote: contract,
       allowUnrelatedHistories: true,
     });
@@ -4024,9 +4024,10 @@ program
     const sarif = opts.format === "sarif";
     const emptyReport: CheckReport = { fileCount: 0, strict: !!opts.strict, direct: [], near: [], regressions: [], vetoes: [], redundant: [], strictBlockers: 0, regBlocking: 0, vetoBlocking: 0 };
 
-    const { store, root, teamPullStatus } = storeFor({ requireFreshTeamMemory: !!opts.strict && !opts.publicOnly });
+    const { store, root, teamPullStatus, teamPullDetail } = storeFor({ requireFreshTeamMemory: !!opts.strict && !opts.publicOnly });
     const teamFreshnessFailure = teamPullStatus !== null && !teamPullIsFresh(teamPullStatus)
       ? `strict check could not refresh the advertised team memory (${teamPullStatus}); refusing a stale pass` +
+        (teamPullDetail ? ` (${describePullFailure(teamPullDetail)})` : "") +
         (teamPullStatus === "unconfigured" ? " — the shared memory remote has no published branch while this clone has memory; publish it with `hunch shared --sync`" : "")
       : null;
     // An empty team remote is in sync with a never-committed clone, but it is also what

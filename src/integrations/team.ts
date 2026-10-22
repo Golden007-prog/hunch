@@ -12,7 +12,7 @@ import { writeFileAtomic } from "../core/io.js";
 import { machineFile } from "../core/machine.js";
 import { hunchTreeAttributesAreSafe, safeOverlayGitTreeListing, safeOverlayTree } from "../core/overlaySafety.js";
 import { hunchPaths, hunchPathsForDir } from "../core/paths.js";
-import { canonicalRemoteUrl, checkoutCommonDir, gitNullDevice, mainWorktreeRoot, sameFilesystemEntry, sameRemoteUrl, type HunchRemoteContract } from "../extractors/git.js";
+import { canonicalRemoteUrl, checkoutCommonDir, gitNullDevice, mainWorktreeRoot, pullRemoteTimeoutMs, sameFilesystemEntry, sameRemoteUrl, type HunchRemoteContract } from "../extractors/git.js";
 import { HunchStore } from "../store/hunchStore.js";
 import { JsonStore } from "../store/jsonStore.js";
 import { ensureSharedOverlayPointer } from "./worktree.js";
@@ -894,7 +894,7 @@ export function ensureTeamOverlay(root: string): string | null {
     if (!existsSync(dest)) {
       const cloned = cloneValidatedTeamOverlay(team.shared_repo, root, dest, {
         sharedRef: team.shared_ref,
-        timeoutMs: 5_000,
+        timeoutMs: pullRemoteTimeoutMs(),
       });
       if (!cloned || !overlayMatchesTeamRemote(root, dest)) {
         if (cloned) rmSync(dest, { recursive: true, force: true });
