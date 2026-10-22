@@ -4,8 +4,12 @@
  *  renderer the MCP tool and the CLI share, so the two surfaces cannot drift apart. */
 import type { Bug, Component, Constraint, Decision, Finding } from "./types.js";
 
-/** Record-id shapes why() resolves by id. Ids are `<prefix>_<hex>` (shortHash). */
-export const WHY_RECORD_ID = /^(dec|con|bug|cmp|fnd)_[0-9a-f]+$/;
+/** Targets why() tries as a record id first. Generated ids are `<prefix>_<hex>`
+ *  (shortHash), but hand-written/imported ids (`dec_session_transport`) are valid too. */
+export const WHY_RECORD_ID = /^(dec|con|bug|cmp|fnd)_[A-Za-z0-9_-]+$/;
+/** The generated id shape: only a miss on THIS shape is reported as "No record <id>";
+ *  any other miss (e.g. a symbol named `bug_handler`) falls through to path/symbol lookup. */
+export const WHY_GENERATED_ID = /^(dec|con|bug|cmp|fnd)_[0-9a-f]{6,}$/;
 
 /** One link of a decision's supersession chain, oldest first. */
 export interface WhyChainLink { id: string; status: string; title: string }

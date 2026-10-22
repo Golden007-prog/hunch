@@ -33,7 +33,7 @@ import { normalizePath, rankTaskRecords, recordIdsOf, selectLatestTasks, selectT
 import { resolveTaskRankingMode } from "../core/taskRankingMode.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
-import { WHY_RECORD_ID, type WhyById, type WhyChainLink, type WhyRecord } from "../core/whyRecord.js";
+import { WHY_GENERATED_ID, WHY_RECORD_ID, type WhyById, type WhyChainLink, type WhyRecord } from "../core/whyRecord.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
 import { analyzeDiff, diffContentGaps, type DiffAnalysis, type DiffStatus } from "../extractors/diff.js";
@@ -1444,8 +1444,10 @@ export class HunchStore {
     // A record id (every delivered brief line ends in `hunch_why("dec_…")`) resolves
     // to that record directly (issue #474). With `asOf`, a record not in force then
     // is "no record"; status stays as stored, like the path view (see whyRecord).
-    const byId = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead, opts.asOf) : undefined;
-    if (byId?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId };
+    const lookup = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead, opts.asOf) : undefined;
+    if (lookup?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId: lookup };
+    // A miss is reported only for a generated-shape id; anything else resolves as before.
+    const byId = lookup && WHY_GENERATED_ID.test(target) ? lookup : undefined;
     const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
     const bugs = this.recs("bugs").filter(opts.canRead ?? (() => true));
     const constraints = this.recs("constraints").filter(opts.canRead ?? (() => true));

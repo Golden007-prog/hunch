@@ -125,30 +125,30 @@ test("why(<id>, {asOf}) gates existence and neighbours, and prints the same stor
   const { store, cleanup } = tempStore();
   try {
     store.json.put("decisions", mkDecision({
-      id: "dec_1", title: "Old", status: "superseded", superseded_by: "dec_2",
+      id: "dec_111111", title: "Old", status: "superseded", superseded_by: "dec_222222",
       valid_from: "2026-01-01T00:00:00Z", valid_to: "2026-06-01T00:00:00Z",
     }));
     store.json.put("decisions", mkDecision({
-      id: "dec_2", title: "New", supersedes: "dec_1",
+      id: "dec_222222", title: "New", supersedes: "dec_111111",
       valid_from: "2026-06-01T00:00:00Z", date: "2026-06-01T00:00:00Z",
     }));
     const asOf = "2026-03-01T00:00:00Z";
-    const old = store.why("dec_1", { asOf }).byId?.record;
+    const old = store.why("dec_111111", { asOf }).byId?.record;
     assert.equal(old?.kind, "decision");
     if (old?.kind !== "decision") return;
-    const viaPath = store.why("src/auth/session.ts", { asOf }).decisions.find((d) => d.id === "dec_1");
+    const viaPath = store.why("src/auth/session.ts", { asOf }).decisions.find((d) => d.id === "dec_111111");
     assert.equal(old.record.status, "superseded", "stored status, not rewritten");
     assert.equal(old.record.status, viaPath?.status, "id and path views agree on status at asOf");
     assert.equal(old.record.superseded_by, null, "successor had not started");
-    assert.deepEqual(old.chain.map((c) => c.id), ["dec_1"]);
-    assert.doesNotMatch(formatWhyRecord({ id: "dec_1", record: old }).join("\n"), /dec_2/);
+    assert.deepEqual(old.chain.map((c) => c.id), ["dec_111111"]);
+    assert.doesNotMatch(formatWhyRecord({ id: "dec_111111", record: old }).join("\n"), /dec_222222/);
 
-    const fresh = store.why("dec_2", { asOf });
-    assert.equal(fresh.byId?.record, null, "dec_2 did not exist at asOf");
-    assert.match(formatWhyRecord(fresh.byId!).join("\n"), /No record dec_2 as of 2026-03-01/);
+    const fresh = store.why("dec_222222", { asOf });
+    assert.equal(fresh.byId?.record, null, "dec_222222 did not exist at asOf");
+    assert.match(formatWhyRecord(fresh.byId!).join("\n"), /No record dec_222222 as of 2026-03-01/);
 
     // Without asOf: full history, unchanged.
-    const now = store.why("dec_1").byId?.record;
+    const now = store.why("dec_111111").byId?.record;
     assert.equal(now?.kind === "decision" && now.record.status, "superseded");
   } finally {
     cleanup();
@@ -210,10 +210,10 @@ test("as_of keeps a LEGACY superseded decision / retired constraint as recorded 
 test("as_of gates a constraint by its window but keeps its stored status", () => {
   const { store, cleanup } = tempStore();
   try {
-    store.json.put("constraints", mkConstraint({ id: "con_cc", statement: "Old rule", status: "retired", valid_to: "2026-06-01T00:00:00Z" }));
-    const c = store.why("con_cc", { asOf: "2026-03-01T00:00:00Z" }).byId?.record;
+    store.json.put("constraints", mkConstraint({ id: "con_cccccc", statement: "Old rule", status: "retired", valid_to: "2026-06-01T00:00:00Z" }));
+    const c = store.why("con_cccccc", { asOf: "2026-03-01T00:00:00Z" }).byId?.record;
     assert.equal(c?.kind === "constraint" && c.record.status, "retired");
-    assert.equal(store.why("con_cc", { asOf: "2026-07-01T00:00:00Z" }).byId?.record, null, "retired by then");
+    assert.equal(store.why("con_cccccc", { asOf: "2026-07-01T00:00:00Z" }).byId?.record, null, "retired by then");
   } finally {
     cleanup();
   }
@@ -303,6 +303,26 @@ test("a long chain window always holds the queried decision, with earlier/later 
     const last = formatWhyRecord(store.why("dec_c9").byId!).join("\n");
     assert.ok(last.includes("dec_c9 [accepted] Step 9 ←") && last.includes("    …(+4 earlier)"), last);
     assert.doesNotMatch(last, /later/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a hand-written record id resolves; a non-record symbol-like target falls through with no 'No record' line", async () => {
+  const { store, root, cleanup } = tempStore();
+  try {
+    store.json.put("decisions", mkDecision({ id: "dec_session_transport", title: "Sessions over SSE", alternatives_rejected: ["WebSockets"] }));
+    const w = store.why("dec_session_transport");
+    assert.equal(w.byId?.record?.kind, "decision");
+    const text = await callWhy(root, "dec_session_transport");
+    assert.match(text, /DECISION dec_session_transport \[accepted\] Sessions over SSE/);
+    assert.match(text, /WebSockets/);
+
+    const sym = store.why("bug_handler");
+    assert.equal(sym.byId, undefined, "not a generated-shape id: no by-id result");
+    const symText = await callWhy(root, "bug_handler");
+    assert.doesNotMatch(symText, /No record bug_handler/);
+    assert.equal(symText, 'Why for "bug_handler":\n\n(No recorded decisions/bugs/constraints yet for this target.)', "same output as before #474");
   } finally {
     cleanup();
   }
