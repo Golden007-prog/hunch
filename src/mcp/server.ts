@@ -34,7 +34,7 @@ import { knownRepoDeps } from "../synthesis/tripwires.js";
 import { refreshExistingGrounding } from "../integrations/providers.js";
 import { workspaceLedgerView, renderWorktreeTable, renderBranchTable, workspaceSummaryLine, snapshotHasHome, recordWorkspaceSnapshot, branchRows, worktreeRows } from "../integrations/workspaceLedger.js";
 import { workspacesConfig } from "../core/config.js";
-import { revParse, asOfDate, revExists, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, rangeFiles, rangeGateDiff, commitFiles, commitGateDiff, stagedFiles, stagedGateDiff, workingFiles, workingGateDiff, pullHunchStatus, sameRemoteUrl, currentBranch, worktreePaths, pathKnownToHistory, type HunchPullStatus } from "../extractors/git.js";
+import { revParse, asOfDate, revExists, lastChangeDate, checkFreshnessRevision, teamPullIsFresh, rangeFiles, rangeGateDiff, commitFiles, commitGateDiff, stagedFiles, stagedGateDiff, workingFiles, workingGateDiff, pullHunchStatusDetailed, describePullFailure, sameRemoteUrl, currentBranch, worktreePaths, pathKnownToHistory, type HunchPullStatus } from "../extractors/git.js";
 import { flushCapture, flushMemoryHome, pinSharedRemote } from "../integrations/sync.js";
 import { withWriteLock } from "../serve/writelock.js";
 import { advertisedTeamRemoteContract, ensureTeamOverlay, isTeamStoreTrusted, overlayMatchesTeamRemote, teamWiringConsented, untrustedTeamStoreMessage, readTeamConfig, teamRemoteContract, teamSharedRef } from "../integrations/team.js";
@@ -1174,10 +1174,10 @@ function prepareRoot(root: string, explicitOverlay: boolean, requireIndex: boole
     let consecutivePullFailures = 0;
     if (store.privateDir) {
       try {
-        const status = pullHunchStatus(store.privateDir, {
-          timeoutMs: 5_000,
+        const { status, detail } = pullHunchStatusDetailed(store.privateDir, {
           remote: startupTeamRoute ?? advertisedTeamRemoteContract(root, join(store.privateDir, "..")),
         });
+        if (detail) console.error(`[hunch-mcp] team memory pull failed (${describePullFailure(detail)})`);
         ({ nextRemotePullAt, consecutivePullFailures } = pullBackoff(status, Date.now(), 0));
       } catch {
         // Offline / no remote — proceed with the validated local store.
@@ -1287,10 +1287,11 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     if (!force && now < nextRemotePullAt) return "cooldown";
     let status: HunchPullStatus;
     try {
-      status = pullHunchStatus(store.privateDir, {
-        timeoutMs: 5_000,
+      const pulled = pullHunchStatusDetailed(store.privateDir, {
         remote: startupTeamRoute ?? advertisedTeamRemoteContract(root, join(store.privateDir, "..")),
       });
+      status = pulled.status;
+      if (pulled.detail) console.error(`[hunch-mcp] team memory pull failed (${describePullFailure(pulled.detail)})`);
     } catch {
       status = "failed";
     }
