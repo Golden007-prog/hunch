@@ -316,13 +316,65 @@ export function literalRepoPaths(text: string, fromFile: string, available: Set<
     const p = norm(raw);
     const bases = p.startsWith(".") ? relativeImportCandidates(fromFile, p) : [];
     const rooted = p.replace(/^(?:\.\.?\/)+/, "");
-    for (const c of [...bases, rooted, rooted.replace(/\.js$/, ".ts"), rooted.replace(/\.jsx$/, ".tsx"), `${rooted}.ts`]) {
+    const variants = (q: string) => [q, q.replace(/\.js$/, ".ts"), q.replace(/\.jsx$/, ".tsx"), `${q}.ts`];
+    // Bare src-relative names ("core/x.ts") read via `../src/${name}` resolve under src/ too.
+    for (const c of [...bases, ...variants(rooted), ...variants(`src/${rooted}`)]) {
       if (available.has(c)) { out.add(c); return; }
     }
   };
   for (const m of text.matchAll(PATH_TOKEN_RE)) tryPath(m[0]);
   for (const segs of joinSegmentRuns(text)) {
     for (let i = 0; i < segs.length; i++) tryPath(segs.slice(i).join("/"));
+  }
+  return sorted(out);
+}
+
+/** Arguments of each `join(`/`resolve(` call: a plain string literal's value, or
+ *  `null` for anything computed (identifiers, calls, `${}` templates). */
+export function joinCallArgs(text: string): (string | null)[][] {
+  const calls: (string | null)[][] = [];
+  for (const m of text.matchAll(JOIN_CALL_RE)) {
+    const args: (string | null)[] = [];
+    let cur = "";
+    const flush = () => {
+      const t = cur.trim();
+      if (t) args.push(/^(["'`])([^"'`$]*)\1$/.exec(t)?.[2] ?? null);
+      cur = "";
+    };
+    let depth = 1;
+    const stop = Math.min(text.length, m.index! + m[0].length + 4000);
+    for (let i = m.index! + m[0].length; i < stop; i++) {
+      const ch = text[i]!;
+      if (ch === '"' || ch === "'" || ch === "`") {
+        const end = text.indexOf(ch, i + 1);
+        if (end < 0) break;
+        cur += text.slice(i, end + 1);
+        i = end;
+        continue;
+      }
+      if (ch === "(") depth++;
+      else if (ch === ")" && --depth === 0) { flush(); break; }
+      else if (ch === "," && depth === 1) { flush(); continue; }
+      cur += ch;
+    }
+    calls.push(args);
+  }
+  return calls;
+}
+
+const TEMPLATE_PATH_RE = /(?<![\w.@-])((?:[\w.@-]+\/)*[\w.@-]+)\/\$\{/g;
+const CONCAT_PATH_RE = /["'`]([\w.@/-]+)["'`]\s*\+/g;
+
+/** Top-level repo dirs a text reaches through a COMPUTED path: `` `../src/${p}` ``,
+ *  `"src/" + p`, `join(root, "src", p)`. A test doing that may read any file
+ *  under the dir, so it depends on all of them (fail closed). */
+export function templatedRepoDirs(text: string, topDirs: Set<string>): string[] {
+  const out = new Set<string>();
+  const add = (path: string) => { for (const seg of norm(path).split("/")) if (topDirs.has(seg)) { out.add(seg); return; } };
+  for (const m of text.matchAll(TEMPLATE_PATH_RE)) add(m[1]!);
+  for (const m of text.matchAll(CONCAT_PATH_RE)) add(m[1]!);
+  for (const args of joinCallArgs(text)) {
+    args.forEach((arg, i) => { if (arg !== null && args.slice(i + 1).includes(null)) add(arg); });
   }
   return sorted(out);
 }
@@ -353,16 +405,21 @@ export function testDependencyModel(root: string, files: string[], graph: (file:
     return text;
   };
   const depMemo = new Map<string, Set<string>>();
+  const topDirs = new Set(files.filter((f) => f.includes("/")).map((f) => f.slice(0, f.indexOf("/"))));
   const dependencies = (testFile: string): Set<string> => {
     const test = norm(testFile);
     const cached = depMemo.get(test);
     if (cached) return cached;
     const deps = new Set(graph(test));
     for (const file of helpers(test)) {
-      for (const named of literalRepoPaths(read(file), file, available)) {
+      const text = read(file);
+      for (const named of literalRepoPaths(text, file, available)) {
         if (named === test) continue;
         deps.add(named);
         for (const dep of graph(named)) deps.add(dep);
+      }
+      for (const dir of templatedRepoDirs(text, topDirs)) {
+        for (const f of files) if (f.startsWith(`${dir}/`) && f !== test) deps.add(f);
       }
     }
     depMemo.set(test, deps);

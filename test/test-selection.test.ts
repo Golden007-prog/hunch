@@ -87,6 +87,35 @@ test("regression: a src file that names a test file selects that src file's depe
   } finally { cleanupDir(root); }
 });
 
+test("regression: computed paths under a repo dir and bare src-relative names are dependencies", () => {
+  const root = gitRepo("hunch-verify-computed-", {
+    "src/core/x.ts": "export const x = 1;\n",
+    "src/core/y.ts": "export const y = 1;\n",
+    "src/other.ts": "export const o = 1;\n",
+    "tooling/t.mjs": "export {};\n",
+    "test/url.test.ts": "for (const p of list) readFileSync(new URL(`../src/${p}`, import.meta.url), \"utf8\");\n",
+    "test/concat.test.ts": "readFileSync(\"tooling/\" + name, \"utf8\");\n",
+    "test/join.test.ts": "readFileSync(join(ROOT, \"src\", name), \"utf8\");\n",
+    "test/names.test.ts": "for (const p of [\"core/x.ts\"]) check(p);\n",
+    "test/plain.test.ts": "readFileSync(join(ROOT, \"src\", \"other.ts\"));\n",
+  });
+  try {
+    const model = testDependencyModel(root, listRepoFiles(root));
+    for (const f of ["src/core/x.ts", "src/core/y.ts", "src/other.ts"]) {
+      assert.ok(model.dependencies("test/url.test.ts").has(f), `template → ${f}`);
+      assert.ok(model.dependencies("test/join.test.ts").has(f), `join with a computed arg → ${f}`);
+    }
+    assert.ok(model.dependencies("test/concat.test.ts").has("tooling/t.mjs"));
+    assert.ok(!model.dependencies("test/concat.test.ts").has("src/other.ts"));
+    assert.ok(model.dependencies("test/names.test.ts").has("src/core/x.ts"), "bare core/x.ts resolves under src/");
+    assert.ok(!model.dependencies("test/names.test.ts").has("src/core/y.ts"));
+    assert.deepEqual([...model.dependencies("test/plain.test.ts")], ["src/other.ts"], "all-literal join stays narrow");
+    const tests = ["test/concat.test.ts", "test/join.test.ts", "test/names.test.ts", "test/plain.test.ts", "test/url.test.ts"];
+    const sel = selectTests({ changedFiles: ["src/core/x.ts"], allTests: tests, importGraph: model.dependencies, testText: model.testText });
+    assert.deepEqual([sel.mode, sel.tests], ["selected", ["test/join.test.ts", "test/names.test.ts", "test/url.test.ts"]]);
+  } finally { cleanupDir(root); }
+});
+
 const entry = (files: string[], over: Partial<ImpactEntry> = {}): ImpactEntry => ({ files, complete: true, commit: "abc", closureHash: "h1", ...over });
 const mapOf = (map: Record<string, ImpactEntry>) => ({ version: 2, commit: "abc", map });
 
