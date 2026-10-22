@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildServer } from "../src/mcp/server.js";
 import { tempStore } from "./helpers.js";
-import type { Decision, Constraint } from "../src/core/types.js";
+import type { Bug, Component, Constraint, Decision, Finding } from "../src/core/types.js";
 import { formatWhyRecord } from "../src/core/whyRecord.js";
 
 function mkDecision(over: Partial<Decision> & { id: string }): Decision {
@@ -225,6 +225,61 @@ test("clipping never splits a surrogate pair", () => {
     const text = formatWhyRecord(store.why("dec_0d0d0d0d0d").byId!).join("\n");
     assert.doesNotThrow(() => encodeURIComponent(text), "well-formed UTF-16 (a lone surrogate throws URIError)");
     assert.match(text, /…/);
+  } finally {
+    cleanup();
+  }
+});
+
+const PROV = { source: "human_confirmed", confidence: 1, evidence: [] } as unknown as Decision["provenance"];
+
+test("bug_, fnd_ and cmp_ ids render their key fields; a finding before observed_at is no record as of", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.json.put("bugs", {
+      id: "bug_0e0e0e0e0e", title: "Session leak", symptom: "users see others' carts", root_cause: "shared cache key",
+      severity: "high", status: "fixed", affected_files: ["src/auth/session.ts"], affected_symbols: [],
+      lineage: { introduced_commit: null, detected: null, fixed_commit: "abc1234", recurrence_of: null, spawned_decision: null, spawned_constraint: null },
+      provenance: PROV,
+    } as Bug);
+    store.json.put("findings", {
+      id: "fnd_0f0f0f0f0f", title: "Unscoped queries", observation: "3 queries skip tenant filter", evidence: ["grep -n tenant_id: 3 hits"],
+      method: null, severity: "medium", triage: "open", affected_files: ["src/db/q.ts"], affected_symbols: [],
+      violates_constraint: null, spawned_decision: null, observed_at: "2026-05-01T00:00:00Z", resolved_commit: null, provenance: PROV,
+    } as Finding);
+    store.json.put("components", {
+      id: "cmp_0a0b0c0d0e", kind: "module", name: "auth", responsibility: "sessions and login", paths: ["src/auth/**"],
+      status: "active", owners: [], fragility: 0, provenance: PROV, created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
+    } as Component);
+    const render = (id: string, asOf?: string) => formatWhyRecord(store.why(id, { asOf }).byId!).join("\n");
+
+    const bug = render("bug_0e0e0e0e0e");
+    for (const s of ["BUG bug_0e0e0e0e0e [fixed/high] Session leak", "symptom: users see others' carts", "root cause: shared cache key", "fixed in: abc1234"]) assert.ok(bug.includes(s), s);
+    const fnd = render("fnd_0f0f0f0f0f");
+    for (const s of ["FINDING fnd_0f0f0f0f0f [open/medium] Unscoped queries", "observation: 3 queries skip tenant filter", "grep -n tenant_id: 3 hits"]) assert.ok(fnd.includes(s), s);
+    assert.match(render("fnd_0f0f0f0f0f", "2026-04-01T00:00:00Z"), /No record fnd_0f0f0f0f0f as of 2026-04-01/);
+    const cmp = render("cmp_0a0b0c0d0e");
+    for (const s of ["COMPONENT cmp_0a0b0c0d0e [module/active] auth", "responsibility: sessions and login", "paths: src/auth/**"]) assert.ok(cmp.includes(s), s);
+
+    // Components are not windowed by asOf in the path view; the id view agrees.
+    const oldAsOf = "2026-01-01T00:00:00Z";
+    const viaPath = store.why("src/auth/session.ts", { asOf: oldAsOf }).components.map((c) => c.id);
+    assert.deepEqual(viaPath, ["cmp_0a0b0c0d0e"]);
+    assert.equal(store.why("cmp_0a0b0c0d0e", { asOf: oldAsOf }).byId?.record?.kind, "component");
+  } finally {
+    cleanup();
+  }
+});
+
+test("chain lines carry titles, and a capped list's 'more' line is indented like its items", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    seed(store);
+    const text = formatWhyRecord(store.why("dec_0b5d2be516").byId!).join("\n");
+    assert.ok(text.includes("    - dec_0a0a0a0a01 [superseded] Cookie sessions"), text);
+    assert.ok(text.includes("    - dec_0b5d2be516 [accepted] Redis-backed sessions ←"), text);
+    store.json.put("decisions", mkDecision({ id: "dec_0c0c0c0c0c", title: "Big", consequences: Array.from({ length: 9 }, (_, i) => `c${i}`) }));
+    const big = formatWhyRecord(store.why("dec_0c0c0c0c0c").byId!).join("\n").split("\n");
+    assert.ok(big.includes("    …(+3 more)"), big.join("\n"));
   } finally {
     cleanup();
   }

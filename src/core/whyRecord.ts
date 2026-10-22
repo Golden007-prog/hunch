@@ -36,7 +36,7 @@ const clip = (text: string, max = PROSE_CHARS): string => {
   return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : flat;
 };
 const list = (label: string, items: readonly string[]): string[] =>
-  items.length ? [`  ${label}:`, ...items.slice(0, WHY_CAP).map((i) => `    - ${clip(i, ITEM_CHARS)}`), ...(items.length > WHY_CAP ? [more(items.length, WHY_CAP).trimStart()] : [])] : [];
+  items.length ? [`  ${label}:`, ...items.slice(0, WHY_CAP).map((i) => `    - ${clip(i, ITEM_CHARS)}`), ...(items.length > WHY_CAP ? [`    ${more(items.length, WHY_CAP).trim()}`] : [])] : [];
 const files = (label: string, items: readonly string[]): string[] =>
   items.length ? [`  ${label}: ${items.slice(0, WHY_CAP).join(", ")}${items.length > WHY_CAP ? ` …(+${items.length - WHY_CAP} more)` : ""}`] : [];
 
@@ -62,8 +62,9 @@ export function formatWhyRecord(byId: WhyById): string[] {
       if (d.superseded_by) out.push(`  superseded by: ${d.superseded_by}`);
       if (hit.chain.length > 1) {
         // Keep the newest links (the current decision sits at the end of a long chain).
-        const links = hit.chain.slice(-WHY_CAP).map((c) => `${c.id} [${c.status}]${c.id === d.id ? " ←" : ""}`);
-        out.push(`  chain (oldest first): ${hit.chain.length > WHY_CAP ? `…(+${hit.chain.length - WHY_CAP} earlier) → ` : ""}${links.join(" → ")}`);
+        out.push("  chain (oldest first):");
+        if (hit.chain.length > WHY_CAP) out.push(`    …(+${hit.chain.length - WHY_CAP} earlier)`);
+        out.push(...hit.chain.slice(-WHY_CAP).map((c) => `    - ${c.id} [${c.status}] ${clip(c.title, ITEM_CHARS)}${c.id === d.id ? " ←" : ""}`));
       }
       break;
     }

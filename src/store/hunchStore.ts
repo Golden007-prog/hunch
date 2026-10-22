@@ -1522,7 +1522,9 @@ export class HunchStore {
       }
       case "bug": { const b = find("bugs") as Bug | undefined; if (b) record = { kind: "bug", record: b }; break; }
       case "fnd": { const f = find("findings") as Finding | undefined; if (f && existed(f.observed_at)) record = { kind: "finding", record: f }; break; }
-      case "cmp": { const c = find("components") as Component | undefined; if (c && existed(c.created_at)) record = { kind: "component", record: c }; break; }
+      // Not gated by asOf: the path view lists components regardless of asOf too.
+      // Findings stay gated by observed_at (the path view does not list findings).
+      case "cmp": { const c = find("components") as Component | undefined; if (c) record = { kind: "component", record: c }; break; }
     }
     return { id, record, ...(asOf ? { asOf } : {}) };
   }
