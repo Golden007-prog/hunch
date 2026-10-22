@@ -111,7 +111,7 @@ import { renderRecalledLine } from "../core/taskReportRender.js";
 import { closeHookTask, hookReportTaskId, isNotificationPrompt, nativeHookCwd, settleHookSession, startHookReport, stopHookReport, observeHookDenial } from "../core/taskReportHook.js";
 import { persistTaskRecord } from "../core/taskRecord.js";
 import { recordHookObservation } from "../core/hookObservations.js";
-import { contextHookOutput, deliversPromptEvent, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchHookInput, type HunchToolInput } from "../core/agenthook.js";
+import { contextHookOutput, deliversCommandOutcome, deliversPromptEvent, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchHookInput, type HunchToolInput } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
   armExecutionObligations,
@@ -5160,7 +5160,10 @@ program
       // before implementation. Firm/strict may deny two edits per prompt, then
       // fail open so a malformed or unavailable probe can never deadlock work.
       if ((firmness === "firm" || firmness === "strict") && evt.session_id && pipelineEnabled() && targets.some((t) => isProductPath(t.target))) {
-        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id));
+        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id), { commandOutcomes: deliversCommandOutcome(provider) });
+        // Unverifiable on this host: the edit proceeds and the hook says why on
+        // stderr (stdout stays free for the grounding/deny response below).
+        if (baseline.unverifiable && baseline.reason) process.stderr.write(`${baseline.reason}\n`);
         if (baseline.block) {
           savePipelineState(evt.session_id, baseline.state);
           emitDeny(provider, baseline.reason ?? "Hunch evidence gate — establish the pre-edit probe baseline first.");
