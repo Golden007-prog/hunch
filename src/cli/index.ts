@@ -258,7 +258,12 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
   while (top.parent && top.parent !== program) top = top.parent;
   const name = top.name();
   if (OPT_OUT_ALLOWED.has(name)) return;
-  if (!isOptedOut(findRoot())) return;
+  // Gate the repository the command acts on (#458): a `--root` names it exactly
+  // (`hunch mcp --root`, `hunch serve ... --root`), so the cwd's repository is
+  // irrelevant there; without one, the command acts on the cwd's repository.
+  const rootOpt = (actionCommand.opts() as { root?: unknown }).root;
+  const gated = typeof rootOpt === "string" && rootOpt.trim() ? resolve(rootOpt) : findRoot();
+  if (!isOptedOut(gated)) return;
   if (name !== "hook") console.error(optOutMessage());
   process.exit(OPT_OUT_QUIET.has(name) ? 0 : 1);
 });

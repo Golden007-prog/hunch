@@ -140,6 +140,27 @@ test("an unparseable config is refused and the whole uninstall changes nothing",
   } finally { cleanupDir(base); }
 });
 
+test("the opt-out gate judges the --root a command acts on, not the cwd's repository (#458)", { timeout: 300_000 }, () => {
+  const { base, root, env, hunch } = fixture();
+  try {
+    assert.equal(hunch("init", "--no-index", "--no-providers").status, 0);
+    assert.equal(hunch("uninstall", "--purge").status, 0);
+    const optedOut = /removed from this repository on purpose/;
+    // An opted-out cwd must not block a command pinned to a store that never opted out.
+    const other = join(base, "other");
+    mkdirSync(join(other, ".hunch"), { recursive: true });
+    const fromOptedOut = spawnSync(process.execPath, hunchCliArgs("mcp", "--root", other), { cwd: root, env, encoding: "utf8", input: "", timeout: 60_000 });
+    assert.doesNotMatch(out(fromOptedOut), optedOut, "a store that never opted out is served from an opted-out cwd");
+    // A command pinned to an opted-out repository is refused from anywhere.
+    mkdirSync(join(root, ".hunch"), { recursive: true });
+    const elsewhere = join(base, "elsewhere");
+    mkdirSync(elsewhere);
+    const intoOptedOut = spawnSync(process.execPath, hunchCliArgs("mcp", "--root", root), { cwd: elsewhere, env, encoding: "utf8", input: "", timeout: 60_000 });
+    assert.equal(intoOptedOut.status, 1, out(intoOptedOut));
+    assert.match(out(intoOptedOut), optedOut, "an opted-out --root is gated even when the cwd is elsewhere");
+  } finally { cleanupDir(base); }
+});
+
 test("every command but uninstall/doctor/help refuses in an opted-out repo, and none writes (deny by default)", { timeout: 600_000 }, async () => {
   const { base, root, env, git, hunch } = fixture();
   try {
