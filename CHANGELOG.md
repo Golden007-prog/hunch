@@ -8,6 +8,7 @@
 - **The opt-out gate checks the repository a command acts on** via `--root`, not the current directory.
 - **A store lock left by a crashed process is taken over** when its process id was reused by a newer process on macOS and Windows.
 - **Team memory:** policy tools no longer answer "not found" for a policy a teammate just pushed; they confirm against a fresh pull, or say they cannot confirm.
+- **Windsurf hooks fire again.** Hunch reads the event and data from the fields Windsurf actually sends (`agent_action_name`, `tool_info`), and a before-edit probe no longer blocks edits on assistants that cannot report a command's outcome (Windsurf, Antigravity) (#484).
 
 ## 1.45.1 — 2026-10-22
 
