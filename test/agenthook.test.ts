@@ -1,13 +1,14 @@
 import { cleanupDir } from "./fixtures.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { contextHookOutput, deliversPromptEvent, denyHookOutput, HOOK_PROVIDERS, normalizeHookEvent, parseApplyPatch, stopHookOutput } from "../src/core/agenthook.js";
+import { readHookObservations } from "../src/core/hookObservations.js";
 import { hunchPaths } from "../src/core/paths.js";
-import { armExecutionObligations, emptyState, loadPipelineState, onCommand, onEdit, pendingExecutionObligations } from "../src/core/pipeline.js";
+import { armExecutionObligations, compileExecutableProbes, emptyState, loadPipelineState, onCommand, onEdit, pendingExecutionObligations, savePipelineState } from "../src/core/pipeline.js";
 import type { Constraint } from "../src/core/types.js";
 import { HunchStore } from "../src/store/hunchStore.js";
 import { mkConstraint, tsxLoaderUrl } from "./helpers.js";
@@ -147,7 +148,51 @@ test("normalizes Cursor's lower-camel hook event and snake payload", () => {
   assert.equal(event?.tool_input?.file_path, "/repo/src/new.ts");
 });
 
-test("normalizes Windsurf lifecycle names and tool_info", () => {
+// Payload shapes from docs.windsurf.com/windsurf/cascade/hooks (#484): the event
+// is top-level `agent_action_name`; per-event data lives in `tool_info`.
+const windsurf = (agent_action_name: string, tool_info: Record<string, unknown>) => normalizeHookEvent({
+  agent_action_name, trajectory_id: "traj-1", execution_id: "exec-1", timestamp: "2026-10-22T00:00:00Z", model_name: "swe-1", tool_info,
+}, "windsurf");
+
+test("normalizes every installed Windsurf hook from its documented payload", () => {
+  const prompt = windsurf("pre_user_prompt", { user_prompt: "fix the billing bug" });
+  assert.equal(prompt?.hook_event_name, "UserPromptSubmit");
+  assert.equal(prompt?.session_id, "traj-1");
+  assert.equal(prompt?.prompt, "fix the billing bug");
+
+  const edits = [{ old_string: "a", new_string: "b" }, { old_string: "c", new_string: "d" }];
+  for (const [action, event] of [["pre_write_code", "PreToolUse"], ["post_write_code", "PostToolUse"]] as const) {
+    const write = windsurf(action, { file_path: "/repo/src/a.ts", edits });
+    assert.equal(write?.hook_event_name, event, action);
+    assert.equal(write?.tool_name, "Edit", action);
+    assert.equal(write?.tool_input?.file_path, "/repo/src/a.ts", action);
+    assert.deepEqual(write?.tool_input?.edits, [{ new_string: "b" }, { new_string: "d" }], action);
+  }
+
+  for (const [action, event] of [["pre_run_command", "PreToolUse"], ["post_run_command", "PostToolUse"]] as const) {
+    const run = windsurf(action, { command_line: "npm test", cwd: "/repo" });
+    assert.equal(run?.hook_event_name, event, action);
+    assert.equal(run?.tool_name, "Bash", action);
+    assert.equal(run?.tool_input?.command, "npm test", action);
+    assert.equal(run?.cwd, "/repo", action);
+  }
+});
+
+test("observes Windsurf read and MCP hooks without handing their arguments to the edit gate", () => {
+  const read = windsurf("pre_read_code", { file_path: "/repo/src/a.ts" });
+  assert.equal(read?.hook_event_name, "PreToolUse");
+  assert.equal(read?.tool_name, "Read");
+  assert.equal(read?.tool_input, undefined);
+  assert.equal(windsurf("post_read_code", { file_path: "/repo/src/a.ts" })?.hook_event_name, "PostToolUse");
+  const mcp = windsurf("pre_mcp_tool_use", { mcp_server_name: "hunch", mcp_tool_name: "hunch_why", mcp_tool_arguments: { path: "/repo/src/a.ts" } });
+  assert.equal(mcp?.hook_event_name, "PreToolUse");
+  assert.equal(mcp?.tool_name, "mcp__hunch__hunch_why");
+  assert.equal(mcp?.tool_input, undefined);
+  assert.equal(windsurf("post_mcp_tool_use", { mcp_server_name: "hunch", mcp_tool_name: "hunch_why" })?.hook_event_name, "PostToolUse");
+  assert.equal(windsurf("post_cascade_response", { response: "done" }), null, "events Hunch does not handle fail open");
+});
+
+test("still parses the pre-#484 Windsurf payload shape", () => {
   const event = normalizeHookEvent({
     event: "pre_write_code",
     trajectory_id: "wind-session",
@@ -181,7 +226,7 @@ test("normalizes Antigravity toolCall and PreInvocation safely", () => {
 test("unknown hook payloads fail open", () => {
   assert.equal(normalizeHookEvent(null, "cursor"), null);
   assert.equal(normalizeHookEvent({ hook_event_name: "not-an-event" }, "claude"), null);
-  assert.equal(normalizeHookEvent({ event: "post_read_code" }, "windsurf"), null);
+  assert.equal(normalizeHookEvent({ event: "post_cascade_response" }, "windsurf"), null);
 });
 
 test("each native dialect gets its native deny/context/stop response", () => {
@@ -379,4 +424,84 @@ test("PostToolUse skips files outside the repository — a scratch edit is not a
 
 test("deliversPromptEvent: only providers whose hooks carry the user's prompt text", () => {
   for (const p of HOOK_PROVIDERS) assert.equal(deliversPromptEvent(p), p !== "antigravity", p);
+});
+
+test("e2e: `hunch init` wires Windsurf and its documented pre_write_code payload reaches the strict gate (#484)", { timeout: 180_000 }, t => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-windsurf-e2e-"));
+  const home = mkdtempSync(join(tmpdir(), "hunch-windsurf-home-"));
+  t.after(() => { cleanupDir(root); cleanupDir(home); });
+  const env = { ...process.env, HOME: home, USERPROFILE: home, HUNCH_PIPELINE: "0" };
+  execFileSync("git", ["init", "-q", root]);
+  mkdirSync(join(root, ".windsurf"));
+  mkdirSync(join(root, "src", "billing"), { recursive: true });
+  writeFileSync(join(root, "src", "billing", "charge.ts"), "export const charge = 1;\n");
+  execFileSync(process.execPath, ["--import", tsxLoaderUrl(), hookCli, "init", "--no-index", "--no-enforce", "--firmness", "strict"], { cwd: root, env, stdio: "pipe" });
+  const installed = JSON.parse(readFileSync(join(root, ".windsurf", "hooks.json"), "utf8")).hooks;
+  assert.match(installed.pre_write_code[0].command, /hook --provider windsurf/);
+
+  const store = new HunchStore(hunchPaths(root));
+  store.json.put("constraints", mkConstraint({ id: "con_billing_frozen", statement: "Billing is frozen", scope: ["src/billing/**"], severity: "blocking" }));
+  store.reindex(); store.close();
+
+  const run = spawnSync(process.execPath, ["--import", tsxLoaderUrl(), hookCli, "hook", "--provider", "windsurf"], {
+    cwd: root, env, encoding: "utf8",
+    input: JSON.stringify({
+      agent_action_name: "pre_write_code", trajectory_id: "traj-e2e", execution_id: "exec-1", timestamp: new Date().toISOString(),
+      tool_info: { file_path: join(root, "src", "billing", "charge.ts"), edits: [{ old_string: "1", new_string: "2" }] },
+    }),
+  });
+  assert.equal(run.status, 2, `Windsurf blocks a pre-hook with exit code 2; stderr: ${run.stderr}`);
+  assert.match(run.stderr, /Billing is frozen/);
+  assert.ok(readHookObservations(root).some(o => o.provider === "windsurf" && o.event === "PreToolUse"), "the delivery is recorded as a hook observation");
+
+  // Pipeline on: Windsurf's post_run_command has no exit status, so a pre-edit
+  // probe can never be evidenced there. The gate must stay advisory, not deny.
+  writeFileSync(join(root, "src", "other.ts"), "export const other = 1;\n");
+  const session = `windsurf-pipe-${process.pid}-${Date.now()}`;
+  savePipelineState(session, armExecutionObligations(emptyState(), compileExecutableProbes(probePlan)));
+  const windsurfHook = (agent_action_name: string, tool_info: Record<string, unknown>) => spawnSync(process.execPath, ["--import", tsxLoaderUrl(), hookCli, "hook", "--provider", "windsurf"], {
+    cwd: root, env: { ...env, HUNCH_PIPELINE: "1" }, encoding: "utf8",
+    input: JSON.stringify({ agent_action_name, trajectory_id: session, execution_id: "exec-2", timestamp: new Date().toISOString(), tool_info }),
+  });
+  assert.equal(windsurfHook("post_run_command", { command_line: probePlan[0]!.command, cwd: root }).status, 0);
+  assert.ok(loadPipelineState(session).obligations.some((item) => item.phase === "before-edit" && item.status === "pending"), "an unknown result is not a receipt");
+  const edit = windsurfHook("pre_write_code", { file_path: join(root, "src", "other.ts"), edits: [{ old_string: "1", new_string: "2" }] });
+  assert.equal(edit.status, 0, `an unverifiable probe must not deny the edit; stderr: ${edit.stderr}`);
+  assert.match(edit.stderr, /evidence gate is advisory/);
+});
+
+const probePlan = [{
+  id: "episode:probe:windsurf",
+  origin: "episode" as const,
+  category: "behavior" as const,
+  claim: "The probe reproduces the bug before the fix.",
+  falsifier: "Reject the fix if the probe passes before any edit.",
+  command: "node probe.mjs HUNCH_PROBE windsurf",
+  command_alternatives: [["node", "probe.mjs"]],
+  expected_before: { success: false, output_includes: ["broken=true"] },
+  expected_after: { success: true, output_includes: ["broken=false"] },
+}];
+
+test("Antigravity cannot report command outcomes: a pending probe never denies its edits (#484)", { timeout: 120_000 }, t => {
+  const root = patchRepo(t, []);
+  const session = `antigravity-pipe-${process.pid}-${Date.now()}`;
+  savePipelineState(session, armExecutionObligations(emptyState(), compileExecutableProbes(probePlan)));
+  const run = spawnSync(process.execPath, ["--import", tsxLoaderUrl(), hookCli, "hook", "--provider", "antigravity"], {
+    cwd: root, env: { ...process.env, HUNCH_PIPELINE: "1" }, encoding: "utf8",
+    input: JSON.stringify({ conversationId: session, toolCall: { name: "replace_file_content", args: { TargetFile: join(root, "src", "other.ts"), ReplacementContent: "export const other = 2;" } } }),
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.doesNotMatch(run.stdout, /"deny"/, "the unverifiable probe must not deny");
+  assert.match(run.stderr, /evidence gate is advisory/);
+});
+
+test("a host that reports command outcomes keeps the deny-until-receipt probe gate (#484)", { timeout: 120_000 }, t => {
+  const root = patchRepo(t, []);
+  const session = `codex-pipe-${process.pid}-${Date.now()}`;
+  savePipelineState(session, armExecutionObligations(emptyState(), compileExecutableProbes(probePlan)));
+  const env = { HUNCH_PIPELINE: "1" };
+  const edit = () => denialOf(codexHook(root, { hook_event_name: "PreToolUse", session_id: session, tool_name: "apply_patch", tool_input: { input: patchOf("*** Update File: src/other.ts", "@@", "+a") } }, env));
+  assert.match(edit() ?? "", /evidence gate/, "a pending probe still denies on Codex");
+  codexHook(root, { hook_event_name: "PostToolUse", session_id: session, tool_name: "Bash", tool_input: { command: probePlan[0]!.command }, tool_response: { exit_code: 1, output: "HUNCH_PROBE windsurf broken=true" } }, env);
+  assert.equal(edit(), null, "a known failing outcome with the expected output is the receipt that releases the gate");
 });

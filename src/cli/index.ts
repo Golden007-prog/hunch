@@ -111,7 +111,7 @@ import { renderRecalledLine } from "../core/taskReportRender.js";
 import { closeHookTask, hookReportTaskId, isNotificationPrompt, nativeHookCwd, settleHookSession, startHookReport, stopHookReport, observeHookDenial } from "../core/taskReportHook.js";
 import { persistTaskRecord } from "../core/taskRecord.js";
 import { recordHookObservation } from "../core/hookObservations.js";
-import { contextHookOutput, deliversPromptEvent, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchHookInput, type HunchToolInput } from "../core/agenthook.js";
+import { contextHookOutput, deliversCommandOutcome, deliversPromptEvent, denyHookOutput, hookProvider, normalizeHookEvent, stopHookOutput, type HookProvider, type HunchHookEvent, type HunchHookInput, type HunchToolInput } from "../core/agenthook.js";
 import {
   PIPELINE_LOOP,
   armExecutionObligations,
@@ -184,6 +184,7 @@ import { partitionOf, stateHomeFor } from "../store/stateBinding.js";
 import { scopePath } from "../core/stateContract.js";
 import { movePublicMemoryToPrivate } from "../store/privateMigrate.js";
 import { ENTITY_KINDS } from "../core/types.js";
+import { formatWhyRecord } from "../core/whyRecord.js";
 import { planCompaction } from "../store/compact.js";
 import { repairDecisionReference } from "../core/refrepair.js";
 import { resolveInvocation, dim, synthesisStatusLines, maybeWarnOllamaContext } from "./invocation.js";
@@ -3607,13 +3608,19 @@ program
 program
   .command("why")
   .description("Explain why a file/symbol is the way it is (decisions, bugs, constraints).")
-  .argument("<target>", "file path or symbol name")
+  .argument("<target>", "file path, symbol name, or record id (dec_/con_/bug_/fnd_/cmp_)")
   .option("--as-of <ref>", "time-travel: what was believed as of a commit/tag/branch (e.g. v0.7.0, HEAD~5)")
   .action((target: string, opts: { asOf?: string }) => {
     const { store, root } = storeFor();
     const asOf = opts.asOf ? asOfDate(opts.asOf, root) : undefined;
     if (opts.asOf && !asOf) return fail(`could not resolve --as-of "${opts.asOf}" to a commit (need a git repo and a valid ref)`);
     const w = store.why(target, { asOf });
+    if (w.byId?.record) {
+      if (asOf) console.log(`Why "${target}" (as of ${opts.asOf} — ${asOf.slice(0, 10)}):\n`);
+      console.log(formatWhyRecord(w.byId).join("\n"));
+      store.close();
+      return;
+    }
     const staleIds = new Set(store.staleness((f) => lastChangeDate(f, root)).map((s) => s.id));
     const drift = (id: string) => (staleIds.has(id) ? " ⚠STALE" : "");
     console.log(asOf ? `Why "${target}" (as of ${opts.asOf} — ${asOf.slice(0, 10)}):\n` : `Why "${target}":\n`);
@@ -3630,7 +3637,7 @@ program
       for (const b of w.bugs) console.log(`  • ${b.id} [${b.status}] ${b.title} — ${b.root_cause}`);
     }
     if (!w.decisions.length && !w.constraints.length && !w.bugs.length) {
-      console.log("(No recorded decisions/bugs/constraints yet. Try `hunch backfill` or make a commit.)");
+      console.log(w.byId ? formatWhyRecord(w.byId).join("\n") : "(No recorded decisions/bugs/constraints yet. Try `hunch backfill` or make a commit.)");
     }
     if (w.symbols.length) console.log(`\nSYMBOLS: ${w.symbols.map((s) => `${s.name} [fan-in ${s.metrics.fan_in}, churn ${s.metrics.churn_90d}]`).join(", ")}`);
     store.close();
@@ -5161,7 +5168,10 @@ program
       // before implementation. Firm/strict may deny two edits per prompt, then
       // fail open so a malformed or unavailable probe can never deadlock work.
       if ((firmness === "firm" || firmness === "strict") && evt.session_id && pipelineEnabled() && targets.some((t) => isProductPath(t.target))) {
-        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id));
+        const baseline = beforeEditProbeVerdict(loadPipelineState(evt.session_id), { commandOutcomes: deliversCommandOutcome(provider) });
+        // Unverifiable on this host: the edit proceeds and the hook says why on
+        // stderr (stdout stays free for the grounding/deny response below).
+        if (baseline.unverifiable && baseline.reason) process.stderr.write(`${baseline.reason}\n`);
         if (baseline.block) {
           savePipelineState(evt.session_id, baseline.state);
           emitDeny(provider, baseline.reason ?? "Hunch evidence gate — establish the pre-edit probe baseline first.");
