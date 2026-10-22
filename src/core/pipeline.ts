@@ -897,14 +897,26 @@ export interface BeforeEditProbeVerdict {
   block: boolean;
   state: PipelineState;
   reason?: string;
+  /** The host cannot report command results, so the evidence is unverifiable:
+   * the gate is advisory and `reason` says why instead of denying. */
+  unverifiable?: boolean;
 }
 
 /** Before-edit evidence is useful only before implementation. At firm/strict,
  * deny at most two product edits per prompt until all such receipts exist;
- * then fail open so a broken probe or discriminator cannot deadlock the agent. */
-export function beforeEditProbeVerdict(state: PipelineState): BeforeEditProbeVerdict {
+ * then fail open so a broken probe or discriminator cannot deadlock the agent.
+ * A host whose hooks carry no command outcome (`commandOutcomes: false`) can
+ * never produce a receipt, so its gate is advisory: it never denies. */
+export function beforeEditProbeVerdict(state: PipelineState, opts: { commandOutcomes?: boolean } = {}): BeforeEditProbeVerdict {
   const pending = state.obligations.filter((item) => item.phase === "before-edit" && item.status !== "satisfied");
-  if (!pending.length || state.probeBlocks >= 2) return { block: false, state };
+  if (!pending.length) return { block: false, state };
+  if (opts.commandOutcomes === false) {
+    return {
+      block: false, state, unverifiable: true,
+      reason: `Hunch evidence gate is advisory here: this host's hooks do not report command results, so ${pending.length} pre-edit evidence obligation(s) cannot be verified and do not block edits. Run them anyway and check their output yourself.`,
+    };
+  }
+  if (state.probeBlocks >= 2) return { block: false, state };
   const instructions = pending.slice(0, 3).map((item) => {
     const command = item.probe?.command ?? firstCommand(item);
     const markers = item.expected.output_includes?.length ? ` with output including ${item.expected.output_includes.join(" + ")}` : "";

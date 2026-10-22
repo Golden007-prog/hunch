@@ -4,7 +4,7 @@
  *
  *   - reindex():        JSON  -> SQLite (rebuild the derived index + FTS)
  *   - search():         FTS5 ranked query (hunch_query)
- *   - why():            decisions/bugs/constraints explaining a path/symbol
+ *   - why():            decisions/bugs/constraints explaining a path/symbol, or one record by id
  *   - getDependents():  recursive-CTE blast radius over the call/dep graph
  *   - checkConstraints(): constraints whose scope matches a glob/path
  *   - bugLineage():     bugs matching a symptom/symbol + their lineage
@@ -33,6 +33,7 @@ import { normalizePath, rankTaskRecords, recordIdsOf, selectLatestTasks, selectT
 import { resolveTaskRankingMode } from "../core/taskRankingMode.js";
 import { currentForTopic, isInForce } from "../core/topics.js";
 import { edgeId } from "../core/ids.js";
+import { WHY_GENERATED_ID, WHY_RECORD_ID, type WhyById, type WhyChainLink, type WhyRecord } from "../core/whyRecord.js";
 import { isStrictBlocker, isVetoBlocker, type VetoTier } from "../core/strictgate.js";
 import { effectiveForbids, matchForbids, type ForbidMatch } from "../core/constraintmatch.js";
 import { analyzeDiff, diffContentGaps, type DiffAnalysis, type DiffStatus } from "../extractors/diff.js";
@@ -115,6 +116,8 @@ export interface WhyResult {
   constraints: Constraint[];
   symbols: Symbol[];
   components: Component[];
+  /** Set when the target is a record id (`dec_…`, `con_…`, …; issue #474). */
+  byId?: WhyById;
 }
 
 export interface FragileNode {
@@ -1438,6 +1441,13 @@ export class HunchStore {
     // An absolute target (an agent's edit-payload path, verbatim) never matched
     // the repo-relative stored file paths below (issue #299).
     target = repoRelativeTarget(target, this.paths.root);
+    // A record id (every delivered brief line ends in `hunch_why("dec_…")`) resolves
+    // to that record directly (issue #474). With `asOf`, a record not in force then
+    // is "no record"; status stays as stored, like the path view (see whyRecord).
+    const lookup = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead, opts.asOf) : undefined;
+    if (lookup?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId: lookup };
+    // A miss is reported only for a generated-shape id; anything else resolves as before.
+    const byId = lookup && WHY_GENERATED_ID.test(target) ? lookup : undefined;
     const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
     const bugs = this.recs("bugs").filter(opts.canRead ?? (() => true));
     const constraints = this.recs("constraints").filter(opts.canRead ?? (() => true));
@@ -1479,7 +1489,46 @@ export class HunchStore {
         && inWindow(c.valid_from, c.valid_to, asOf)),
       symbols: matchedSymbols,
       components: components.filter((c) => c.paths.some((g) => pathMatchesGlob(target, g) || [...fileSet].some((f) => pathMatchesGlob(f, g)))),
+      ...(byId ? { byId } : {}),
     };
+  }
+
+  /** Look a record up by id across the record kinds why() explains (public ∪ private
+   *  via recs(), narrowed by `canRead`). A decision carries its supersession chain.
+   *  With `asOf`, a record outside its valid window then is "no record", and only
+   *  chain links/neighbours already in effect then are shown. Status is the STORED
+   *  status, exactly as the path/symbol view prints it.
+   *  Neighbour ids the caller may not read are never printed. */
+  private whyRecord(id: string, canRead: (record: unknown) => boolean = () => true, asOf?: string): WhyById {
+    const find = <K extends "decisions" | "constraints" | "bugs" | "findings" | "components">(kind: K) =>
+      this.recs(kind).find((r) => (r as { id: string }).id === id && canRead(r));
+    // Decisions the caller may read that had taken effect by `asOf` (all when no asOf).
+    const decs = new Map(this.recs("decisions").filter((x) => canRead(x) && inWindow(x.valid_from, null, asOf)).map((x) => [x.id, x]));
+    const visible = (ref: string | null) => (ref && decs.has(ref) ? ref : null);
+    const existed = (instant: string) => !asOf || instant <= asOf;
+    let record: WhyRecord | null = null;
+    switch (id.slice(0, id.indexOf("_"))) {
+      case "dec": {
+        const d = find("decisions") as Decision | undefined;
+        if (!d || !inWindow(d.valid_from, d.valid_to, asOf)) break;
+        // Stored status, as the path view prints it; asOf only hides neighbours not yet in effect.
+        const shown: Decision = { ...d, supersedes: visible(d.supersedes), superseded_by: visible(d.superseded_by) };
+        record = { kind: "decision", record: shown, chain: supersessionChain(shown, decs) };
+        break;
+      }
+      case "con": {
+        const c = find("constraints") as Constraint | undefined;
+        if (!c || !inWindow(c.valid_from, c.valid_to, asOf)) break;
+        record = { kind: "constraint", record: { ...c, source_decision: visible(c.source_decision) } };
+        break;
+      }
+      case "bug": { const b = find("bugs") as Bug | undefined; if (b) record = { kind: "bug", record: b }; break; }
+      case "fnd": { const f = find("findings") as Finding | undefined; if (f && existed(f.observed_at)) record = { kind: "finding", record: f }; break; }
+      // Not gated by asOf: the path view lists components regardless of asOf too.
+      // Findings stay gated by observed_at (the path view does not list findings).
+      case "cmp": { const c = find("components") as Component | undefined; if (c) record = { kind: "component", record: c }; break; }
+    }
+    return { id, record, ...(asOf ? { asOf } : {}) };
   }
 
   /** Transitive blast radius: every symbol/component that (in)directly depends on
@@ -2482,6 +2531,20 @@ function inWindow(valid_from: string | undefined, valid_to: string | null | unde
   if (valid_from && valid_from > asOf) return false;
   if (valid_to != null && asOf >= valid_to) return false;
   return true;
+}
+/** A decision's supersedes/superseded_by chain over `decs` (the readable, already
+ *  in-effect decisions), oldest first, cycle-guarded. `d` is the record as shown. */
+function supersessionChain(d: Decision, decs: ReadonlyMap<string, Decision>): WhyChainLink[] {
+  const seen = new Set([d.id]);
+  const back: Decision[] = [];
+  for (let cur = d.supersedes ? decs.get(d.supersedes) : undefined; cur && !seen.has(cur.id); cur = cur.supersedes ? decs.get(cur.supersedes) : undefined) {
+    seen.add(cur.id); back.unshift(cur);
+  }
+  const fwd: Decision[] = [];
+  for (let cur = d.superseded_by ? decs.get(d.superseded_by) : undefined; cur && !seen.has(cur.id); cur = cur.superseded_by ? decs.get(cur.superseded_by) : undefined) {
+    seen.add(cur.id); fwd.push(cur);
+  }
+  return [...back, d, ...fwd].map((x) => ({ id: x.id, status: x.status, title: x.title }));
 }
 function round(n: number): number {
   return Math.round(n * 100) / 100;

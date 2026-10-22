@@ -26,8 +26,9 @@
  * OFF LINUX (issue #287). Only linux exposes a spawn-free, stable process-instance
  * id (`/proc/<pid>/stat` field 22 plus the boot id and the pid/time namespaces), so
  * on macOS and Windows a DIFFERENT live process that recycled the owner's pid is
- * "unproven" here, which this table treats as live. The write lock closes that
- * forever-deadlock on its own rare path, once a lock already looks stale: it asks
+ * "unproven" here, which this table treats as live. Both locks close that
+ * forever-deadlock on their own rare path, once a lock already looks stale
+ * (`createdAfterLock`; the `.rmw-lock` since issue #457): they ask
  * the OS when the process now holding the pid was CREATED (`processStartedAt`, a
  * spawn) and compares that with the `at` the owner recorded when it took the lock.
  * A process created after the lock was taken cannot have taken it. Both instants
@@ -56,7 +57,7 @@
  * holder may judge itself against a token that no longer describes it. Tokenless
  * records (a legacy pre-token hunch, any non-linux writer, an unreadable /proc)
  * get main's unchanged pid rule — a live same-host pid keeps its lock (unless the
- * write lock's creation-time check above proves the pid reused), a dead one is
+ * creation-time check above proves the pid reused), a dead one is
  * stealable — with exactly one exception, the own-pid + foreign-nonce row
  * described in `judgeSameHostOwner`, which gets the AGE rule instead of main's
  * "live forever".
@@ -214,9 +215,9 @@ export const heldLockNonces = new Set<string>();
  *  - `stale`    — provably not the owner's process any more: take it over.
  *  - `live`     — authoritative, however old the file looks: never steal it.
  *  - `unproven` — a live pid whose process instance no token can compare (macOS,
- *                 Windows, a legacy record). Treated as live; a caller with a
- *                 better probe may still disprove it (src/serve/writelock.ts
- *                 asks the OS when that process was created, issue #287).
+ *                 Windows, a legacy record). Treated as live unless
+ *                 `createdAfterLock` proves the pid reused (both locks ask the
+ *                 OS when that process was created, issues #287, #457).
  *  - `age`      — nothing is proven; fall back to the caller's own age rule. */
 export type SameHostVerdict = "stale" | "live" | "unproven" | "age";
 
@@ -274,8 +275,9 @@ export function judgeSameHostOwner(owner: SameHostOwner, env: SameHostEnv): Same
   if (owner.pid === env.selfPid && owner.nonce !== undefined) return "age";
   // 7. A live pid no token can compare — another process's, or a nonce-less
   //    record of our own pid. Never stolen on a guess: "unproven" is "live" to a
-  //    caller that has nothing better. The write lock asks the OS for that
-  //    process's creation time, which can prove the pid was reused (issue #287).
+  //    caller that has nothing better. Both locks ask the OS for that process's
+  //    creation time (`createdAfterLock`), which can prove the pid was reused
+  //    (issues #287, #457).
   return "unproven";
 }
 
@@ -304,4 +306,26 @@ export function processStartedAt(pid: number): number | null {
   } catch {
     return null;
   }
+}
+
+/** How much later than the lock's recorded `at` the pid's current process must
+ *  have been created before it is proven not to be the owner. A genuine owner
+ *  started BEFORE it took the lock; the slack only absorbs clock granularity. */
+export const CREATED_AFTER_SLACK_MS = 5_000;
+
+/** Is the process now holding the owner's pid provably newer than the lock?
+ *  The one rule both `src/serve/writelock.ts` and jsonStore's `.rmw-lock` apply
+ *  to an "unproven" verdict (issues #287, #457). Unreadable either way — no `at`
+ *  recorded (a legacy record), or no creation time from the OS — means not
+ *  proven, and a live pid keeps its lock. SPAWNS through `processStartedAt`, so
+ *  callers consult it only for a lock that already looks stale by age. */
+export function createdAfterLock(
+  owner: { pid: number; at?: string },
+  startedAt: (pid: number) => number | null = processStartedAt,
+): boolean {
+  if (owner.at === undefined) return false;
+  const at = Date.parse(owner.at);
+  if (!Number.isFinite(at)) return false;
+  const started = startedAt(owner.pid);
+  return started !== null && started > at + CREATED_AFTER_SLACK_MS;
 }
