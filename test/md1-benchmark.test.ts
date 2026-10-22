@@ -13,7 +13,7 @@ import {
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("MD-1a benchmark uses the pinned baseline, complete matrix, and nearest-rank p50/p95", () => {
-  assert.equal(BENCHMARK_BASELINE_REF, "610cd2e5673bf3c69ac984b4737e2d4a749ed374");
+  assert.equal(BENCHMARK_BASELINE_REF, "a1ad6d89631cce7c194f3f679abf7ed4e56d13e3");
   const scenarios = benchmarkScenarios(16);
   assert.equal(scenarios.length, 12);
   assert.deepEqual(new Set(scenarios.map((scenario) => scenario.operation)), new Set(["index", "sync"]));
