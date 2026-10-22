@@ -7,6 +7,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildServer } from "../src/mcp/server.js";
 import { tempStore } from "./helpers.js";
 import type { Decision, Constraint } from "../src/core/types.js";
+import { formatWhyRecord } from "../src/core/whyRecord.js";
 
 function mkDecision(over: Partial<Decision> & { id: string }): Decision {
   return {
@@ -115,6 +116,72 @@ test("a file path still resolves by path, with no by-id result", async () => {
     assert.match(text, /DECISIONS:/);
     assert.match(text, /CONSTRAINTS \(must not break\):/);
     assert.doesNotMatch(text, /No record/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("why(<id>, {asOf}) shows the record as it stood then, or no record when not yet/no longer in force", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.json.put("decisions", mkDecision({
+      id: "dec_1", title: "Old", status: "superseded", superseded_by: "dec_2",
+      valid_from: "2026-01-01T00:00:00Z", valid_to: "2026-06-01T00:00:00Z",
+    }));
+    store.json.put("decisions", mkDecision({
+      id: "dec_2", title: "New", supersedes: "dec_1",
+      valid_from: "2026-06-01T00:00:00Z", date: "2026-06-01T00:00:00Z",
+    }));
+    const asOf = "2026-03-01T00:00:00Z";
+    const old = store.why("dec_1", { asOf }).byId?.record;
+    assert.equal(old?.kind, "decision");
+    if (old?.kind !== "decision") return;
+    assert.equal(old.record.status, "accepted", "in force at asOf, not yet superseded");
+    assert.equal(old.record.superseded_by, null, "successor had not started");
+    assert.deepEqual(old.chain.map((c) => c.id), ["dec_1"]);
+    assert.doesNotMatch(formatWhyRecord({ id: "dec_1", record: old }).join("\n"), /dec_2/);
+
+    const fresh = store.why("dec_2", { asOf });
+    assert.equal(fresh.byId?.record, null, "dec_2 did not exist at asOf");
+    assert.match(formatWhyRecord(fresh.byId!).join("\n"), /No record dec_2 as of 2026-03-01/);
+
+    // Without asOf: full history, unchanged.
+    const now = store.why("dec_1").byId?.record;
+    assert.equal(now?.kind === "decision" && now.record.status, "superseded");
+  } finally {
+    cleanup();
+  }
+});
+
+test("by-id output is bounded: lists capped with a 'more' note, long prose clipped", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.json.put("decisions", mkDecision({
+      id: "dec_0c0c0c0c0c", title: "Big", decision: "x".repeat(5000),
+      alternatives_rejected: Array.from({ length: 20 }, (_, i) => `alt-${i} ${"y".repeat(1000)}`),
+      related_files: Array.from({ length: 30 }, (_, i) => `src/f${i}.ts`),
+    }));
+    const text = formatWhyRecord(store.why("dec_0c0c0c0c0c").byId!).join("\n");
+    assert.match(text, /alt-5 /);
+    assert.doesNotMatch(text, /alt-6 /, "alternatives capped at WHY_CAP");
+    assert.match(text, /\+14 more/);
+    assert.doesNotMatch(text, /src\/f6\.ts/);
+    assert.match(text, /\+24 more/);
+    assert.ok(text.length < 4000, `bounded output (${text.length} chars)`);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a supersedes/superseded_by neighbour the caller cannot read is not printed", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    seed(store);
+    const canRead = (r: unknown) => (r as { id: string }).id !== "dec_0a0a0a0a01";
+    const w = store.why("dec_0b5d2be516", { canRead });
+    const text = formatWhyRecord(w.byId!).join("\n");
+    assert.match(text, /Redis-backed sessions/);
+    assert.doesNotMatch(text, /dec_0a0a0a0a01/);
   } finally {
     cleanup();
   }

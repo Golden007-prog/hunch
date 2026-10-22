@@ -1444,7 +1444,7 @@ export class HunchStore {
     // A record id (every delivered brief line ends in `hunch_why("dec_…")`) resolves
     // to that record directly (issue #474). Not windowed by `asOf`: asking for one
     // record by id is asking for it, superseded or not.
-    const byId = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead) : undefined;
+    const byId = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead, opts.asOf) : undefined;
     if (byId?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId };
     const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
     const bugs = this.recs("bugs").filter(opts.canRead ?? (() => true));
@@ -1492,38 +1492,39 @@ export class HunchStore {
   }
 
   /** Look a record up by id across the record kinds why() explains (public ∪ private
-   *  via recs(), narrowed by `canRead`). A decision carries its supersession chain. */
-  private whyRecord(id: string, canRead: (record: unknown) => boolean = () => true): WhyById {
+   *  via recs(), narrowed by `canRead`). A decision carries its supersession chain.
+   *  With `asOf`, a record outside its valid window then is "no record", and the
+   *  record is shown as it stood then (no successor that had not started yet).
+   *  Neighbour ids the caller may not read are never printed. */
+  private whyRecord(id: string, canRead: (record: unknown) => boolean = () => true, asOf?: string): WhyById {
     const find = <K extends "decisions" | "constraints" | "bugs" | "findings" | "components">(kind: K) =>
       this.recs(kind).find((r) => (r as { id: string }).id === id && canRead(r));
+    // Decisions the caller may read that had taken effect by `asOf` (all when no asOf).
+    const decs = new Map(this.recs("decisions").filter((x) => canRead(x) && inWindow(x.valid_from, null, asOf)).map((x) => [x.id, x]));
+    const visible = (ref: string | null) => (ref && decs.has(ref) ? ref : null);
+    const existed = (instant: string) => !asOf || instant <= asOf;
     let record: WhyRecord | null = null;
     switch (id.slice(0, id.indexOf("_"))) {
       case "dec": {
         const d = find("decisions") as Decision | undefined;
-        if (d) record = { kind: "decision", record: d, chain: this.supersessionChain(d, canRead) };
+        if (!d || !inWindow(d.valid_from, d.valid_to, asOf)) break;
+        const shown: Decision = { ...d, supersedes: visible(d.supersedes), superseded_by: visible(d.superseded_by) };
+        // In its window at asOf means nothing had superseded it yet.
+        if (asOf && shown.status === "superseded" && !shown.superseded_by) shown.status = "accepted";
+        record = { kind: "decision", record: shown, chain: supersessionChain(shown, decs) };
         break;
       }
-      case "con": { const c = find("constraints") as Constraint | undefined; if (c) record = { kind: "constraint", record: c }; break; }
+      case "con": {
+        const c = find("constraints") as Constraint | undefined;
+        if (!c || !inWindow(c.valid_from, c.valid_to, asOf)) break;
+        record = { kind: "constraint", record: { ...c, source_decision: visible(c.source_decision), ...(asOf && c.status === "retired" ? { status: "active" as const } : {}) } };
+        break;
+      }
       case "bug": { const b = find("bugs") as Bug | undefined; if (b) record = { kind: "bug", record: b }; break; }
-      case "fnd": { const f = find("findings") as Finding | undefined; if (f) record = { kind: "finding", record: f }; break; }
-      case "cmp": { const c = find("components") as Component | undefined; if (c) record = { kind: "component", record: c }; break; }
+      case "fnd": { const f = find("findings") as Finding | undefined; if (f && existed(f.observed_at)) record = { kind: "finding", record: f }; break; }
+      case "cmp": { const c = find("components") as Component | undefined; if (c && existed(c.created_at)) record = { kind: "component", record: c }; break; }
     }
-    return { id, record };
-  }
-
-  /** A decision's supersedes/superseded_by chain, oldest first (cycle-guarded). */
-  private supersessionChain(d: Decision, canRead: (record: unknown) => boolean): WhyChainLink[] {
-    const byId = new Map(this.recs("decisions").filter(canRead).map((x) => [x.id, x]));
-    const seen = new Set([d.id]);
-    const back: Decision[] = [];
-    for (let cur = d.supersedes ? byId.get(d.supersedes) : undefined; cur && !seen.has(cur.id); cur = cur.supersedes ? byId.get(cur.supersedes) : undefined) {
-      seen.add(cur.id); back.unshift(cur);
-    }
-    const fwd: Decision[] = [];
-    for (let cur = d.superseded_by ? byId.get(d.superseded_by) : undefined; cur && !seen.has(cur.id); cur = cur.superseded_by ? byId.get(cur.superseded_by) : undefined) {
-      seen.add(cur.id); fwd.push(cur);
-    }
-    return [...back, d, ...fwd].map((x) => ({ id: x.id, status: x.status, title: x.title }));
+    return { id, record, ...(asOf ? { asOf } : {}) };
   }
 
   /** Transitive blast radius: every symbol/component that (in)directly depends on
@@ -2526,6 +2527,20 @@ function inWindow(valid_from: string | undefined, valid_to: string | null | unde
   if (valid_from && valid_from > asOf) return false;
   if (valid_to != null && asOf >= valid_to) return false;
   return true;
+}
+/** A decision's supersedes/superseded_by chain over `decs` (the readable, already
+ *  in-effect decisions), oldest first, cycle-guarded. `d` is the record as shown. */
+function supersessionChain(d: Decision, decs: ReadonlyMap<string, Decision>): WhyChainLink[] {
+  const seen = new Set([d.id]);
+  const back: Decision[] = [];
+  for (let cur = d.supersedes ? decs.get(d.supersedes) : undefined; cur && !seen.has(cur.id); cur = cur.supersedes ? decs.get(cur.supersedes) : undefined) {
+    seen.add(cur.id); back.unshift(cur);
+  }
+  const fwd: Decision[] = [];
+  for (let cur = d.superseded_by ? decs.get(d.superseded_by) : undefined; cur && !seen.has(cur.id); cur = cur.superseded_by ? decs.get(cur.superseded_by) : undefined) {
+    seen.add(cur.id); fwd.push(cur);
+  }
+  return [...back, d, ...fwd].map((x) => ({ id: x.id, status: x.status, title: x.title }));
 }
 function round(n: number): number {
   return Math.round(n * 100) / 100;

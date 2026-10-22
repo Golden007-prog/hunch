@@ -93,7 +93,7 @@ import { HUNCH_VERSION } from "../core/version.js";
 import { assertCompleteRepoScan, indexRepo, scanRepo } from "../extractors/indexer.js";
 import type { Decision, Finding, Symbol } from "../core/types.js";
 import { liveForTopic, historyForTopic, rejectedForTopic, captureConflicts } from "../core/topics.js";
-import { formatWhyRecord } from "../core/whyRecord.js";
+import { formatWhyRecord, more, WHY_CAP } from "../core/whyRecord.js"; // WHY_CAP: per record-type cap in hunch_why
 import { pendingEscalations, policyEscalations, commitRepairEscalations, actionableEscalations, escalationHeadline, type Escalation } from "../core/escalations.js";
 import { readActivePendingRepairs, withheldRewrites } from "../core/repairqueue.js";
 import { scanRecord, publicationWarning, loadVocabulary } from "../core/publication.js";
@@ -641,7 +641,6 @@ const resolveDestRoot = (home: "public" | "private", store: HunchStore, root: st
 // session, so an uncapped list pollutes the context window. Cap each list to its
 // highest-signal head (records are pre-sorted by severity/confidence) and tell the
 // caller what was withheld rather than truncating silently.
-const WHY_CAP = 6; // per record-type in hunch_why
 const DEP_CAP = 25; // dependents in hunch_get_dependents
 const QUERY_HITS = 8; // hunch_query matches (was 12)
 const FINDINGS_CAP = 12; // hunch_findings listing
@@ -666,8 +665,6 @@ export const firstSentence = (text: string): string => {
 };
 const SEV_CONSTRAINT: Record<string, number> = { blocking: 3, warning: 2, advisory: 1 };
 const SEV_BUG: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
-const more = (total: number, cap: number, hint = ""): string =>
-  total > cap ? `\n  …(+${total - cap} more${hint ? ` — ${hint}` : ""})` : "";
 
 const EXECUTION_OBLIGATION_SCHEMA = z.object({
   id: z.string(),

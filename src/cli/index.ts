@@ -3603,6 +3603,7 @@ program
     if (opts.asOf && !asOf) return fail(`could not resolve --as-of "${opts.asOf}" to a commit (need a git repo and a valid ref)`);
     const w = store.why(target, { asOf });
     if (w.byId?.record) {
+      if (asOf) console.log(`Why "${target}" (as of ${opts.asOf} — ${asOf.slice(0, 10)}):\n`);
       console.log(formatWhyRecord(w.byId).join("\n"));
       store.close();
       return;
