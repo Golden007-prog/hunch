@@ -61,10 +61,15 @@ export function formatWhyRecord(byId: WhyById): string[] {
       if (d.supersedes) out.push(`  supersedes: ${d.supersedes}`);
       if (d.superseded_by) out.push(`  superseded by: ${d.superseded_by}`);
       if (hit.chain.length > 1) {
-        // Keep the newest links (the current decision sits at the end of a long chain).
+        // A WHY_CAP window that always holds the queried decision: the newest links
+        // when it is near the end, otherwise starting at it.
+        const at = Math.max(0, hit.chain.findIndex((c) => c.id === d.id));
+        const start = Math.max(0, Math.min(at, hit.chain.length - WHY_CAP));
+        const end = Math.min(hit.chain.length, start + WHY_CAP);
         out.push("  chain (oldest first):");
-        if (hit.chain.length > WHY_CAP) out.push(`    …(+${hit.chain.length - WHY_CAP} earlier)`);
-        out.push(...hit.chain.slice(-WHY_CAP).map((c) => `    - ${c.id} [${c.status}] ${clip(c.title, ITEM_CHARS)}${c.id === d.id ? " ←" : ""}`));
+        if (start > 0) out.push(`    …(+${start} earlier)`);
+        out.push(...hit.chain.slice(start, end).map((c) => `    - ${c.id} [${c.status}] ${clip(c.title, ITEM_CHARS)}${c.id === d.id ? " ←" : ""}`));
+        if (end < hit.chain.length) out.push(`    …(+${hit.chain.length - end} later)`);
       }
       break;
     }

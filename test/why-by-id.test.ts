@@ -184,6 +184,7 @@ test("a supersedes/superseded_by neighbour the caller cannot read is not printed
     const text = formatWhyRecord(w.byId!).join("\n");
     assert.match(text, /Redis-backed sessions/);
     assert.doesNotMatch(text, /dec_0a0a0a0a01/);
+    assert.doesNotMatch(text, /Cookie sessions/, "the hidden neighbour's title is not leaked either");
   } finally {
     cleanup();
   }
@@ -280,6 +281,28 @@ test("chain lines carry titles, and a capped list's 'more' line is indented like
     store.json.put("decisions", mkDecision({ id: "dec_0c0c0c0c0c", title: "Big", consequences: Array.from({ length: 9 }, (_, i) => `c${i}`) }));
     const big = formatWhyRecord(store.why("dec_0c0c0c0c0c").byId!).join("\n").split("\n");
     assert.ok(big.includes("    …(+3 more)"), big.join("\n"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("a long chain window always holds the queried decision, with earlier/later markers", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const ids = Array.from({ length: 10 }, (_, i) => `dec_c${i}`);
+    ids.forEach((id, i) => store.json.put("decisions", mkDecision({
+      id, title: `Step ${i}`, status: i < 9 ? "superseded" : "accepted",
+      supersedes: i > 0 ? ids[i - 1]! : null, superseded_by: i < 9 ? ids[i + 1]! : null,
+    })));
+    const first = formatWhyRecord(store.why("dec_c0").byId!).join("\n");
+    assert.ok(first.includes("    - dec_c0 [superseded] Step 0 ←"), first);
+    assert.ok(first.includes("    …(+4 later)"), first);
+    assert.doesNotMatch(first, /earlier/);
+    const middle = formatWhyRecord(store.why("dec_c3").byId!).join("\n");
+    assert.ok(middle.includes("dec_c3 [superseded] Step 3 ←") && middle.includes("    …(+3 earlier)") && middle.includes("    …(+1 later)"), middle);
+    const last = formatWhyRecord(store.why("dec_c9").byId!).join("\n");
+    assert.ok(last.includes("dec_c9 [accepted] Step 9 ←") && last.includes("    …(+4 earlier)"), last);
+    assert.doesNotMatch(last, /later/);
   } finally {
     cleanup();
   }
