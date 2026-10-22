@@ -479,6 +479,14 @@ const TODO: Record<string, string> = {
   "hunch_task.cwd": "start with cwd=<other repo> answers identically and leaves no new file under <other>/.hunch; routing of the task record is unproven (investigate)",
 };
 
+/** Frozen: shrink only. The TODO keys when this ratchet landed; a new known-bug todo cannot be added. */
+const TODO_BASELINE = new Set(["hunch_task.cwd"]);
+
+test("the TODO map only shrinks: no key outside TODO_BASELINE", () => {
+  const added = Object.keys(TODO).filter((k) => !TODO_BASELINE.has(k));
+  assert.deepEqual(added, [], `new TODO key(s): ${added.join(", ")}. The TODO set is frozen; fix the case instead of parking it.`);
+});
+
 const spawnEnv = (tools: string): Record<string, string> => Object.fromEntries(Object.entries(isolatedCliEnv({
   HUNCH_MCP_TOOLS: tools, HUNCH_PRIVATE_DIR: "", GIT_CONFIG_NOSYSTEM: "1", HUNCH_NO_UPDATE_CHECK: "1",
 })).filter((e): e is [string, string] => typeof e[1] === "string"));

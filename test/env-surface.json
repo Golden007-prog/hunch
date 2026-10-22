@@ -324,7 +324,7 @@
     "tests": [
       {
         "file": "test/agenthook.test.ts",
-        "title": "Codex apply_patch lists every touched file with only its added lines"
+        "title": "PostToolUse records every file an apply_patch touched for the Stop gate"
       },
       {
         "file": "test/drift.test.ts",
@@ -542,7 +542,7 @@
     "tests": [
       {
         "file": "test/task-selection.test.ts",
-        "title": "without a pathExists check only a slashed token counts as a path"
+        "title": "e2e: HUNCH_TASK_SELECTION=0 writes no selection and grounds unfiltered"
       }
     ]
   },
@@ -651,7 +651,7 @@
     "tests": [
       {
         "file": "test/task-selection.test.ts",
-        "title": "without a pathExists check only a slashed token counts as a path"
+        "title": "e2e: HUNCH_TASK_SELECTION=0 writes no selection and grounds unfiltered"
       }
     ]
   },
@@ -661,11 +661,11 @@
     "tests": [
       {
         "file": "test/parse.test.ts",
-        "title": "known trade-off: a plain YAML file whose STRING VALUE merely contains \\\"{{\\\" is treated as templated, but real anchors alongside it are still extracted"
+        "title": "a cached copy is reused by the next process, and a corrupt one is rewritten before loading"
       },
       {
         "file": "test/task-selection.test.ts",
-        "title": "without a pathExists check only a slashed token counts as a path"
+        "title": "e2e: HUNCH_TASK_SELECTION=0 writes no selection and grounds unfiltered"
       }
     ]
   },
@@ -675,7 +675,7 @@
     "tests": [
       {
         "file": "test/task-selection.test.ts",
-        "title": "without a pathExists check only a slashed token counts as a path"
+        "title": "e2e: HUNCH_TASK_SELECTION=0 writes no selection and grounds unfiltered"
       }
     ]
   },

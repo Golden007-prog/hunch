@@ -912,7 +912,7 @@
     "tests": [
       {
         "file": "test/repair-provenance.test.ts",
-        "title": "a queued repair surfaces via `hunch escalations` — the discoverable surface for what the silent hook found"
+        "title": "a withheld queued repair (its `to` doesn't resolve here) still surfaces via `hunch escalations`, but never advertises --apply --only as a working resolution (#48 follow-up)"
       }
     ]
   },
@@ -1215,10 +1215,6 @@
   "hook --provider": {
     "tests": [
       {
-        "file": "test/agenthook.test.ts",
-        "title": "Codex apply_patch lists every touched file with only its added lines"
-      },
-      {
         "file": "test/hook-matrix.test.ts",
         "title": "every provider×event runs the real CLI with a native payload"
       }
@@ -1305,10 +1301,6 @@
       {
         "file": "test/hook-managers.test.ts",
         "title": "husky v9: hunch init reports the hooks as NOT installed with the snippet, and writes nothing under .husky"
-      },
-      {
-        "file": "test/json-store-security.test.ts",
-        "title": "real init refuses a public .hunch symlink without scaffolding its target"
       }
     ]
   },
@@ -1329,10 +1321,6 @@
       {
         "file": "test/agenthook.test.ts",
         "title": "e2e: `hunch init` wires Windsurf and its documented pre_write_code payload reaches the strict gate (#484)"
-      },
-      {
-        "file": "test/json-store-security.test.ts",
-        "title": "real init refuses a public .hunch symlink without scaffolding its target"
       }
     ]
   },
@@ -1353,10 +1341,6 @@
       {
         "file": "test/hook-managers.test.ts",
         "title": "husky v9: hunch init reports the hooks as NOT installed with the snippet, and writes nothing under .husky"
-      },
-      {
-        "file": "test/json-store-security.test.ts",
-        "title": "real init refuses a public .hunch symlink without scaffolding its target"
       }
     ]
   },
@@ -1649,18 +1633,18 @@
       {
         "file": "test/behavior-workspace.test.ts",
         "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
-      },
-      {
-        "file": "test/check-nonmutating.test.ts",
-        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
       }
     ]
   },
   "policy evaluate --public-only": {
     "tests": [
       {
-        "file": "test/check-nonmutating.test.ts",
-        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
       }
     ]
   },
@@ -1899,10 +1883,6 @@
   },
   "policy shadow --record": {
     "tests": [
-      {
-        "file": "test/check-nonmutating.test.ts",
-        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
-      },
       {
         "file": "test/constitution.test.ts",
         "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
@@ -2362,10 +2342,6 @@
       {
         "file": "test/capture-authority.test.ts",
         "title": "hunch review --confirm: a human countersigns a correction (granting severity) and a decision (keeping status)"
-      },
-      {
-        "file": "test/constitution.test.ts",
-        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
       }
     ]
   },
@@ -2438,10 +2414,6 @@
       {
         "file": "test/capture-authority.test.ts",
         "title": "hunch review --confirm: a human countersigns a correction (granting severity) and a decision (keeping status)"
-      },
-      {
-        "file": "test/constitution.test.ts",
-        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
       }
     ]
   },
@@ -2617,10 +2589,6 @@
       {
         "file": "test/integration-cli-commands-b.test.ts",
         "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
-      },
-      {
-        "file": "test/serve.test.ts",
-        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
       }
     ]
   },
@@ -2629,10 +2597,6 @@
       {
         "file": "test/integration-cli-commands-b.test.ts",
         "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
-      },
-      {
-        "file": "test/serve.test.ts",
-        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
       }
     ]
   },
@@ -2665,10 +2629,6 @@
       {
         "file": "test/integration-cli-commands-b.test.ts",
         "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
-      },
-      {
-        "file": "test/serve.test.ts",
-        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
       }
     ]
   },
@@ -2717,10 +2677,6 @@
       {
         "file": "test/integration-cli-commands-b.test.ts",
         "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
-      },
-      {
-        "file": "test/serve.test.ts",
-        "title": "CLI: `hunch serve init --config <file>` honors the path from any cwd (1.26.0 handed it to the parent command)"
       }
     ]
   },
@@ -3300,7 +3256,7 @@
     "tests": [
       {
         "file": "test/integration-cli-commands-b.test.ts",
-        "title": "session id is stable"
+        "title": "cli:embed: degrades with a clear message when no embedder is installed, keyword query still works, and a stub embedder embeds idempotently"
       }
     ]
   },
@@ -3308,7 +3264,7 @@
     "tests": [
       {
         "file": "test/integration-cli-commands-b.test.ts",
-        "title": "session id is stable"
+        "title": "cli:embed: degrades with a clear message when no embedder is installed, keyword query still works, and a stub embedder embeds idempotently"
       }
     ]
   },

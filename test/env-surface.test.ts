@@ -4,6 +4,16 @@
  * exercise it (each test's body must mention the variable) or an explicit todo.
  * New variables can never land as todo: the todo set is ratcheted against the
  * frozen baseline below, so adding an env read without a test fails CI.
+ *
+ * Discovery sees `process.env.X`, `process.env["X"]`, `env.X`, aliases of process.env
+ * (`const e = process.env; e.X`), destructuring (`const { X, Y: y } = process.env`) and
+ * helper reads (`numEnv("X")`). A read whose name is not a literal (`process.env[key]`,
+ * `...rest`) is a dynamic env read and must be listed in DYNAMIC_ALLOW with a reason.
+ *
+ * Known limits (a source-text heuristic, not a trace; runtime env tracing is the planned fix):
+ *  - a test counts when its body names the variable as a string literal anywhere, so a
+ *    literal env name inside an unrelated data structure satisfies the gate;
+ *  - aliases are found only when assigned directly from process.env in the same file.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -15,15 +25,28 @@ import { resolveSpawnCommand } from "../src/core/spawnCommand.js";
 
 const ROOT = process.cwd();
 const NAME = "([A-Z][A-Za-z0-9_]*)";
-/** Reads on process.env or an `env` alias of it; assignments and deletes are writes, not reads. */
-const READS = [
-  new RegExp(`(?<![\\w.])(?:process\\.env|env)\\??\\.${NAME}\\b(?!\\s*=(?!=))`, "g"),
-  new RegExp(`(?<![\\w.])(?:process\\.env|env)\\??\\.?\\[\\s*["'\`]${NAME}["'\`]\\s*\\](?!\\s*=(?!=))`, "g"),
-  // Helpers such as numEnv("HUNCH_RRF_K", 60) that read the variable by name.
-  new RegExp(`\\b\\w*Env\\(\\s*["'\`]([A-Z][A-Z0-9_]*)["'\`]`, "g"),
-];
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Reads on process.env, an `env` name, or a declared alias of process.env; assignments and deletes are writes, not reads. */
+function readsFor(aliases: string[]): RegExp[] {
+  const on = ["process\\.env", "env", ...aliases.map(escRe)].join("|");
+  return [
+    new RegExp(`(?<![\\w.$])(?:${on})\\??\\.${NAME}\\b(?!\\s*=(?!=))`, "g"),
+    new RegExp(`(?<![\\w.$])(?:${on})\\??\\.?\\[\\s*["'\`]${NAME}["'\`]\\s*\\](?!\\s*=(?!=))`, "g"),
+    // Helpers such as numEnv("HUNCH_RRF_K", 60) that read the variable by name.
+    new RegExp(`\\b\\w*Env\\(\\s*["'\`]([A-Z][A-Z0-9_]*)["'\`]`, "g"),
+  ];
+}
+/** Names bound directly to process.env: `const e = process.env`, `env: NodeJS.ProcessEnv = process.env`. */
+const ALIAS = /(?:(?:const|let|var)\s+([\w$]+)\s*(?::[^=;\n]+)?|([\w$]+)\s*:\s*NodeJS\.ProcessEnv\s*)=\s*process\.env\b(?!\s*(?:\?\.|[.[]))/g;
 /** Pass-through allowlists: `for (const key of ["PATH", ...]) if (process.env[key]) ...`. */
 const PASSTHROUGH = /for \(const (\w+) of \[([^\]]*)\]\)\s*\{?\s*if \(process\.env\[\1\]\)/g;
+
+/** Dynamic env reads (non-literal key or a destructuring rest), `file: expression` -> why it is safe.
+ *  Each needs a reason; a new dynamic read fails until it is listed here. */
+const DYNAMIC_ALLOW: Record<string, string> = {
+  "src/extractors/nativeTreeSitter.ts: process.env[key]": "saves the native-binding override keys it is about to set, to restore them afterwards; keys come from NATIVE_PACKAGES, not user input",
+  "src/store/hunchStore.ts: process.env[name]": "numEnv(name) helper; every caller passes a literal name, which discovery reads through the \\w*Env(\"X\") pattern",
+};
 
 interface Entry { class: string; purpose: string; tests?: { file: string; title: string }[]; todo?: string }
 const registry = JSON.parse(readFileSync(join(ROOT, "test/env-surface.json"), "utf8")) as Record<string, Entry>;
@@ -46,7 +69,7 @@ function walk(dir: string, suffix: string, out: string[] = []): string[] {
   return out;
 }
 
-export function discoverEnvReads(root = ROOT): Map<string, Set<string>> {
+export function discoverEnvReads(root = ROOT, dynamic: string[] = []): Map<string, Set<string>> {
   const found = new Map<string, Set<string>>();
   const add = (name: string, file: string) => {
     if (!found.has(name)) found.set(name, new Set());
@@ -54,26 +77,117 @@ export function discoverEnvReads(root = ROOT): Map<string, Set<string>> {
   };
   for (const file of walk(join(root, "src"), ".ts")) {
     const src = readFileSync(file, "utf8");
-    for (const re of READS) {
+    const rel = relative(root, file).replace(/\\/g, "/");
+    const aliases = [...new Set([...src.matchAll(ALIAS)].map((m) => (m[1] ?? m[2])!))];
+    for (const re of readsFor(aliases)) {
       for (const m of src.matchAll(re)) {
         if (/delete\s*$/.test(src.slice(Math.max(0, m.index! - 8), m.index))) continue;
         add(m[1]!, file);
       }
     }
+    const passthrough: [number, number][] = [];
     for (const m of src.matchAll(PASSTHROUGH)) {
       for (const key of m[2]!.matchAll(/["']([A-Za-z_][A-Za-z0-9_]*)["']/g)) add(key[1]!, file);
+      const eol = src.indexOf("\n", m.index! + m[0].length);
+      passthrough.push([m.index!, eol < 0 ? src.length : eol]);
+    }
+    const on = ["process\\.env", ...aliases.map(escRe)].join("|");
+    // Destructuring: `const { X, Y: y = "d", ...rest } = process.env` (or an alias).
+    for (const m of src.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^{}]*)\\}\\s*(?::[^=;\\n]+)?=\\s*(?:${on})\\b(?!\\s*(?:\\?\\.|[.[]))`, "g"))) {
+      for (const part of m[1]!.split(",").map((p) => p.trim()).filter(Boolean)) {
+        if (part.startsWith("...")) { dynamic.push(`${rel}: ...${part.slice(3).trim()}`); continue; }
+        const key = part.split(/[:=]/)[0]!.trim().replace(/^["'`]|["'`]$/g, "");
+        if (/^[A-Za-z_]\w*$/.test(key)) add(key, file);
+      }
+    }
+    // Dynamic: a non-literal key on process.env or an alias, read (not assigned or deleted).
+    for (const m of src.matchAll(new RegExp(`(?<![\\w.$])(?:${on})\\??\\.?\\[(?!\\s*["'\`][A-Za-z_]\\w*["'\`]\\s*\\])([^\\]]*)\\](?!\\s*=(?!=))`, "g"))) {
+      if (/delete\s*$/.test(src.slice(Math.max(0, m.index! - 8), m.index))) continue;
+      if (passthrough.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+      dynamic.push(`${rel}: ${m[0].replace(/\s+/g, "")}`);
     }
   }
   return found;
 }
 
-/** Body of the top-level test titled `title`: from its `test(` to the next one. */
-function testBody(file: string, title: string): string | null {
+/** End index (exclusive) of the bracket group opening at `open`, skipping strings and comments. */
+function groupEnd(src: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i]!;
+    if (c === '"' || c === "'" || c === "`") {
+      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === "\\") i++;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") { const n = src.indexOf("\n", i); i = n < 0 ? src.length : n; continue; }
+    if (c === "/" && src[i + 1] === "*") { const n = src.indexOf("*/", i + 2); i = n < 0 ? src.length : n + 1; continue; }
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") { depth--; if (depth === 0) return i + 1; }
+  }
+  return src.length;
+}
+
+const TEST_FILE = /^test\/.+\.test\.(ts|mts)$/;
+
+/** True when the test call starting at `m` is skipped or todo: `test.skip(`/`.todo(`, or a
+ *  `{ skip: ... }`/`{ todo: ... }` option — unless that option's value only depends on
+ *  process.platform (directly or via a `const x = ...process.platform...` name), since the
+ *  test then runs, and covers, on the other platforms CI uses. */
+function isSkipped(src: string, modifier: string | undefined, afterTitle: number): boolean {
+  if (/^\.(skip|todo)$/.test(modifier ?? "")) return true;
+  const opts = /^\s*,\s*\{/.exec(src.slice(afterTitle));
+  if (!opts) return false;
+  const open = afterTitle + opts[0].length - 1;
+  const obj = src.slice(open, groupEnd(src, open));
+  const opt = /\b(?:skip|todo)\s*:([\s\S]*)/.exec(obj);
+  if (!opt) return false;
+  const platformNames = [...src.matchAll(/(?:const|let)\s+([\w$]+)\s*=\s*[^;\n]*process\.platform/g)].map((x) => escRe(x[1]!));
+  return !new RegExp(`process\\.platform${platformNames.length ? `|(?<![\\w$.])(?:${platformNames.join("|")})(?![\\w$])` : ""}`).test(opt[1]!);
+}
+
+/** Bodies of the file's own functions (`function f(...) {...}`, `const f = (...) => ...`), by name. */
+function helperBodies(src: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const d of src.matchAll(/(?:function\s+([\w$]+)\s*\(|(?:const|let)\s+([\w$]+)\s*=\s*(?:async\s*)?\()/g)) {
+    const paramsEnd = groupEnd(src, d.index! + d[0].length - 1);
+    let body = "";
+    if (d[1]) {
+      // Skip `{...}` groups that belong to a return type annotation (`): { out: string } {`).
+      let open = src.indexOf("{", paramsEnd);
+      while (open >= 0 && /^\s*[{|&[>]/.test(src.slice(groupEnd(src, open)))) open = src.indexOf("{", groupEnd(src, open));
+      if (open >= 0) body = src.slice(open, groupEnd(src, open));
+    } else {
+      const arrow = /^\s*(?::[^\n]*?)?=>\s*/.exec(src.slice(paramsEnd));
+      if (!arrow) continue;
+      const start = paramsEnd + arrow[0].length;
+      const open = src.slice(start).search(/[({]/);
+      if (open >= 0) body = src.slice(start, groupEnd(src, start + open));
+    }
+    const name = (d[1] ?? d[2])!;
+    out.set(name, `${out.get(name) ?? ""}\n${body}`);
+  }
+  return out;
+}
+
+/** Body of the test titled `title`: its own `test(...)` call, balanced parentheses, plus the bodies
+ *  of same-file helpers it calls (transitively) — so `hook(root, ...)` counts for the env that
+ *  hook() sets. A skipped or todo test is not coverage (see isSkipped). */
+function testBody(file: string, title: string): string | null | { skipped: true } {
   const src = readFileSync(join(ROOT, file), "utf8");
-  const starts = [...src.matchAll(/^\s*test\(\s*(["'`])((?:\\.|(?!\1).)*)\1/gm)];
-  const i = starts.findIndex((m) => m[2] === title);
-  if (i < 0) return null;
-  return src.slice(starts[i]!.index, starts[i + 1]?.index ?? src.length);
+  const m = [...src.matchAll(/^\s*(?:test|it)(\.\w+)?\(\s*(["'`])((?:\\.|(?!\2).)*)\2/gm)].find((x) => x[3] === title);
+  if (!m) return null;
+  if (isSkipped(src, m[1], m.index! + m[0].length)) return { skipped: true };
+  const helpers = helperBodies(src);
+  const parts = [src.slice(m.index!, groupEnd(src, src.indexOf("(", m.index!)))];
+  const seen = new Set<string>();
+  for (let i = 0; i < parts.length; i++) {
+    for (const [name, body] of helpers) {
+      if (seen.has(name) || !new RegExp(`(?<![\\w$.])${escRe(name)}\\s*\\(`).test(parts[i]!)) continue;
+      seen.add(name);
+      parts.push(body);
+    }
+  }
+  return parts.join("\n");
 }
 
 /** Drop // and block comments (string-aware enough: skips quoted text) so a comment cannot satisfy the gate. */
@@ -81,15 +195,15 @@ function stripComments(src: string): string {
   return src.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => (str ? m : " "));
 }
 
-/** The name must appear as a string literal, an object key, or an env assignment/delete, outside comments. */
+/** The name must appear as a string literal, an object key, or an env assignment, outside comments.
+ *  A delete (`delete process.env.X`, `delete env["X"]`) only clears the variable and does not count. */
 function setsOrNamesVar(body: string, name: string): boolean {
-  const code = stripComments(body);
-  const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const n = escRe(name);
+  const code = stripComments(body).replace(new RegExp(`\\bdelete\\s+[\\w$.]+\\??\\.?(?:\\[\\s*["'\`]${n}["'\`]\\s*\\]|\\.${n}\\b)`, "g"), " ");
   return [
     new RegExp(`["'\`]${n}["'\`]`),
     new RegExp(`(?<![\\w.])${n}\\s*:`),
     new RegExp(`\\benv\\??\\.${n}\\s*=(?!=)`),
-    new RegExp(`\\bdelete\\s+(?:process\\.)?env\\.${n}\\b`),
   ].some((re) => re.test(code));
 }
 
@@ -99,6 +213,16 @@ test("env surface: every environment variable src reads is registered, and nothi
   const stale = Object.keys(registry).filter((k) => !discovered.has(k)).sort();
   assert.deepEqual(missing, [], `unregistered env reads (add to test/env-surface.json with a test): ${missing.map((k) => `${k} in ${[...discovered.get(k)!].join(",")}`).join("; ")}`);
   assert.deepEqual(stale, [], "registered variables no longer read by src (remove them)");
+});
+
+test("env surface: every dynamic env read (non-literal key, destructuring rest) is allow-listed with a reason", () => {
+  const dynamic: string[] = [];
+  discoverEnvReads(ROOT, dynamic);
+  const seen = [...new Set(dynamic)].sort();
+  const unlisted = seen.filter((d) => !(d in DYNAMIC_ALLOW));
+  assert.deepEqual(unlisted, [], `dynamic env read(s) the gate cannot name — read a literal name, or add to DYNAMIC_ALLOW with a reason: ${unlisted.join("; ")}`);
+  assert.deepEqual(Object.keys(DYNAMIC_ALLOW).filter((k) => !seen.includes(k)).sort(), [], "DYNAMIC_ALLOW entries no longer in src (remove them)");
+  for (const [k, why] of Object.entries(DYNAMIC_ALLOW)) assert.ok(why.trim().length >= 20, `${k}: reason required`);
 });
 
 test("env surface: each entry is documented and either tested or a baseline todo", () => {
@@ -114,10 +238,12 @@ test("env surface: each entry is documented and either tested or a baseline todo
     }
     assert.equal(entry.todo, undefined, `${name}: tested entries must drop their todo`);
     for (const t of tests) {
+      assert.match(t.file, TEST_FILE, `${name}: ${t.file} is not a test file (test/**/*.test.ts|mts)`);
       assert.ok(existsSync(join(ROOT, t.file)), `${name}: ${t.file} missing`);
       const body = testBody(t.file, t.title);
       assert.ok(body !== null, `${name}: test "${t.title}" not found in ${t.file}`);
-      if (!setsOrNamesVar(body!, name)) unused.push(`${name}: test "${t.title}" in ${t.file} never uses the variable as a string literal, env key or assignment (comments do not count)`);
+      if (typeof body !== "string") { unused.push(`${name}: test "${t.title}" in ${t.file} is skipped or todo; it covers nothing`); continue; }
+      if (!setsOrNamesVar(body, name)) unused.push(`${name}: test "${t.title}" in ${t.file} never uses the variable as a string literal, env key or assignment (comments do not count)`);
     }
   }
   assert.deepEqual(unused, []);

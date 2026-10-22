@@ -22,8 +22,19 @@ import { cleanupDir, isolatedCliEnv, tempDir } from "./fixtures.js";
  *      cli-surface.test.ts), and
  *   3. the same block contains the flag as a CLI token: inside a string literal, opening
  *      it (`"--flag"`, `"--flag=x"`) or after a space in it (`"serve init --flag 1"`).
- *  Known blind spot: a parent command's option is satisfied by a block that runs one of
- *  its subcommands with a same-named flag. Keep those entries honest by hand.
+ *  The block is the test's own call (balanced parentheses from `test(` to its `)`); a
+ *  skipped or todo test (`test.skip(`, `it.todo(`, `{ skip: ... }`, `{ todo: ... }`, or
+ *  inside a skipped describe) is not coverage, unless the skip only depends on
+ *  process.platform. The command words must be the invocation's FIRST literal arguments
+ *  (after the CLI entry, for a raw spawn), in order, and the flag must come after them.
+ *  A spawn counts only when it references the CLI entry: hunchCliArgs, a src|dist/cli/index
+ *  path, or a name bound to one.
+ *
+ *  Known limits (a source-text heuristic, not an execution trace; runtime tracing of the
+ *  CLI's parsed argv is the planned fix):
+ *   - a hunchCliArgs(...) list that is built but never spawned still counts;
+ *   - a parent command's option is satisfied by a block that runs one of its subcommands
+ *     with a same-named flag. Keep those entries honest by hand.
  *
  *  Re-seed (adds missing options, drops removed ones, keeps existing entries):
  *    HUNCH_CLI_OPTIONS_SEED=1 node tooling/run-tests.mjs test/cli-options-surface.test.ts */
@@ -37,7 +48,8 @@ interface Pair { key: string; path: string; flag: string }
 const ROOT = process.cwd();
 const REGISTRY = join(ROOT, "test/cli-options-surface.json");
 const CLI_MARKER = /hunchCliArgs|cli["'/, ]+index\.[tj]s/;
-const TEST_TITLE = /\b(test|it|describe)(?:\.\w+)?\(\s*(["'`])((?:\\.|(?!\2)[^\\])*)\2/g;
+const TEST_TITLE = /\b(test|it|describe)(\.\w+)?\(\s*(["'`])((?:\\.|(?!\3)[^\\])*)\3/g;
+const TEST_FILE = /^test\/.+\.test\.(ts|mts)$/;
 const NO_TEST_TODO = "no test passes this flag to this command";
 
 /** Ratchet: the only options allowed to stay `todo`. This list may only shrink — cover one,
@@ -106,7 +118,31 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  *  `runCheck(root, "--strict")` -> `runCli(root, "check", ...args)` counts as `check --strict`). */
 type Helpers = Map<string, string[][]>;
 const SPAWNERS = ["spawnSync", "spawn", "execFileSync", "execFile"];
-const SPAWNS_CLI = /hunchCliArgs|\b[\w$]*(?:cli|Cli|CLI)\b|index\.[tj]s/;
+/** A CLI entry path in source text: "src/cli/index.ts", join(ROOT, "dist", "cli", "index.js"). */
+const ENTRY_PATH = /(?:src|dist)["'`/\\, ]{1,6}cli["'`/\\, ]{1,6}index\b/;
+/** Stands in for the CLI entry in a token list; the command's arguments start after it. */
+const ENTRY = "\u0000entry";
+
+/** Per file: the names bound to the CLI entry path (fixed point over `const NAME = ...`), and
+ *  the test a spawn's arguments must pass to count as running the CLI. */
+interface FileCtx { entries: Set<string>; spawnsCli: RegExp }
+const ctxCache = new Map<string, FileCtx>();
+function ctxFor(text: string): FileCtx {
+  if (ctxCache.has(text)) return ctxCache.get(text)!;
+  const defs = [...text.matchAll(/(?:const|let)\s+([\w$]+)\s*(?::[^=\n]+)?=\s*([^;\n]*)/g)];
+  // `const [tsx, cli] = hunchCliArgs()` binds the loader and the entry.
+  const entries = new Set<string>([...text.matchAll(/(?:const|let)\s*\[([^\]]*)\]\s*=\s*hunchCliArgs\(\s*\)/g)]
+    .flatMap((m) => m[1]!.split(",").map((s) => s.trim()).filter((s) => /^[\w$]+$/.test(s))));
+  const ref = () => new RegExp(`${ENTRY_PATH.source}${entries.size ? `|(?<![\\w$.])(?:${[...entries].map(esc).join("|")})(?![\\w$])` : ""}`);
+  for (let changed = true; changed;) {
+    changed = false;
+    const re = ref();
+    for (const d of defs) if (!entries.has(d[1]!) && re.test(d[2]!)) { entries.add(d[1]!); changed = true; }
+  }
+  const ctx = { entries, spawnsCli: new RegExp(`hunchCliArgs|${ref().source}`) };
+  ctxCache.set(text, ctx);
+  return ctx;
+}
 
 /** End index (exclusive) of the bracket group opening at `open`, skipping strings and comments. */
 function groupEnd(src: string, open: number): number {
@@ -136,7 +172,7 @@ function stringEnd(src: string, open: number): number {
  *  env maps) and comments are skipped, `${...}` interpolations become token breaks. An
  *  identifier bound to a literal array in scope (`const args = [...]`, `for (const flag of
  *  [...])`) expands to its literals — one alternative per loop element. */
-function literalTokens(args: string, bindings: Bindings = new Map()): string[][] {
+function literalTokens(args: string, bindings: Bindings = new Map(), entries: Set<string> = new Set()): string[][] {
   let alts: string[][] = [[]];
   const push = (options: string[][]) => {
     alts = alts.flatMap((a) => options.map((o) => [...a, ...o])).slice(0, 256);
@@ -150,14 +186,16 @@ function literalTokens(args: string, bindings: Bindings = new Map()): string[][]
       const end = stringEnd(args, i);
       let body = args.slice(i + 1, end - 1);
       if (c === "`") body = body.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, " ");
-      push([body.split(/\s+/).filter(Boolean)]);
+      push([body.split(/\s+/).filter(Boolean).map((t) => (/(?:^|[/\\])(?:src|dist)[/\\]cli[/\\]index\.[tj]s$/.test(t) ? ENTRY : t))]);
       i = end - 1;
       continue;
     }
     const id = /^[A-Za-z_$][\w$]*/.exec(args.slice(i));
     if (id && (args.slice(Math.max(0, i - 3), i) === "..." || !/[\w$.]/.test(args[i - 1] ?? ""))) {
       const bound = bindings.get(id[0]);
-      if (bound && !/^\s*[.([]/.test(args.slice(i + id[0].length))) push(bound);
+      const plain = !/^\s*[.([]/.test(args.slice(i + id[0].length));
+      if (plain && entries.has(id[0])) push([[ENTRY]]);
+      else if (bound && plain) push(bound);
       i += id[0].length - 1;
     }
   }
@@ -167,18 +205,18 @@ function literalTokens(args: string, bindings: Bindings = new Map()): string[][]
 /** Literal arrays bound to a name in `src`: `const NAME = [...]` (one alternative) and
  *  `for (const NAME of [...])` (one alternative per element). */
 type Bindings = Map<string, string[][]>;
-function bindingsIn(src: string, raw = new Map<string, string>()): Bindings {
+function bindingsIn(src: string, raw = new Map<string, string>(), entries: Set<string> = new Set()): Bindings {
   const out: Bindings = new Map();
   const re = /(?:for\s*\(\s*(?:const|let)\s+([\w$]+)\s+of\s*|(?:const|let)\s+([\w$]+)\s*(?::\s*[\w$[\]<> ]+)?=\s*)\[/g;
   for (const m of src.matchAll(re)) {
     const open = m.index! + m[0].length - 1;
     const inner = src.slice(open + 1, groupEnd(src, open) - 1);
     raw.set((m[1] ?? m[2])!, inner);
-    if (m[2]) { out.set(m[2], literalTokens(inner)); continue; }
+    if (m[2]) { out.set(m[2], literalTokens(inner, new Map(), entries)); continue; }
     const elements: string[][] = [];
     for (let i = 0; i < inner.length; i++) {
       const c = inner[i]!;
-      if (c === "[") { const end = groupEnd(inner, i); elements.push(...literalTokens(inner.slice(i + 1, end - 1))); i = end - 1; }
+      if (c === "[") { const end = groupEnd(inner, i); elements.push(...literalTokens(inner.slice(i + 1, end - 1), new Map(), entries)); i = end - 1; }
       else if (c === '"' || c === "'" || c === "`") { const end = stringEnd(inner, i); elements.push(...literalTokens(inner.slice(i, end))); i = end - 1; }
     }
     out.set(m[1]!, elements);
@@ -186,20 +224,21 @@ function bindingsIn(src: string, raw = new Map<string, string>()): Bindings {
   return out;
 }
 
-/** Each CLI invocation in `src` as its token list (one list per helper prefix and binding alternative). */
-function invocations(src: string, helpers: Helpers): string[][] {
+/** Each CLI invocation in `src` as its token list (one list per helper prefix and binding
+ *  alternative). A raw spawn's tokens start after the CLI entry (`[tsx, CLI, "check"]` -> check). */
+function invocations(src: string, helpers: Helpers, ctx: FileCtx): string[][] {
   const names = [...helpers.keys(), ...SPAWNERS].map(esc).join("|");
   const call = new RegExp(`(?<![\\w$.])(${names})\\s*\\(`, "g");
   const raw = new Map<string, string>();
-  const bindings = bindingsIn(src, raw);
+  const bindings = bindingsIn(src, raw, ctx.entries);
   const out: string[][] = [];
   for (const m of src.matchAll(call)) {
     const open = m.index! + m[0].length - 1;
     const args = src.slice(open + 1, groupEnd(src, open) - 1);
     // A spawner runs the CLI when its arguments, or a literal array they spread, name the entry.
     const named = [...raw].filter(([name]) => new RegExp(`(?<![\\w$])${esc(name)}(?![\\w$])`).test(args)).map(([, text]) => text);
-    const prefixes = helpers.get(m[1]!) ?? ([args, ...named].some((t) => SPAWNS_CLI.test(t)) ? [[]] : []);
-    const alts = literalTokens(args, bindings);
+    const prefixes = helpers.get(m[1]!) ?? ([args, ...named].some((t) => ctx.spawnsCli.test(t)) ? [[]] : []);
+    const alts = literalTokens(args, bindings, ctx.entries).map((tokens) => tokens.slice(tokens.lastIndexOf(ENTRY) + 1));
     for (const prefix of prefixes) for (const tokens of alts) out.push([...prefix, ...tokens]);
   }
   return out;
@@ -232,7 +271,7 @@ function helpersFor(text: string): Helpers {
         const open = text.slice(start).search(/[({]/);
         body = open < 0 ? "" : text.slice(start, groupEnd(text, start + open));
       }
-      const inner = invocations(body, helpers)[0];
+      const inner = invocations(body, helpers, ctxFor(text))[0];
       if (!inner) continue;
       helpers.set(name, [...(helpers.get(name) ?? []), inner]);
       done.add(i);
@@ -243,27 +282,53 @@ function helpersFor(text: string): Helpers {
   return helpers;
 }
 
-/** Command words, in order and adjacent, then the flag, all in ONE invocation's arguments. */
-function invokes(tokens: string[], pair: Pair): boolean {
+/** The command words are the invocation's first literal arguments (positions 0..n-1), in
+ *  order, and the flag comes after them — all in ONE invocation. */
+function invokes(tokens: string[], pair: Pair, at = 0): boolean {
   const words = pair.path ? pair.path.split(" ") : [];
-  const at = words.length === 0 ? 0 : tokens.findIndex((_, i) => words.every((w, j) => tokens[i + j] === w));
-  return at >= 0 && tokens.some((t) => t === pair.flag || t.startsWith(`${pair.flag}=`));
+  if (words.every((w, j) => tokens[at + j] === w) &&
+    tokens.slice(at + words.length).some((t) => t === pair.flag || t.startsWith(`${pair.flag}=`))) return true;
+  // Root options (and a literal value each) may precede the command: `--cli-config x auto-review ...`.
+  const t = tokens[at];
+  if (!words.length || t === undefined || !ROOT_FLAGS.has(t.split("=")[0]!)) return false;
+  return invokes(tokens, pair, at + 1) || invokes(tokens, pair, at + 2);
 }
+/** Flags of the root command, filled from the live tree before any check runs. */
+const ROOT_FLAGS = new Set<string>();
 
 interface Block { title: string; body: string }
 
 const stripComments = (s: string) => s.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
 
+/** True when a test()/it()/describe() call is skipped or todo: a `.skip`/`.todo` modifier, or a
+ *  `{ skip: ... }`/`{ todo: ... }` option — unless that option's value only depends on
+ *  process.platform (directly or via a `const x = ...process.platform...` name), since the test
+ *  then runs, and covers, on the other platforms CI uses. */
+function isSkipped(text: string, modifier: string | undefined, afterTitle: number): boolean {
+  if (/^\.(skip|todo)$/.test(modifier ?? "")) return true;
+  const opts = /^\s*,\s*\{/.exec(text.slice(afterTitle));
+  if (!opts) return false;
+  const open = afterTitle + opts[0].length - 1;
+  const opt = /\b(?:skip|todo)\s*:([\s\S]*)/.exec(text.slice(open, groupEnd(text, open)));
+  if (!opt) return false;
+  const platformNames = [...text.matchAll(/(?:const|let)\s+([\w$]+)\s*=\s*[^;\n]*process\.platform/g)].map((x) => esc(x[1]!));
+  return !new RegExp(`process\\.platform${platformNames.length ? `|(?<![\\w$.])(?:${platformNames.join("|")})(?![\\w$])` : ""}`).test(opt[1]!);
+}
+
+/** Each non-skipped test()/it() call, its body bounded to its own balanced `(...)`. Tests inside a
+ *  skipped describe() are skipped too. */
 function testBlocks(text: string): Block[] {
-  const starts = [...text.matchAll(TEST_TITLE)];
-  return starts.flatMap((m, i) => m[1] === "describe" ? [] : [{
-    title: m[3],
-    body: stripComments(text.slice(m.index, i + 1 < starts.length ? starts[i + 1].index : text.length)),
-  }]);
+  const calls = [...text.matchAll(TEST_TITLE)].map((m) => ({
+    m, start: m.index!, end: groupEnd(text, text.indexOf("(", m.index!)),
+    skipped: isSkipped(text, m[2], m.index! + m[0].length),
+  }));
+  const skippedRanges = calls.filter((c) => c.skipped && c.m[1] === "describe");
+  return calls.flatMap((c) => c.m[1] === "describe" || c.skipped || skippedRanges.some((d) => c.start > d.start && c.start < d.end)
+    ? [] : [{ title: c.m[4]!, body: stripComments(text.slice(c.start, c.end)) }]);
 }
 
 function passes(text: string, body: string, pair: Pair): boolean {
-  return invocations(body, helpersFor(text)).some((tokens) => invokes(tokens, pair));
+  return invocations(body, helpersFor(text), ctxFor(text)).some((tokens) => invokes(tokens, pair));
 }
 
 const fileCache = new Map<string, string>();
@@ -295,6 +360,7 @@ function seedFor(pair: Pair, files: string[]): Entry {
 
 test("CLI options: every option of every command has a test that passes it, or an explicit todo", { timeout: 300_000 }, async (t) => {
   const pairs = discoverPairs();
+  for (const p of pairs) if (!p.path) ROOT_FLAGS.add(p.flag);
   assert.ok(pairs.length > 300, `discovered the whole option surface (${pairs.length})`);
   let registry: Record<string, Entry> = existsSync(REGISTRY) ? JSON.parse(readFileSync(REGISTRY, "utf8")) : {};
 
@@ -336,6 +402,7 @@ test("CLI options: every option of every command has a test that passes it, or a
     assert.ok(Array.isArray(entry.tests) && entry.tests.length > 0, `${p.key}: needs tests[] or todo`);
     for (const ref of entry.tests) {
       const where = `${p.key} -> ${ref.file} :: "${ref.title}"`;
+      if (!TEST_FILE.test(ref.file)) { problems.push(`${where}: not a test file (test/**/*.test.ts|mts)`); continue; }
       if (!existsSync(join(ROOT, ref.file))) { problems.push(`${where}: file does not exist`); continue; }
       const text = source(ref.file);
       if (!text.includes(ref.title)) { problems.push(`${where}: no test with that title`); continue; }
