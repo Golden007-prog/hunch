@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.45.0 — 2026-10-22
+
+- **Short `hunch init` output.** Init now prints a summary of what it set up and one next step, instead of about 60 lines. `hunch init --details` prints every step and the integration matrix as before. Warnings always print (#465).
+- **Init configures only the assistants you have.** Init used to write settings for all six assistants into every repository. It now configures the ones it finds: a config already in the repository, a settings folder in your home directory, or the command on `PATH`. AGENTS.md and Claude Code are always written. If none is found, every assistant is configured as before, and `--all-assistants` forces that (#465).
+- **Warning when `.gitignore` hides memory.** If the repository's ignore rules exclude `.hunch/`, captured records were never committed, shared or kept on a fresh clone, and init gave no sign. `hunch init` and `hunch doctor` now name the rule and the fix. Hunch's own private-only block, a later re-include and an overlay setup are not reported (#465).
+- **Smaller MCP tool list.** `tools/list` no longer carries bytes that tell the host nothing: the draft-07 `$schema` marker, the default `execution` field and the safe-integer bounds on every integer. The default tool list drops from about 9.5k to 8.7k tokens. `hunch serve`'s MCP endpoint gets the same pass, and the server still validates every call against the full schema (#467).
+- **Escalations are asked when the task touches them.** Session start no longer asks about every pending escalation. The prompt hook asks only the ones the prompt touches (by id, topic, a related path or the task's selected memory), once per session. Antigravity, whose hooks carry no prompt text, keeps the session-start ask. Every entry is still listed by `hunch escalations`, `hunch_escalations` and `hunch_now` (#469).
+- **Agents record what the human decides.** Agent-facing text (hook reminders, MCP instructions, the `/fix` command and the generated grounding docs) no longer tells agents to record a decision after every non-trivial choice. Agents record what a person decides or corrects, and routine choices still come from commit synthesis (#469).
+- Internal planning docs, research, benchmarks and curated memory records moved out of the public repository. The npm package no longer includes `tooling/competitive-watch.mjs` (#463).
+- Dependency update for security advisories in `@modelcontextprotocol/sdk` (now `^1.32.1`) and `hono` (#464).
+- Release gate fixes after the repository history rewrite: commit pins in the MD-1a benchmark and the v1.8.3 compatibility baseline now point to their rewritten commits, and the baseline package identity is pinned to the bytes the rewritten tag rebuilds (#468).
+
 ## 1.44.0 — 2026-10-11
 
 - **`hunch uninstall`.** Removes everything Hunch installed in a repository: instruction blocks, MCP entries, agent and git hooks, the merge driver, slash commands and the CI workflow. It keeps `.hunch/` (your engineering memory) unless you pass `--purge`, and `--dry-run` shows the plan without writing. It writes `.hunch-removed`, and while that file exists no Hunch command sets Hunch up here again; commit it so every clone stays opted out. If any file it would edit can't be parsed, nothing is changed. Global Windsurf and Antigravity MCP entries are reported and left alone. Whitespace that `hunch init` normalized in JSON and docs is not restored byte for byte (#449).
