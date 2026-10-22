@@ -40,16 +40,45 @@ test("delivery reachability: verdicts are memoized across delivery builds and fo
     assert.deepEqual(first, ["reachable", "reachable", "unreachable", "unreachable"]);
     assert.ok(afterFirst - before > commits.length, "first build probes git per commit");
 
-    // A second delivery build re-resolves only the branch tip; every verdict is memoized.
+    // A second delivery build re-resolves the branch tip; every ancestry verdict is
+    // memoized, while the missing object is re-probed (a fetch could bring it in).
     const second = commits.map(localCommitReachability(root));
     assert.deepEqual(second, first);
-    assert.equal(commitReachabilityProbeCount() - afterFirst, 1);
+    assert.equal(commitReachabilityProbeCount() - afterFirst, 2);
+    const afterSecond = commitReachabilityProbeCount();
+    assert.equal(localCommitReachability(root)("deadbeefdeadbeef"), "unreachable");
+    assert.equal(commitReachabilityProbeCount() - afterSecond, 2, "missing sha is never memoized");
 
     // The tip moves: the feature commit becomes reachable and a new commit is judged fresh.
     git(root, "merge", "-q", "--no-ff", "-m", "merge feature", "feature");
     const c3 = commit(root, "c3");
     const third = [...commits, c3].map(localCommitReachability(root));
     assert.deepEqual(third, ["reachable", "reachable", "reachable", "unreachable", "reachable"]);
+  } finally {
+    resetCommitReachabilityMemo();
+    cleanupDir(root);
+  }
+});
+
+test("delivery reachability: a vanished default ref is re-resolved, not stuck at unknown (#473)", () => {
+  const root = mkdtempSync(join(tmpdir(), "hunch-reach-rename-"));
+  try {
+    git(root, "init", "-q", "-b", "trunk");
+    git(root, "config", "user.email", "test@example.com");
+    git(root, "config", "user.name", "Test Human");
+    const c1 = commit(root, "c1");
+    git(root, "update-ref", "refs/remotes/origin/master", c1);
+    git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master");
+
+    resetCommitReachabilityMemo();
+    assert.equal(localCommitReachability(root)(c1), "reachable");
+
+    // Upstream renames master -> main; `fetch --prune` deletes origin/master.
+    git(root, "update-ref", "refs/remotes/origin/main", c1);
+    git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    git(root, "update-ref", "-d", "refs/remotes/origin/master");
+    assert.equal(localCommitReachability(root)(c1), "reachable");
+    assert.equal(localCommitReachability(root)(c1), "reachable");
   } finally {
     resetCommitReachabilityMemo();
     cleanupDir(root);

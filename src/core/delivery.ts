@@ -508,9 +508,9 @@ function defaultBranchRef(root: string): string | null {
 
 // Process-wide memo (#473): every delivery build used to re-probe git for the
 // same capture commits. Verdicts are keyed by the default branch's TIP sha, so a
-// long-lived process stays correct after new commits land. Only definitive
-// answers (git exit 0/1) are cached; transient spawn failures stay "unknown"
-// and are retried on the next call.
+// long-lived process stays correct after new commits land. Only ancestry
+// answers (merge-base exit 0/1) are cached; a missing object or a transient
+// spawn failure is re-probed on the next call.
 const REACHABILITY_MEMO_CAP = 10_000;
 const reachabilityMemo = new Map<string, CommitReachability>();
 const branchRefMemo = new Map<string, string>();
@@ -538,12 +538,21 @@ export function localCommitReachability(root: string): (commit: string) => Commi
   let tip: string | null = null;
   return (commit: string): CommitReachability => {
     if (!initialized) {
-      branch = branchRefMemo.get(root) ?? defaultBranchRef(root);
-      if (branch) {
-        const resolved = gitProbe(root, ["rev-parse", "--verify", "--quiet", `${branch}^{commit}`]);
-        if (resolved.available && resolved.status === 0 && resolved.stdout) {
-          branchRefMemo.set(root, branch);
-          tip = resolved.stdout;
+      const resolveTip = (ref: string): string | null => {
+        const resolved = gitProbe(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+        return resolved.available && resolved.status === 0 && resolved.stdout ? resolved.stdout : null;
+      };
+      const memoized = branchRefMemo.get(root);
+      if (memoized) {
+        tip = resolveTip(memoized);
+        if (tip) branch = memoized;
+        else branchRefMemo.delete(root); // the remembered ref vanished (renamed/pruned): look it up again
+      }
+      if (!tip) {
+        branch = defaultBranchRef(root);
+        if (branch) {
+          tip = resolveTip(branch);
+          if (tip) branchRefMemo.set(root, branch);
         }
       }
       initialized = true;
@@ -557,7 +566,8 @@ export function localCommitReachability(root: string): (commit: string) => Commi
       key ? memoizeReachability(key, verdict) : verdict;
     const exact = gitProbe(root, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`]);
     if (!exact.available) return "unknown";
-    if (exact.status !== 0) return exact.status === 1 ? remember("unreachable") : "unreachable";
+    // A missing object is not memoized: a later fetch/deepen can bring it in under the same tip.
+    if (exact.status !== 0) return "unreachable";
     const ancestry = gitProbe(root, ["merge-base", "--is-ancestor", exact.stdout, tip ?? branch]);
     if (!ancestry.available) return "unknown";
     if (ancestry.status === 0) return remember("reachable");
