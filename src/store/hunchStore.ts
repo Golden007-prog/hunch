@@ -1442,8 +1442,8 @@ export class HunchStore {
     // the repo-relative stored file paths below (issue #299).
     target = repoRelativeTarget(target, this.paths.root);
     // A record id (every delivered brief line ends in `hunch_why("dec_…")`) resolves
-    // to that record directly (issue #474). Not windowed by `asOf`: asking for one
-    // record by id is asking for it, superseded or not.
+    // to that record directly (issue #474). With `asOf`, the record is shown as it
+    // stood then, or as "no record" when it was not in force (see whyRecord).
     const byId = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead, opts.asOf) : undefined;
     if (byId?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId };
     const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
@@ -1509,15 +1509,21 @@ export class HunchStore {
         const d = find("decisions") as Decision | undefined;
         if (!d || !inWindow(d.valid_from, d.valid_to, asOf)) break;
         const shown: Decision = { ...d, supersedes: visible(d.supersedes), superseded_by: visible(d.superseded_by) };
-        // In its window at asOf means nothing had superseded it yet.
-        if (asOf && shown.status === "superseded" && !shown.superseded_by) shown.status = "accepted";
+        // Show it as in force only when its RECORDED successor had not started at asOf.
+        // A legacy superseded decision keeps superseded_by null and an open window
+        // (migrate.ts, dec_777f0b8d14), so a null successor proves nothing: keep its status.
+        const successor = d.superseded_by ? this.recs("decisions").find((x) => x.id === d.superseded_by) : undefined;
+        if (asOf && d.status === "superseded" && successor && !inWindow(successor.valid_from, null, asOf)) shown.status = "accepted";
         record = { kind: "decision", record: shown, chain: supersessionChain(shown, decs) };
         break;
       }
       case "con": {
         const c = find("constraints") as Constraint | undefined;
         if (!c || !inWindow(c.valid_from, c.valid_to, asOf)) break;
-        record = { kind: "constraint", record: { ...c, source_decision: visible(c.source_decision), ...(asOf && c.status === "retired" ? { status: "active" as const } : {}) } };
+        // Only a RECORDED retirement after asOf makes it active then; a legacy retired
+        // constraint without valid_to keeps its status.
+        const activeThen = asOf && c.status === "retired" && c.valid_to != null && c.valid_to > asOf;
+        record = { kind: "constraint", record: { ...c, source_decision: visible(c.source_decision), ...(activeThen ? { status: "active" as const } : {}) } };
         break;
       }
       case "bug": { const b = find("bugs") as Bug | undefined; if (b) record = { kind: "bug", record: b }; break; }

@@ -186,3 +186,44 @@ test("a supersedes/superseded_by neighbour the caller cannot read is not printed
     cleanup();
   }
 });
+
+test("as_of keeps a LEGACY superseded decision / retired constraint as recorded (no successor or valid_to on file)", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // The v2 migration leaves these windows open on purpose (dec_777f0b8d14).
+    store.json.put("decisions", mkDecision({ id: "dec_aa", title: "Legacy", status: "superseded", superseded_by: null, valid_to: null }));
+    store.json.put("constraints", mkConstraint({ id: "con_bb", statement: "Legacy rule", severity: "blocking", status: "retired", valid_to: null }));
+    const asOf = "2026-03-01T00:00:00Z";
+    const d = store.why("dec_aa", { asOf }).byId?.record;
+    assert.equal(d?.kind === "decision" && d.record.status, "superseded");
+    const c = store.why("con_bb", { asOf }).byId?.record;
+    assert.equal(c?.kind === "constraint" && c.record.status, "retired");
+    assert.match(formatWhyRecord({ id: "con_bb", record: c! }).join("\n"), /blocking\/retired/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("as_of shows a constraint retired AFTER asOf as active then", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.json.put("constraints", mkConstraint({ id: "con_cc", statement: "Old rule", status: "retired", valid_to: "2026-06-01T00:00:00Z" }));
+    const c = store.why("con_cc", { asOf: "2026-03-01T00:00:00Z" }).byId?.record;
+    assert.equal(c?.kind === "constraint" && c.record.status, "active");
+    assert.equal(store.why("con_cc", { asOf: "2026-07-01T00:00:00Z" }).byId?.record, null, "retired by then");
+  } finally {
+    cleanup();
+  }
+});
+
+test("clipping never splits a surrogate pair", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    store.json.put("decisions", mkDecision({ id: "dec_0d0d0d0d0d", title: "Emoji", decision: "😀".repeat(2000) }));
+    const text = formatWhyRecord(store.why("dec_0d0d0d0d0d").byId!).join("\n");
+    assert.doesNotThrow(() => encodeURIComponent(text), "well-formed UTF-16 (a lone surrogate throws URIError)");
+    assert.match(text, /…/);
+  } finally {
+    cleanup();
+  }
+});

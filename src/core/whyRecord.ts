@@ -31,7 +31,9 @@ const ITEM_CHARS = 240;
 
 const clip = (text: string, max = PROSE_CHARS): string => {
   const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+  // By code point, so a cut never splits a surrogate pair (emoji, astral CJK).
+  const chars = Array.from(flat);
+  return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : flat;
 };
 const list = (label: string, items: readonly string[]): string[] =>
   items.length ? [`  ${label}:`, ...items.slice(0, WHY_CAP).map((i) => `    - ${clip(i, ITEM_CHARS)}`), ...(items.length > WHY_CAP ? [more(items.length, WHY_CAP).trimStart()] : [])] : [];
