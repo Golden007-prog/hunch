@@ -1252,6 +1252,9 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   let consecutivePullFailures = initial.consecutivePullFailures;
   // Consecutive FAILED forced pulls (any subject); reset by any fresh pull.
   let forcedFailureStreak = 0;
+  // When the last fresh pull (ordinary or forced) finished; a forced failure
+  // older than this is never reused, since team memory was refreshed since.
+  let lastFreshPullAt = 0;
   let indexedSourceStamp = initial.indexedSourceStamp;
 
   const matchesStartupTeamRoute = (): boolean => {
@@ -1272,7 +1275,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   const notePull = (status: HunchPullStatus, finishedAt: number): void => {
     ({ nextRemotePullAt, consecutivePullFailures } =
       pullBackoff(status, finishedAt, consecutivePullFailures));
-    if (teamPullIsFresh(status)) forcedFailureStreak = 0;
+    if (teamPullIsFresh(status)) {
+      forcedFailureStreak = 0;
+      lastFreshPullAt = finishedAt;
+    }
   };
   type TeamMemoryPullStatus = HunchPullStatus | "cooldown" | "not_shared";
   const pullTeamMemory = (force = false): TeamMemoryPullStatus => {
@@ -1320,7 +1326,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     let status: TeamMemoryPullStatus;
     if (requestPulledFresh) {
       status = "current";
-    } else if (lastForcedFailure && ((lastForcedFailure.subject === subject
+    } else if (lastForcedFailure && lastForcedFailure.at > lastFreshPullAt && ((lastForcedFailure.subject === subject
       && Date.now() - lastForcedFailure.at < FORCED_PULL_RETRY_MS)
       || (forcedFailureStreak >= FORCED_FAILURE_LIMIT && Date.now() < nextRemotePullAt))) {
       status = lastForcedFailure.status;
