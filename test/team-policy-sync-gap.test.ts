@@ -190,11 +190,16 @@ test("team policy reads confirm a local miss against fresh shared memory despite
     git(staging, "add", "-A");
     git(staging, "commit", "-qm", "hunch: compile policy");
 
+    // GIT_TRACE on the MCP process only: count its shared-remote contacts (a team
+    // pull probes with ls-remote and only fetches when the probe succeeds).
+    const gitTrace = join(sandbox, "developer-mcp-git-trace.log");
+    writeFileSync(gitTrace, "");
+    const fetchCount = (): number => (readFileSync(gitTrace, "utf8").match(/built-in: git (?:ls-remote|fetch)\b/g) ?? []).length;
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: hunchCliArgs("mcp"),
       cwd: developer.root,
-      env: developer.env,
+      env: { ...developer.env, GIT_TRACE: gitTrace },
     });
     client = new Client({ name: "sync-gap-developer", version: "1.0.0" });
     await client.connect(transport);
@@ -203,18 +208,31 @@ test("team policy reads confirm a local miss against fresh shared memory despite
     assert.match(before.text, new RegExp(`policy ${policy.id} not found`),
       "with a fresh shared store a confirmed miss keeps the ordinary not-found error");
 
-    // Transient remote failure: every exact miss force-pulls, fails, and deepens the
-    // ordinary request backoff (1s, 2s, 4s, 8s), while abstaining explicitly.
+    // Transient remote failure. An exact miss force-pulls once and abstains; the
+    // same miss repeated within the retry window reuses that failure without a
+    // fetch; distinct misses each force-pull, deepening ordinary backoff to 8s.
     const remoteObjects = join(memoryRemote, "objects");
     const unavailableObjects = join(memoryRemote, "objects.transiently-unavailable");
+    const assertAbstained = (result: { isError: boolean; text: string }): void => {
+      assert.equal(result.isError, true, result.text);
+      assert.match(result.text, /refresh is failed/);
+      assert.match(result.text, /cannot confirm that policy \S+ is absent from shared team memory/);
+      assert.match(result.text, /Retry/);
+      assert.doesNotMatch(result.text, /not found/);
+    };
+    let lastFailureStartedAt = 0;
     renameSync(remoteObjects, unavailableObjects);
     try {
-      for (let i = 0; i < 4; i++) {
-        const abstained = await mcpResult(client, "hunch_policy_card", { policy_id: policy.id });
-        assert.equal(abstained.isError, true, abstained.text);
-        assert.match(abstained.text, /cannot confirm that policy \S+ is absent from shared team memory/);
-        assert.match(abstained.text, /Retry/);
-        assert.doesNotMatch(abstained.text, /not found/);
+      const fetchesBefore = fetchCount();
+      assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: policy.id }));
+      const fetchesAfterFirst = fetchCount();
+      assert.ok(fetchesAfterFirst > fetchesBefore, "the first exact miss must force a shared pull");
+      assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: policy.id }));
+      assert.equal(fetchCount(), fetchesAfterFirst,
+        "a repeated miss within the retry window must reuse the failed forced pull, not contact the remote again");
+      for (const missing of ["pol_sync_gap_missing_a", "pol_sync_gap_missing_b", "pol_sync_gap_missing_c"]) {
+        lastFailureStartedAt = Date.now();
+        assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: missing }));
       }
     } finally {
       renameSync(unavailableObjects, remoteObjects);
@@ -226,6 +244,8 @@ test("team policy reads confirm a local miss against fresh shared memory despite
     assert.equal(proof.isError, false, proof.text);
     assert.match(proof.text, new RegExp(`Policy ${policy.id} has no proof yet`),
       "the long-lived teammate MCP must see the just-pushed policy despite pull backoff");
+    assert.ok(Date.now() - lastFailureStartedAt < 8_000,
+      "the final read must complete while the ordinary 8s pull backoff is still active");
   } finally {
     await client?.close().catch(() => undefined);
     cleanupDir(sandbox);

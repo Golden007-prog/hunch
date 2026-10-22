@@ -1294,12 +1294,34 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   const refreshIndex = (): void => {
     indexedSourceStamp = rebuildFreshIndex(store);
   };
+  const FORCED_PULL_RETRY_MS = 2_000;
+  let lastForcedFailure: { at: number; status: TeamMemoryPullStatus; subject: string } | null = null;
+  // True only during the synchronous prefix of a tool callback whose request
+  // wrapper just pulled shared memory fresh (set/cleared around the callback).
+  let requestPulledFresh = false;
   // An exact local miss in shared mode is an authority claim: local absence must
   // never be presented as team absence. Ordinary request pulls honour cooldown and
   // failure backoff, so bypass it once. Returns null after a fresh convergence
   // (the caller re-reads), else the explicit abstention to return instead.
+  // Two throttles keep the synchronous fetch off the hot path: a miss in a
+  // request whose ordinary pull already converged needs no second fetch, and a
+  // forced pull that failed within FORCED_PULL_RETRY_MS for the SAME subject is
+  // reused, not retried, so a client looping on one miss against a dead remote
+  // cannot block stdio on each call. A different subject still fetches: a remote
+  // restored moments later must converge for the next distinct read.
   const confirmSharedMiss = (absenceClaim: string, subject: string): string | null => {
-    const status = pullTeamMemory(true);
+    let status: TeamMemoryPullStatus;
+    if (requestPulledFresh) {
+      status = "current";
+    } else if (lastForcedFailure && lastForcedFailure.subject === subject
+      && Date.now() - lastForcedFailure.at < FORCED_PULL_RETRY_MS) {
+      status = lastForcedFailure.status;
+    } else {
+      status = pullTeamMemory(true);
+      lastForcedFailure = status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)
+        ? { at: Date.now(), status, subject }
+        : null;
+    }
     if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
       return `Shared team memory refresh is ${status}; Hunch cannot confirm that ${absenceClaim}. Retry when the shared store is available.`;
     }
@@ -1357,6 +1379,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     nextRemotePullAt = prepared.nextRemotePullAt;
     consecutivePullFailures = prepared.consecutivePullFailures;
     indexedSourceStamp = prepared.indexedSourceStamp;
+    lastForcedFailure = null;
     previous.close();
     console.error(`[hunch-mcp] serving Hunch at ${root} (client root)`);
   };
@@ -1483,8 +1506,10 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
           || !overlayMatchesTeamRemote(root, join(store.privateDir, "..")))) {
           return refused("The committed team memory destination is invalid or no longer matches this process. Refusing the stale graph; reconnect Hunch first.");
         }
+        let pulledFresh = false;
         if (store.mode === "shared" && store.privateDir) {
-          pullTeamMemory();
+          const pulled = pullTeamMemory();
+          pulledFresh = pulled !== "cooldown" && pulled !== "not_shared" && teamPullIsFresh(pulled);
           // Recompute the full semantic + physical snapshot after the synchronous
           // network seam. A paired team.json/origin change can occur while fetch is
           // blocked; serving after that race would attach the old checkout to a new
@@ -1502,7 +1527,16 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
         try {
           if (store.sourceStamp() !== indexedSourceStamp) refreshIndex();
         } catch { /* corrupt/churning local source — serve the last durable indexed view */ }
-        const result = await withInitiator(initiatorFromClient(server.server.getClientVersion()?.name), () => callback(...args));
+        // A shared-miss check in the callback's synchronous prefix may reuse this
+        // request's fresh pull; any later (post-await) check falls back to a forced pull.
+        const result = await withInitiator(initiatorFromClient(server.server.getClientVersion()?.name), () => {
+          requestPulledFresh = pulledFresh;
+          try {
+            return callback(...args);
+          } finally {
+            requestPulledFresh = false;
+          }
+        });
         if (teamAdvertised && !matchesStartupTeamRoute()) {
           return refused("The team-memory route changed while the tool was running. Its startup destination was not published; reconnect Hunch before retrying.");
         }
