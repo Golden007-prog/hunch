@@ -365,16 +365,42 @@ export function joinCallArgs(text: string): (string | null)[][] {
 const TEMPLATE_PATH_RE = /(?<![\w.@-])((?:[\w.@-]+\/)*[\w.@-]+)\/\$\{/g;
 const CONCAT_PATH_RE = /["'`]([\w.@/-]+)["'`]\s*\+/g;
 
+/** `${ROOT}/${dir}`: a computed segment right after another computed one. */
+const TEMPLATE_AFTER_EXPR_RE = /\}\/\$\{/;
+/** `const SRC = join(ROOT, "src")` / `resolve(...)`: an alias of a repo dir. */
+const DIR_ALIAS_RE = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:path\.)?(?:join|resolve)\s*\(/g;
+const DOTS_ONLY = (p: string): boolean => /^(?:\.{1,2}\/?)+$/.test(norm(p));
+
 /** Top-level repo dirs a text reaches through a COMPUTED path: `` `../src/${p}` ``,
- *  `"src/" + p`, `join(root, "src", p)`. A test doing that may read any file
- *  under the dir, so it depends on all of them (fail closed). */
+ *  `"src/" + p`, `join(root, "src", p)`, or a later use of an alias like
+ *  `const SRC = join(ROOT, "src")`. A test doing that may read any file under
+ *  the dir, so it depends on all of them. A computed segment right after the
+ *  root (`` `../${dir}/x` ``, `"../" + dir`, `resolve(__dirname, "..", dir)`,
+ *  `` `${ROOT}/${dir}` ``) may be ANY top-level dir (fail closed). */
 export function templatedRepoDirs(text: string, topDirs: Set<string>): string[] {
   const out = new Set<string>();
-  const add = (path: string) => { for (const seg of norm(path).split("/")) if (topDirs.has(seg)) { out.add(seg); return; } };
-  for (const m of text.matchAll(TEMPLATE_PATH_RE)) add(m[1]!);
-  for (const m of text.matchAll(CONCAT_PATH_RE)) add(m[1]!);
+  const all = () => { for (const dir of topDirs) out.add(dir); };
+  const dirOf = (path: string): string | undefined => norm(path).split("/").find((seg) => topDirs.has(seg));
+  const add = (path: string) => { const dir = dirOf(path); if (dir) out.add(dir); };
+  for (const m of text.matchAll(TEMPLATE_PATH_RE)) DOTS_ONLY(m[1]!) ? all() : add(m[1]!);
+  if (TEMPLATE_AFTER_EXPR_RE.test(text)) all();
+  for (const m of text.matchAll(CONCAT_PATH_RE)) /^(?:\.{1,2}\/)+$/.test(m[1]!) ? all() : add(m[1]!);
   for (const args of joinCallArgs(text)) {
-    args.forEach((arg, i) => { if (arg !== null && args.slice(i + 1).includes(null)) add(arg); });
+    args.forEach((arg, i) => {
+      if (arg === null) return;
+      if (DOTS_ONLY(arg) && args[i + 1] === null) all();
+      else if (args.slice(i + 1).includes(null)) add(arg);
+    });
+  }
+  for (const m of text.matchAll(DIR_ALIAS_RE)) {
+    const args = joinCallArgs(text.slice(m.index! + m[0].length - 1).replace(/^\(/, "join("))[0] ?? [];
+    const literals = args.filter((a): a is string => a !== null);
+    const dir = literals.map(dirOf).find(Boolean);
+    // An alias of a FILE (`join(ROOT, "src", "cli", "index.ts")`) is a literal path, not a dir.
+    if (!dir || /\.[\w-]+$/.test(literals.join("/"))) continue;
+    // Any later use of the alias (join(SRC, name), readdirSync(SRC), `${SRC}/…`) reaches the whole dir.
+    const uses = text.slice(m.index! + m[0].length).match(new RegExp(`(?<![\\w$.])${m[1]!.replace(/\$/g, "\\$")}(?![\\w$])`));
+    if (uses) out.add(dir);
   }
   return sorted(out);
 }

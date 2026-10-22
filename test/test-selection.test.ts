@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  buildImportGraph, changedFiles, coverageFiles, entryTrusted, importSpecifiers, isDocsOnly, joinSegmentRuns, listRepoFiles, literalRepoPaths, selectTests, testDependencyModel,
+  buildImportGraph, changedFiles, coverageFiles, entryTrusted, importSpecifiers, isDocsOnly, joinSegmentRuns, listRepoFiles, literalRepoPaths, selectTests, templatedRepoDirs, testDependencyModel,
   type ImpactEntry, type SelectionInput,
 } from "../src/core/testSelection.js";
 import { cleanupDir, isolatedCliEnv, tempDir } from "./fixtures.js";
@@ -114,6 +114,21 @@ test("regression: computed paths under a repo dir and bare src-relative names ar
     const sel = selectTests({ changedFiles: ["src/core/x.ts"], allTests: tests, importGraph: model.dependencies, testText: model.testText });
     assert.deepEqual([sel.mode, sel.tests], ["selected", ["test/join.test.ts", "test/names.test.ts", "test/url.test.ts"]]);
   } finally { cleanupDir(root); }
+});
+
+test("templatedRepoDirs: a computed segment right after the root reaches every dir; dir aliases reach their dir", () => {
+  const dirs = new Set(["src", "tooling", "site"]);
+  for (const text of [
+    "readFileSync(`../${dir}/x.ts`)",
+    "readFileSync(\"../\" + dir)",
+    "readFileSync(resolve(__dirname, \"..\", dir, f))",
+    "readFileSync(`${ROOT}/${dir}/${f}`)",
+  ]) assert.deepEqual(templatedRepoDirs(text, dirs), ["site", "src", "tooling"], text);
+  assert.deepEqual(templatedRepoDirs("const SRC = join(ROOT, \"src\");\nfor (const f of readdirSync(SRC)) read(join(SRC, f));", dirs), ["src"]);
+  assert.deepEqual(templatedRepoDirs("const TOOLS = path.resolve(here, \"..\", \"tooling\");\nrun(`${TOOLS}/x.mjs`);", dirs), ["tooling"]);
+  assert.deepEqual(templatedRepoDirs("const CLI = join(ROOT, \"src\", \"cli\", \"index.ts\");\nrun(CLI);", dirs), [], "a file alias stays literal");
+  assert.deepEqual(templatedRepoDirs("const SRC = join(ROOT, \"src\");", dirs), [], "an unused alias reads nothing");
+  assert.deepEqual(templatedRepoDirs("readFileSync(join(ROOT, \"src\", \"a.ts\")); name + \".\" + ext;", dirs), []);
 });
 
 const entry = (files: string[], over: Partial<ImpactEntry> = {}): ImpactEntry => ({ files, complete: true, commit: "abc", closureHash: "h1", ...over });
