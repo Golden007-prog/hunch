@@ -237,7 +237,10 @@ interface Scored {
  *  ties break on the builder profile's kind/severity score in delivery.ts. */
 export function selectForTask(records: TaskSelectionRecords, promptText: string, opts: TaskSelectionOptions = {}): TaskSelection {
   const k = Math.max(0, opts.k ?? DEFAULT_K);
-  const taskTerms = termTokens(promptText ?? "");
+  // Stack-frame lines name library APIs (writeFileSync, processTicksAndRejections), not the task:
+  // keep their words, but extract no identifiers from them.
+  const promptIdentifiers = (promptText ?? "").split(/\r?\n/).filter((line) => !/^\s*at\s+\S/.test(line) && !/node:internal|\(node:/.test(line)).join("\n");
+  const taskTerms = new Set([...lexicalTokens(promptText ?? ""), ...identifierTokens(promptIdentifiers)]);
   // Without an existence check (pure/offline) only a slashed token is trusted as a
   // path: "e.g.", "Node.js" or "v1.2" would otherwise match a broad glob.
   const paths = promptPaths(promptText ?? "", opts.root).filter((p) => opts.pathExists ? opts.pathExists(p) : p.includes("/"));
@@ -266,15 +269,17 @@ export function selectForTask(records: TaskSelectionRecords, promptText: string,
   const dfCap = Math.max(MIN_DF_CAP, Math.ceil(DF_CAP_RATIO * candidates.length));
   const df = new Map<string, number>();
   for (const c of candidates) for (const term of c.tokens) df.set(term, (df.get(term) ?? 0) + 1);
-  const strongIds = new Set([...scanIdentifiers(promptText ?? "")].filter(([, strong]) => strong).map(([term]) => term));
+  const strongIds = new Set([...scanIdentifiers(promptIdentifiers)].filter(([, strong]) => strong).map(([term]) => term));
   const rareTerms = new Map<string, { weight: number; strong: boolean }>();
   for (const term of taskTerms) {
     const n = df.get(term) ?? 0;
     if (n > dfCap) continue;
     // Integer weights so equal sums tie exactly and fall through to the priority tiebreak.
     const idf = Math.round(Math.log(1 + candidates.length / Math.max(1, n)) * 1000);
-    // Only a strong identifier that is near-unique (df <= MIN_DF_CAP) carries the x2 weight and qualifies alone.
+    // Only a strong identifier that is near-unique (df <= MIN_DF_CAP) counts, at x2, and qualifies alone.
+    // Weak ones (GitHub, useEffect) add nothing: their parts are already counted as words.
     const strong = strongIds.has(term) && n <= MIN_DF_CAP;
+    if (term.startsWith(ID_PREFIX) && !strong) continue;
     rareTerms.set(term, { weight: strong ? idf * IDENTIFIER_WEIGHT : idf, strong });
   }
   const scored: Scored[] = [];
@@ -284,7 +289,7 @@ export function selectForTask(records: TaskSelectionRecords, promptText: string,
     let termScore = 0;
     for (const [term, { weight, strong }] of rareTerms) {
       if (!tokens.has(term)) continue;
-      if (strong) identifiers++; else if (!term.startsWith(ID_PREFIX)) words++; // a weak identifier adds score only: its parts are already counted as words
+      if (strong) identifiers++; else words++;
       termScore += weight;
     }
     const pathHits = paths.filter((p) => anchors.some((anchor) => pathMatchesGlob(p, anchor))).length;
