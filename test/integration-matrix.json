@@ -1,0 +1,514 @@
+{
+  "edges": {
+    "cli->client": {
+      "tests": [
+        {
+          "file": "test/state-cli.test.ts",
+          "title": "state CLI uses the real authenticated contract"
+        }
+      ]
+    },
+    "cli->constitution": {
+      "tests": [
+        {
+          "file": "test/constitution.test.ts",
+          "title": "Gate G1 adapter contract: CLI, MCP, and strict CI"
+        }
+      ]
+    },
+    "cli->core": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "store->extractors: `hunch check` runs the stored invariant"
+        }
+      ]
+    },
+    "cli->eval": {
+      "tests": [
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "cli->eval / eval->core: "
+        },
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "cli->eval / eval->store: "
+        }
+      ]
+    },
+    "cli->extractors": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "extractors->store: `hunch index` writes parsed symbols"
+        }
+      ]
+    },
+    "cli->integrations": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "synthesis->store: init installs the post-commit capture hook"
+        }
+      ]
+    },
+    "cli->mcp": {
+      "tests": [
+        {
+          "file": "test/check-nonmutating.test.ts",
+          "title": "CLI and MCP conformance use the complete live working graph"
+        }
+      ]
+    },
+    "cli->serve": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "CLI: `hunch serve init --config <file>` honors the path"
+        }
+      ]
+    },
+    "cli->store": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "extractors->store: `hunch index` writes parsed symbols"
+        }
+      ]
+    },
+    "cli->synthesis": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "synthesis->store: the post-commit capture writes one Decision JSON"
+        }
+      ]
+    },
+    "cli->wiki": {
+      "tests": [
+        {
+          "file": "test/integration-cli-commands-a.test.ts",
+          "title": "cli:wiki"
+        }
+      ]
+    },
+    "client->core": {
+      "tests": [
+        {
+          "file": "test/state-proof.test.ts",
+          "title": "key-bound credentials require fresh proof"
+        }
+      ]
+    },
+    "constitution->core": {
+      "tests": [
+        {
+          "file": "test/constitution.test.ts",
+          "title": "MD-1a upgrades one exact top-level package correction"
+        }
+      ]
+    },
+    "constitution->extractors": {
+      "tests": [
+        {
+          "file": "test/constitution.test.ts",
+          "title": "Gate G1: decision -> must-pass-through policy"
+        }
+      ]
+    },
+    "constitution->store": {
+      "tests": [
+        {
+          "file": "test/constitution.test.ts",
+          "title": "Gate G1: decision -> must-pass-through policy"
+        }
+      ]
+    },
+    "constitution->synthesis": {
+      "tests": [
+        {
+          "file": "test/experiment.test.ts",
+          "title": "EXP-01 runner uses a fresh worktree"
+        }
+      ]
+    },
+    "core->constitution": {
+      "tests": [
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "core->constitution: "
+        }
+      ]
+    },
+    "core->extractors": {
+      "tests": [
+        {
+          "file": "test/siblingfix.test.ts",
+          "title": "a fix to one copy surfaces on the other copy"
+        }
+      ]
+    },
+    "core->integrations": {
+      "tests": [
+        {
+          "file": "test/footprint.test.ts",
+          "title": "footprint: every surface is measured"
+        }
+      ]
+    },
+    "core->mcp": {
+      "tests": [
+        {
+          "file": "test/integration-mcp-edges.test.ts",
+          "title": "core->mcp: "
+        }
+      ]
+    },
+    "core->store": {
+      "tests": [
+        {
+          "file": "test/footprint.test.ts",
+          "title": "footprint: every surface is measured"
+        }
+      ]
+    },
+    "core->wiki": {
+      "tests": [
+        {
+          "file": "test/wiki.test.ts",
+          "title": "wiki drift: no manifest"
+        }
+      ]
+    },
+    "eval->core": {
+      "tests": [
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "cli->eval / eval->core: "
+        }
+      ]
+    },
+    "extractors->core": {
+      "tests": [
+        {
+          "file": "test/indexer.test.ts",
+          "title": "indexRepo builds symbols, call edges"
+        }
+      ]
+    },
+    "extractors->synthesis": {
+      "tests": [
+        {
+          "file": "test/integration-gaps.test.ts",
+          "title": "extractors->synthesis: "
+        }
+      ]
+    },
+    "integrations->cli": {
+      "tests": [
+        {
+          "file": "test/integration-gaps.test.ts",
+          "title": "integrations->cli: "
+        }
+      ]
+    },
+    "integrations->constitution": {
+      "tests": [
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "integrations->constitution: "
+        }
+      ]
+    },
+    "integrations->core": {
+      "tests": [
+        {
+          "file": "test/providers.test.ts",
+          "title": "writeVscodeMcp strips JSONC trailing commas"
+        }
+      ]
+    },
+    "integrations->extractors": {
+      "tests": [
+        {
+          "file": "test/gitignore.test.ts",
+          "title": "an old private-only block is upgraded"
+        }
+      ]
+    },
+    "integrations->store": {
+      "tests": [
+        {
+          "file": "test/singlesource.test.ts",
+          "title": "team.json auto-discovery: a fresh clone wires itself"
+        }
+      ]
+    },
+    "integrations->synthesis": {
+      "tests": [
+        {
+          "file": "test/integration-gaps.test.ts",
+          "title": "integrations->synthesis: "
+        }
+      ]
+    },
+    "integrations->wiki": {
+      "tests": [
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "integrations->wiki: "
+        }
+      ]
+    },
+    "mcp->constitution": {
+      "tests": [
+        {
+          "file": "test/constitution.test.ts",
+          "title": "Gate G1 adapter contract: CLI, MCP, and strict CI"
+        }
+      ]
+    },
+    "mcp->core": {
+      "tests": [
+        {
+          "file": "test/mcp-delivery.test.ts",
+          "title": "hunch_context exposes the delivery envelope and records exactly what MCP served"
+        }
+      ]
+    },
+    "mcp->extractors": {
+      "tests": [
+        {
+          "file": "test/check-nonmutating.test.ts",
+          "title": "CLI and MCP conformance use the complete live working graph"
+        }
+      ]
+    },
+    "mcp->integrations": {
+      "tests": [
+        {
+          "file": "test/integration-mcp-edges.test.ts",
+          "title": "mcp->integrations: "
+        }
+      ]
+    },
+    "mcp->serve": {
+      "tests": [
+        {
+          "file": "test/integration-mcp-edges.test.ts",
+          "title": "mcp->serve: "
+        }
+      ]
+    },
+    "mcp->store": {
+      "tests": [
+        {
+          "file": "test/mcp-finding-provenance.test.ts",
+          "title": "hunch_record_finding MCP capture is advisory agent testimony"
+        }
+      ]
+    },
+    "mcp->synthesis": {
+      "tests": [
+        {
+          "file": "test/mcp-initiator.test.ts",
+          "title": "real MCP client handshakes bind isolated origins"
+        }
+      ]
+    },
+    "mcp->wiki": {
+      "tests": [
+        {
+          "file": "test/integration-mcp-edges.test.ts",
+          "title": "mcp->wiki: "
+        }
+      ]
+    },
+    "root->core": {
+      "tests": [
+        {
+          "file": "test/task-reporter.test.ts",
+          "title": "generic harness owns reporting"
+        }
+      ]
+    },
+    "root->store": {
+      "tests": [
+        {
+          "file": "test/integration-gaps.test.ts",
+          "title": "root->store: "
+        }
+      ]
+    },
+    "serve->core": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "HTTP: bearer resolves the principal, grants gate every route"
+        }
+      ]
+    },
+    "serve->integrations": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "a served partition that is a git repository commits every write"
+        },
+        {
+          "file": "test/integration-cross-area.test.ts",
+          "title": "serve->integrations: "
+        }
+      ]
+    },
+    "serve->mcp": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "MCP over streamable HTTP: the nuryel_* tools"
+        }
+      ]
+    },
+    "serve->store": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "HTTP: bearer resolves the principal, grants gate every route"
+        }
+      ]
+    },
+    "store->core": {
+      "tests": [
+        {
+          "file": "test/migrate.test.ts",
+          "title": "persistMigration rewrites loadable records"
+        }
+      ]
+    },
+    "store->extractors": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "store->extractors: `hunch check` runs the stored invariant"
+        }
+      ]
+    },
+    "synthesis->core": {
+      "tests": [
+        {
+          "file": "test/synthesis.test.ts",
+          "title": "recordFailure ranks suspects"
+        }
+      ]
+    },
+    "synthesis->extractors": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "synthesis->extractors: the decision's file anchors"
+        }
+      ]
+    },
+    "wiki->core": {
+      "tests": [
+        {
+          "file": "test/wiki.test.ts",
+          "title": "assemblePack: superseded decisions are history"
+        }
+      ]
+    }
+  },
+  "externals": {
+    "git": {
+      "tests": [
+        {
+          "file": "test/integration-capture-pipeline.test.ts",
+          "title": "synthesis->store: the post-commit capture writes one Decision JSON"
+        }
+      ]
+    },
+    "sqlite": {
+      "tests": [
+        {
+          "file": "test/store.test.ts",
+          "title": "reindex counts every entity"
+        },
+        {
+          "file": "test/store.test.ts",
+          "title": "FTS search finds decision + constraint by topic"
+        }
+      ]
+    },
+    "mcp-sdk": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "MCP over streamable HTTP: the nuryel_* tools"
+        }
+      ]
+    },
+    "http-serve": {
+      "tests": [
+        {
+          "file": "test/serve.test.ts",
+          "title": "HTTP: bearer resolves the principal, grants gate every route"
+        }
+      ]
+    },
+    "hook-formats": {
+      "tests": [
+        {
+          "file": "test/hook-matrix.test.ts",
+          "title": "every provider×event runs the real CLI with a native payload"
+        },
+        {
+          "file": "test/integration-externals.test.ts",
+          "title": "external:hook"
+        }
+      ]
+    },
+    "provider-clis": {
+      "tests": [
+        {
+          "file": "test/integration-externals.test.ts",
+          "title": "external:provider"
+        }
+      ]
+    },
+    "embeddings": {
+      "tests": [
+        {
+          "file": "test/integration-externals.test.ts",
+          "title": "external:embeddings"
+        }
+      ]
+    },
+    "merge-driver": {
+      "tests": [
+        {
+          "file": "test/grounding-merge-driver.test.ts",
+          "title": "end-to-end: a real `git merge` with the driver installed auto-resolves"
+        }
+      ]
+    },
+    "packaging": {
+      "tests": [
+        {
+          "file": "test/package-paths.test.ts",
+          "title": "every path npm would pack"
+        },
+        {
+          "file": "test/integration-gaps.test.ts",
+          "title": "external:packaging"
+        }
+      ]
+    },
+    "ci-workflow": {
+      "tests": [
+        {
+          "file": "test/integration-externals.test.ts",
+          "title": "external:ci"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1473 @@
+{
+  "adopt-drafts": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:adopt-drafts: dry run lists drafts unchanged, apply flips them to accepted advisory, and it is idempotent"
+      }
+    ]
+  },
+  "auto-review": {
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review --apply refuses an incomplete harness batch without mutating drafts"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:auto-review: refuses --apply on an unjudged batch, and --no-llm --apply rejects a deterministic duplicate"
+      }
+    ]
+  },
+  "backfill": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "branches": {
+    "tests": [
+      {
+        "file": "test/workspace-ledger.test.ts",
+        "title": "the installed post-checkout hook really records a snapshot on a branch checkout, and not on a file checkout"
+      },
+      {
+        "file": "test/workspace-prune.test.ts",
+        "title": "planPrune: only proven-merged branches with a clean, unlocked, present, non-main worktree are steps; every refusal is named"
+      }
+    ]
+  },
+  "capture-comments": {
+    "tests": [
+      {
+        "file": "test/comments.test.ts",
+        "title": "capture-comments never copies a same-id private decision into the public home"
+      }
+    ]
+  },
+  "change-id": {
+    "tests": [
+      {
+        "file": "test/change-identity.test.ts",
+        "title": "an exact branch delta and its squash commit share one change identity"
+      }
+    ]
+  },
+  "check": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      }
+    ]
+  },
+  "ci": {
+    "tests": [
+      {
+        "file": "test/g3.test.ts",
+        "title": "G3 adapter conformance executes the real CLI/MCP/CI fixture and rejects unsupported client profiles"
+      },
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "init then uninstall --purge leaves only the user's files, and nothing re-installs Hunch"
+      }
+    ]
+  },
+  "compact": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "normalizes session-lifecycle events: SubagentStart agent type, PreCompact, SessionStart compact source"
+      },
+      {
+        "file": "test/compact.test.ts",
+        "title": "compact --apply refuses physical deletion and leaves the additive memory pump live"
+      }
+    ]
+  },
+  "compare": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:compare: ranks a candidate branch against main and refuses an unknown base"
+      }
+    ]
+  },
+  "conform": {
+    "tests": [
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "CLI and MCP conformance use the complete live working graph without publishing it"
+      },
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "constitution": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      },
+      {
+        "file": "test/g3.test.ts",
+        "title": "CLI and read-only client-neutral MCP expose the identical fail-closed G3 receipt"
+      }
+    ]
+  },
+  "constitution bootstrap": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:constitution bootstrap: compiles a non-active candidate from the human-confirmed predicate"
+      },
+      {
+        "file": "test/parser-load-failure.test.ts",
+        "title": "constitution bootstrap rethrows a parser load failure instead of recording it as uncompilable"
+      }
+    ]
+  },
+  "constitution delta": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:constitution delta: inspects the exact fix-commit structural delta; an unanchored decision is refused"
+      }
+    ]
+  },
+  "constitution g2": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2S G2 candidate attestations are exact, append-only, private, and non-authoritative"
+      }
+    ]
+  },
+  "constitution g3": {
+    "tests": [
+      {
+        "file": "test/g3.test.ts",
+        "title": "CLI and read-only client-neutral MCP expose the identical fail-closed G3 receipt"
+      }
+    ]
+  },
+  "constitution ingest": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2D review/conversation exports validate as one batch and preserve exact public/private homes without raw text"
+      }
+    ]
+  },
+  "constitution scorecard": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:constitution scorecard: scores the shipped EXP-03 bank; a malformed bank is refused"
+      }
+    ]
+  },
+  "context": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:context: a file target delivers the decision and invariant brief"
+      },
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "hooks become verified only from host-delivered events on the expected version"
+      }
+    ]
+  },
+  "dna": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna: bare group prints its subcommands; an unknown subcommand is refused"
+      }
+    ]
+  },
+  "dna context": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna context: renders the bounded advisory supplement; a bad ref is refused"
+      }
+    ]
+  },
+  "dna diff": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna diff: compares two exact revisions without rewriting either; a bad revision is refused"
+      }
+    ]
+  },
+  "dna inspect": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna inspect: --json profile is bound to HEAD and writes nothing; an unknown ref is refused"
+      }
+    ]
+  },
+  "dna match": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:dna match: scores a conventional commit subject; an unknown --kind is refused"
+      }
+    ]
+  },
+  "doctor": {
+    "tests": [
+      {
+        "file": "test/hook-invocation-health.test.ts",
+        "title": "hunch doctor's stale hint names the init options that keep the block's flags"
+      },
+      {
+        "file": "test/hook-managers.test.ts",
+        "title": "pre-commit framework: a Hunch block previously appended after its exec is reported installed-but-unreachable (hookStatus + doctor)"
+      }
+    ]
+  },
+  "drift": {
+    "tests": [
+      {
+        "file": "test/drift.test.ts",
+        "title": "drift dead-ref: in-force decision referencing a missing file is flagged (existing file is not)"
+      }
+    ]
+  },
+  "embed": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:embed: degrades with a clear message when no embedder is installed, keyword query still works, and a stub embedder embeds idempotently"
+      }
+    ]
+  },
+  "escalations": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "a queued repair surfaces via `hunch escalations` — the discoverable surface for what the silent hook found"
+      }
+    ]
+  },
+  "eval": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:eval: --guards scores a generated golden set through the real gate and refuses a missing or malformed set"
+      },
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "cli->eval / eval->core: `hunch eval --guards` scores cases through the real check verdict"
+      }
+    ]
+  },
+  "evidence-map": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:evidence-map: compiles an authenticated receipt to JSON and refuses an invalid one"
+      }
+    ]
+  },
+  "experiment": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment validate: content-addresses a draft bank without writing it; refuses an unknown preregistration"
+      }
+    ]
+  },
+  "experiment create": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment create: writes one immutable run per preregistration; refuses provider misuse and unknown banks"
+      }
+    ]
+  },
+  "experiment followup": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment followup: refuses before seven full days have elapsed"
+      }
+    ]
+  },
+  "experiment next": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment next: refuses a reviewer without the plain-language qualification"
+      }
+    ]
+  },
+  "experiment prepare": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment prepare: locks both case banks into the private overlay; refuses a stale case"
+      }
+    ]
+  },
+  "experiment qualify": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment qualify: records a bound reviewer qualification; refuses a mismatched preregistration hash"
+      }
+    ]
+  },
+  "experiment report": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment report: emits a deterministic, authority-free receipt; refuses an unknown run"
+      }
+    ]
+  },
+  "experiment respond": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment respond: records a plain-language review outcome; refuses an accept without a rule"
+      }
+    ]
+  },
+  "experiment run": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment run: executes one EXP-01 assignment against a fake provider and retains the failure; refuses EXP-03"
+      }
+    ]
+  },
+  "experiment status": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment status: reports raw denominators per run; refuses an unknown run"
+      }
+    ]
+  },
+  "experiment stop": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment stop: irreversibly stops a run and blocks further reviews; refuses a second, different stop"
+      }
+    ]
+  },
+  "experiment submit": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment submit: retains an abandoned review via the raw path; refuses a raw answer on a revision-2 case"
+      }
+    ]
+  },
+  "experiment validate": {
+    "tests": [
+      {
+        "file": "test/integration-cli-experiment.test.ts",
+        "title": "cli:experiment validate: content-addresses a draft bank without writing it; refuses an unknown preregistration"
+      }
+    ]
+  },
+  "export-adr": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:export-adr: writes a marked MADR corpus and a manifest; refuses a hand-written corpus"
+      }
+    ]
+  },
+  "findings": {
+    "tests": [
+      {
+        "file": "test/drift.test.ts",
+        "title": "drift --fail-on turns a reported kind into a gate failure; unknown kinds are refused"
+      }
+    ]
+  },
+  "firmness": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:firmness: prints the level as JSON, persists a new level to config, and refuses an unknown level"
+      }
+    ]
+  },
+  "footprint": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:footprint: measures the injected surfaces as hunch.footprint JSON and as a table"
+      }
+    ]
+  },
+  "fragile": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:fragile: prints a fragility report (or the no-signal notice) for the indexed repo"
+      }
+    ]
+  },
+  "grounding": {
+    "tests": [
+      {
+        "file": "test/grounding-merge-lag.test.ts",
+        "title": "merge lag: identical count lines merge silently, the doc lags by one, and hunch grounding names + heals it"
+      },
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "integrations->constitution: a compiled policy appears in the regenerated CLAUDE.md grounding block"
+      }
+    ]
+  },
+  "heal": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:heal: reports the dead reference with its next action and writes nothing"
+      },
+      {
+        "file": "test/wiki.test.ts",
+        "title": "memory graph page: embedded data, component links, tamper tripwire, heal"
+      }
+    ]
+  },
+  "hook": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "Codex apply_patch lists every touched file with only its added lines"
+      },
+      {
+        "file": "test/contract-agent-instructions.test.ts",
+        "title": "every tool and CLI command Hunch's agent-facing text names exists, and the advertised call shapes work"
+      }
+    ]
+  },
+  "impact": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:impact: reports a single commit's surface and refuses ambiguous or unresolvable inputs"
+      }
+    ]
+  },
+  "import-adr": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:import-adr: an exported corpus round-trips into a fresh repo"
+      }
+    ]
+  },
+  "index": {
+    "tests": [
+      {
+        "file": "test/cold-start.test.ts",
+        "title": "the addon probe observes the addons when a command really parses"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
+      }
+    ]
+  },
+  "init": {
+    "tests": [
+      {
+        "file": "test/agenthook.test.ts",
+        "title": "Codex apply_patch lists every touched file with only its added lines"
+      },
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      }
+    ]
+  },
+  "integrations": {
+    "tests": [
+      {
+        "file": "test/gitignore.test.ts",
+        "title": "`hunch integrations repair-pins` (run by `hunch update`) upgrades managed blocks and reports it"
+      },
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "CLI reports JSON and fails requirements; pin repair clears the original mismatch"
+      }
+    ]
+  },
+  "integrations check": {
+    "tests": [
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "CLI upgrade repairs installed Codex hooks into a runnable handler"
+      }
+    ]
+  },
+  "integrations repair-pins": {
+    "tests": [
+      {
+        "file": "test/gitignore.test.ts",
+        "title": "`hunch integrations repair-pins` (run by `hunch update`) upgrades managed blocks and reports it"
+      },
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "CLI upgrade repairs installed Codex hooks into a runnable handler"
+      }
+    ]
+  },
+  "landscape": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      },
+      {
+        "file": "test/parser-load-failure.test.ts",
+        "title": "landscape review discovers a valid SLO declaration when the parser is healthy"
+      }
+    ]
+  },
+  "landscape adopt": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      }
+    ]
+  },
+  "landscape review": {
+    "tests": [
+      {
+        "file": "test/landscape-adoption.test.ts",
+        "title": "HLG-2 CLI review stays read-only and adopt persists only the hash-bound reviewed fragment"
+      },
+      {
+        "file": "test/parser-load-failure.test.ts",
+        "title": "landscape review discovers a valid SLO declaration when the parser is healthy"
+      }
+    ]
+  },
+  "log": {
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a normal public sync folds capture, correction review, graph, and grounding into one clean memory commit"
+      }
+    ]
+  },
+  "mcp": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "CLI and MCP conformance use the complete live working graph without publishing it"
+      }
+    ]
+  },
+  "merge-driver": {
+    "tests": [
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "the merge drivers still merge in an opted-out repository, so git never drops `theirs`"
+      }
+    ]
+  },
+  "merge-driver-grounding": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:merge-driver-grounding: resolves a counts-only conflict to the max and leaves a prose conflict for a human"
+      }
+    ]
+  },
+  "migrate": {
+    "tests": [
+      {
+        "file": "test/team-final-closure.test.ts",
+        "title": "migrate in unified shared mode upgrades only overlay JSON and publishes that overlay"
+      },
+      {
+        "file": "test/team-workflow-failure-regressions.test.ts",
+        "title": "migrate fails closed when committed team memory is unavailable"
+      }
+    ]
+  },
+  "now": {
+    "tests": [
+      {
+        "file": "test/wiki.test.ts",
+        "title": "now page: recent ledger + roadmap from proposed decisions; recording/accepting intent moves the page through drift"
+      },
+      {
+        "file": "test/workspace-ledger.test.ts",
+        "title": "CLI: hunch worktree records the new worktree; doctor and now report the ledger"
+      }
+    ]
+  },
+  "path": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:path: finds an import path between two files and refuses an unindexed endpoint"
+      }
+    ]
+  },
+  "policy": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      }
+    ]
+  },
+  "policy accept": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy card": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy compile": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "integrations->constitution: a compiled policy appears in the regenerated CLAUDE.md grounding block"
+      }
+    ]
+  },
+  "policy consolidation": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy consolidation: emits a non-mutating candidate envelope; an unknown id is refused"
+      }
+    ]
+  },
+  "policy corpus": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy corpus: imports an immutable known-good/bad corpus and inspects it; refusals write nothing"
+      }
+    ]
+  },
+  "policy demote": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy demote: active blocking -> active advisory with an audit entry; demoting again is refused"
+      }
+    ]
+  },
+  "policy evaluate": {
+    "tests": [
+      {
+        "file": "test/behavior-workspace.test.ts",
+        "title": "CLI, MCP, and check share one non-blocking working-snapshot receipt without public leakage"
+      },
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      }
+    ]
+  },
+  "policy exception": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy exception: links a strictly narrower opposite policy to its parent; a broader child is refused"
+      }
+    ]
+  },
+  "policy history": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy history: lists accepted-history receipts after proof; partial classification is refused"
+      }
+    ]
+  },
+  "policy list": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      },
+      {
+        "file": "test/private-correction-interfaces.test.ts",
+        "title": "MD-1a private CLI upgrade writes only to a standalone overlay and public CLI output/history stay sentinel-clean"
+      }
+    ]
+  },
+  "policy plan": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "policy plan --public-only pumps the actual public home when a duplicate private policy exists"
+      }
+    ]
+  },
+  "policy prove": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "authoritative proof replay rejects a committed partial graph instead of minting P3"
+      }
+    ]
+  },
+  "policy relations": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy relations: shows the exception edge from both sides; an unknown id is refused"
+      }
+    ]
+  },
+  "policy retire": {
+    "tests": [
+      {
+        "file": "test/team-matrix-e2e.test.ts",
+        "title": "team Matrix: three isolated clones share live memory, catch a bad branch, repair it, and never leak it publicly"
+      }
+    ]
+  },
+  "policy shadow": {
+    "tests": [
+      {
+        "file": "test/check-nonmutating.test.ts",
+        "title": "live policy evaluation and shadow recording fail closed on an incomplete working source graph"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Gate G1 adapter contract: CLI, MCP, and strict CI share one source-byte-identified working receipt"
+      }
+    ]
+  },
+  "policy show": {
+    "tests": [
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy upgrade-correction": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a CLI stays plain and MCP requires an explicit flag for full proof artifacts"
+      },
+      {
+        "file": "test/md1-e2e.test.ts",
+        "title": "MD-1a black-box journey: CLI capture, durable retry, P3 review, MCP parity, guard, and tamper-safe strict CI"
+      }
+    ]
+  },
+  "policy withdraw": {
+    "tests": [
+      {
+        "file": "test/integration-cli-dna-policy.test.ts",
+        "title": "cli:policy withdraw: active advisory -> proposed with authority cleared; withdrawing again is refused"
+      }
+    ]
+  },
+  "private": {
+    "tests": [
+      {
+        "file": "test/comments.test.ts",
+        "title": "capture-comments never copies a same-id private decision into the public home"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "private evidence produces private policy/proof and public-only evaluation leaks no identifier"
+      }
+    ]
+  },
+  "prove": {
+    "tests": [
+      {
+        "file": "test/change-proof.test.ts",
+        "title": "native change proof deterministically binds exact revisions, DNA, memory, blast radius, and conformance"
+      },
+      {
+        "file": "test/escalations.test.ts",
+        "title": "relevantEscalations keeps only entries the prompt's task touches (dec_12ba37db1c)"
+      }
+    ]
+  },
+  "provider": {
+    "tests": [
+      {
+        "file": "test/overlay-commit-guard.test.ts",
+        "title": "sameGitPublication canonicalizes Azure DevOps HTTPS, SSH, and legacy host aliases without network access"
+      }
+    ]
+  },
+  "push": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a private proof packet is byte-reusable across ordinary clones after origin is renamed"
+      },
+      {
+        "file": "test/hook-shared-worktree.test.ts",
+        "title": "13. a BARE repo's worktrees share the hooks dir, and the bare entry is not a worktree"
+      }
+    ]
+  },
+  "query": {
+    "tests": [
+      {
+        "file": "test/integration-capture-pipeline.test.ts",
+        "title": "extractors->store: `hunch index` writes parsed symbols and components that `hunch query` finds"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:embed: degrades with a clear message when no embedder is installed, keyword query still works, and a stub embedder embeds idempotently"
+      }
+    ]
+  },
+  "reconcile-topics": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:reconcile-topics: clean graph exits 0; two live decisions on one topic exit non-zero naming both"
+      }
+    ]
+  },
+  "record-bug": {
+    "tests": [
+      {
+        "file": "test/team-cli-mutator-pump.test.ts",
+        "title": "shared CLI mutators pump their actual home and rejection leaves the next capture live"
+      }
+    ]
+  },
+  "record-constraint": {
+    "tests": [
+      {
+        "file": "test/compact.test.ts",
+        "title": "compact --apply refuses physical deletion and leaves the additive memory pump live"
+      },
+      {
+        "file": "test/hooks.test.ts",
+        "title": "strict pre-commit enforces the exact alternate index Git is committing"
+      }
+    ]
+  },
+  "repair": {
+    "tests": [
+      {
+        "file": "test/integration-health.test.ts",
+        "title": "repair never interprets a quoted argument or shell wrapper as a Hunch launcher"
+      },
+      {
+        "file": "test/sync-repair-commit.test.ts",
+        "title": "sync --no-commit applies rename repair without creating a hidden repair commit"
+      }
+    ]
+  },
+  "repair-provenance": {
+    "tests": [
+      {
+        "file": "test/repair-provenance.test.ts",
+        "title": "repair-provenance --range --apply rewrites commit + evidence directly, and leaves the queue empty"
+      }
+    ]
+  },
+  "repair-ref": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "report": {
+    "tests": [
+      {
+        "file": "test/task-report-hook.test.ts",
+        "title": "native Stop shows the card as soon as a check is observed, even when the agent never called a tool"
+      },
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "retire-constraint": {
+    "tests": [
+      {
+        "file": "test/retire-constraint-cli.test.ts",
+        "title": "retire-constraint keeps a private constraint and reason out of the public checkout"
+      }
+    ]
+  },
+  "revert-move": {
+    "tests": [
+      {
+        "file": "test/revert-move-safety.test.ts",
+        "title": "revert-move refuses unsafe commits without mutation, but reverts and publishes an append-only Hunch move"
+      }
+    ]
+  },
+  "review": {
+    "tests": [
+      {
+        "file": "test/capture-authority.test.ts",
+        "title": "hunch review --confirm: a human countersigns a correction (granting severity) and a decision (keeping status)"
+      },
+      {
+        "file": "test/constitution.test.ts",
+        "title": "MD-1a capture survives a dirty baseline and ordinary index retries it after the fix"
+      }
+    ]
+  },
+  "review-memory": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      },
+      {
+        "file": "test/review-memory-cli.test.ts",
+        "title": "CLI preview is read-only; apply routes a sourced rule and refuses overwrite"
+      }
+    ]
+  },
+  "review-memory auto": {
+    "todo": "no test runs this command"
+  },
+  "review-memory capture": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "review-memory prepare": {
+    "tests": [
+      {
+        "file": "test/integration-cross-area.test.ts",
+        "title": "core->constitution: review-memory prepare hashes evidence canonically and capture --apply persists the rule"
+      }
+    ]
+  },
+  "runbook": {
+    "tests": [
+      {
+        "file": "test/g2.test.ts",
+        "title": "runbook rehearsal binds the exact runbook content and corrections retract eligibility"
+      },
+      {
+        "file": "test/runbook-capture.test.ts",
+        "title": "hunch runbook over a range interleaving capture commits records only the real procedure"
+      }
+    ]
+  },
+  "serve": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "the opt-out gate judges the --root a command acts on, not the cwd's repository (#458)"
+      }
+    ]
+  },
+  "serve compact": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve compact: compacts a served partition's ledger and refuses an unserved partition"
+      }
+    ]
+  },
+  "serve init": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      },
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "the opt-out gate judges the --root a command acts on, not the cwd's repository (#458)"
+      }
+    ]
+  },
+  "serve replay": {
+    "tests": [
+      {
+        "file": "test/state-replay.test.ts",
+        "title": "replay: `hunch serve replay --root` prints the report and exits 1 on divergence"
+      }
+    ]
+  },
+  "serve revoke": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:serve revoke: removes a principal's credential from the config and refuses an unknown principal"
+      }
+    ]
+  },
+  "served": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:served: empty ledger says so, then summarises seeded delivery receipts in text and JSON"
+      },
+      {
+        "file": "test/siblingfix.test.ts",
+        "title": "the cache is keyed by content: an unrelated commit keeps the answer, a sibling change recomputes it"
+      }
+    ]
+  },
+  "shared": {
+    "tests": [
+      {
+        "file": "test/mcp-mutator-pump.test.ts",
+        "title": "MCP shared mode keeps a legacy public correction upgrade in its actual public home"
+      },
+      {
+        "file": "test/overlay-commit-guard.test.ts",
+        "title": "commitAndPushHunch REFUSES a linked worktree .hunch from the protected public repository"
+      }
+    ]
+  },
+  "shortlist": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:shortlist: emits a JSON diagnostic with scan stats and refuses an out-of-range limit"
+      }
+    ]
+  },
+  "stale": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2R G2 candidate review separates human grounding from structural coincidence without writes"
+      },
+      {
+        "file": "test/hook-invocation-health.test.ts",
+        "title": "a block rewritten into an arbitrary probe command is stale, not installed"
+      }
+    ]
+  },
+  "state": {
+    "tests": [
+      {
+        "file": "test/hook-invocation-health.test.ts",
+        "title": "hookInvocationLines: identical invocations share a line, and only a differing one is flagged"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token, the operator shell is served, and the state CLI round-trips capabilities/write/read/records/subscribe with refusals"
+      }
+    ]
+  },
+  "state capabilities": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token"
+      }
+    ]
+  },
+  "state read": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token"
+      }
+    ]
+  },
+  "state records": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token"
+      }
+    ]
+  },
+  "state subscribe": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token"
+      }
+    ]
+  },
+  "state write": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:serve + cli:state: serve init mints a token"
+      }
+    ]
+  },
+  "stats": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract counting the seeded records"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:stats: --json emits the hunch.stats/1 contract over the seeded graph, text renders, --private is refused"
+      }
+    ]
+  },
+  "status": {
+    "tests": [
+      {
+        "file": "test/autoreview-cli.test.ts",
+        "title": "auto-review applies accept and append-only reject, then pumps both lifecycle updates"
+      },
+      {
+        "file": "test/compact.test.ts",
+        "title": "compact --apply refuses physical deletion and leaves the additive memory pump live"
+      }
+    ]
+  },
+  "structure": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:structure: prints the repo map and a file's shape from the graph"
+      }
+    ]
+  },
+  "supersede": {
+    "tests": [
+      {
+        "file": "test/retire-constraint-cli.test.ts",
+        "title": "retire-constraint closes an active constraint's window, keeps the reason out of the commit subject, and CLAUDE.md drops it from Top invariants"
+      },
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "sync": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, and review-bounded"
+      },
+      {
+        "file": "test/hook-shared-worktree.test.ts",
+        "title": "26. a re-run that adds nothing never rewrites the shared block, and an add keeps every line's options"
+      }
+    ]
+  },
+  "task": {
+    "tests": [
+      {
+        "file": "test/task-report-hook.test.ts",
+        "title": "a prompt that follows another in the same session continues its task; the episode's record is written under the first task's id"
+      },
+      {
+        "file": "test/task-report.test.ts",
+        "title": "task reports preserve exact delivery occurrences, empty responses and historical uncertainty"
+      }
+    ]
+  },
+  "task conform": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "task finish": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      },
+      {
+        "file": "test/task-status.test.ts",
+        "title": "task stats counts adherence from the ledger over a window"
+      }
+    ]
+  },
+  "task forget": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:task forget: refuses an open task, then removes a closed task's report history"
+      }
+    ]
+  },
+  "task list": {
+    "tests": [
+      {
+        "file": "test/task-status.test.ts",
+        "title": "a delivery or a check makes the task non-empty and shows up in the status line, the list, and the JSON"
+      }
+    ]
+  },
+  "task presentation": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "upgrade repair refreshes existing instructions and preserves user settings and prose"
+      }
+    ]
+  },
+  "task prune": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:task prune: removes nothing inside the retention window and refuses an out-of-range retention"
+      }
+    ]
+  },
+  "task rank-eval": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:task rank-eval: scores task-record ranking offline as JSON"
+      }
+    ]
+  },
+  "task start": {
+    "tests": [
+      {
+        "file": "test/task-report.test.ts",
+        "title": "CLI start, verify, finish and HTML share the persisted task report"
+      }
+    ]
+  },
+  "task stats": {
+    "tests": [
+      {
+        "file": "test/task-status.test.ts",
+        "title": "task stats counts adherence from the ledger over a window"
+      }
+    ]
+  },
+  "task status": {
+    "tests": [
+      {
+        "file": "test/task-status.test.ts",
+        "title": "an untouched task is empty, summarized as such, and renders no status line"
+      }
+    ]
+  },
+  "task verify": {
+    "tests": [
+      {
+        "file": "test/task-report-hook.test.ts",
+        "title": "a prompt that follows another in the same session continues its task; the episode's record is written under the first task's id"
+      },
+      {
+        "file": "test/task-report.test.ts",
+        "title": "verification timeout is caller-bounded so a long suite can be retained, within a hard ceiling"
+      }
+    ]
+  },
+  "test": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 2Q G2 shadow sweep is real-state deduplicated, retry-safe, private, and review-bounded"
+      },
+      {
+        "file": "test/integration-cli-commands-b.test.ts",
+        "title": "cli:test: a failing TAP run is captured as a bug and keeps a non-zero exit; --dry-run writes nothing"
+      }
+    ]
+  },
+  "timeline": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:timeline: lists a file's decision history and says so when there is none"
+      }
+    ]
+  },
+  "uninstall": {
+    "tests": [
+      {
+        "file": "test/uninstall.test.ts",
+        "title": "init then uninstall --purge leaves only the user's files, and nothing re-installs Hunch"
+      }
+    ]
+  },
+  "update": {
+    "tests": [
+      {
+        "file": "test/escalations.test.ts",
+        "title": "relevantEscalations anchors policies by scope, matches globs, and ignores path tokens for the keyword"
+      },
+      {
+        "file": "test/task-selection.test.ts",
+        "title": "file names, versions and capitalized prose never become identifier terms"
+      }
+    ]
+  },
+  "veto": {
+    "tests": [
+      {
+        "file": "test/check-base-veto-freshness.test.ts",
+        "title": "#426: a human-confirmed veto blocks the same in --staged, --commit and --base under --strict"
+      },
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "veto backfill": {
+    "tests": [
+      {
+        "file": "test/review-cli.test.ts",
+        "title": "review accept, duplicate rejection, and verified batch update each pump the public home"
+      }
+    ]
+  },
+  "why": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:why: file target lists the decision and constraint; record id renders the record"
+      },
+      {
+        "file": "test/task-selection.test.ts",
+        "title": "a rare compound identifier in a question-style prompt selects its decision among many common-word records"
+      }
+    ]
+  },
+  "wiki": {
+    "tests": [
+      {
+        "file": "test/dupdetect.test.ts",
+        "title": "dupTerms: stopwords and short tokens drop; identifiers survive"
+      },
+      {
+        "file": "test/integration-cli-commands-a.test.ts",
+        "title": "cli:wiki: generates deterministic pages + manifest, then --check reports fresh"
+      }
+    ]
+  },
+  "workspaces": {
+    "tests": [
+      {
+        "file": "test/workspace-ledger.test.ts",
+        "title": "recordWorkspaceSnapshot: off / no-home / written / unchanged / dry-run, one commit per real change"
+      },
+      {
+        "file": "test/workspace-prune.test.ts",
+        "title": "CLI prune: dry run prints per-machine commands and deletes nothing; --apply refuses off a terminal; --apply --yes deletes only the safe set on this machine and never a remote"
+      }
+    ]
+  },
+  "workspaces forget": {
+    "tests": [
+      {
+        "file": "test/workspaces.test.ts",
+        "title": "CLI: snapshot writes nothing without an overlay (dry-run too), writes into a private overlay once, and skips an unchanged re-run"
+      }
+    ]
+  },
+  "workspaces label": {
+    "tests": [
+      {
+        "file": "test/workspaces.test.ts",
+        "title": "CLI: label shows and sets the machine label, refusing unsafe values"
+      }
+    ]
+  },
+  "workspaces list": {
+    "tests": [
+      {
+        "file": "test/integration-cli-commands-c.test.ts",
+        "title": "cli:workspaces list: emits this machine's worktree as JSON and refuses outside a git repo"
+      }
+    ]
+  },
+  "workspaces prune": {
+    "tests": [
+      {
+        "file": "test/workspace-prune.test.ts",
+        "title": "CLI prune: dry run prints per-machine commands and deletes nothing; --apply refuses off a terminal; --apply --yes deletes only the safe set on this machine and never a remote"
+      }
+    ]
+  },
+  "workspaces snapshot": {
+    "tests": [
+      {
+        "file": "test/workspace-prune.test.ts",
+        "title": "CLI prune: dry run prints per-machine commands and deletes nothing; --apply refuses off a terminal; --apply --yes deletes only the safe set on this machine and never a remote"
+      },
+      {
+        "file": "test/workspaces.test.ts",
+        "title": "CLI: snapshot writes nothing without an overlay (dry-run too), writes into a private overlay once, and skips an unchanged re-run"
+      }
+    ]
+  },
+  "worktree": {
+    "tests": [
+      {
+        "file": "test/constitution.test.ts",
+        "title": "Phase 3 replays current, known-bad, known-good, and bounded accepted history without hooks or active-worktree mutation"
+      },
+      {
+        "file": "test/hook-managers.test.ts",
+        "title": "linked worktree of a temp repo: the shared hooks dir in the common git dir is still a plain install"
+      }
+    ]
+  }
+}
