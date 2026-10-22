@@ -59,13 +59,15 @@ export function runnerArgv(root: string, template: string | undefined, files: st
 
 const display = (argv: string[]): string => argv.map((a, i) => i === 0 && a === process.execPath ? "node" : /\s/.test(a) ? JSON.stringify(a) : a).join(" ");
 
-function printSelection(sel: Selection, total: number, note: string[]): void {
+function printSelection(sel: Selection, total: number, note: string[], hasMap: boolean): void {
   for (const line of note) console.log(`  note: ${line}`);
   if (sel.mode === "none") { console.log("✓ no tests selected — nothing the changes can affect."); return; }
   if (sel.mode === "full") {
     console.log(`▶ FULL suite (${total} tests): ${sel.fullReason}`);
     if (sel.unattributed.length) console.log(`  unattributed: ${sel.unattributed.join(", ")}`);
-    console.log("  hint: `hunch verify --refresh-map` records per-test coverage so passing tests can narrow this.");
+    // Only trusted map entries narrow spawning tests; triggers, non-code and unattributed changes stay FULL.
+    const spawnWide = /^selection too broad/.test(sel.fullReason ?? "") && Object.values(sel.reasons).some((r) => r.some((why) => why.includes("whole program")));
+    if (!hasMap && spawnWide) console.log("  Run `hunch verify --refresh-map` once to enable narrow selection for CLI/MCP tests.");
     return;
   }
   console.log(`▶ ${sel.tests.length} of ${total} tests selected:`);
@@ -181,6 +183,7 @@ export function registerVerifyCommand(program: Command): void {
       }
       const note: string[] = [];
       let sel: Selection;
+      let hasMap = false;
       if (opts.full || opts.ci) {
         sel = { mode: "full", tests: allTests, reasons: {}, fullReason: opts.ci ? "--ci" : "--full", unattributed: [], mapUsed: [] };
       } else {
@@ -199,8 +202,9 @@ export function registerVerifyCommand(program: Command): void {
         sel = selectTests({
           changedFiles: changed, allTests, impactMap, importGraph: model.dependencies,
           testText: model.testText, spawning: model.spawning, closureHash: model.closureHash,
-          wholeProgram: [...model.wholeProgram, ...changed.filter((f) => f.startsWith("src/"))],
+          wholeProgram: [...model.wholeProgram, ...changed.filter((f) => f.startsWith("src/"))], testNamers: model.testNamers,
         });
+        hasMap = !!impactMap;
         if (impactMap) {
           const head = headSha(root);
           const stale = sel.mapUsed.filter((t) => impactMap!.map[t]!.commit !== head);
@@ -211,7 +215,7 @@ export function registerVerifyCommand(program: Command): void {
         }
       }
       if (opts.json) { console.log(JSON.stringify({ ...sel, total: allTests.length }, null, 2)); return; }
-      printSelection(sel, allTests.length, note);
+      printSelection(sel, allTests.length, note, hasMap);
       if (opts.list || sel.mode === "none") return;
       let argv: string[];
       try { argv = runnerArgv(root, template, sel.tests, runnerArgs, sel.mode === "full"); } catch (e) { console.error((e as Error).message); process.exitCode = 1; return; }

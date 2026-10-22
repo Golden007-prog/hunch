@@ -40,6 +40,53 @@ test("selectTests: a changed src file falls back to the import graph without a m
   assert.deepEqual(sel.reasons["test/b.test.ts"], ["imports src/shared.ts"]);
 });
 
+test("selectTests: a changed test file also selects tests that name it by path or basename", () => {
+  const text: Record<string, string> = { "test/e.test.ts": `const drills = ["c.test.ts"];`, "test/d.test.ts": `const f = "test/c.test.ts";`, "test/b.test.ts": `"abc.test.ts"` };
+  const sel = selectTests(input(["test/c.test.ts"], { testText: (t) => text[t] ?? "" }));
+  assert.deepEqual(sel.tests, ["test/c.test.ts", "test/d.test.ts", "test/e.test.ts"]);
+  assert.deepEqual(sel.reasons["test/e.test.ts"], ["mentions test/c.test.ts"]);
+});
+
+test("selectTests: a changed, added or deleted test file selects meta-tests that enumerate tests", () => {
+  const text: Record<string, string> = {
+    "test/d.test.ts": `for (const name of readdirSync(join(root, "test"))) if (name.endsWith(".test.ts")) check(name);`,
+    "test/e.test.ts": `const index = JSON.parse(readFileSync(join(root, ".hunch", "index.json"), "utf8"));`,
+  };
+  const testText = (t: string) => text[t] ?? "";
+  const changed = selectTests(input(["test/c.test.ts"], { testText }));
+  assert.deepEqual(changed.tests, ["test/c.test.ts", "test/d.test.ts", "test/e.test.ts"]);
+  assert.deepEqual(changed.reasons["test/d.test.ts"], ["enumerates test files (test/c.test.ts)"]);
+  const deleted = selectTests(input(["test/gone.test.ts"], { testText }));
+  assert.deepEqual([deleted.mode, deleted.tests], ["selected", ["test/d.test.ts", "test/e.test.ts"]]);
+  const unread = selectTests(input(["test/gone.test.ts"]));
+  assert.equal(unread.mode, "full", "a deleted test nothing reads is unattributed");
+  assert.deepEqual(unread.unattributed, ["test/gone.test.ts"]);
+  assert.equal(selectTests(input(["test/new-helper.ts"])).mode, "full", "a test helper keeps the code rules");
+});
+
+test("regression: a src file that names a test file selects that src file's dependents", () => {
+  const root = gitRepo("hunch-verify-namer-", {
+    "src/drills.ts": `export const drills = [{ file: "test/x.test.ts" }];\n`,
+    "test/x.test.ts": "export {};\n",
+    "test/y.test.ts": `import { drills } from "../src/drills.js";\n`,
+    "test/z.test.ts": "export {};\n",
+    "test/v.test.ts": "export {};\n",
+  });
+  try {
+    const files = listRepoFiles(root);
+    const model = testDependencyModel(root, files);
+    assert.deepEqual(model.testNamers("test/x.test.ts"), ["src/drills.ts"]);
+    writeFileSync(join(root, "test/x.test.ts"), "export const changed = 1;\n");
+    const sel = selectTests({
+      changedFiles: changedFiles(root), allTests: ["test/v.test.ts", "test/x.test.ts", "test/y.test.ts", "test/z.test.ts"],
+      importGraph: model.dependencies, testText: model.testText, spawning: model.spawning, wholeProgram: model.wholeProgram,
+      closureHash: model.closureHash, testNamers: model.testNamers,
+    });
+    assert.deepEqual([sel.mode, sel.tests], ["selected", ["test/x.test.ts", "test/y.test.ts"]]);
+    assert.deepEqual(sel.reasons["test/y.test.ts"], ["imports src/drills.ts (names test/x.test.ts)"]);
+  } finally { cleanupDir(root); }
+});
+
 const entry = (files: string[], over: Partial<ImpactEntry> = {}): ImpactEntry => ({ files, complete: true, commit: "abc", closureHash: "h1", ...over });
 const mapOf = (map: Record<string, ImpactEntry>) => ({ version: 2, commit: "abc", map });
 
@@ -117,7 +164,7 @@ test("regression: a test that walks a directory with readdirSync is not missed f
 
 test("joinSegmentRuns/literalRepoPaths: nested-paren join() arguments", () => {
   assert.deepEqual(joinSegmentRuns(`join(process.cwd(), "src", "cli", "index.ts")`), [["src", "cli", "index.ts"]]);
-  assert.deepEqual(joinSegmentRuns(`resolve(dirname(fileURLToPath(import.meta.url)), "..", "tooling", "x.mjs")`), [["..", "tooling", "x.mjs"]]);
+  assert.deepEqual(joinSegmentRuns(`resolve(dirname(fileURLToPath(import.meta.url)), '..', 'tooling', 'x.mjs')`), [['..', 'tooling', 'x.mjs']]);
   const available = new Set(["src/cli/index.ts", "tooling/x.mjs"]);
   assert.deepEqual(literalRepoPaths(`const cli = join(process.cwd(), "src", "cli", "index.ts");`, "test/t.test.ts", available), ["src/cli/index.ts"]);
   assert.deepEqual(literalRepoPaths(`spawnSync(process.execPath, [join(ROOT, "tooling", "x.mjs")]);`, "test/t.test.ts", available), ["tooling/x.mjs"]);

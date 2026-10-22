@@ -48,6 +48,8 @@ export interface SelectionInput {
   wholeProgram?: Iterable<string>;
   /** Entry-closure hash computed now; a map entry is trusted only if it matches. */
   closureHash?: string;
+  /** src/ and tooling/ files whose text names a test file by repo path. */
+  testNamers?: (testFile: string) => string[];
 }
 
 export interface Selection {
@@ -90,6 +92,16 @@ const basename = (p: string): string => p.slice(p.lastIndexOf("/") + 1);
 /** A basename mention bounded by non-path characters ("d.mjs" ≠ "child.mjs"). */
 const mentionRe = (name: string): RegExp => new RegExp(`(?<![\\w.-])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`);
 
+/** A test file by name, existing or deleted: `test/.../*.test.<ext>`. Other
+ *  files under test/ are helpers and keep the code/trigger rules. */
+const TEST_FILE_RE = /^test\/(?:.+\/)?[^/]+\.test\.[cm]?[jt]sx?$/;
+
+/** A test that enumerates test files (a readdir/glob over a test directory, a
+ *  generic `.test.ts` suffix) or reads the repo index: adding, deleting or
+ *  editing any test file can change what it sees. Over-matching only widens. */
+const META_TEST_RE = /\b(?:readdir|readdirSync|opendir|opendirSync|glob|globSync)\s*\([^)]*test|["'`*]\.test\.[cm]?[jt]sx?\b|\.hunch[\\/"', ]+index\.json/;
+export const isMetaTest = (text: string): boolean => META_TEST_RE.test(text);
+
 /** A map entry may narrow a spawning test only when it is complete and was
  *  recorded against the same entry closure as now. */
 export function entryTrusted(entry: ImpactEntry | undefined, closureHash: string | undefined): boolean {
@@ -123,34 +135,51 @@ export function selectTests(input: SelectionInput): Selection {
     }
     let attributed = false;
     const hit = (test: string, why: string) => { pick(test, why); attributed = true; };
-    if (testSet.has(file)) hit(file, "changed test file");
+    /** Tests a change to code file `target` reaches (graph, map, whole program). */
+    const viaCode = (target: string, note: string) => {
+      for (const test of allTests) {
+        const entry = entries[test];
+        // The map only ever ADDS: a stale or partial entry never hides a test
+        // the static graph (or the whole-program rule) still attributes.
+        if (entry?.files.includes(target)) { hit(test, `covers ${target} (impact map)${note}`); mapUsed.add(test); }
+        if (input.importGraph(test).has(target)) hit(test, `imports ${target}${note}`);
+        if (whole.has(target) && input.spawning?.(test)) {
+          if (entryTrusted(entry, input.closureHash)) mapUsed.add(test);
+          else hit(test, `spawns a process without a trusted impact-map entry → whole program (${target})${note}`);
+        }
+      }
+    };
     for (const [test, globs] of Object.entries(input.gateMaps ?? {})) {
       if (globs.some((g) => pathMatchesGlob(file, g))) hit(norm(test), `gate map covers ${file}`);
     }
-    if (!testSet.has(file) && isDocsOnly(file)) {
+    if (testSet.has(file) || TEST_FILE_RE.test(file)) {
+      // A changed, added or deleted test file: itself, tests that name it, tests
+      // that enumerate test files, and tests reaching src/tooling that names it.
+      // A deleted one nothing reads stays unattributed → FULL.
+      if (testSet.has(file)) hit(file, "changed test file");
+      const name = mentionRe(basename(file));
+      for (const test of allTests) {
+        if (test === file) continue;
+        const text = input.testText?.(test) ?? "";
+        if (text.includes(file) || name.test(text)) hit(test, `mentions ${file}`);
+        if (isMetaTest(text)) hit(test, `enumerates test files (${file})`);
+      }
+      for (const namer of input.testNamers?.(file) ?? []) viaCode(norm(namer), ` (names ${file})`);
+      if (!attributed) unattributed.push(file);
+      continue;
+    }
+    if (isDocsOnly(file)) {
       for (const test of allTests) {
         const text = input.testText?.(test) ?? "";
         if (text.includes(file) || mentionRe(basename(file)).test(text)) hit(test, `mentions ${file}`);
       }
       continue;
     }
-    if (!testSet.has(file) && !CODE_FILE_RE.test(file)) {
+    if (!CODE_FILE_RE.test(file)) {
       nonCode.push(file);
       continue;
     }
-    if (!testSet.has(file)) {
-      for (const test of allTests) {
-        const entry = entries[test];
-        // The map only ever ADDS: a stale or partial entry never hides a test
-        // the static graph (or the whole-program rule) still attributes.
-        if (entry?.files.includes(file)) { hit(test, `covers ${file} (impact map)`); mapUsed.add(test); }
-        if (input.importGraph(test).has(file)) hit(test, `imports ${file}`);
-        if (whole.has(file) && input.spawning?.(test)) {
-          if (entryTrusted(entry, input.closureHash)) mapUsed.add(test);
-          else hit(test, `spawns a process without a trusted impact-map entry → whole program (${file})`);
-        }
-      }
-    }
+    viaCode(file, "");
     if (!attributed) unattributed.push(file);
   }
 
@@ -308,6 +337,8 @@ export interface TestDependencyModel {
   wholeProgram: Set<string>;
   /** Hash of the import closures (edges) of CLOSURE_ROOTS and tooling/*.mjs. */
   closureHash: string;
+  /** src/ and tooling/ code files whose text names a test file by repo path. */
+  testNamers: (testFile: string) => string[];
 }
 
 export function testDependencyModel(root: string, files: string[], graph: (file: string) => Set<string> = buildImportGraph(root, files)): TestDependencyModel {
@@ -341,7 +372,26 @@ export function testDependencyModel(root: string, files: string[], graph: (file:
   const tooling = files.filter((f) => /^tooling\/[^/]+\.mjs$/.test(f));
   const wholeProgram = new Set(files.filter((f) => f.startsWith("src/")));
   for (const t of tooling) { wholeProgram.add(t); for (const dep of graph(t)) wholeProgram.add(dep); }
-  return { dependencies, spawning, testText, wholeProgram, closureHash: closureHash(root, files, graph) };
+  let namers: Map<string, Set<string>> | undefined;
+  const testNamers = (testFile: string): string[] => {
+    if (!namers) {
+      namers = new Map();
+      for (const file of files.filter((f) => /^(?:src|tooling)\//.test(f) && CODE_FILE.test(f))) {
+        const text = read(file);
+        const tokens = [...text.matchAll(PATH_TOKEN_RE)].map((m) => m[0]);
+        for (const segs of joinSegmentRuns(text)) for (let i = 0; i < segs.length; i++) tokens.push(segs.slice(i).join("/"));
+        for (const raw of tokens) {
+          const p = norm(raw).replace(/^(?:\.\.?\/)+/, "");
+          if (!p.startsWith("test/")) continue;
+          let set = namers.get(p);
+          if (!set) namers.set(p, set = new Set());
+          set.add(file);
+        }
+      }
+    }
+    return sorted(namers.get(norm(testFile)) ?? []);
+  };
+  return { dependencies, spawning, testText, wholeProgram, closureHash: closureHash(root, files, graph), testNamers };
 }
 
 /** Structural hash of the entry closures: every reachable file and its direct
