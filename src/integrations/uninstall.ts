@@ -14,7 +14,7 @@
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, rmdirSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { writeFileAtomic } from "../core/io.js";
 import { currentBranch, gitCommonDir, isGitRepo, isLinkedWorktree, separateGitDirLink } from "../extractors/git.js";
@@ -32,6 +32,20 @@ export const OPT_OUT_FILE = ".hunch-removed";
 
 export function isOptedOut(root: string): boolean {
   try { return lstatSync(join(root, OPT_OUT_FILE)).isFile(); } catch { return false; }
+}
+
+/** Whether `start`, or the repository containing it, opted out: walks up through
+ *  `start`'s ancestors (which need not exist yet), stopping after the first one that
+ *  holds `.git` or at the filesystem root, so a path inside an opted-out repository
+ *  (`serve init --root ./partitions/x`) is gated like the repository itself (#458). */
+export function optedOutAt(start: string): boolean {
+  for (let dir = resolve(start); ; ) {
+    if (isOptedOut(dir)) return true;
+    if (existsSync(join(dir, ".git"))) return false;
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
 }
 
 export function optOutMessage(): string {

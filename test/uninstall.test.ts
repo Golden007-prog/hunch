@@ -151,6 +151,7 @@ test("the opt-out gate judges the --root a command acts on, not the cwd's reposi
     mkdirSync(join(other, ".hunch"), { recursive: true });
     const fromOptedOut = spawnSync(process.execPath, hunchCliArgs("mcp", "--root", other), { cwd: root, env, encoding: "utf8", input: "", timeout: 60_000 });
     assert.doesNotMatch(out(fromOptedOut), optedOut, "a store that never opted out is served from an opted-out cwd");
+    assert.equal(fromOptedOut.status, 0, out(fromOptedOut));
     // A command pinned to an opted-out repository is refused from anywhere.
     mkdirSync(join(root, ".hunch"), { recursive: true });
     const elsewhere = join(base, "elsewhere");
@@ -158,6 +159,15 @@ test("the opt-out gate judges the --root a command acts on, not the cwd's reposi
     const intoOptedOut = spawnSync(process.execPath, hunchCliArgs("mcp", "--root", root), { cwd: elsewhere, env, encoding: "utf8", input: "", timeout: 60_000 });
     assert.equal(intoOptedOut.status, 1, out(intoOptedOut));
     assert.match(out(intoOptedOut), optedOut, "an opted-out --root is gated even when the cwd is elsewhere");
+    // A --root inside an opted-out repository is gated like the repository itself.
+    const partition = join(root, "partitions", "x");
+    for (const cwd of [root, elsewhere]) {
+      const init = spawnSync(process.execPath, hunchCliArgs("serve", "init", "--partition", "user:x", "--root", partition), { cwd, env, encoding: "utf8", timeout: 60_000 });
+      assert.equal(init.status, 1, out(init));
+      assert.match(out(init), optedOut, `serve init into an opted-out repository is refused (cwd ${cwd})`);
+      assert.ok(!existsSync(join(partition, ".hunch")), "no partition store was created");
+      assert.ok(!existsSync(join(cwd, "hunch-serve.json")), "no serve config was written");
+    }
   } finally { cleanupDir(base); }
 });
 

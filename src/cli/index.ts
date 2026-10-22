@@ -71,7 +71,7 @@ import { flushCapture, flushMemoryHome, flushMemoryHomes, pinSharedRemote, share
 import { installMergeDriver } from "../integrations/mergeDriver.js";
 import { ensureGitignore, ignoreHunchMemory, HUNCH_MEMORY_DIRS, upgradeManagedGitignore, describeGitignoreUpgrade, memoryIgnoreRule, describeMemoryIgnoreRule } from "../integrations/gitignore.js";
 import { writeCiWorkflow } from "../integrations/ciAction.js";
-import { applyUninstall, formatUninstallPlan, isOptedOut, OPT_OUT_FILE, optOutMessage, planUninstall } from "../integrations/uninstall.js";
+import { applyUninstall, formatUninstallPlan, isOptedOut, OPT_OUT_FILE, optedOutAt, optOutMessage, planUninstall } from "../integrations/uninstall.js";
 import { updateClaudeMd, renderHunchSection } from "../integrations/claudemd.js";
 import { HOOK_REMINDER } from "../core/hookText.js";
 import { measureFootprint } from "../core/footprint.js";
@@ -258,12 +258,19 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
   while (top.parent && top.parent !== program) top = top.parent;
   const name = top.name();
   if (OPT_OUT_ALLOWED.has(name)) return;
-  // Gate the repository the command acts on (#458): a `--root` names it exactly
-  // (`hunch mcp --root`, `hunch serve ... --root`), so the cwd's repository is
-  // irrelevant there; without one, the command acts on the cwd's repository.
+  // Gate the repository the command acts on (#458): a `--root` names it (`hunch mcp
+  // --root`, `hunch serve ... --root`), so it is gated with every ancestor up to its
+  // repository and the cwd's repository is irrelevant; without one, the command acts
+  // on the cwd's repository. `serve init` without --config also writes its config
+  // into the cwd, so the cwd's repository gates it too.
   const rootOpt = (actionCommand.opts() as { root?: unknown }).root;
-  const gated = typeof rootOpt === "string" && rootOpt.trim() ? resolve(rootOpt) : findRoot();
-  if (!isOptedOut(gated)) return;
+  const rootGiven = typeof rootOpt === "string" && rootOpt.trim() !== "";
+  let gated = rootGiven ? optedOutAt(resolve(rootOpt as string)) : isOptedOut(findRoot());
+  if (!gated && name === "serve" && actionCommand.name() === "init") {
+    const configOpt = (actionCommand.opts() as { config?: unknown }).config ?? (top.opts() as { config?: unknown }).config;
+    if (configOpt === undefined) gated = isOptedOut(findRoot());
+  }
+  if (!gated) return;
   if (name !== "hook") console.error(optOutMessage());
   process.exit(OPT_OUT_QUIET.has(name) ? 0 : 1);
 });
