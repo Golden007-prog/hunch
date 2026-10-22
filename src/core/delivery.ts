@@ -513,12 +513,10 @@ function defaultBranchRef(root: string): string | null {
 // spawn failure is re-probed on the next call.
 const REACHABILITY_MEMO_CAP = 10_000;
 const reachabilityMemo = new Map<string, CommitReachability>();
-const branchRefMemo = new Map<string, string>();
 
-/** Test hook: forget memoized branch refs and commit verdicts. */
+/** Test hook: forget memoized commit verdicts. */
 export function resetCommitReachabilityMemo(): void {
   reachabilityMemo.clear();
-  branchRefMemo.clear();
 }
 
 /** Test hook: number of git spawns issued by delivery provenance probes so far. */
@@ -538,21 +536,17 @@ export function localCommitReachability(root: string): (commit: string) => Commi
   let tip: string | null = null;
   return (commit: string): CommitReachability => {
     if (!initialized) {
-      const resolveTip = (ref: string): string | null => {
-        const resolved = gitProbe(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
-        return resolved.available && resolved.status === 0 && resolved.stdout ? resolved.stdout : null;
-      };
-      const memoized = branchRefMemo.get(root);
-      if (memoized) {
-        tip = resolveTip(memoized);
-        if (tip) branch = memoized;
-        else branchRefMemo.delete(root); // the remembered ref vanished (renamed/pruned): look it up again
-      }
-      if (!tip) {
-        branch = defaultBranchRef(root);
-        if (branch) {
-          tip = resolveTip(branch);
-          if (tip) branchRefMemo.set(root, branch);
+      // The default ref is looked up every build (origin/HEAD can be retargeted
+      // while the old ref still exists); only verdicts are shared across builds.
+      branch = defaultBranchRef(root);
+      if (branch) {
+        // One spawn: the tip sha plus whether the repo is shallow. A shallow
+        // boundary can make a present commit look unreachable until a deepen,
+        // so a shallow build never memoizes. Unexpected output disables the memo.
+        const resolved = gitProbe(root, ["rev-parse", "--is-shallow-repository", "--verify", "--quiet", `${branch}^{commit}`]);
+        const [shallow, sha, ...rest] = resolved.stdout.split(/\r?\n/);
+        if (resolved.available && resolved.status === 0 && !rest.length && shallow === "false" && sha && /^[0-9a-f]{40,64}$/i.test(sha)) {
+          tip = sha;
         }
       }
       initialized = true;
