@@ -176,37 +176,44 @@ export function promptPaths(prompt: string, root?: string): string[] {
 const ID_PREFIX = "id:";
 const MIN_IDENTIFIER_CHARS = 5;
 const IDENTIFIER_WEIGHT = 2;
-const CAMEL_IDENTIFIER = /(?<![A-Za-z0-9])[A-Za-z0-9]*(?:[a-z0-9][A-Z]|[A-Z]{2,}[a-z])[A-Za-z0-9]*/g;
+const CAMEL_IDENTIFIER = /(?<![A-Za-z0-9])[A-Za-z0-9]*(?:[a-z][A-Z]|[A-Z]{2,}[a-z])[A-Za-z0-9]*/g;
 const SEPARATED_IDENTIFIER = /(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[_.\-][A-Za-z0-9]+)+/g;
-const isCompound = (word: string) => /[a-z0-9][A-Z]|[A-Z]{2,}[a-z]|_/.test(word);
+const isCompound = (word: string) => /[a-z][A-Z]|[A-Z]{2,}[a-z]|_/.test(word);
+const camelParts = (word: string) => word.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).length;
 
 /** Compound identifiers in raw text (camel/Pascal, snake, dotted, kebab), lowercased with
  *  separators removed and marked `id:` so they never collide with word tokens. A dotted
  *  name also yields its last segment when that is itself compound (`dbo.ShowInForms` ->
  *  `id:dboshowinforms`, `id:showinforms`). `lexicalTokens` splits these into common words
- *  that the rare-term filter discards; the whole identifier is the rare, discriminating term. */
-export function identifierTokens(text: string): Set<string> {
-  const out = new Set<string>();
-  const add = (raw: string) => {
+ *  that the rare-term filter discards; the whole identifier is the rare, discriminating term.
+ *  STRONG identifiers (3+ camel parts, or `_`/`.` between alphanumerics) may qualify a record
+ *  alone; two-part camel words (GitHub, useEffect) are common prose and count as one word. */
+function scanIdentifiers(text: string): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  const add = (raw: string, strong: boolean) => {
     const id = raw.replace(/[_.\-]/g, "").toLowerCase();
-    if (id.length >= MIN_IDENTIFIER_CHARS) out.add(ID_PREFIX + id);
+    if (id.length >= MIN_IDENTIFIER_CHARS) out.set(ID_PREFIX + id, (out.get(ID_PREFIX + id) ?? false) || strong);
   };
-  for (const m of text.match(CAMEL_IDENTIFIER) ?? []) add(m);
+  for (const m of text.match(CAMEL_IDENTIFIER) ?? []) add(m, camelParts(m) >= 3);
   for (const m of text.match(SEPARATED_IDENTIFIER) ?? []) {
     if (/^v?\d+(?:\.\d+)+/i.test(m)) continue; // version numbers
     if (m.includes(".")) {
       const last = m.slice(m.lastIndexOf(".") + 1);
-      if (/^[a-z]{1,4}$/.test(last)) continue; // file extension: paths own those
-      add(m);
-      if (isCompound(last)) add(last);
+      if (/^[a-z0-9]{1,8}$/.test(last)) continue; // file extension: paths own those
+      add(m, true);
+      if (isCompound(last)) add(last, true);
     } else if (m.includes("_")) {
       const parts = m.split(/[_\-]/);
-      if (m.replace(/[_\-]/g, "").length >= 6 && parts.some((part) => part.length >= 3)) add(m);
+      if (m.replace(/[_\-]/g, "").length >= 6 && parts.some((part) => part.length >= 3)) add(m, true);
     } else if (/(?<!^|-)[A-Z0-9]/.test(m)) {
-      add(m); // kebab: a capital/digit past the first letter of a part; plain prose ("Pre-commit") is not an identifier
+      add(m, false); // kebab: a capital/digit past the first letter of a part; plain prose ("Pre-commit") is not an identifier
     }
   }
   return out;
+}
+
+export function identifierTokens(text: string): Set<string> {
+  return new Set(scanIdentifiers(text).keys());
 }
 
 const termTokens = (text: string): Set<string> => new Set([...lexicalTokens(text), ...identifierTokens(text)]);
@@ -259,22 +266,25 @@ export function selectForTask(records: TaskSelectionRecords, promptText: string,
   const dfCap = Math.max(MIN_DF_CAP, Math.ceil(DF_CAP_RATIO * candidates.length));
   const df = new Map<string, number>();
   for (const c of candidates) for (const term of c.tokens) df.set(term, (df.get(term) ?? 0) + 1);
-  const rareTerms = new Map<string, number>();
+  const strongIds = new Set([...scanIdentifiers(promptText ?? "")].filter(([, strong]) => strong).map(([term]) => term));
+  const rareTerms = new Map<string, { weight: number; strong: boolean }>();
   for (const term of taskTerms) {
     const n = df.get(term) ?? 0;
     if (n > dfCap) continue;
     // Integer weights so equal sums tie exactly and fall through to the priority tiebreak.
     const idf = Math.round(Math.log(1 + candidates.length / Math.max(1, n)) * 1000);
-    rareTerms.set(term, term.startsWith(ID_PREFIX) ? idf * IDENTIFIER_WEIGHT : idf);
+    // Only a strong identifier that is near-unique (df <= MIN_DF_CAP) carries the x2 weight and qualifies alone.
+    const strong = strongIds.has(term) && n <= MIN_DF_CAP;
+    rareTerms.set(term, { weight: strong ? idf * IDENTIFIER_WEIGHT : idf, strong });
   }
   const scored: Scored[] = [];
   for (const { tokens, anchors, ...rest } of candidates) {
     let words = 0;
     let identifiers = 0;
     let termScore = 0;
-    for (const [term, weight] of rareTerms) {
+    for (const [term, { weight, strong }] of rareTerms) {
       if (!tokens.has(term)) continue;
-      if (term.startsWith(ID_PREFIX)) identifiers++; else words++;
+      if (strong) identifiers++; else if (!term.startsWith(ID_PREFIX)) words++; // a weak identifier adds score only: its parts are already counted as words
       termScore += weight;
     }
     const pathHits = paths.filter((p) => anchors.some((anchor) => pathMatchesGlob(p, anchor))).length;

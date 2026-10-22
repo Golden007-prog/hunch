@@ -138,6 +138,18 @@ test("file names, versions and capitalized prose never become identifier terms",
   assert.ok(identifierTokens("task_id").has("id:taskid"));
 });
 
+test("two-part camel prose words never lone-qualify; extensions and timestamps yield no identifier", () => {
+  const gh = Array.from({ length: 5 }, (_, i) => dec(`dec_gh_${i}`, `Publish via GitHub flow ${i}`));
+  const filler = Array.from({ length: 20 }, (_, i) => dec(`dec_fill_${i}`, `Unrelated filler ${i}`));
+  assert.deepEqual(selectForTask(records({ decisions: [...gh, ...filler] }), "push to GitHub and open a PR").qualifying, []);
+  const one = dec("dec_effect", "Wrap state in useEffect cleanup");
+  assert.deepEqual(selectForTask(records({ decisions: [one] }), "why useEffect").qualifying, []);
+  assert.equal(identifierTokens("2026-10-22T17:00:33Z hunch.sqlite schema.prisma data.jsonl").size, 0);
+  // Two ordinary-weight terms still qualify.
+  const two = dec("dec_two_terms", "GetOrders pagination");
+  assert.deepEqual(selectForTask(records({ decisions: [two] }), "GetOrders pagination").qualifying, ["dec_two_terms"]);
+});
+
 test("a dotted SQL name in the prompt selects the decision that names the bare procedure", () => {
   const d = dec("dec_sql", "Paginate GetOrders results");
   const other = dec("dec_other", "Unrelated wording entirely");
