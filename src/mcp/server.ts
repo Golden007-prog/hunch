@@ -1250,6 +1250,8 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   let store = initial.store;
   let nextRemotePullAt = initial.nextRemotePullAt;
   let consecutivePullFailures = initial.consecutivePullFailures;
+  // Consecutive FAILED forced pulls (any subject); reset by any fresh pull.
+  let forcedFailureStreak = 0;
   let indexedSourceStamp = initial.indexedSourceStamp;
 
   const matchesStartupTeamRoute = (): boolean => {
@@ -1270,6 +1272,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   const notePull = (status: HunchPullStatus, finishedAt: number): void => {
     ({ nextRemotePullAt, consecutivePullFailures } =
       pullBackoff(status, finishedAt, consecutivePullFailures));
+    if (teamPullIsFresh(status)) forcedFailureStreak = 0;
   };
   type TeamMemoryPullStatus = HunchPullStatus | "cooldown" | "not_shared";
   const pullTeamMemory = (force = false): TeamMemoryPullStatus => {
@@ -1295,6 +1298,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     indexedSourceStamp = rebuildFreshIndex(store);
   };
   const FORCED_PULL_RETRY_MS = 2_000;
+  const FORCED_FAILURE_LIMIT = 3;
   let lastForcedFailure: { at: number; status: TeamMemoryPullStatus; subject: string } | null = null;
   // True only during the synchronous prefix of a tool callback whose request
   // wrapper just pulled shared memory fresh (set/cleared around the callback).
@@ -1308,19 +1312,26 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
   // forced pull that failed within FORCED_PULL_RETRY_MS for the SAME subject is
   // reused, not retried, so a client looping on one miss against a dead remote
   // cannot block stdio on each call. A different subject still fetches: a remote
-  // restored moments later must converge for the next distinct read.
+  // restored moments later must converge for the next distinct read — until
+  // FORCED_FAILURE_LIMIT forced pulls have failed in a row (any subject); then
+  // misses reuse the last failure until the ordinary backoff window has passed.
+  // Any fresh pull resets the streak (notePull).
   const confirmSharedMiss = (absenceClaim: string, subject: string): string | null => {
     let status: TeamMemoryPullStatus;
     if (requestPulledFresh) {
       status = "current";
-    } else if (lastForcedFailure && lastForcedFailure.subject === subject
-      && Date.now() - lastForcedFailure.at < FORCED_PULL_RETRY_MS) {
+    } else if (lastForcedFailure && ((lastForcedFailure.subject === subject
+      && Date.now() - lastForcedFailure.at < FORCED_PULL_RETRY_MS)
+      || (forcedFailureStreak >= FORCED_FAILURE_LIMIT && Date.now() < nextRemotePullAt))) {
       status = lastForcedFailure.status;
     } else {
       status = pullTeamMemory(true);
-      lastForcedFailure = status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)
-        ? { at: Date.now(), status, subject }
-        : null;
+      if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
+        lastForcedFailure = { at: Date.now(), status, subject };
+        forcedFailureStreak++;
+      } else {
+        lastForcedFailure = null;
+      }
     }
     if (status === "cooldown" || status === "not_shared" || !teamPullIsFresh(status)) {
       return `Shared team memory refresh is ${status}; Hunch cannot confirm that ${absenceClaim}. Retry when the shared store is available.`;
@@ -1380,6 +1391,7 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     consecutivePullFailures = prepared.consecutivePullFailures;
     indexedSourceStamp = prepared.indexedSourceStamp;
     lastForcedFailure = null;
+    forcedFailureStreak = 0;
     previous.close();
     console.error(`[hunch-mcp] serving Hunch at ${root} (client root)`);
   };

@@ -203,14 +203,23 @@ test("team policy reads confirm a local miss against fresh shared memory despite
     });
     client = new Client({ name: "sync-gap-developer", version: "1.0.0" });
     await client.connect(transport);
+    const probeCount = (): number => (readFileSync(gitTrace, "utf8").match(/built-in: git ls-remote/g) ?? []).length;
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    // Healthy remote: once the startup pull's 1s cooldown has passed, the request's
+    // ordinary pull converges, so the exact miss must not force a second probe.
+    await sleep(1_100);
+    const probesBeforeHealthyMiss = probeCount();
     const before = await mcpResult(client, "hunch_policy_proof", { policy_id: policy.id });
     assert.equal(before.isError, true, before.text);
     assert.match(before.text, new RegExp(`policy ${policy.id} not found`),
       "with a fresh shared store a confirmed miss keeps the ordinary not-found error");
+    assert.equal(probeCount() - probesBeforeHealthyMiss, 1,
+      "a miss in a request whose ordinary pull was fresh must not double-fetch");
 
     // Transient remote failure. An exact miss force-pulls once and abstains; the
     // same miss repeated within the retry window reuses that failure without a
-    // fetch; distinct misses each force-pull, deepening ordinary backoff to 8s.
+    // fetch; a distinct miss force-pulls. Non-miss reads then deepen the ordinary
+    // backoff (2s, 4s, 8s) without adding forced failures.
     const remoteObjects = join(memoryRemote, "objects");
     const unavailableObjects = join(memoryRemote, "objects.transiently-unavailable");
     const assertAbstained = (result: { isError: boolean; text: string }): void => {
@@ -230,9 +239,12 @@ test("team policy reads confirm a local miss against fresh shared memory despite
       assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: policy.id }));
       assert.equal(fetchCount(), fetchesAfterFirst,
         "a repeated miss within the retry window must reuse the failed forced pull, not contact the remote again");
-      for (const missing of ["pol_sync_gap_missing_a", "pol_sync_gap_missing_b", "pol_sync_gap_missing_c"]) {
+      assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: "pol_sync_gap_missing_a" }));
+      assert.ok(fetchCount() > fetchesAfterFirst, "a distinct miss after one failure must still force a pull");
+      for (const wait of [2_100, 4_100]) {
+        await sleep(wait);
         lastFailureStartedAt = Date.now();
-        assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: missing }));
+        await mcpResult(client, "hunch_query", { query: "sync gap" });
       }
     } finally {
       renameSync(unavailableObjects, remoteObjects);
@@ -246,6 +258,25 @@ test("team policy reads confirm a local miss against fresh shared memory despite
       "the long-lived teammate MCP must see the just-pushed policy despite pull backoff");
     assert.ok(Date.now() - lastFailureStartedAt < 8_000,
       "the final read must complete while the ordinary 8s pull backoff is still active");
+
+    // Global bound: alternating misses A,B,A,B against a dead remote stop contacting
+    // it after three consecutive forced failures, until the ordinary backoff passes.
+    renameSync(remoteObjects, unavailableObjects);
+    try {
+      const contactsBefore = fetchCount();
+      for (const id of ["pol_sync_gap_alt_a", "pol_sync_gap_alt_b", "pol_sync_gap_alt_a"]) {
+        assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: id }));
+      }
+      const contactsAfterLimit = fetchCount();
+      assert.ok(contactsAfterLimit - contactsBefore >= 3, "the first three alternating misses each force a pull");
+      for (const id of ["pol_sync_gap_alt_b", "pol_sync_gap_alt_a", "pol_sync_gap_alt_b"]) {
+        assertAbstained(await mcpResult(client, "hunch_policy_card", { policy_id: id }));
+      }
+      assert.equal(fetchCount(), contactsAfterLimit,
+        "after three consecutive forced failures, misses must abstain without contacting the remote");
+    } finally {
+      renameSync(unavailableObjects, remoteObjects);
+    }
   } finally {
     await client?.close().catch(() => undefined);
     cleanupDir(sandbox);
