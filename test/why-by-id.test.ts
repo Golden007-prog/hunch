@@ -121,7 +121,7 @@ test("a file path still resolves by path, with no by-id result", async () => {
   }
 });
 
-test("why(<id>, {asOf}) shows the record as it stood then, or no record when not yet/no longer in force", () => {
+test("why(<id>, {asOf}) gates existence and neighbours, and prints the same stored status as the path view", () => {
   const { store, cleanup } = tempStore();
   try {
     store.json.put("decisions", mkDecision({
@@ -136,7 +136,9 @@ test("why(<id>, {asOf}) shows the record as it stood then, or no record when not
     const old = store.why("dec_1", { asOf }).byId?.record;
     assert.equal(old?.kind, "decision");
     if (old?.kind !== "decision") return;
-    assert.equal(old.record.status, "accepted", "in force at asOf, not yet superseded");
+    const viaPath = store.why("src/auth/session.ts", { asOf }).decisions.find((d) => d.id === "dec_1");
+    assert.equal(old.record.status, "superseded", "stored status, not rewritten");
+    assert.equal(old.record.status, viaPath?.status, "id and path views agree on status at asOf");
     assert.equal(old.record.superseded_by, null, "successor had not started");
     assert.deepEqual(old.chain.map((c) => c.id), ["dec_1"]);
     assert.doesNotMatch(formatWhyRecord({ id: "dec_1", record: old }).join("\n"), /dec_2/);
@@ -204,12 +206,12 @@ test("as_of keeps a LEGACY superseded decision / retired constraint as recorded 
   }
 });
 
-test("as_of shows a constraint retired AFTER asOf as active then", () => {
+test("as_of gates a constraint by its window but keeps its stored status", () => {
   const { store, cleanup } = tempStore();
   try {
     store.json.put("constraints", mkConstraint({ id: "con_cc", statement: "Old rule", status: "retired", valid_to: "2026-06-01T00:00:00Z" }));
     const c = store.why("con_cc", { asOf: "2026-03-01T00:00:00Z" }).byId?.record;
-    assert.equal(c?.kind === "constraint" && c.record.status, "active");
+    assert.equal(c?.kind === "constraint" && c.record.status, "retired");
     assert.equal(store.why("con_cc", { asOf: "2026-07-01T00:00:00Z" }).byId?.record, null, "retired by then");
   } finally {
     cleanup();

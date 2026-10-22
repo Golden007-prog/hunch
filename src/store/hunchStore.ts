@@ -1442,8 +1442,8 @@ export class HunchStore {
     // the repo-relative stored file paths below (issue #299).
     target = repoRelativeTarget(target, this.paths.root);
     // A record id (every delivered brief line ends in `hunch_why("dec_…")`) resolves
-    // to that record directly (issue #474). With `asOf`, the record is shown as it
-    // stood then, or as "no record" when it was not in force (see whyRecord).
+    // to that record directly (issue #474). With `asOf`, a record not in force then
+    // is "no record"; status stays as stored, like the path view (see whyRecord).
     const byId = WHY_RECORD_ID.test(target) ? this.whyRecord(target, opts.canRead, opts.asOf) : undefined;
     if (byId?.record) return { target, decisions: [], bugs: [], constraints: [], symbols: [], components: [], byId };
     const decisions = this.recs("decisions").filter(opts.canRead ?? (() => true));
@@ -1493,8 +1493,9 @@ export class HunchStore {
 
   /** Look a record up by id across the record kinds why() explains (public ∪ private
    *  via recs(), narrowed by `canRead`). A decision carries its supersession chain.
-   *  With `asOf`, a record outside its valid window then is "no record", and the
-   *  record is shown as it stood then (no successor that had not started yet).
+   *  With `asOf`, a record outside its valid window then is "no record", and only
+   *  chain links/neighbours already in effect then are shown. Status is the STORED
+   *  status, exactly as the path/symbol view prints it.
    *  Neighbour ids the caller may not read are never printed. */
   private whyRecord(id: string, canRead: (record: unknown) => boolean = () => true, asOf?: string): WhyById {
     const find = <K extends "decisions" | "constraints" | "bugs" | "findings" | "components">(kind: K) =>
@@ -1508,22 +1509,15 @@ export class HunchStore {
       case "dec": {
         const d = find("decisions") as Decision | undefined;
         if (!d || !inWindow(d.valid_from, d.valid_to, asOf)) break;
+        // Stored status, as the path view prints it; asOf only hides neighbours not yet in effect.
         const shown: Decision = { ...d, supersedes: visible(d.supersedes), superseded_by: visible(d.superseded_by) };
-        // Show it as in force only when its RECORDED successor had not started at asOf.
-        // A legacy superseded decision keeps superseded_by null and an open window
-        // (migrate.ts, dec_777f0b8d14), so a null successor proves nothing: keep its status.
-        const successor = d.superseded_by ? this.recs("decisions").find((x) => x.id === d.superseded_by) : undefined;
-        if (asOf && d.status === "superseded" && successor && !inWindow(successor.valid_from, null, asOf)) shown.status = "accepted";
         record = { kind: "decision", record: shown, chain: supersessionChain(shown, decs) };
         break;
       }
       case "con": {
         const c = find("constraints") as Constraint | undefined;
         if (!c || !inWindow(c.valid_from, c.valid_to, asOf)) break;
-        // Only a RECORDED retirement after asOf makes it active then; a legacy retired
-        // constraint without valid_to keeps its status.
-        const activeThen = asOf && c.status === "retired" && c.valid_to != null && c.valid_to > asOf;
-        record = { kind: "constraint", record: { ...c, source_decision: visible(c.source_decision), ...(activeThen ? { status: "active" as const } : {}) } };
+        record = { kind: "constraint", record: { ...c, source_decision: visible(c.source_decision) } };
         break;
       }
       case "bug": { const b = find("bugs") as Bug | undefined; if (b) record = { kind: "bug", record: b }; break; }
