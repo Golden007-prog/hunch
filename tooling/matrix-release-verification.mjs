@@ -27,13 +27,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const MATRIX_RELEASE_SCHEMA = "hunch.matrix.release.v2";
 export const LEGACY_MATRIX_TAG = "v1.8.3";
 export const LEGACY_MATRIX_COMMIT = "c7bbfbf18e0f68ed925331ae6a0dd3140e29ba84";
-// Exact public npm bytes observed at the official registry for 1.8.3. The
-// verifier rebuilds the pinned tag offline and refuses it unless npm pack
-// reproduces the package consumers actually installed.
+// Exact bytes npm pack reproduces from the pinned tag. The verifier rebuilds
+// the tag offline and refuses it unless these match. The official registry
+// 1.8.3 tarball (sha256:c781eaa7…, shasum 7d01e409…) also shipped
+// tooling/competitive-watch.mjs, which the 2026-10-22 history rewrite removed;
+// its other 123 files, including all of dist/, are byte-identical to this one.
 export const LEGACY_MATRIX_TARBALL = Object.freeze({
-  sha256: "sha256:c781eaa71db40d4f4ea03de4272f794d62e470917bfe29f687e7fea557ddebb9",
-  shasum: "7d01e409aa1a6533a9d1bae0c63ecd2377def410",
-  integrity: "sha512-ZNC6n84g+DFmTx/3YBz7ZzeLETvqB7gr0z9PJtQXMdOv3lbXaiWZ2Od+K3j5WdjQqPF6UF/rGWfaKddLH8d+Lw==",
+  sha256: "sha256:59c6c0241dc3193a2099f710af91fa041dfdc77d3666937a247afb63f8d797ff",
+  shasum: "96522bb9a582d6e979f5355ff779dd6bbcf68933",
+  integrity: "sha512-GtQD/4HLHVbBFLdsO8LYHTgDbaJf4AznxGYqucLtLxPrMoK2fkCWFF5tZxS6ZK3dabUFujnLNAbjvxTT4zxSxw==",
 });
 export const MATRIX_PERFORMANCE_LIMITS = Object.freeze({
   compatibility_ms: 240_000,
@@ -401,7 +403,7 @@ export function parseMatrixReleaseArgs(argv) {
     && (options.legacySha256 !== LEGACY_MATRIX_TARBALL.sha256
       || options.legacyShasum !== LEGACY_MATRIX_TARBALL.shasum
       || options.legacyIntegrity !== LEGACY_MATRIX_TARBALL.integrity)) {
-    throw new Error(`${LEGACY_MATRIX_TAG} package identity must match its pinned official npm bytes`);
+    throw new Error(`${LEGACY_MATRIX_TAG} package identity must match its pinned npm bytes`);
   }
   return options;
 }

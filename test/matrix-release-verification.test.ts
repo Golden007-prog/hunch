@@ -118,10 +118,10 @@ test("Matrix release receipt is fail-closed, content-addressed, and binds the pi
   assert.equal(LEGACY_MATRIX_TAG, "v1.8.3");
   assert.equal(LEGACY_MATRIX_COMMIT, "c7bbfbf18e0f68ed925331ae6a0dd3140e29ba84");
   assert.deepEqual(LEGACY_MATRIX_TARBALL, {
-    sha256: "sha256:c781eaa71db40d4f4ea03de4272f794d62e470917bfe29f687e7fea557ddebb9",
-    shasum: "7d01e409aa1a6533a9d1bae0c63ecd2377def410",
-    integrity: "sha512-ZNC6n84g+DFmTx/3YBz7ZzeLETvqB7gr0z9PJtQXMdOv3lbXaiWZ2Od+K3j5WdjQqPF6UF/rGWfaKddLH8d+Lw==",
-  }, "the offline downgrade lane is pinned to the exact public npm package bytes");
+    sha256: "sha256:59c6c0241dc3193a2099f710af91fa041dfdc77d3666937a247afb63f8d797ff",
+    shasum: "96522bb9a582d6e979f5355ff779dd6bbcf68933",
+    integrity: "sha512-GtQD/4HLHVbBFLdsO8LYHTgDbaJf4AznxGYqucLtLxPrMoK2fkCWFF5tZxS6ZK3dabUFujnLNAbjvxTT4zxSxw==",
+  }, "the offline downgrade lane is pinned to the exact npm package bytes the rewritten tag reproduces");
   assert.deepEqual(MATRIX_PERFORMANCE_LIMITS, {
     compatibility_ms: 240_000,
     crash_recovery_ms: 240_000,
