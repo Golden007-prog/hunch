@@ -173,13 +173,52 @@ export function promptPaths(prompt: string, root?: string): string[] {
   return [...out];
 }
 
+const ID_PREFIX = "id:";
+const MIN_IDENTIFIER_CHARS = 5;
+const IDENTIFIER_WEIGHT = 2;
+const CAMEL_IDENTIFIER = /(?<![A-Za-z0-9])[A-Za-z0-9]*(?:[a-z0-9][A-Z]|[A-Z]{2,}[a-z])[A-Za-z0-9]*/g;
+const SEPARATED_IDENTIFIER = /(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[_.\-][A-Za-z0-9]+)+/g;
+const isCompound = (word: string) => /[a-z0-9][A-Z]|[A-Z]{2,}[a-z]|_/.test(word);
+
+/** Compound identifiers in raw text (camel/Pascal, snake, dotted, kebab), lowercased with
+ *  separators removed and marked `id:` so they never collide with word tokens. A dotted
+ *  name also yields its last segment when that is itself compound (`dbo.ShowInForms` ->
+ *  `id:dboshowinforms`, `id:showinforms`). `lexicalTokens` splits these into common words
+ *  that the rare-term filter discards; the whole identifier is the rare, discriminating term. */
+export function identifierTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  const add = (raw: string) => {
+    const id = raw.replace(/[_.\-]/g, "").toLowerCase();
+    if (id.length >= MIN_IDENTIFIER_CHARS) out.add(ID_PREFIX + id);
+  };
+  for (const m of text.match(CAMEL_IDENTIFIER) ?? []) add(m);
+  for (const m of text.match(SEPARATED_IDENTIFIER) ?? []) {
+    if (/^v?\d+(?:\.\d+)+/i.test(m)) continue; // version numbers
+    if (m.includes(".")) {
+      const last = m.slice(m.lastIndexOf(".") + 1);
+      if (/^[a-z]{1,4}$/.test(last)) continue; // file extension: paths own those
+      add(m);
+      if (isCompound(last)) add(last);
+    } else if (m.includes("_")) {
+      const parts = m.split(/[_\-]/);
+      if (m.replace(/[_\-]/g, "").length >= 6 && parts.some((part) => part.length >= 3)) add(m);
+    } else if (/(?<!^|-)[A-Z0-9]/.test(m)) {
+      add(m); // kebab: a capital/digit past the first letter of a part; plain prose ("Pre-commit") is not an identifier
+    }
+  }
+  return out;
+}
+
+const termTokens = (text: string): Set<string> => new Set([...lexicalTokens(text), ...identifierTokens(text)]);
+
 interface Scored {
   id: string;
   kind: TaskSelectionKind;
   title: string;
   /** How many distinct prompt-named paths the record's anchors cover. */
   pathHits: number;
-  terms: number;
+  /** idf-weighted sum of the rare prompt terms the record shares (identifiers x2). */
+  termScore: number;
   priority: number;
   listable: boolean;
 }
@@ -191,16 +230,16 @@ interface Scored {
  *  ties break on the builder profile's kind/severity score in delivery.ts. */
 export function selectForTask(records: TaskSelectionRecords, promptText: string, opts: TaskSelectionOptions = {}): TaskSelection {
   const k = Math.max(0, opts.k ?? DEFAULT_K);
-  const taskTerms = lexicalTokens(promptText ?? "");
+  const taskTerms = termTokens(promptText ?? "");
   // Without an existence check (pure/offline) only a slashed token is trusted as a
   // path: "e.g.", "Node.js" or "v1.2" would otherwise match a broad glob.
   const paths = promptPaths(promptText ?? "", opts.root).filter((p) => opts.pathExists ? opts.pathExists(p) : p.includes("/"));
   if (!taskTerms.size && !paths.length) return { qualifying: [], top: [] };
   const base = PROFILE_BASE_SCORE.builder;
   // Tokenize every record once: the same tokens feed the document frequency and the score.
-  const candidates: Array<Omit<Scored, "pathHits" | "terms"> & { tokens: Set<string>; anchors: readonly string[] }> = [];
+  const candidates: Array<Omit<Scored, "pathHits" | "termScore"> & { tokens: Set<string>; anchors: readonly string[] }> = [];
   const consider = (id: string, kind: TaskSelectionKind, title: string, text: string[], anchors: readonly string[], priority: number, listable: boolean) => {
-    candidates.push({ id, kind, title, tokens: lexicalTokens(text.join(" ")), anchors, priority, listable });
+    candidates.push({ id, kind, title, tokens: termTokens(text.join(" ")), anchors, priority, listable });
   };
   for (const c of records.constraints) {
     consider(c.id, "constraint", c.statement, [c.statement, c.rationale], c.scope,
@@ -218,17 +257,33 @@ export function selectForTask(records: TaskSelectionRecords, promptText: string,
     consider(f.id, "finding", f.title, [f.title, f.observation], f.affected_files, base.findings + SEVERITY[f.severity] * 10, true);
   }
   const dfCap = Math.max(MIN_DF_CAP, Math.ceil(DF_CAP_RATIO * candidates.length));
-  const rareTerms = [...taskTerms].filter((term) => candidates.filter((c) => c.tokens.has(term)).length <= dfCap);
+  const df = new Map<string, number>();
+  for (const c of candidates) for (const term of c.tokens) df.set(term, (df.get(term) ?? 0) + 1);
+  const rareTerms = new Map<string, number>();
+  for (const term of taskTerms) {
+    const n = df.get(term) ?? 0;
+    if (n > dfCap) continue;
+    // Integer weights so equal sums tie exactly and fall through to the priority tiebreak.
+    const idf = Math.round(Math.log(1 + candidates.length / Math.max(1, n)) * 1000);
+    rareTerms.set(term, term.startsWith(ID_PREFIX) ? idf * IDENTIFIER_WEIGHT : idf);
+  }
   const scored: Scored[] = [];
   for (const { tokens, anchors, ...rest } of candidates) {
-    let terms = 0;
-    for (const term of rareTerms) if (tokens.has(term)) terms++;
+    let words = 0;
+    let identifiers = 0;
+    let termScore = 0;
+    for (const [term, weight] of rareTerms) {
+      if (!tokens.has(term)) continue;
+      if (term.startsWith(ID_PREFIX)) identifiers++; else words++;
+      termScore += weight;
+    }
     const pathHits = paths.filter((p) => anchors.some((anchor) => pathMatchesGlob(p, anchor))).length;
-    if (pathHits > 0 || terms >= MIN_DISTINCT_TERMS) scored.push({ ...rest, pathHits, terms });
+    // One rare identifier alone qualifies (it counts double); a lone rare word does not.
+    if (pathHits > 0 || words + IDENTIFIER_WEIGHT * identifiers >= MIN_DISTINCT_TERMS) scored.push({ ...rest, pathHits, termScore });
   }
   // A record anchored to more of the files the prompt names outranks one that
-  // shares a single (often hub) file with it; rare terms break the remaining ties.
-  scored.sort((a, b) => b.pathHits - a.pathHits || b.terms - a.terms || b.priority - a.priority || a.id.localeCompare(b.id));
+  // shares a single (often hub) file with it; idf-weighted rare terms break the remaining ties.
+  scored.sort((a, b) => b.pathHits - a.pathHits || b.termScore - a.termScore || b.priority - a.priority || a.id.localeCompare(b.id));
   return {
     qualifying: scored.map((s) => s.id),
     top: scored.filter((s) => s.listable).slice(0, k).map(({ id, kind, title }) => ({ id, kind, title })),
