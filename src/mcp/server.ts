@@ -1623,7 +1623,14 @@ export function buildServerWithRootControl(initialRoot: string, options: RootCon
     async ({ target, as_of }): Promise<ToolResult> => {
       const asOf = as_of ? asOfDate(as_of, root) : undefined;
       if (as_of && !asOf) return invalid(`Could not resolve as_of "${as_of}" to a commit.`);
-      const w = store.why(target, { asOf });
+      let w = store.why(target, { asOf });
+      // "No record <id>" is a team-absence claim in shared mode: confirm the local
+      // miss against a fresh pull first, like hunch_current_decision.
+      if (w.byId && !w.byId.record && store.mode === "shared" && store.privateDir) {
+        const abstention = confirmSharedMiss(`record ${w.byId.id} is absent from shared team memory`, `record ${w.byId.id}`);
+        if (abstention) return err(abstention);
+        w = store.why(target, { asOf });
+      }
       if (w.byId?.record) return ok(formatWhyRecord(w.byId).join("\n"));
       // Highest-signal first, then cap: invariants by severity, decisions by
       // confidence, bugs by severity — so a hot file's trim drops the tail, not

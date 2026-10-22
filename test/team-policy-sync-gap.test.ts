@@ -282,3 +282,76 @@ test("team policy reads confirm a local miss against fresh shared memory despite
     cleanupDir(sandbox);
   }
 });
+
+// Issue #474: hunch_why(<record id>) answering "No record <id>" is the same kind of
+// team-absence claim, so a shared-mode id miss is confirmed against a fresh pull.
+test("hunch_why(<record id>) confirms a shared-memory miss against a fresh pull inside the pull cooldown", { timeout: 300_000 }, async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "hunch-why-sync-gap-"));
+  let client: Client | undefined;
+  try {
+    const memorySeed = join(sandbox, "memory-seed");
+    const memoryRemote = join(sandbox, "memory.git");
+    mkdirSync(memorySeed, { recursive: true });
+    git(memorySeed, "init", "-q", "-b", "main");
+    configureRepo(memorySeed, "MemorySeed", sandbox);
+    writeFileSync(join(memorySeed, "README.md"), "# team memory\n");
+    git(memorySeed, "add", "README.md");
+    git(memorySeed, "commit", "-qm", "seed: shared memory repository");
+    git(sandbox, "clone", "-q", "--bare", memorySeed, memoryRemote);
+
+    const codeSeed = join(sandbox, "code-seed");
+    const codeRemote = join(sandbox, "code.git");
+    mkdirSync(join(codeSeed, "src"), { recursive: true });
+    git(codeSeed, "init", "-q", "-b", "main");
+    configureRepo(codeSeed, "CodeSeed", sandbox);
+    writeFileSync(join(codeSeed, "src/orders.ts"), "export const orders = () => [];\n");
+    git(codeSeed, "add", "src/orders.ts");
+    git(codeSeed, "commit", "-qm", "feat: tiny orders service");
+    git(sandbox, "clone", "-q", "--bare", codeSeed, codeRemote);
+
+    const architect = cloneActor(sandbox, codeRemote, "Architect");
+    expectCli(architect, ["init", "--no-index", "--no-enforce", "--no-providers", "--no-agent-hooks"]);
+    expectCli(architect, ["shared", "--repo", memoryRemote, "--no-hook"]);
+    git(architect.root, "add", "-A");
+    git(architect.root, "commit", "-qm", "chore: connect team memory");
+    git(architect.root, "push", "-q", "origin", "main");
+
+    const developer = cloneActor(sandbox, codeRemote, "Developer");
+    trustTeamStoreAs(developer.env, developer.root);
+    expectCli(developer, [
+      "record-constraint", "WHY_SYNC_GAP_FIRST_WRITE: wire the developer to shared memory",
+      "--scope", "src/orders.ts", "--severity", "warning", "--type", "correctness",
+    ]);
+
+    const id = "dec_5ca1ab1e01";
+    const decision: Decision = {
+      id, title: "Orders are paginated server-side", topic: null, status: "accepted",
+      context: "", decision: "Paginate on the server.", consequences: [],
+      alternatives_rejected: ["Client-side paging of the full list."], rejected_tripwires: [],
+      related_components: [], related_files: ["src/orders.ts"], supersedes: null, superseded_by: null,
+      caused_by_bug: null, commit: null, valid_from: NOW, valid_to: null, retired: { symbols: [], deps: [] },
+      provenance: { source: "human_confirmed", confidence: 1, evidence: ["why-sync-gap"] }, date: NOW,
+    };
+    const staging = join(sandbox, "teammate-memory");
+    git(sandbox, "clone", "-q", memoryRemote, staging);
+    configureRepo(staging, "Teammate", sandbox);
+    mkdirSync(join(staging, ".hunch", "decisions"), { recursive: true });
+    writeFileSync(join(staging, ".hunch", "decisions", `${id}.json`), `${JSON.stringify(decision, null, 2)}\n`);
+    git(staging, "add", "-A");
+    git(staging, "commit", "-qm", "hunch: record decision");
+
+    client = new Client({ name: "why-sync-gap-developer", version: "1.0.0" });
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: hunchCliArgs("mcp"), cwd: developer.root, env: developer.env }));
+    // Pushed after the MCP's startup pull: the ordinary request pull is still in its
+    // cooldown, so only the forced confirmation can see the record.
+    git(staging, "push", "-q", "origin", "main");
+    const why = await mcpResult(client, "hunch_why", { target: id });
+    assert.equal(why.isError, false, why.text);
+    assert.ok(why.text.includes(`DECISION ${id} [accepted] Orders are paginated server-side`), why.text);
+    assert.match(why.text, /Client-side paging of the full list/);
+    assert.doesNotMatch(why.text, /No record/);
+  } finally {
+    await client?.close().catch(() => undefined);
+    cleanupDir(sandbox);
+  }
+});
