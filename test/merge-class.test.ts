@@ -68,7 +68,8 @@ test("every test that reads this repo's committed graph or grounding docs runs o
   // merge on the fast path without it.
   const readsRepoGraph = (source: string) =>
     (/fileURLToPath\(import\.meta\.url\)[^;]*"\.\."/.test(source) || /resolve\(['"]\.hunch\//.test(source) || /process\.cwd\(\),\s*['"](?:\.hunch|CLAUDE\.md|AGENTS\.md)/.test(source))
-    && /\.hunch|CLAUDE\.md|AGENTS\.md/.test(source);
+    // `.hunch` only as a path segment: a domain such as www.hunchmemory.com is not the graph.
+    && /\.hunch(?:[\/'"`]|$)|CLAUDE\.md|AGENTS\.md/m.test(source);
   const found = readdirSync("test").filter((name) => name.endsWith(".test.ts") && name !== "merge-class.test.ts")
     .filter((name) => readsRepoGraph(readFileSync(join("test", name), "utf8")))
     .map((name) => `test/${name}`).sort();
